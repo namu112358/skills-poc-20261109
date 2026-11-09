@@ -2,16 +2,16 @@
 
 2026-11-09 06:00 ごろ usage の上限で全体を止め、13:04 に再開した。15:30 UTC ごろ、新しいコーディネーターのセッション（session_01QR8ZDMUCQo5J82UtBYZdGD）が引き継ぎ、この表を更新した。
 
-## 進捗（2026-11-09 16:25 UTC 時点）
+## 進捗（2026-11-09 17:16 UTC 時点）
 
 | W | 状態 | 担当 | ブランチ | 次にやること |
 |---|---|---|---|---|
 | W1〜W6 | 完了（#16〜#18・#22・#23・#27・#29・#30） | — | — | なし |
-| W7 | 完了（#25・#33） | session_01QR8ZDLm1va6Rw1btG8qtrc（このアカウント） | agent/poc-w7 | ユーザー承認済み: 課題を変えて 5 段階（W7c〜W7e）に延長、baseline の 2 組目と対照を追加。担当が課題文を作成中 |
-| W8 | 試行中（上限なしでの 2 回目の試行を実行・採点中。16:20 UTC 時点） | 別アカウントのセッション | agent/poc-w8 | 残りの試行 → 採点 → report → PR |
+| W7 | 完了（#25・#33）。5 段階への延長を実施中（各段階 $7.67 の上限のまま。draft PR #37。17:15 UTC 時点で 1 組ずつ W7c〜W7e を採点中） | session_01QR8ZDLm1va6Rw1btG8qtrc（このアカウント） | agent/poc-w7 | 残りの組 → 採点 → report → PR を Ready |
+| W8 | report 作成済み・PR 待ち（上限なしでのやり直しを含めて採点。17:13 UTC 時点） | 別アカウントのセッション | agent/poc-w8 | PR → マージ |
 | W9 | 完了（#31） | — | — | なし |
 | W10 | 完了（#38） | — | — | なし |
-| W11 | 準備中（実在 OSS の解決済み課題 6 件 × 5 条件 × 1 回。ユーザー承認済み） | session_01QR8ZDNZtzSVekzVB1b1Dux（このアカウント） | claude/beautiful-davinci-yorkf8 ほか | 正解データ（F2P/P2P）の作成 → 試行 → 採点 → report → PR |
+| W11 | 試行中（30 本中 28 本を採点済み。17:11 UTC 時点） | session_01QR8ZDNZtzSVekzVB1b1Dux（このアカウント） | claude/beautiful-davinci-yorkf8 | 残り 2 本 → 採点 → report → PR |
 
 別アカウントのセッションには send_message が届かないため、W8・W10 は各ブランチの RESUME.md とコミットで進み具合を確かめる。試行の作業用コピー（`/tmp/poc-trials/<ID>`）はコンテナが入れ替わると消えるため、採点前の試行はやり直しになる可能性がある。
 
