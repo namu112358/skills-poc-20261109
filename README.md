@@ -12,6 +12,8 @@
 | Skill | Web Design Guidelines | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines) | 固定コミットから vendoring | `.claude/skills/web-design-guidelines` |
 | Skill | Webapp Testing | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/webapp-testing) | 固定コミットから vendoring | `.claude/skills/webapp-testing` |
 | Skill | Skill Creator | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/skill-creator) | 固定コミットから vendoring | `.claude/skills/skill-creator` |
+| Skill | gh stack（stacked PR の作成・同期・マージ） | GitHub | [github/gh-stack](https://github.com/github/gh-stack/tree/main/skills/gh-stack) | 固定コミットから vendoring | `.claude/skills/gh-stack` |
+| Skill | gh（エージェントから GitHub CLI を使う際の作法） | GitHub | [cli/cli](https://github.com/cli/cli/tree/trunk/skills/gh) | 固定コミットから vendoring | `.claude/skills/gh` |
 | Plugin | Impeccable | Paul Bakaus | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | marketplace `pbakaus/impeccable` | `.claude/settings.json` |
 | Plugin | Security Guidance | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/security-guidance) | marketplace `claude-plugins-official` | `.claude/settings.json` |
 | Plugin | UI/UX Pro Max | nextlevelbuilder | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | marketplace `nextlevelbuilder/ui-ux-pro-max-skill` | `.claude/settings.json` |
@@ -55,13 +57,18 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 2. このディレクトリで Claude Code を起動し、プロジェクトの marketplace・プラグイン・MCP サーバーの信頼確認を承認します。
 3. `/plugin` で `security-guidance` と `impeccable` が有効、`/mcp` で `github` と `playwright` が接続済みであることを確認します。
 4. security-guidance の LLM レビューには Python 3.8 以上と Claude Code のサインイン（または API キー）が必要です。
-5. Impeccable の設計フックやエンジンを使う場合は、必要に応じて `npx impeccable install --providers=claude --scope=project` を実行します。
+5. stacked PR を使う場合は、`gh extension install github/gh-stack` で gh stack を入れ、`git config rerere.enabled true` を設定します（Git 2.36 以上が必要。リポジトリ側で Stacked PRs が有効になっている必要があります）。
+6. Impeccable の設計フックやエンジンを使う場合は、必要に応じて `npx impeccable install --providers=claude --scope=project` を実行します。
 
 ### 更新
 
-- Skills: `scripts/sync-skills.sh <anthropics/skills のコミット> <vercel-labs/agent-skills のコミット>` を実行し、差分をレビューしてからコミット
+- Skills: `scripts/sync-skills.sh <anthropics/skills のコミット> <vercel-labs/agent-skills のコミット> <github/gh-stack のコミット> <cli/cli のコミット>` を実行し、差分をレビューしてからコミット
 - Playwright MCP: `.mcp.json` のバージョンを上げて PR でレビュー
 - Plugins: `/plugin` から更新し、動作確認後にチームへ周知
+
+## 開発標準
+
+AI 駆動開発の標準基盤・設計原則: [docs/standards/ai-software-factory-engineering-standard.md](docs/standards/ai-software-factory-engineering-standard.md)（v1.1 Draft、レビュー記録は [docs/standards/REVIEW.md](docs/standards/REVIEW.md)）
 
 ## Issue・PR テンプレート
 
