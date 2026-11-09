@@ -72,7 +72,7 @@ AI 駆動開発の標準基盤・設計原則: [docs/standards/ai-software-facto
 
 ## Issue・PR テンプレート
 
-各プロジェクト共通の Issue Forms（機能要望 / 不具合報告 / 技術的負債）・PR テンプレートと、AI エージェント向けの Issue・PR 記述ルールを `templates/github/` に置いています。調査結果・設計方針・記入済みサンプルは [docs/github-templates/README.md](docs/github-templates/README.md) を参照してください。
+各プロジェクト共通の Issue Forms（機能要望 / 不具合報告 / 技術的負債）・PR テンプレートと、AI エージェント向けの Issue・PR 記述ルールを `templates/github/` に置いています。決めたこと・導入手順（ラベル作成を含む）・記入済みサンプルは [docs/github-templates/README.md](docs/github-templates/README.md)、調査結果と出典は [docs/github-templates/research.md](docs/github-templates/research.md) を参照してください。
 
 ```bash
 scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
@@ -106,6 +106,7 @@ scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
 
 - MCP の認証情報やトークンを Git にコミットしない（`.env*` と `.claude/settings.local.json` は `.gitignore` 済み）。
 - GitHub MCP には業務上必要な最小限の権限だけを付与する。マージ・ファイル削除・リポジトリ作成は `.claude/settings.json` で毎回確認する設定にしている。
+- `.claude/settings.json` の `permissions.allow` で、確認なしで実行してよい操作を決めている（git の読み取り（`git diff --stat` などよく使う決まった形だけ。引数を自由に付けられる形は、`--output` や `--no-index` などでファイルの書き込みや `.env` の読み取りができるため許可しない）・コミット、`agent/*` ブランチへの push、`npm ci` / `npm test` / `npm run typecheck` / `npm run build`、PoC のスクリプト、GitHub の読み取りと PR の作成・更新）。force push・`main` を含む push・削除やまとめて送る push（`--delete` / `-d` / `--mirror` / `--all` / `--tags` / `--prune`）は `ask` で毎回確認する（`ask` は `allow` より優先される）。`cat` や `grep` などファイルを読むコマンドは、`.env` を読めてしまうため許可していない。`git push origin agent/x :other` のような「空の送り元」による削除は書式上確認に回せないため、`main` の削除・force push は GitHub の Ruleset（`docs/github-setup/rulesets/`）で防ぐ。
 - Sentry MCP / Cloudflare MCP はトークンをファイルに書かず OAuth で認証する。Cloudflare API MCP は Cloudflare の API をほぼすべて操作できるため、開発用アカウントで、必要な権限だけを許可する。
 - Supabase MCP は開発用プロジェクトにだけ接続する。やむを得ず本番プロジェクトにつなぐ場合は、URL に `&read_only=true` を付けて読み取り専用にする。
 - Vercel MCP は OAuth で認証し、必要に応じて `https://mcp.vercel.com/<team-slug>/<project-slug>` で対象プロジェクトを限定する。

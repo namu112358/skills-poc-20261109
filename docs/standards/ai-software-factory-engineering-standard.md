@@ -6,6 +6,8 @@
 **対象:** Claude Codeを中心とした商用ソフトウェア開発  
 **想定技術:** Next.js / TypeScript / Supabase / Vercel / Cloudflare / GitHub
 
+本文の要件は、特定の DB・ホスティング・CDN に依存しない書き方にしている。想定技術での具体的な対応は [付録 A](#付録-a-想定技術スタックでの対応例) にまとめる。
+
 > レビュー結果と未反映の指摘事項は [REVIEW.md](REVIEW.md) を参照。
 
 ---
@@ -161,7 +163,7 @@ Issueには最低限、以下を記載する。
 
 障害調査などでやむを得ず開発Agentを本番環境へ接続する場合は、以下をすべて満たすこと。
 
-1. **読み取り専用：** 書き込みできない接続方法に限る（例: Supabase MCP の URL に`read_only=true`を付ける、読み取り専用ロールを使う）。
+1. **読み取り専用：** 書き込みできない接続方法に限る（例: DB の読み取り専用ロールを使う、MCP サーバーやCLIの読み取り専用モードを使う）。
 2. **事前承認：** 目的・接続先・期間を Issue に書き、本番環境の管理者が承認する。
 3. **期限：** 作業が終わったら、または承認した期限が来たら接続設定を外し、使った認証情報を失効させる。
 4. **共有設定に残さない：** 接続設定は`.claude/settings.local.json`などの個人設定に置き、`.mcp.json`や`.claude/settings.json`にはコミットしない。
@@ -244,7 +246,7 @@ stateDiagram-v2
 | 結合テスト | Vitest + Test DB | 予定 |
 | E2E | Playwright Test | 予定 |
 | UI操作・調査 | Playwright MCP | 採用済み |
-| DB検証 | Supabase CLI | 予定 |
+| DB検証 | 利用する DB のマイグレーション・テストツール（付録 A） | 予定 |
 | CI | GitHub Actions | 予定 |
 
 **標準要件**
@@ -300,13 +302,13 @@ Playwright MCPによるブラウザ操作と、Playwright Testによる自動E2E
 
 | 区分 | 対象の例 |
 |---|---|
-| 認証・認可 | ログイン・セッション・権限判定のコード、Supabase の RLS ポリシー |
+| 認証・認可 | ログイン・セッション・権限判定のコード、DB の行レベルのアクセス制御（RLS など）の定義 |
 | 個人情報 | 個人情報を保存・表示・送信するコード、ログ出力の設定 |
 | 課金 | 決済・請求・料金計算のコード |
-| DB スキーマ | `supabase/migrations/` |
+| DB スキーマ | マイグレーションファイル（例: `db/migrations/`） |
 | CI・品質ゲート | `.github/workflows/`、`.github/CODEOWNERS`、`.github/dependabot.yml`、Lint・テストの設定ファイル |
 | エージェントの権限 | `.claude/settings.json`、`.mcp.json`、`AGENTS.md`、`CLAUDE.md`、`.claude/rules/` |
-| インフラ・デプロイ | 環境変数の定義、Vercel・Cloudflare・Supabase の設定 |
+| インフラ・デプロイ | 環境変数の定義、ホスティング・CDN・DB などの外部サービスの設定 |
 
 **設定を緩和させないための手段**
 
@@ -535,7 +537,7 @@ project/
 │   ├── integration/
 │   └── e2e/
 │
-├── supabase/
+├── db/                  # DB のディレクトリ名は採用する DB のツールに合わせる（付録 A）
 │   ├── migrations/
 │   └── tests/
 │
@@ -760,3 +762,19 @@ flowchart LR
 AnthropicやOpenAIの公開事例を参考にしながら、公式資料で確認できる原則と、自社の具体的な技術選定・運用方針を区別して整備する。
 
 **最終目標は、特定のAIツールを標準化することではなく、AIツールが変わっても品質・生産性・セキュリティを維持・改善できる開発基盤を構築することである。**
+
+---
+
+# 付録 A. 想定技術スタックでの対応例
+
+本文の要件を、想定技術（Next.js / TypeScript / Supabase / Vercel / Cloudflare / GitHub）で実現する場合の例。別の技術を採用するプロジェクトでは、同じ要件を満たす手段に置き換える。
+
+| 本文の要件 | 汎用的な手段 | 想定技術での例 |
+|---|---|---|
+| DB マイグレーション管理（§5 Phase 1） | マイグレーションファイルをリポジトリで管理する | Supabase CLI（`supabase/migrations/`）。§4 の`db/`は`supabase/`に読み替える |
+| DB 検証（§2.5） | マイグレーションの適用テスト、権限のテスト | `supabase db reset`による適用確認、`supabase test db`（pgTAP） |
+| 行レベルのアクセス制御（§2.6） | DB またはアプリ層で行単位の認可を定義し、テストする | Supabase の RLS ポリシー |
+| 本番接続の読み取り専用（§2.3） | 読み取り専用ロール・読み取り専用モード | Supabase MCP の URL に`read_only=true`を付ける |
+| 開発用 DB の分離（§2.3） | 開発・テスト専用の DB を用意する | Supabase の開発用プロジェクト、または`supabase start`によるローカル環境 |
+| 外部サービスの設定（§2.6 高リスク変更） | ホスティング・CDN・DB の設定を変更管理する | Vercel・Cloudflare・Supabase のプロジェクト設定 |
+
