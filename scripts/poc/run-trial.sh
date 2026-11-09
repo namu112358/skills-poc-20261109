@@ -33,6 +33,8 @@ JSON
 git -C "$APP" config user.name poc
 git -C "$APP" config user.email poc@example.invalid
 git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
+# 試行は作業ブランチの上で始める（W2 以降。W1 で gstack の /review が master 直コミットのため差分なしで止まったため）
+git -C "$APP" switch -q -c "poc/wf/$CAND/$SCENARIO/$RUN"
 
 # 2) 必須プラグイン + 候補プラグイン（すべて固定コミット。scripts/poc/fetch-plugins.sh で取得）
 #    Skill が自分の参照ファイル（references/*.md など）を読めるよう、試行ごとの作業領域にコピーして
@@ -95,17 +97,31 @@ case "$CAND" in
   gstack) STEPS=("$TASK" "/review") ;;
 esac
 
-START=$(date +%s); SESSION=""; i=0
-for step in "${STEPS[@]}"; do
-  i=$((i+1))
-  RESUME=(); [[ -n "$SESSION" ]] && RESUME=(--resume "$SESSION")
-  ( cd "$APP" && HOME="$HOME_DIR" timeout "${POC_STEP_TIMEOUT:-2400}" claude -p "$step" \
-      --model "$MODEL" --permission-mode acceptEdits --allowedTools "${ALLOWED[@]}" \
-      --mcp-config "$APP/.mcp.json" --strict-mcp-config --add-dir "$PLUG" "${PLUG_EXTRA[@]}" \
-      "${PLUGINS[@]}" "${RESUME[@]}" \
-      --output-format stream-json --verbose < /dev/null ) > "$OUT/step$i.jsonl" 2> "$OUT/step$i.stderr" \
-    || echo "step$i exit=$?" >> "$OUT/errors.log"
-  SESSION="$(python3 - "$OUT/step$i.jsonl" <<'PY'
+# 1 試行の費用の上限（米ドル。空なら上限なし）。各ステップには、それまでの累計を引いた残りを --max-budget-usd で渡す。
+MAX_USD="${POC_MAX_TRIAL_USD:-}"
+# 介入（定型の「お任せします」で続けさせる）の上限回数。0 なら介入しない（W1 の手順）。
+MAX_NUDGES="${POC_MAX_NUDGES:-0}"
+NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、変更を git にコミットしてください。"
+
+session_cost() {  # これまでの全ステップの最後の result の total_cost_usd（--resume では累計）
+  python3 -c '
+import json, sys, glob, re
+cost = 0.0
+for f in sorted(glob.glob(sys.argv[1] + "/step*.jsonl"), key=lambda p: int(re.search(r"step(\d+)", p).group(1))):
+    for line in open(f):
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if d.get("type") == "result" and d.get("total_cost_usd") is not None:
+            cost = d["total_cost_usd"]
+print(cost)' "$OUT"
+}
+over_budget() {
+  [[ -n "$MAX_USD" ]] && python3 -c "import sys; sys.exit(0 if $(session_cost) >= $MAX_USD * 0.98 else 1)"
+}
+first_session_id() {
+  python3 -c '
 import json, sys
 for line in open(sys.argv[1]):
     try:
@@ -113,9 +129,42 @@ for line in open(sys.argv[1]):
     except ValueError:
         continue
     if d.get("session_id"):
-        print(d["session_id"]); break
-PY
-)"
+        print(d["session_id"]); break' "$1"
+}
+run_step() {  # run_step <番号> <プロンプト>
+  local n="$1" prompt="$2" RESUME=() BUDGET=()
+  [[ -n "$SESSION" ]] && RESUME=(--resume "$SESSION")
+  if [[ -n "$MAX_USD" ]]; then
+    BUDGET=(--max-budget-usd "$(python3 -c "print(max(0.01, round($MAX_USD - $(session_cost), 2)))")")
+  fi
+  ( cd "$APP" && HOME="$HOME_DIR" timeout "${POC_STEP_TIMEOUT:-2400}" claude -p "$prompt" \
+      --model "$MODEL" --permission-mode acceptEdits --allowedTools "${ALLOWED[@]}" \
+      --mcp-config "$APP/.mcp.json" --strict-mcp-config --add-dir "$PLUG" "${PLUG_EXTRA[@]}" \
+      "${PLUGINS[@]}" "${RESUME[@]}" "${BUDGET[@]}" \
+      --output-format stream-json --verbose < /dev/null ) > "$OUT/step$n.jsonl" 2> "$OUT/step$n.stderr" \
+    || echo "step$n exit=$?" >> "$OUT/errors.log"
+  [[ -z "$SESSION" ]] && SESSION="$(first_session_id "$OUT/step$n.jsonl")"
+  return 0
+}
+
+START=$(date +%s); SESSION=""; i=0
+for step in "${STEPS[@]}"; do
+  i=$((i+1))
+  if over_budget; then echo "step$i skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
+  run_step "$i" "$step"
+done
+
+# 介入: 手順を終えてもコミットが無い、または未コミットの変更が残る（確認待ちで止まった）ときは、
+# 定型の「お任せします」で続けさせ、その回数を interventions.log に記録する（PLAN.md §5.1 実行手順 3）。
+: > "$OUT/interventions.log"
+for _ in $(seq 1 "$MAX_NUDGES"); do
+  commits="$(git -C "$APP" rev-list --count "$(cat "$OUT/baseline-commit")"..HEAD)"
+  dirty="$(git -C "$APP" status --porcelain | head -1)"
+  [[ "$commits" -gt 0 && -z "$dirty" ]] && break
+  if over_budget; then echo "nudge skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
+  i=$((i+1))
+  echo "step$i commits=$commits dirty=${dirty:+yes}" >> "$OUT/interventions.log"
+  run_step "$i" "$NUDGE"
 done
 echo $(( $(date +%s) - START )) > "$OUT/elapsed-seconds"
 
