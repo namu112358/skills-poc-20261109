@@ -1,18 +1,22 @@
 // ログインとセッション。Next.js に依存しない部分（単体テストの対象）。Cookie の読み書きは session.ts。
 import { randomBytes } from "node:crypto";
 import { getDb, type Db } from "./db/index.ts";
-import { verifyPassword } from "./password.ts";
+import { hashPassword, verifyPassword } from "./password.ts";
 import type { User } from "./users.ts";
 
 export const SESSION_COOKIE = "poc_session";
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// 存在しないユーザーでも同じ計算量でパスワードを照合し、応答時間からユーザーの有無を推測されないようにする。
+const DUMMY_HASH = hashPassword("dummy-password-for-timing");
 
 /** ID とパスワードが正しければユーザーを返す。 */
 export function authenticate(userId: string, password: string, db: Db = getDb()): User | undefined {
   const row = db.prepare("SELECT id, name, password_hash FROM users WHERE id = ?").get(userId) as
     | { id: string; name: string; password_hash: string }
     | undefined;
-  if (!row || !verifyPassword(password, row.password_hash)) return undefined;
+  const ok = verifyPassword(password, row?.password_hash || DUMMY_HASH);
+  if (!row || !ok) return undefined;
   return { id: row.id, name: row.name };
 }
 
