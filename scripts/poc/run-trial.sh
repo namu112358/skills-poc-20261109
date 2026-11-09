@@ -23,7 +23,11 @@ rm -rf "$WORK" "$OUT"; mkdir -p "$APP" "$HOME_DIR" "$OUT"
 echo "$WORK" > "$OUT/workdir"
 
 # 1) 評価用アプリのコピー（node_modules を含む）と、常時有効な Skills・MCP
-cp -a "$ROOT/poc-app/." "$APP/"
+# POC_APP_SRC: コピー元の評価用アプリ（既定は $ROOT/poc-app）。W1 を当時の poc-app（ログイン・SQLite の追加前）で
+# 再試行するときなどに、その版を取り出したディレクトリを指定する。使ったコピー元は raw/<ID>/app-src に記録する。
+APP_SRC="${POC_APP_SRC:-$ROOT/poc-app}"
+[[ -n "${POC_APP_SRC:-}" ]] && echo "$APP_SRC" > "$OUT/app-src"
+cp -a "$APP_SRC/." "$APP/"
 rm -rf "$APP/.next" "$APP"/*.tsbuildinfo
 mkdir -p "$APP/.claude"
 cp -a "$ROOT/.claude/skills" "$APP/.claude/skills"
