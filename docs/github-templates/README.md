@@ -126,6 +126,7 @@ GitHub の公式機能と著名 OSS の運用に沿わせ、独自の仕組み�
 ## 5. Pull Request テンプレート
 
 [pull_request_template.md](../../templates/github/.github/pull_request_template.md) の見出しは「概要 / 変更内容 / 検証結果 / 注意事項・残課題 / 関連 Issue」の 5 つです。
+検証結果には、[開発標準](../standards/ai-software-factory-engineering-standard.md) §2.5 が求める「テストの削除・`skip` / `only` の追加・アサーションの削除や緩和がある場合は理由を書く」チェック項目を入れています。
 書き方の注意は HTML コメントとしてテンプレート内に書いてあり、投稿後の画面には表示されません。リスクの高い変更のときだけ追加する見出しも、同じくコメントで案内しています。
 
 ## 6. AI エージェント向けの記述ルール
@@ -135,8 +136,8 @@ GitHub の公式機能と著名 OSS の運用に沿わせ、独自の仕組み�
 | 仕組み | 対象 | 扱い |
 |---|---|---|
 | `docs/github-writing.md` | すべてのエージェントと人 | **ルールの正本**。配置スクリプトで各リポジトリへコピーする |
-| `AGENTS.md` から参照 | Codex・Copilot・Cursor など | 1 行で参照する（スクリプトが追記する） |
-| `CLAUDE.md` から `@docs/github-writing.md` で取り込み | Claude Code | 1 行で取り込む（スクリプトが追記する）。`.claude/rules/` に同じ内容を置くと二重管理になるので使わない |
+| `AGENTS.md` から参照 | すべてのエージェント（Claude Code は `CLAUDE.md` の `@AGENTS.md` 経由で読む） | 1 行で参照する（スクリプトが追記する）。[開発標準](../standards/ai-software-factory-engineering-standard.md) の「共通規約の正本は `AGENTS.md`」に合わせる |
+| `CLAUDE.md` から `@docs/github-writing.md` で取り込み | Claude Code | `AGENTS.md` がないリポジトリだけ（スクリプトが追記する）。`.claude/rules/` に同じ内容を置くと二重管理になるので使わない |
 | Issue・PR 作成用の Skill | Claude Code | **今回は作らない**。手順はルールの §5 に書いてあり、まずはそれで足りるかを確かめる。本文の組み立てを毎回間違えるようなら Skill にする |
 | GitHub CLI での作成 | すべて | ルールの §5 で、テンプレートを読む → Forms の label を `###` 見出しにする → `--body-file` で渡す、という手順を決めている |
 | GitHub Actions での検証 | すべて | `--with-check` を付けたときだけ `pr-body-check.yml` を置く（§8） |

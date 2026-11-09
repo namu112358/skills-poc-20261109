@@ -3,7 +3,7 @@
 # 使い方: scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
 #   --with-check : PR 本文の必須見出しを検証する GitHub Actions（pr-body-check.yml）も配置する
 # - 既存ファイルは上書きしない（スキップして一覧を表示する）。差分は手で確認・統合すること。
-# - CLAUDE.md / AGENTS.md があれば、記述ルール（docs/github-writing.md）への参照を 1 行追記する。
+# - 記述ルール（docs/github-writing.md）への参照を AGENTS.md に 1 行追記する（AGENTS.md がなく CLAUDE.md だけある場合は CLAUDE.md）。
 # - 何度実行しても同じ結果になる。
 set -euo pipefail
 
@@ -47,18 +47,21 @@ md_templates=("$DEST"/.github/ISSUE_TEMPLATE/*.md)
 
 # エージェント向け設定から記述ルールを参照させる（Claude Code は @ で取り込み、他ツールはリンクとして読む）
 ref_line='Issue・PR を作成するときは [docs/github-writing.md](docs/github-writing.md) の記述ルールに従う。'
-for agent_file in CLAUDE.md AGENTS.md; do
+# 共通規約の正本は AGENTS.md（CLAUDE.md は @AGENTS.md で取り込む）ので、両方あるときは AGENTS.md にだけ書く
+agent_file=""
+[[ -e "$DEST/CLAUDE.md" ]] && agent_file=CLAUDE.md
+[[ -e "$DEST/AGENTS.md" ]] && agent_file=AGENTS.md
+if [[ -n "$agent_file" ]]; then
   target="$DEST/$agent_file"
-  [[ -e "$target" ]] || continue
-  if grep -qF 'docs/github-writing.md' "$target"; then
-    continue
+  if ! grep -qF 'docs/github-writing.md' "$target"; then
+    line="- $ref_line"
+    [[ "$agent_file" == CLAUDE.md ]] && line="- Issue・PR を作成するときは @docs/github-writing.md の記述ルールに従う。"
+    printf '\n%s\n' "$line" >>"$target"
+    echo "追記: $agent_file に記述ルールへの参照"
   fi
-  line="- $ref_line"
-  [[ "$agent_file" == CLAUDE.md ]] && line="- Issue・PR を作成するときは @docs/github-writing.md の記述ルールに従う。"
-  printf '\n%s\n' "$line" >>"$target"
-  echo "追記: $agent_file に記述ルールへの参照"
-done
-[[ -e "$DEST/CLAUDE.md" || -e "$DEST/AGENTS.md" ]] || echo "注意: CLAUDE.md / AGENTS.md がありません。作成したら docs/github-writing.md への参照を追加してください"
+else
+  echo "注意: CLAUDE.md / AGENTS.md がありません。作成したら docs/github-writing.md への参照を追加してください"
+fi
 
 if (( ${#skipped[@]} )); then
   echo "スキップ（既存ファイルと内容が異なるため上書きしていません）:"
