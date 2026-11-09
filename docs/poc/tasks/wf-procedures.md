@@ -11,6 +11,7 @@
 | W4 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `/autoplan <課題>` → 「計画に沿って実装し、変更を git にコミットしてください。」→ `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W5 | `<課題>` | `<課題>`（`systematic-debugging` の自動発火） | `<課題>`（通常の指示） | `/qa <課題>` | `/ce-debug <課題>` |
 | W6 | `<課題>` | `<課題>` → `/superpowers:finishing-a-development-branch` | `/feature-dev:feature-dev <課題>` → PR 作成の指示 | `<課題>` → `/qa` → `/ship` | `/ce-work <課題>` → `/ce-test-browser` → `/ce-commit-push-pr` |
+| W10 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 
 ### W2 以降の共通の決まり
 
@@ -43,6 +44,12 @@
 - 介入の定型文は「お任せします。確認は不要なので、課題を最後まで実装し、PR.md を含めて変更を git にコミットしてください。」（最大 2 回）。`PR.md` がコミットされていなければ未完了とみなす。
 - 費用の上限は `POC_BUDGET_MODE=watch`（下の「費用の上限の守り方」）。
 - 採点は `scripts/poc/grade_w6.py`（`docs/poc/answer-key/W6/grading.md`）。
+
+### W10 の決まり（仕様に書かれていない落とし穴がある機能追加。2026-11-09 追加）
+
+- 課題文（`wf-W10.md`）は普通の仕様書として書き、隠しテストの項目（権限・入力検証・境界値・時差・同時更新・エラー時の振る舞い）は書かない。手順は W2 と同じ（`run-trial.sh` の既定の手順。W10 用の分岐は無い）。
+- 介入は W2 以降の定型文（最大 2 回、`POC_MAX_NUDGES=2` を指定して実行する）。費用の上限は `POC_BUDGET_MODE=watch`、課題文の末尾は新文言（どちらもシナリオ名で決まる既定）。子セッションの許可リストは W6 以降と同じ。
+- 採点は `scripts/poc/grade_w10.py`（公開の受け入れテスト・隠しテスト・ミューテーション）・`blind_w10.py`（ブラインドレビュー）・`score_w10.py`（`docs/poc/answer-key/W10/grading.md`）。隠しテストは、時計をずらしたサーバー（`fake-clock.cjs`）に対して実行する。
 
 ## 権限
 
