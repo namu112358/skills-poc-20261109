@@ -14,6 +14,7 @@
 | W7a | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` →（落とし穴の指摘の後）`/ce-compound` |
 | W7b | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W9 | `<課題>` | `/superpowers:requesting-code-review <課題>` | 「Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。」+ `<課題>` | `/review <課題>` | `/ce-code-review <課題>` |
+| W10 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 
 ### W2 以降の共通の決まり
 
@@ -68,6 +69,12 @@
 - 手順のステップ（と「お任せします」の介入）を終えた後、`run-trial.sh` が `scripts/poc/check_w7.py` で落とし穴 2 件を判定し、避けられなかったものがあれば、レビューの定型の指摘を同じセッションに送って直させる（最大 2 回、`POC_MAX_FEEDBACK=2`。`feedback.log`）。1 回目の判定（`pitfalls-1.json`）が採点に使う「指摘を受ける前」の状態。判定にかかった時間は所要時間から除く（`check-seconds`）。
 - Compound Engineering の `/ce-compound` は、W7a の指摘のやり取りが終わった後に行う（手順の一部で、介入に数えない）。
 - 課題文の末尾は新文言（既定）。介入の定型文は W2 と同じ。採点は `scripts/poc/grade_w7.py`（`docs/poc/answer-key/W7/grading.md`）。W7a は W7b を始める前に採点し、作業用コピーは W7b の採点が済んでから `grade.py W7a <W7a の試行 ID> --cleanup-only` で片付ける。
+
+### W10 の決まり（仕様に書かれていない落とし穴がある機能追加。2026-11-09 追加）
+
+- 課題文（`wf-W10.md`）は普通の仕様書として書き、隠しテストの項目（権限・入力検証・境界値・時差・同時更新・エラー時の振る舞い）は書かない。手順は W2 と同じ（`run-trial.sh` の既定の手順。W10 用の分岐は無い）。
+- 介入は W2 以降の定型文（最大 2 回、`POC_MAX_NUDGES=2` を指定して実行する）。費用の上限は `POC_BUDGET_MODE=watch`、課題文の末尾は新文言（どちらもシナリオ名で決まる既定）。子セッションの許可リストは W6 以降と同じ。
+- 採点は `scripts/poc/grade_w10.py`（公開の受け入れテスト・隠しテスト・ミューテーション）・`blind_w10.py`（ブラインドレビュー）・`score_w10.py`（`docs/poc/answer-key/W10/grading.md`）。隠しテストは、時計をずらしたサーバー（`fake-clock.cjs`）に対して実行する。
 
 ## 権限
 
