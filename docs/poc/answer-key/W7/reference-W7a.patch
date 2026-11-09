@@ -1,0 +1,180 @@
+diff --git a/src/app/api/tasks/[id]/completion/route.ts b/src/app/api/tasks/[id]/completion/route.ts
+new file mode 100644
+index 0000000..05ffb4b
+--- /dev/null
++++ b/src/app/api/tasks/[id]/completion/route.ts
+@@ -0,0 +1,35 @@
++// GET/POST/DELETE /api/tasks/:id/completion — 完了報告の取得・報告・取り消し。ログインが必要。
++import { NextResponse } from "next/server";
++import { currentApiUser, readJson, withApi } from "@/lib/api";
++import { cancelCompletion, completeTask, getCompletion, validateCompletionInput } from "@/lib/completions";
++import { NotFoundError, ValidationError } from "@/lib/errors";
++import { getTask, parseTaskId } from "@/lib/tasks";
++
++function requireTaskId(value: string): number {
++  const id = parseTaskId(value);
++  if (id === undefined || !getTask(id)) throw new NotFoundError("タスクが見つかりません");
++  return id;
++}
++
++type Context = { params: Promise<{ id: string }> };
++
++export const GET = withApi(async (_request, { params }: Context) => {
++  await currentApiUser();
++  const taskId = requireTaskId((await params).id);
++  return NextResponse.json({ completion: getCompletion(taskId) });
++});
++
++export const POST = withApi(async (request, { params }: Context) => {
++  const user = await currentApiUser();
++  const taskId = requireTaskId((await params).id);
++  const result = validateCompletionInput(await readJson(request));
++  if (!result.ok) throw new ValidationError(result.errors);
++  return NextResponse.json({ completion: completeTask(taskId, user.id, result.value.note) }, { status: 201 });
++});
++
++export const DELETE = withApi(async (_request, { params }: Context) => {
++  const user = await currentApiUser();
++  const taskId = requireTaskId((await params).id);
++  cancelCompletion(taskId, user.id);
++  return new NextResponse(null, { status: 204 });
++});
+diff --git a/src/app/tasks/[id]/page.tsx b/src/app/tasks/[id]/page.tsx
+index 5b449ba..e565a2f 100644
+--- a/src/app/tasks/[id]/page.tsx
++++ b/src/app/tasks/[id]/page.tsx
+@@ -1,5 +1,7 @@
+ import { notFound } from "next/navigation";
+ import { listComments } from "@/lib/comments";
++import { getCompletion } from "@/lib/completions";
++import { formatJst } from "@/lib/datetime";
+ import { requireUser } from "@/lib/session";
+ import { STATUS_LABELS, getTask, parseTaskId } from "@/lib/tasks";
+ import { getUser } from "@/lib/users";
+@@ -15,6 +17,7 @@ export default async function TaskDetailPage({ params }: Props) {
+   const task = id === undefined ? undefined : getTask(id);
+   if (!task) notFound();
+   const assignee = getUser(task.assignee);
++  const completion = getCompletion(task.id);
+ 
+   return (
+     <main>
+@@ -30,6 +33,21 @@ export default async function TaskDetailPage({ params }: Props) {
+         <dt>期限</dt>
+         <dd data-testid="task-due-date">{task.dueDate}</dd>
+       </dl>
++      {completion && (
++        <section>
++          <h2>完了報告</h2>
++          <dl data-testid="completion">
++            <dt>完了した人</dt>
++            <dd>{completion.completedByName}</dd>
++            <dt>完了日時</dt>
++            <dd>
++              <time dateTime={completion.completedAt}>{formatJst(completion.completedAt)}</time>
++            </dd>
++            <dt>メモ</dt>
++            <dd style={{ whiteSpace: "pre-wrap" }}>{completion.note}</dd>
++          </dl>
++        </section>
++      )}
+       <Comments taskId={task.id} currentUserId={user.id} comments={listComments(task.id)} />
+     </main>
+   );
+diff --git a/src/lib/completions.ts b/src/lib/completions.ts
+new file mode 100644
+index 0000000..a12e388
+--- /dev/null
++++ b/src/lib/completions.ts
+@@ -0,0 +1,70 @@
++import { toUtcIso } from "./datetime.ts";
++import { getDb, transaction, type Db } from "./db/index.ts";
++import { ConflictError, ForbiddenError, NotFoundError } from "./errors.ts";
++import { getTask, type ValidationResult } from "./tasks.ts";
++
++export type Completion = {
++  taskId: number;
++  completedBy: string;
++  completedByName: string;
++  completedAt: string; // ISO 8601（UTC）
++  note: string;
++};
++
++export const COMPLETION_NOTE_MAX_LENGTH = 500;
++
++type Row = { task_id: number; completed_by: string; completed_by_name: string; completed_at: string; note: string };
++
++export function getCompletion(taskId: number, db: Db = getDb()): Completion | null {
++  const r = db
++    .prepare(
++      "SELECT c.task_id, c.completed_by, u.name AS completed_by_name, c.completed_at, c.note FROM task_completions c JOIN users u ON u.id = c.completed_by WHERE c.task_id = ?",
++    )
++    .get(taskId) as Row | undefined;
++  return r
++    ? { taskId: r.task_id, completedBy: r.completed_by, completedByName: r.completed_by_name, completedAt: r.completed_at, note: r.note }
++    : null;
++}
++
++export function validateCompletionInput(body: unknown): ValidationResult<{ note: string }> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const note = (body as Record<string, unknown>).note ?? "";
++  if (typeof note !== "string") return { ok: false, errors: ["メモは文字列で入力してください"] };
++  const trimmed = note.trim();
++  if (trimmed.length > COMPLETION_NOTE_MAX_LENGTH) {
++    return { ok: false, errors: [`メモは ${COMPLETION_NOTE_MAX_LENGTH} 文字以内で入力してください`] };
++  }
++  return { ok: true, value: { note: trimmed } };
++}
++
++/** 担当者（userId）がタスクを完了報告する。ステータスは done になる。 */
++export function completeTask(taskId: number, userId: string, note: string, db: Db = getDb(), now: Date = new Date()): Completion {
++  const task = getTask(taskId, db);
++  if (!task) throw new NotFoundError("タスクが見つかりません");
++  if (task.assignee !== userId) throw new ForbiddenError("完了報告できるのはタスクの担当者だけです");
++  if (task.status === "done" || getCompletion(taskId, db)) throw new ConflictError("このタスクはすでに完了しています");
++  transaction(db, () => {
++    db.prepare("INSERT INTO task_completions (task_id, completed_by, completed_at, note) VALUES (?, ?, ?, ?)").run(
++      taskId,
++      userId,
++      toUtcIso(now),
++      note,
++    );
++    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(taskId);
++  });
++  return getCompletion(taskId, db)!;
++}
++
++/** 完了報告をした本人（userId）が取り消す。ステータスは in_progress に戻る。 */
++export function cancelCompletion(taskId: number, userId: string, db: Db = getDb()): void {
++  if (!getTask(taskId, db)) throw new NotFoundError("タスクが見つかりません");
++  const c = getCompletion(taskId, db);
++  if (!c) throw new ConflictError("このタスクには完了報告がありません");
++  if (c.completedBy !== userId) throw new ForbiddenError("取り消しできるのは完了報告をした本人だけです");
++  transaction(db, () => {
++    db.prepare("DELETE FROM task_completions WHERE task_id = ?").run(taskId);
++    db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(taskId);
++  });
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index b491630..f148a34 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -52,4 +52,16 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX comments_task ON comments(task_id, id);
+     `,
+   },
++  {
++    version: 4,
++    name: "task_completions",
++    sql: `
++      CREATE TABLE task_completions (
++        task_id      INTEGER PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
++        completed_by TEXT NOT NULL REFERENCES users(id),
++        completed_at TEXT NOT NULL, -- ISO 8601（UTC）
++        note         TEXT NOT NULL DEFAULT ''
++      );
++    `,
++  },
+ ];

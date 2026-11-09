@@ -1,0 +1,574 @@
+diff --git a/src/app/api/tasks/[id]/time-entries/[entryId]/route.ts b/src/app/api/tasks/[id]/time-entries/[entryId]/route.ts
+new file mode 100644
+index 0000000..27a20ee
+--- /dev/null
++++ b/src/app/api/tasks/[id]/time-entries/[entryId]/route.ts
+@@ -0,0 +1,20 @@
++// DELETE /api/tasks/:id/time-entries/:entryId — 自分の記録を削除する。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { getTask, parseTaskId } from "@/lib/tasks";
++import { deleteTimeEntry, parseEntryId } from "@/lib/time-entries";
++
++type Context = { params: Promise<{ id: string; entryId: string }> };
++
++export async function DELETE(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const p = await params;
++  const id = parseTaskId(p.id);
++  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
++  const entryId = parseEntryId(p.entryId);
++  const result = entryId === undefined ? "not_found" : deleteTimeEntry(id, entryId, user.id);
++  if (result === "not_found") return jsonError(404, "記録が見つかりません");
++  if (result === "forbidden") return jsonError(403, "自分の記録だけを削除できます");
++  return new NextResponse(null, { status: 204 });
++}
+diff --git a/src/app/api/tasks/[id]/time-entries/route.ts b/src/app/api/tasks/[id]/time-entries/route.ts
+new file mode 100644
+index 0000000..c836126
+--- /dev/null
++++ b/src/app/api/tasks/[id]/time-entries/route.ts
+@@ -0,0 +1,27 @@
++// GET /api/tasks/:id/time-entries — 作業時間の記録の一覧と合計 / POST — 記録する。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { getTask, parseTaskId } from "@/lib/tasks";
++import { createTimeEntry, listTimeEntries, validateTimeEntryInput } from "@/lib/time-entries";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
++  return NextResponse.json(listTimeEntries(id));
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
++  const input = validateTimeEntryInput(await readJson(request));
++  if (!input.ok) return jsonError(400, "入力内容に誤りがあります", input.errors);
++  const result = createTimeEntry(id, user.id, input.value);
++  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", [result.error]);
++  return NextResponse.json({ entry: result.entry }, { status: 201 });
++}
+diff --git a/src/app/tasks/[id]/page.tsx b/src/app/tasks/[id]/page.tsx
+index 6325e66..ae4de9c 100644
+--- a/src/app/tasks/[id]/page.tsx
++++ b/src/app/tasks/[id]/page.tsx
+@@ -1,5 +1,7 @@
+ import { notFound } from "next/navigation";
+ import { requireUser } from "@/lib/session";
++import { jstToday, listTimeEntries } from "@/lib/time-entries";
++import { TimeEntries } from "./time-entries";
+ import { STATUS_LABELS, getTask, parseTaskId } from "@/lib/tasks";
+ import { getUser } from "@/lib/users";
+ 
+@@ -8,11 +10,12 @@ type Props = {
+ };
+ 
+ export default async function TaskDetailPage({ params }: Props) {
+-  await requireUser();
++  const user = await requireUser();
+   const id = parseTaskId((await params).id);
+   const task = id === undefined ? undefined : getTask(id);
+   if (!task) notFound();
+   const assignee = getUser(task.assignee);
++  const { entries, totalMinutes } = listTimeEntries(task.id);
+ 
+   return (
+     <main>
+@@ -28,6 +31,13 @@ export default async function TaskDetailPage({ params }: Props) {
+         <dt>期限</dt>
+         <dd data-testid="task-due-date">{task.dueDate}</dd>
+       </dl>
++      <TimeEntries
++        taskId={task.id}
++        currentUserId={user.id}
++        today={jstToday()}
++        initialEntries={entries}
++        initialTotal={totalMinutes}
++      />
+     </main>
+   );
+ }
+diff --git a/src/app/tasks/[id]/time-entries.tsx b/src/app/tasks/[id]/time-entries.tsx
+new file mode 100644
+index 0000000..d139de5
+--- /dev/null
++++ b/src/app/tasks/[id]/time-entries.tsx
+@@ -0,0 +1,119 @@
++"use client";
++// タスク詳細画面の「作業時間」欄（一覧・合計・記録フォーム・削除）。記録と削除は API を呼ぶ。
++import { useState, type FormEvent } from "react";
++import { formatMinutes } from "@/lib/time-format";
++import type { TimeEntry } from "@/lib/time-entries";
++
++type Props = {
++  taskId: number;
++  currentUserId: string;
++  today: string;
++  initialEntries: TimeEntry[];
++  initialTotal: number;
++};
++
++async function errorMessage(res: Response): Promise<string> {
++  try {
++    const body = (await res.json()) as { error?: string; details?: string[] };
++    return [body.error, ...(body.details ?? [])].filter(Boolean).join(" ") || "記録できませんでした";
++  } catch {
++    return "記録できませんでした。時間をおいてもう一度お試しください。";
++  }
++}
++
++export function TimeEntries({ taskId, currentUserId, today, initialEntries, initialTotal }: Props) {
++  const [entries, setEntries] = useState(initialEntries);
++  const [total, setTotal] = useState(initialTotal);
++  const [workDate, setWorkDate] = useState(today);
++  const [minutes, setMinutes] = useState("");
++  const [note, setNote] = useState("");
++  const [error, setError] = useState<string | null>(null);
++  const [submitting, setSubmitting] = useState(false);
++
++  async function reload() {
++    const res = await fetch(`/api/tasks/${taskId}/time-entries`);
++    if (res.ok) {
++      const body = (await res.json()) as { entries: TimeEntry[]; totalMinutes: number };
++      setEntries(body.entries);
++      setTotal(body.totalMinutes);
++    }
++  }
++
++  async function onSubmit(e: FormEvent<HTMLFormElement>) {
++    e.preventDefault();
++    if (submitting) return;
++    setSubmitting(true);
++    setError(null);
++    try {
++      const res = await fetch(`/api/tasks/${taskId}/time-entries`, {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ workDate, minutes: minutes.trim() === "" ? undefined : Number(minutes), note }),
++      });
++      if (!res.ok) {
++        setError(await errorMessage(res));
++        return;
++      }
++      setMinutes("");
++      setNote("");
++      await reload();
++    } catch {
++      setError("記録できませんでした。通信状態を確認してください。");
++    } finally {
++      setSubmitting(false);
++    }
++  }
++
++  async function onDelete(id: number) {
++    setError(null);
++    try {
++      const res = await fetch(`/api/tasks/${taskId}/time-entries/${id}`, { method: "DELETE" });
++      if (!res.ok && res.status !== 404) {
++        setError(await errorMessage(res));
++        return;
++      }
++      await reload();
++    } catch {
++      setError("削除できませんでした。通信状態を確認してください。");
++    }
++  }
++
++  return (
++    <section>
++      <h2>作業時間</h2>
++      {entries.length === 0 ? (
++        <p>作業時間の記録はまだありません。</p>
++      ) : (
++        <ul>
++          {entries.map((entry) => (
++            <li key={entry.id} data-testid="time-entry">
++              <span>{entry.workDate}</span> <span>{entry.userName}</span> <span>{formatMinutes(entry.minutes)}</span>{" "}
++              <span>{entry.note}</span>
++              {entry.userId === currentUserId && (
++                <button type="button" onClick={() => onDelete(entry.id)}>
++                  削除
++                </button>
++              )}
++            </li>
++          ))}
++        </ul>
++      )}
++      <p data-testid="time-total">合計 {formatMinutes(total)}</p>
++      <form aria-label="作業時間" onSubmit={onSubmit}>
++        <label>
++          作業日 <input type="date" name="workDate" value={workDate} max={today} onChange={(e) => setWorkDate(e.target.value)} />
++        </label>
++        <label>
++          作業時間（分） <input name="minutes" inputMode="numeric" value={minutes} onChange={(e) => setMinutes(e.target.value)} />
++        </label>
++        <label>
++          メモ <input name="note" value={note} onChange={(e) => setNote(e.target.value)} />
++        </label>
++        <button type="submit" disabled={submitting}>
++          記録する
++        </button>
++        {error && <p role="alert">{error}</p>}
++      </form>
++    </section>
++  );
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 4e1b0a4..c28acd5 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -38,4 +38,21 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX sessions_user ON sessions(user_id);
+     `,
+   },
++  {
++    version: 3,
++    name: "time_entries",
++    sql: `
++      CREATE TABLE time_entries (
++        id         INTEGER PRIMARY KEY AUTOINCREMENT,
++        task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
++        user_id    TEXT NOT NULL REFERENCES users(id),
++        work_date  TEXT NOT NULL, -- YYYY-MM-DD（日本時間の日付）
++        minutes    INTEGER NOT NULL CHECK (minutes BETWEEN 1 AND 1440),
++        note       TEXT NOT NULL DEFAULT '',
++        created_at TEXT NOT NULL -- ISO 8601（UTC）
++      );
++      CREATE INDEX time_entries_task ON time_entries(task_id);
++      CREATE INDEX time_entries_user_date ON time_entries(user_id, work_date);
++    `,
++  },
+ ];
+diff --git a/src/lib/time-entries.ts b/src/lib/time-entries.ts
+new file mode 100644
+index 0000000..89f22c6
+--- /dev/null
++++ b/src/lib/time-entries.ts
+@@ -0,0 +1,151 @@
++// タスクの作業時間の記録。日付は日本時間（Asia/Tokyo）で扱う（サーバーの時刻は UTC）。
++import { getDb, transaction, type Db } from "./db/index.ts";
++import type { ValidationResult } from "./tasks.ts";
++import { formatMinutes } from "./time-format.ts";
++
++export type TimeEntry = {
++  id: number;
++  taskId: number;
++  userId: string;
++  userName: string;
++  workDate: string; // YYYY-MM-DD（日本時間）
++  minutes: number;
++  note: string;
++  createdAt: string; // ISO 8601（UTC）
++};
++
++export type TimeEntryInput = { workDate: string; minutes: number; note: string };
++
++/** 1 件・1 人 1 日あたりの上限（24 時間）。 */
++export const MAX_MINUTES_PER_DAY = 24 * 60;
++export const MAX_NOTE_LENGTH = 200;
++
++const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
++const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
++
++/** 日本時間での今日の日付（YYYY-MM-DD）。 */
++export function jstToday(now: Date = new Date()): string {
++  return new Date(now.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);
++}
++
++/** 実在する日付の YYYY-MM-DD か（2026-02-30 などは不可）。 */
++export function isValidDate(value: unknown): value is string {
++  if (typeof value !== "string") return false;
++  const m = DATE_RE.exec(value);
++  if (!m) return false;
++  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
++  return d.toISOString().slice(0, 10) === value;
++}
++
++/** API に送られた記録の内容を検証する。作業日を省略したら日本時間の今日。未来の日付は不可。 */
++export function validateTimeEntryInput(body: unknown, now: Date = new Date()): ValidationResult<TimeEntryInput> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  const today = jstToday(now);
++
++  let workDate = today;
++  if (b.workDate !== undefined) {
++    if (!isValidDate(b.workDate)) errors.push("作業日は YYYY-MM-DD 形式の正しい日付で入力してください");
++    else if (b.workDate > today) errors.push("未来の日付には記録できません");
++    else workDate = b.workDate;
++  }
++
++  const minutes = b.minutes;
++  if (minutes === undefined || minutes === null || minutes === "") {
++    errors.push("作業時間（分）を入力してください");
++  } else if (typeof minutes !== "number" || !Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES_PER_DAY) {
++    errors.push(`作業時間は 1〜${MAX_MINUTES_PER_DAY} の整数（分）で入力してください`);
++  }
++
++  let note = "";
++  if (b.note !== undefined && b.note !== null) {
++    if (typeof b.note !== "string") errors.push("メモは文字列で入力してください");
++    else if (b.note.trim().length > MAX_NOTE_LENGTH) errors.push(`メモは ${MAX_NOTE_LENGTH} 文字以内で入力してください`);
++    else note = b.note.trim();
++  }
++
++  return errors.length > 0 ? { ok: false, errors } : { ok: true, value: { workDate, minutes: minutes as number, note } };
++}
++
++type Row = {
++  id: number;
++  task_id: number;
++  user_id: string;
++  user_name: string;
++  work_date: string;
++  minutes: number;
++  note: string;
++  created_at: string;
++};
++
++const SELECT = `SELECT e.id, e.task_id, e.user_id, u.name AS user_name, e.work_date, e.minutes, e.note, e.created_at
++  FROM time_entries e JOIN users u ON u.id = e.user_id`;
++
++function toEntry(r: Row): TimeEntry {
++  return {
++    id: r.id,
++    taskId: r.task_id,
++    userId: r.user_id,
++    userName: r.user_name,
++    workDate: r.work_date,
++    minutes: r.minutes,
++    note: r.note,
++    createdAt: r.created_at,
++  };
++}
++
++/** タスクの記録（作業日の新しい順、同じ日は記録日時の新しい順）と合計。 */
++export function listTimeEntries(taskId: number, db: Db = getDb()): { entries: TimeEntry[]; totalMinutes: number } {
++  const rows = db
++    .prepare(`${SELECT} WHERE e.task_id = ? ORDER BY e.work_date DESC, e.created_at DESC, e.id DESC`)
++    .all(taskId) as Row[];
++  const entries = rows.map(toEntry);
++  return { entries, totalMinutes: entries.reduce((sum, e) => sum + e.minutes, 0) };
++}
++
++export type CreateResult = { ok: true; entry: TimeEntry } | { ok: false; error: string };
++
++/** 記録する。同じ人の同じ作業日の合計（全タスク）が 24 時間を超えるなら記録しない。 */
++export function createTimeEntry(
++  taskId: number,
++  userId: string,
++  input: TimeEntryInput,
++  db: Db = getDb(),
++  now: Date = new Date(),
++): CreateResult {
++  return transaction(db, () => {
++    const { used } = db
++      .prepare("SELECT COALESCE(SUM(minutes), 0) AS used FROM time_entries WHERE user_id = ? AND work_date = ?")
++      .get(userId, input.workDate) as { used: number };
++    if (used + input.minutes > MAX_MINUTES_PER_DAY) {
++      return { ok: false, error: `1 日の作業時間の合計は ${formatMinutes(MAX_MINUTES_PER_DAY)} までです（記録済み ${formatMinutes(used)}）` };
++    }
++    const { lastInsertRowid } = db
++      .prepare("INSERT INTO time_entries (task_id, user_id, work_date, minutes, note, created_at) VALUES (?, ?, ?, ?, ?, ?)")
++      .run(taskId, userId, input.workDate, input.minutes, input.note, now.toISOString());
++    const row = db.prepare(`${SELECT} WHERE e.id = ?`).get(Number(lastInsertRowid)) as Row;
++    return { ok: true as const, entry: toEntry(row) };
++  });
++}
++
++/** URL の ID（正の整数）を検証する。不正なら undefined。 */
++export function parseEntryId(value: unknown): number | undefined {
++  if (typeof value !== "string" || !/^[1-9][0-9]{0,9}$/.test(value)) return undefined;
++  return Number(value);
++}
++
++export type DeleteResult = "deleted" | "not_found" | "forbidden";
++
++/** 記録を削除する。URL のタスクの記録でなければ not_found、本人の記録でなければ forbidden。 */
++export function deleteTimeEntry(taskId: number, entryId: number, userId: string, db: Db = getDb()): DeleteResult {
++  const row = db.prepare("SELECT user_id FROM time_entries WHERE id = ? AND task_id = ?").get(entryId, taskId) as
++    | { user_id: string }
++    | undefined;
++  if (!row) return "not_found";
++  if (row.user_id !== userId) return "forbidden";
++  db.prepare("DELETE FROM time_entries WHERE id = ?").run(entryId);
++  return "deleted";
++}
+diff --git a/src/lib/time-format.ts b/src/lib/time-format.ts
+new file mode 100644
+index 0000000..ee2e258
+--- /dev/null
++++ b/src/lib/time-format.ts
+@@ -0,0 +1,9 @@
++// 作業時間の表示（画面のクライアント部品からも使うため、DB に依存しないファイルに置く）。
++
++/** 分を「1時間30分」の形にする（60 分未満は「45分」、ちょうどの時間は「2時間」）。 */
++export function formatMinutes(minutes: number): string {
++  const h = Math.floor(minutes / 60);
++  const m = minutes % 60;
++  if (h === 0) return `${m}分`;
++  return m === 0 ? `${h}時間` : `${h}時間${m}分`;
++}
+diff --git a/tests/time-entries.test.ts b/tests/time-entries.test.ts
+new file mode 100644
+index 0000000..c00d566
+--- /dev/null
++++ b/tests/time-entries.test.ts
+@@ -0,0 +1,146 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import {
++  createTimeEntry,
++  deleteTimeEntry,
++  isValidDate,
++  jstToday,
++  listTimeEntries,
++  parseEntryId,
++  validateTimeEntryInput,
++} from "../src/lib/time-entries.ts";
++import { formatMinutes } from "../src/lib/time-format.ts";
++
++// 2026-11-09T15:30Z は日本時間の 2026-11-10 00:30（UTC ではまだ 11/09）
++const NOW = new Date("2026-11-09T15:30:00.000Z");
++
++describe("jstToday", () => {
++  it("returns the date in Japan time", () => {
++    assert.equal(jstToday(NOW), "2026-11-10");
++    assert.equal(jstToday(new Date("2026-11-09T14:59:59.999Z")), "2026-11-09");
++  });
++});
++
++describe("isValidDate", () => {
++  it("accepts real dates only", () => {
++    assert.equal(isValidDate("2026-02-28"), true);
++    assert.equal(isValidDate("2028-02-29"), true);
++    for (const v of ["2026-02-29", "2026-02-30", "2026-13-01", "2026-00-10", "2026/11/09", "20261109", "", 20261109]) {
++      assert.equal(isValidDate(v), false, String(v));
++    }
++  });
++});
++
++describe("formatMinutes", () => {
++  it("formats hours and minutes", () => {
++    assert.equal(formatMinutes(0), "0分");
++    assert.equal(formatMinutes(45), "45分");
++    assert.equal(formatMinutes(60), "1時間");
++    assert.equal(formatMinutes(90), "1時間30分");
++    assert.equal(formatMinutes(150), "2時間30分");
++  });
++});
++
++describe("validateTimeEntryInput", () => {
++  const ok = (body: unknown) => {
++    const r = validateTimeEntryInput(body, NOW);
++    assert.ok(r.ok, JSON.stringify(r));
++    return r.value;
++  };
++  const ng = (body: unknown) => assert.equal(validateTimeEntryInput(body, NOW).ok, false, JSON.stringify(body));
++
++  it("defaults workDate to today in Japan time and note to empty", () => {
++    assert.deepEqual(ok({ minutes: 30 }), { workDate: "2026-11-10", minutes: 30, note: "" });
++  });
++
++  it("trims the note and accepts 200 characters", () => {
++    assert.equal(ok({ minutes: 1, note: "  メモ  " }).note, "メモ");
++    assert.equal(ok({ minutes: 1, note: ` ${"あ".repeat(200)} ` }).note.length, 200);
++    ng({ minutes: 1, note: "あ".repeat(201) });
++    ng({ minutes: 1, note: 123 });
++  });
++
++  it("accepts minutes from 1 to 1440 as integers", () => {
++    assert.equal(ok({ minutes: 1 }).minutes, 1);
++    assert.equal(ok({ minutes: 1440 }).minutes, 1440);
++    for (const minutes of [undefined, null, "", 0, -30, 1.5, 1441, "30", true]) ng({ minutes });
++  });
++
++  it("accepts today and past dates in Japan time, rejects future and invalid dates", () => {
++    assert.equal(ok({ minutes: 1, workDate: "2026-11-10" }).workDate, "2026-11-10");
++    assert.equal(ok({ minutes: 1, workDate: "2025-01-01" }).workDate, "2025-01-01");
++    ng({ minutes: 1, workDate: "2026-11-11" });
++    ng({ minutes: 1, workDate: "2026-02-30" });
++    ng({ minutes: 1, workDate: "2026/11/09" });
++  });
++
++  it("rejects bodies that are not objects", () => {
++    for (const body of [undefined, null, [], "x", 1]) ng(body);
++  });
++});
++
++describe("createTimeEntry / listTimeEntries", () => {
++  it("creates an entry for the given user", () => {
++    const db = openDb();
++    const r = createTimeEntry(3, "sato", { workDate: "2026-11-09", minutes: 90, note: "設計" }, db, NOW);
++    assert.ok(r.ok);
++    assert.deepEqual(r.entry, {
++      id: r.entry.id,
++      taskId: 3,
++      userId: "sato",
++      userName: "佐藤",
++      workDate: "2026-11-09",
++      minutes: 90,
++      note: "設計",
++      createdAt: NOW.toISOString(),
++    });
++  });
++
++  it("lists entries of the task, newest work date first, then newest record first, with the total", () => {
++    const db = openDb();
++    const at = (iso: string) => new Date(iso);
++    createTimeEntry(1, "sato", { workDate: "2026-11-01", minutes: 10, note: "a" }, db, at("2026-11-05T00:00:00Z"));
++    createTimeEntry(1, "suzuki", { workDate: "2026-11-03", minutes: 20, note: "b" }, db, at("2026-11-04T00:00:00Z"));
++    createTimeEntry(1, "sato", { workDate: "2026-11-03", minutes: 30, note: "c" }, db, at("2026-11-06T00:00:00Z"));
++    createTimeEntry(2, "sato", { workDate: "2026-11-03", minutes: 40, note: "other" }, db, at("2026-11-06T00:00:00Z"));
++    const { entries, totalMinutes } = listTimeEntries(1, db);
++    assert.deepEqual(entries.map((e) => e.note), ["c", "b", "a"]);
++    assert.equal(totalMinutes, 60);
++    assert.deepEqual(listTimeEntries(4, db), { entries: [], totalMinutes: 0 });
++  });
++
++  it("rejects entries over 24 hours per user per day across tasks", () => {
++    const db = openDb();
++    const input = (minutes: number, workDate = "2026-11-02") => ({ workDate, minutes, note: "" });
++    assert.ok(createTimeEntry(1, "sato", input(1000), db, NOW).ok);
++    assert.equal(createTimeEntry(2, "sato", input(441), db, NOW).ok, false);
++    assert.ok(createTimeEntry(2, "sato", input(440), db, NOW).ok);
++    assert.equal(createTimeEntry(3, "sato", input(1), db, NOW).ok, false);
++    // 別の人・別の日には影響しない
++    assert.ok(createTimeEntry(1, "suzuki", input(1440), db, NOW).ok);
++    assert.ok(createTimeEntry(1, "sato", input(1440, "2026-11-03"), db, NOW).ok);
++    assert.equal(listTimeEntries(2, db).totalMinutes, 440);
++  });
++});
++
++describe("deleteTimeEntry", () => {
++  it("deletes only the owner's entry of the given task", () => {
++    const db = openDb();
++    const r = createTimeEntry(1, "sato", { workDate: "2026-11-09", minutes: 30, note: "" }, db, NOW);
++    assert.ok(r.ok);
++    assert.equal(deleteTimeEntry(1, r.entry.id, "suzuki", db), "forbidden");
++    assert.equal(deleteTimeEntry(2, r.entry.id, "sato", db), "not_found");
++    assert.equal(listTimeEntries(1, db).entries.length, 1);
++    assert.equal(deleteTimeEntry(1, r.entry.id, "sato", db), "deleted");
++    assert.equal(deleteTimeEntry(1, r.entry.id, "sato", db), "not_found");
++    assert.equal(listTimeEntries(1, db).entries.length, 0);
++  });
++});
++
++describe("parseEntryId", () => {
++  it("accepts positive integers only", () => {
++    assert.equal(parseEntryId("12"), 12);
++    for (const v of ["0", "-1", "1.5", "abc", "01", "", undefined]) assert.equal(parseEntryId(v), undefined, String(v));
++  });
++});
