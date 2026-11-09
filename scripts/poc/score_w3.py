@@ -4,7 +4,8 @@
 配点（docs/poc/PLAN.md §5.1 の W3。詳細は docs/poc/answer-key/W3/grading.md）:
   隠れ要件の引き出し 40 = H1〜H10 × 0/2/4 点。採点者 2 名の平均。正解データを読んだ形跡があれば 0
   要件文書の質 25      = Q1〜Q5 × 0〜5 点。採点者 2 名の平均
-  スコープ判断 20      = SC1〜SC4 × 0〜5 点。採点者 2 名の平均。アプリのコードを変更していたら SC4 = 0
+  スコープ判断 20      = SC1〜SC4 × 0〜5 点。採点者 2 名の平均。指示に反してアプリのコードを変更していたら SC4 = 0
+                         （依頼者役が「実装に進んでよいか」に「はい」と答えた後の変更は指示違反に数えない）
   質問の負担 15        = 15 − max(0, 質問数 − 12) − 2 × 重複数（0 未満にしない）
 """
 import json
@@ -38,11 +39,18 @@ def load_reviews():
     return out, gaps
 
 
+def approved_implementation(t):
+    """依頼者役が「実装に進んでよいか」に「はい」と答えていたか（そのときのコード変更は指示違反に数えない）。"""
+    return any(i["kind"] == "confirmation" and "実装" in i["question"] and i["answer"].startswith("はい")
+               for i in t["qa"]["items"])
+
+
 def score(t, reviews):
     rs = reviews.get(t["trial"], [])
     tr = t["transcript"]
     peeked = bool(tr.get("answer_key_access"))
-    code_changed = bool(t["code_changed"])
+    approved = approved_implementation(t)
+    code_changed = bool(t["code_changed"]) and not approved
 
     def avg(group, keys, fix=None):
         if not rs:
@@ -75,6 +83,7 @@ def score(t, reviews):
             "questions": nq, "duplicates": nd, "rounds": qa["rounds"], "by_kind": qa["by_kind"],
             "elicited_ids": qa["elicited_ids"], "closed_by_limit": qa["closed_by_limit"],
             "doc_source": t["doc_source"], "doc_lines": t["doc_lines"], "code_changed": t["code_changed"],
+            "implementation_approved": approved,
             "interventions": t["interventions"], "answer_key_access": tr.get("answer_key_access", []),
             "isolation_suspects": tr.get("isolation_suspects", []),
             "cost_usd": tr["cost_usd"], "answerer_cost_usd": qa["answerer_cost_usd"],
