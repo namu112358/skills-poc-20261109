@@ -63,6 +63,10 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 - Playwright MCP: `.mcp.json` のバージョンを上げて PR でレビュー
 - Plugins: `/plugin` から更新し、動作確認後にチームへ周知
 
+## 開発標準
+
+AI 駆動開発の標準基盤・設計原則: [docs/standards/ai-software-factory-engineering-standard.md](docs/standards/ai-software-factory-engineering-standard.md)（v1.1 Draft、レビュー記録は [docs/standards/REVIEW.md](docs/standards/REVIEW.md)）
+
 ## 比較検討中ツールの PoC
 
 計画書: [docs/poc/PLAN.md](docs/poc/PLAN.md)
