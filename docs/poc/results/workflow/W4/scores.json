@@ -4,10 +4,10 @@
       "trial": "W4-baseline-1",
       "candidate": "baseline",
       "run": 1,
-      "total": 40.0,
+      "total": 82.0,
       "two_axis_quality": {
         "影響箇所の網羅率": [
-          0,
+          30.0,
           30
         ],
         "受け入れ": [
@@ -15,31 +15,61 @@
           30
         ],
         "認可の正しさ": [
-          10.0,
+          20.0,
           20
         ],
         "設計案の比較": [
-          0,
+          2,
           20
         ]
       },
       "budget_mode": "flag",
-      "impact": 0,
-      "impact_detail": {},
+      "impact": 30.0,
+      "impact_detail": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1,
+        "7": 1,
+        "8": 1,
+        "9": 1,
+        "10": 1,
+        "11": 1,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "15": 1,
+        "16": 1
+      },
       "acceptance": 30.0,
       "acceptance_detail": {
         "e2e": 22.5,
         "checks": 7.5
       },
-      "authz": 10.0,
+      "authz": 20.0,
       "authz_detail": {
         "probe": 10.0,
-        "review": 0
+        "review": 10,
+        "A": 5,
+        "B": 5
       },
-      "design": 0,
-      "design_detail": {},
-      "code_comments": [],
-      "design_comments": [],
+      "design": 2,
+      "design_detail": {
+        "D1": 0,
+        "D2": 0,
+        "D3": 0,
+        "D4": 2
+      },
+      "code_comments": [
+        "減点はない。createTask と updateTask が actorId を受け取り、所属・作成者・担当者の規則を src/lib 側で確かめて Outcome を返す。addMember と removeMember も 404→403→400→409 の順で lib の中で判定している。PATCH は validateTaskInput の 400 を作成者かどうかの 403 より先に返すが、閲覧できないタスクは先に 404 にしているので情報の漏れはない。",
+        "閲覧範囲を VISIBLE 条件 1 か所に集約し、getTask(id, viewerId) の署名変更で一覧・1件・更新・画面のすべてを同じ規則にしている。createTask/updateTask・addMember/removeMember が Outcome で 404→403→400 を返し、teamId の型検査・最後の管理者・所属変更後の担当者の再検証もそろっている。PATCH で入力検証（400）が所属変更の 403 より先に来る点はあるが、仕様上の問題とはいえず減点しない。"
+      ],
+      "design_comments": [
+        "設計の記述は最終報告の変更内容だけで、比較は無い。『owner を NOT NULL にするため tasks を作り直す』『listTasks・getTask に閲覧者 ID を追加』という採用方針と短い理由はあり、差分（tasks_new の作成と RENAME）と一致するが、根拠はごく薄い。",
+        "設計案の比較は無く、実装の報告だけである。owner を NOT NULL にするためにテーブルを作り直したことと、listTasks / getTask の署名を変えたことは理由とともに書かれており、実装（tasks_new への作り直し）とも合っているので D4 だけに点を付けた。"
+      ],
       "facts": {
         "e2e_pass": 26,
         "e2e_total": 26,
@@ -86,10 +116,10 @@
       "trial": "W4-compound-engineering-1",
       "candidate": "compound-engineering",
       "run": 1,
-      "total": 37.4,
+      "total": 92.5,
       "two_axis_quality": {
         "影響箇所の網羅率": [
-          0,
+          28.6,
           30
         ],
         "受け入れ": [
@@ -97,31 +127,61 @@
           30
         ],
         "認可の正しさ": [
-          10.0,
+          20.0,
           20
         ],
         "設計案の比較": [
-          0,
+          16.5,
           20
         ]
       },
       "budget_mode": "flag",
-      "impact": 0,
-      "impact_detail": {},
+      "impact": 28.6,
+      "impact_detail": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1,
+        "7": 1,
+        "8": 1,
+        "9": 1,
+        "10": 1,
+        "11": 1,
+        "12": 1,
+        "13": 1,
+        "14": 0.75,
+        "15": 1,
+        "16": 0.5
+      },
       "acceptance": 27.4,
       "acceptance_detail": {
         "e2e": 19.9,
         "checks": 7.5
       },
-      "authz": 10.0,
+      "authz": 20.0,
       "authz_detail": {
         "probe": 10.0,
-        "review": 0
+        "review": 10,
+        "A": 5,
+        "B": 5
       },
-      "design": 0,
-      "design_detail": {},
-      "code_comments": [],
-      "design_comments": [],
+      "design": 16.5,
+      "design_detail": {
+        "D1": 4.5,
+        "D2": 4,
+        "D3": 3,
+        "D4": 5
+      },
+      "code_comments": [
+        "createTaskFor/updateTaskFor と teams.ts の getTeamFor に、権限の判定と 404→403→400 の順序をまとめており、認可には抜けが無い。差分に poc-app/CLAUDE.md の更新（API 一覧・権限の説明）が無いので、16 は単体テストの分だけの 0.5 にした。",
+        "teams.ts の listMembers が node:sqlite の行（null プロトタイプ）をそのまま返しており、teams/[id]/page.tsx はそれをクライアントコンポーネント MemberManager に渡している。このため管理者がチーム詳細を開くと、React の「null prototypes are not supported」エラーで追加・外す画面が表示されない（14 は 0.5）。poc-app/CLAUDE.md も更新していない（16 は 0.5）。認可は createTaskFor/updateTaskFor・addMember/removeMember に集約され、判定の順序も入力の検証も適切。"
+      ],
+      "design_comments": [
+        "Alternatives Considered で、task_teams 結合表と tasks.team_id 列、取得後のアプリ側での絞り込みと SQL 述語、Server Action と既存 API 経由という 3 つの論点を比べ、いずれもこのコードベースで現実的な案。ただし各案の理由は 1 行で、短所の掘り下げ（影響する関数・テスト）は薄い。KTD1〜7 で採用理由が明示され、差分（VISIBLE_TO_VIEWER、Outcome 型、member-manager の fetch＋refresh）と一致する。",
+        "「Alternatives Considered」で、task_teams の中間テーブルと tasks.team_id の列（データの持ち方）、取得後にアプリ側で絞る方式と SQL の条件 1 か所（呼び出し箇所を 1 つ漏らせば漏えいする）、Server Action と API 経由（認可の経路が 2 つになる）を比べている。DB 側の NOT NULL も SQLite の制約に基づいて見送った。複数の論点を現実的な案で比べているが、各論点は 1 文の却下理由にとどまるので D3 は 3 とした。KTD と実装（VISIBLE_TO_VIEWER、Outcome 型、クライアントからの fetch）は一致している。"
+      ],
       "facts": {
         "e2e_pass": 23,
         "e2e_total": 26,
@@ -175,10 +235,10 @@
       "trial": "W4-compound-engineering-2",
       "candidate": "compound-engineering",
       "run": 2,
-      "total": 40.0,
+      "total": 96.5,
       "two_axis_quality": {
         "影響箇所の網羅率": [
-          0,
+          30.0,
           30
         ],
         "受け入れ": [
@@ -186,31 +246,61 @@
           30
         ],
         "認可の正しさ": [
-          10.0,
+          20.0,
           20
         ],
         "設計案の比較": [
-          0,
+          16.5,
           20
         ]
       },
       "budget_mode": "watch",
-      "impact": 0,
-      "impact_detail": {},
+      "impact": 30.0,
+      "impact_detail": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1,
+        "7": 1,
+        "8": 1,
+        "9": 1,
+        "10": 1,
+        "11": 1,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "15": 1,
+        "16": 1
+      },
       "acceptance": 30.0,
       "acceptance_detail": {
         "e2e": 22.5,
         "checks": 7.5
       },
-      "authz": 10.0,
+      "authz": 20.0,
       "authz_detail": {
         "probe": 10.0,
-        "review": 0
+        "review": 10,
+        "A": 5,
+        "B": 5
       },
-      "design": 0,
-      "design_detail": {},
-      "code_comments": [],
-      "design_comments": [],
+      "design": 16.5,
+      "design_detail": {
+        "D1": 4,
+        "D2": 4,
+        "D3": 3.5,
+        "D4": 5
+      },
+      "code_comments": [
+        "減点はない。createTaskFor と updateTaskFor（トランザクション内）が、閲覧の 404 → 型の 400 → 作成者以外の所属変更の 403 → 変更先と担当者の 400 の順で確かめ、本文の owner は使わない。権限を確認しない getTask は lib の内部用として残っているが、ルートと画面は getViewableTask だけを使い、CLAUDE.md にもその取り決めを書いている。",
+        "閲覧範囲を tasks.ts の VISIBLE_TO_VIEWER と getViewableTask に集め、一覧・1 件取得・更新（updateTaskFor）・画面のすべてで同じ規則を使っており、減点する箇所は見当たらない。updateTaskFor は閲覧の確認から更新までを transaction で行い、teamId の型（文字列・小数・真偽値）、作成者以外による所属変更（403）、変更後の担当者、最後の管理者も lib で検証している。単体テストは移行・閲覧範囲・役割の境界まで網羅しており、CLAUDE.md も更新されている。"
+      ],
+      "design_comments": [
+        "データの形は一択と判断して比較を省いた理由を明記したうえで、owner を NOT NULL にするテーブル再作成と NULL 可の ADD COLUMN（SQLite の制約、NULL 行は誰にも見えず安全側）、BEGIN IMMEDIATE・楽観ロックと単一トランザクション（node:sqlite は同期単一プロセス）、Server Action と API 経由のクライアント部品を、このコードの事実に基づいて比べている。各論点は 1 段落程度で厚くはない。KTD1〜8 と PATCH の検査順の図で決定と理由が明示され、差分（kind 付き結果型、ALTER TABLE、member-manager）と一致する。",
+        "owner を NOT NULL にするテーブル再作成と NULL 可の列の追加（SQLite の ADD COLUMN の制約が根拠）、Server Action とクライアントから API を呼ぶ方式（認可の判定が二重になる）、BEGIN IMMEDIATE とトランザクションだけで済ませる方式を比べている。データの持ち方は「一択」として比べておらず、各論点も短い却下理由にとどまるため減点した。採用した KTD（可視性の SQL 条件を 1 か所に置く、結果型、NULL 可の列）はそのまま実装されている。"
+      ],
       "facts": {
         "e2e_pass": 26,
         "e2e_total": 26,
@@ -260,10 +350,10 @@
       "trial": "W4-feature-dev-1",
       "candidate": "feature-dev",
       "run": 1,
-      "total": 40.0,
+      "total": 84.5,
       "two_axis_quality": {
         "影響箇所の網羅率": [
-          0,
+          30.0,
           30
         ],
         "受け入れ": [
@@ -271,31 +361,61 @@
           30
         ],
         "認可の正しさ": [
-          10.0,
+          19.5,
           20
         ],
         "設計案の比較": [
-          0,
+          5,
           20
         ]
       },
       "budget_mode": "flag",
-      "impact": 0,
-      "impact_detail": {},
+      "impact": 30.0,
+      "impact_detail": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1,
+        "7": 1,
+        "8": 1,
+        "9": 1,
+        "10": 1,
+        "11": 1,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "15": 1,
+        "16": 1
+      },
       "acceptance": 30.0,
       "acceptance_detail": {
         "e2e": 22.5,
         "checks": 7.5
       },
-      "authz": 10.0,
+      "authz": 19.5,
       "authz_detail": {
         "probe": 10.0,
-        "review": 0
+        "review": 9.5,
+        "A": 5,
+        "B": 4.5
       },
-      "design": 0,
-      "design_detail": {},
-      "code_comments": [],
-      "design_comments": [],
+      "design": 5,
+      "design_detail": {
+        "D1": 1.5,
+        "D2": 1,
+        "D3": 0.5,
+        "D4": 2
+      },
+      "code_comments": [
+        "減点はない。getTask と updateTask に viewer を必須の引数として渡す形に変え、閲覧の判定を VISIBLE の 1 か所にまとめたので、権限を確認しない経路が残っていない。所属の変更は isForbiddenTeamChange（403）と validateTaskInput（所属先・変更後の担当者の確認）で扱っている。normalizeTeamName が文字数を UTF-16 の長さで数えている点は細かい違いで、点数には影響させていない。",
+        "getTask・listTasks・updateTask の署名を変えて viewer を必須にしたので、閲覧範囲の抜け道は無い。軽微な点が 2 つある。PATCH の権限確認（isForbiddenTeamChange）・検証・updateTask が 1 つのトランザクションにまとまっていない。また validateTaskInput は、現在と同じ teamId を送っただけでも今の担当者を検証し直すため、担当者がチームを外れたままのタスクでは不要な 400 になる。"
+      ],
+      "design_comments": [
+        "アーキテクト 2 名（最小変更・クリーン）を起動し、最終報告で『設計は 2 案を比較し』と述べるが、どの論点でどちらを採ったか、長所短所は資料に一切無い。差分は tasks テーブルを作り直す方式で、その選択の理由は設計の記述に無い（コード中のコメントのみ）ため、決定と理由の明示が不十分。",
+        "最小変更案とクリーン設計案のサブエージェントを起動し、報告で「設計は 2 案を比較した」と書いているが、どの論点でどう比べたかが資料に一切無い。サブエージェントの結果を待たずにマイグレーションと lib を書き始めている。採用した設計（閲覧者 ID を必須にする、テーブルの作り直し）は実装から読み取れるが、理由はほとんど書かれていない。"
+      ],
       "facts": {
         "e2e_pass": 26,
         "e2e_total": 26,
@@ -340,10 +460,10 @@
       "trial": "W4-feature-dev-2",
       "candidate": "feature-dev",
       "run": 2,
-      "total": 40.0,
+      "total": 89.0,
       "two_axis_quality": {
         "影響箇所の網羅率": [
-          0,
+          30.0,
           30
         ],
         "受け入れ": [
@@ -351,31 +471,61 @@
           30
         ],
         "認可の正しさ": [
-          10.0,
+          18.0,
           20
         ],
         "設計案の比較": [
-          0,
+          11,
           20
         ]
       },
       "budget_mode": "watch",
-      "impact": 0,
-      "impact_detail": {},
+      "impact": 30.0,
+      "impact_detail": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1,
+        "7": 1,
+        "8": 1,
+        "9": 1,
+        "10": 1,
+        "11": 1,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "15": 1,
+        "16": 1
+      },
       "acceptance": 30.0,
       "acceptance_detail": {
         "e2e": 22.5,
         "checks": 7.5
       },
-      "authz": 10.0,
+      "authz": 18.0,
       "authz_detail": {
         "probe": 10.0,
-        "review": 0
+        "review": 8,
+        "A": 4,
+        "B": 4
       },
-      "design": 0,
-      "design_detail": {},
-      "code_comments": [],
-      "design_comments": [],
+      "design": 11,
+      "design_detail": {
+        "D1": 3,
+        "D2": 3,
+        "D3": 2,
+        "D4": 3
+      },
+      "code_comments": [
+        "権限を見ない getTask が export されたまま残り、updateTask もその getTask を使うので、閲覧範囲の確認は API Route が先に getVisibleTask を呼ぶことに頼っている（今の経路に抜けは無いが、二重定義で抜け道になりうる）。requestsTeamChange はキーがあるだけで真になるため、作成者でないメンバーが今と同じ teamId を送っても 403 になる。validateTeamInput は文字数を .length（UTF-16 の単位）で数えている。",
+        "閲覧の確認が無い getTask・updateTask が export されたまま残っており、PATCH が通るかは Route 側で先に getVisibleTask を呼ぶことに頼っている（確認の二重化・抜け道になりうる。updateTask はトランザクションでもない）。requestsTeamChange は teamId という項目があるだけで所属変更とみなすため、作成者でないメンバーが現在と同じ teamId を送っても 403 になる。ほかの要件（validateTaskPlacement、requireAdmin、最後の管理者の保護）は正しい。"
+      ],
+      "design_comments": [
+        "『最小変更案』と『クリーン案』の 2 案をアーキテクトに出させ、最小変更案を採用し、クリーン案の Result 型導入と tasks テーブル再構築を『今回の規模には過剰』として見送った。比較は全体方針の 1 論点に限られ、トレードオフは『過剰』の一言で具体性に欠ける（案の到着前に実装を始めてもいる）。差分は ALTER TABLE・Result 型なしで採用案と一致。",
+        "最小変更案とクリーン案を比べ、Result 型の導入と tasks テーブルの再構築を見送って最小変更案を採ったと書いている。ただ比べた中身は「今回の規模には過剰」の一言だけで、影響する関数やテスト、権限の抜けの危険に基づくトレードオフは書かれていない。実装は採用した方針（NULL 可の ADD COLUMN、既存の ValidationResult を流用）に沿っている。"
+      ],
       "facts": {
         "e2e_pass": 26,
         "e2e_total": 26,
@@ -420,10 +570,10 @@
       "trial": "W4-gstack-1",
       "candidate": "gstack",
       "run": 1,
-      "total": 40.0,
+      "total": 87.5,
       "two_axis_quality": {
         "影響箇所の網羅率": [
-          0,
+          30.0,
           30
         ],
         "受け入れ": [
@@ -431,31 +581,61 @@
           30
         ],
         "認可の正しさ": [
-          10.0,
+          19.5,
           20
         ],
         "設計案の比較": [
-          0,
+          8,
           20
         ]
       },
       "budget_mode": "flag",
-      "impact": 0,
-      "impact_detail": {},
+      "impact": 30.0,
+      "impact_detail": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1,
+        "7": 1,
+        "8": 1,
+        "9": 1,
+        "10": 1,
+        "11": 1,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "15": 1,
+        "16": 1
+      },
       "acceptance": 30.0,
       "acceptance_detail": {
         "e2e": 22.5,
         "checks": 7.5
       },
-      "authz": 10.0,
+      "authz": 19.5,
       "authz_detail": {
         "probe": 10.0,
-        "review": 0
+        "review": 9.5,
+        "A": 5,
+        "B": 4.5
       },
-      "design": 0,
-      "design_detail": {},
-      "code_comments": [],
-      "design_comments": [],
+      "design": 8,
+      "design_detail": {
+        "D1": 1.5,
+        "D2": 1.5,
+        "D3": 1.5,
+        "D4": 3.5
+      },
+      "code_comments": [
+        "VISIBLE_TASK_SQL に閲覧条件を集め、updateTask/addMember/removeMember を BEGIN IMMEDIATE のトランザクションで包んで、確認から書き込みまでを 1 つにまとめている。teamChangeForbidden で 403 を入力の 400 より先に返しており、所属の変更後の担当者も確認している。単体テストと CLAUDE.md の権限の説明も十分にある。減点に当たる指摘は無い。",
+        "VISIBLE_TASK_SQL 1 か所で閲覧範囲を決めている。updateTask・addMember・removeMember はトランザクションの中で 404→403→400→409 の順に確認し、CLAUDE.md とテストも充実している。軽微な点として、validateTaskInput や addMember のエラーの details が受け取った値を JSON.stringify でそのまま返し、403 の文言に作成者の ID を含めている（B は 4）。"
+      ],
+      "design_comments": [
+        "多数のレビューを回したが、比べたのは範囲の採否（エラーの code 欄、索引、非管理者の自己離脱を 403 にするか等）の二択の判断で、データの持ち方や認可の置き場所の代替案は検討されていない（レビュアー自身が『visibility 列との比較が無い』と指摘）。採用方針（VISIBLE_TASK_SQL 一本化・ServiceError 結果型）と判断は明示され CLAUDE.md にも表で残り、差分と一致する。",
+        "判断 D1〜D9 は主に仕様の解釈（同じ teamId は変更なし、管理者でないメンバーは自分を外せないなど）で、設計案の比較ではない。レビュアー自身が「visibility 列との比較が無い」と指摘している。比較に近いのは、エラー本文に code を足すかどうか（仕様で本文が決まっているので見送り）と、ACL の汎用基盤を作らないことくらいである。採用した設計（VISIBLE_TASK_SQL、ServiceError と respondError、500 のラッパー）は理由とともに書かれており、実装と一致している。"
+      ],
       "facts": {
         "e2e_pass": 26,
         "e2e_total": 26,
@@ -501,10 +681,10 @@
       "trial": "W4-gstack-2",
       "candidate": "gstack",
       "run": 2,
-      "total": 8.4,
+      "total": 13.4,
       "two_axis_quality": {
         "影響箇所の網羅率": [
-          0,
+          0.0,
           30
         ],
         "受け入れ": [
@@ -516,13 +696,30 @@
           20
         ],
         "設計案の比較": [
-          0,
+          5,
           20
         ]
       },
       "budget_mode": "watch",
-      "impact": 0,
-      "impact_detail": {},
+      "impact": 0.0,
+      "impact_detail": {
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6": 0,
+        "7": 0,
+        "8": 0,
+        "9": 0,
+        "10": 0,
+        "11": 0,
+        "12": 0,
+        "13": 0,
+        "14": 0,
+        "15": 0,
+        "16": 0
+      },
       "acceptance": 8.4,
       "acceptance_detail": {
         "e2e": 0.9,
@@ -531,12 +728,25 @@
       "authz": 0.0,
       "authz_detail": {
         "probe": 0.0,
-        "review": 0
+        "review": 0,
+        "A": 0,
+        "B": 0
       },
-      "design": 0,
-      "design_detail": {},
-      "code_comments": [],
-      "design_comments": [],
+      "design": 5,
+      "design_detail": {
+        "D1": 1.5,
+        "D2": 1.5,
+        "D3": 1.5,
+        "D4": 0.5
+      },
+      "code_comments": [
+        "patch が空で、コードの変更が無い。影響箇所はすべて未対応、認可も 0 とした。",
+        "patch が空で、コードの変更が無い。影響箇所はどれも対応されておらず、変更前と同じく全員が全タスクを閲覧・編集できる。"
+      ],
+      "design_comments": [
+        "レビュアーが text input と select、内部関数の非公開化と import 走査など代替を挙げたが、候補自身が案を並べて比べた記述は無く、TODOS.md の Pros/Cons も見送った機能についてのもの。VISIBLE_SQL への集約や *For 関数などの方針は読み取れるが、差分が空で実装との一致を確かめられないため D4 も低い。",
+        "比較らしいものは、レビュアーが出した代案（select とテキスト入力、権限確認の無い関数を別モジュールに分ける、先に確かめてから挿入する方式と挿入して制約違反を捕まえる方式）だけで、候補自身が案を並べて選んだ記述は無い。TODOS.md に見送った項目の長所・短所はある。差分が空で実装が無いため、D4 は 0 とした。"
+      ],
       "facts": {
         "e2e_pass": 1,
         "e2e_total": 26,
@@ -617,10 +827,10 @@
       "trial": "W4-superpowers-1",
       "candidate": "superpowers",
       "run": 1,
-      "total": 40.0,
+      "total": 82.0,
       "two_axis_quality": {
         "影響箇所の網羅率": [
-          0,
+          30.0,
           30
         ],
         "受け入れ": [
@@ -628,31 +838,61 @@
           30
         ],
         "認可の正しさ": [
-          10.0,
+          19.5,
           20
         ],
         "設計案の比較": [
-          0,
+          2.5,
           20
         ]
       },
       "budget_mode": "flag",
-      "impact": 0,
-      "impact_detail": {},
+      "impact": 30.0,
+      "impact_detail": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1,
+        "7": 1,
+        "8": 1,
+        "9": 1,
+        "10": 1,
+        "11": 1,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "15": 1,
+        "16": 1
+      },
       "acceptance": 30.0,
       "acceptance_detail": {
         "e2e": 22.5,
         "checks": 7.5
       },
-      "authz": 10.0,
+      "authz": 19.5,
       "authz_detail": {
         "probe": 10.0,
-        "review": 0
+        "review": 9.5,
+        "A": 5,
+        "B": 4.5
       },
-      "design": 0,
-      "design_detail": {},
-      "code_comments": [],
-      "design_comments": [],
+      "design": 2.5,
+      "design_detail": {
+        "D1": 0,
+        "D2": 0,
+        "D3": 0,
+        "D4": 2.5
+      },
+      "code_comments": [
+        "閲覧範囲を tasks.ts の VISIBLE_TO_VIEWER に一本化し、getTask/listTasks/updateTask がどれも閲覧者 ID を必須で取るため、一覧・1 件取得・更新・画面の判定が揃っている。requireTeamMember で 404→403→400 の順に確認し、teamId の型違い（文字列 \"1\" など）も validateTaskInput で 400 にしている。減点に当たる指摘は無い。",
+        "viewer を必須にした getTask・listTasks・updateTask と、Route 共通の requireTeamMember（404）→ 役割（403）の順で、権限の確認は一貫している。軽微な点が 2 つある。メンバー追加の本文（userId・role）の検証が lib ではなく Route（members/route.ts）に直接書かれている。また validateTaskInput の担当者・所属の分岐（unchanged・teamValid）が込み入っていて読みにくく、PATCH の検証と更新も 1 つのトランザクションにまとまっていない。"
+      ],
+      "design_comments": [
+        "仕様をそのまま承認済みの設計とみなして計画に進んでおり、設計案の比較は一切ない。計画書の Architecture に『可視性は tasks.ts の SQL（viewer 引数）に集約、チーム操作は teams.ts、Route と画面は薄く』と採用方針と短い理由があり、差分の VISIBLE_TO_VIEWER と一致するため D4 のみ加点。",
+        "「仕様をそのまま承認済みの設計とする」として、設計案の比較はしていない。計画書には採用した構成（可視性を viewer 引数つきの SQL に集める、team-roles.ts の分離）があり、owner を NULL 可にした理由（SQLite の制約）も書かれていて、実装と一致しているので D4 だけ点を付けた。"
+      ],
       "facts": {
         "e2e_pass": 26,
         "e2e_total": 26,
@@ -702,10 +942,10 @@
       "trial": "W4-superpowers-2",
       "candidate": "superpowers",
       "run": 2,
-      "total": 40.0,
+      "total": 80.6,
       "two_axis_quality": {
         "影響箇所の網羅率": [
-          0,
+          29.1,
           30
         ],
         "受け入れ": [
@@ -713,31 +953,61 @@
           30
         ],
         "認可の正しさ": [
-          10.0,
+          19.5,
           20
         ],
         "設計案の比較": [
-          0,
+          2,
           20
         ]
       },
       "budget_mode": "watch",
-      "impact": 0,
-      "impact_detail": {},
+      "impact": 29.1,
+      "impact_detail": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1,
+        "7": 1,
+        "8": 1,
+        "9": 1,
+        "10": 1,
+        "11": 1,
+        "12": 1,
+        "13": 1,
+        "14": 1,
+        "15": 1,
+        "16": 0.5
+      },
       "acceptance": 30.0,
       "acceptance_detail": {
         "e2e": 22.5,
         "checks": 7.5
       },
-      "authz": 10.0,
+      "authz": 19.5,
       "authz_detail": {
         "probe": 10.0,
-        "review": 0
+        "review": 9.5,
+        "A": 4.5,
+        "B": 5
       },
-      "design": 0,
-      "design_detail": {},
-      "code_comments": [],
-      "design_comments": [],
+      "design": 2,
+      "design_detail": {
+        "D1": 0,
+        "D2": 0,
+        "D3": 0,
+        "D4": 2
+      },
+      "code_comments": [
+        "poc-app/CLAUDE.md の API 一覧・権限の説明が更新されていないので、16 を 0.5 にした（単体テストは tests/teams.test.ts と tests/tasks.test.ts に十分ある）。認可は VISIBLE_TO_USER と getVisibleTask にまとまっていて、一覧・1 件取得・PATCH・画面のどれも同じ規則を使っている。権限を確認しない getTask を内部用として残しているが、ルートや画面からは呼ばれていないので減点していない。",
+        "機能はほぼ網羅しているが、poc-app/CLAUDE.md の API 一覧・権限の説明を更新していない（16 は 0.5）。権限確認なしの getTask が getVisibleTask と並んで export されたまま残り、updateTask も内部で getTask を使う。そのため認可は API Route 側の事前確認だけが頼りで、管理者かどうかの確認も route に分散している（A は軽微な指摘で 4）。"
+      ],
+      "design_comments": [
+        "brainstorming を使うと宣言したが、設計案の比較は見当たらず、計画書は 1 案の構成（migration 3、権限判定を tasks.ts と teams.ts に置く）を述べるだけ。採用した構成と仕様外の判断（担当者の再検証の条件、同値 teamId の扱い）は理由付きで書かれ、差分とも一致するので D4 は中程度。",
+        "ブレインストーミングを宣言しているが、設計案の比較は資料に無い。計画書には採用した構成（マイグレーション 3、判定を src/lib に置く）が書かれているものの理由が無いので、D4 は低くした。実装はその構成に沿っている。"
+      ],
       "facts": {
         "e2e_pass": 26,
         "e2e_total": 26,

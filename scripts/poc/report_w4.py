@@ -296,7 +296,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
   <p class="sub">{e(NOTES.get("budget_compare_note", ""))}</p>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>候補</th><th>費用（1 回目 → 2 回目）</th><th>時間（分）</th><th>ターン</th><th>サブエージェント</th><th>点数</th><th>打ち切り額・予算への言及</th></tr></thead>
+      <thead><tr><th>候補</th><th>費用（1 回目 → 2 回目）</th><th>時間（分）</th><th>ターン（参考）</th><th>サブエージェント</th><th>点数</th><th>打ち切り額・予算への言及</th></tr></thead>
       <tbody>{bc_rows}</tbody>
     </table>
   </div>
@@ -371,7 +371,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
     out += [md(x) + "\n" for x in NOTES["summary"]]
     out += two_axis.md_section("W4")
     out += ["## 1 回目（打ち切り額が見える）と 2 回目（見えない）の比較", "", md(NOTES.get("budget_compare_note", "")), "",
-            "| 候補 | 費用（1 回目 → 2 回目） | 時間（分） | ターン | サブエージェント | 点数 | 打ち切り額・予算への言及 |",
+            "| 候補 | 費用（1 回目 → 2 回目） | 時間（分） | ターン（参考） | サブエージェント | 点数 | 打ち切り額・予算への言及 |",
             "|---|---|---|---|---|---|---|"]
     for r in bc:
         out.append(f"| {LABEL[r['candidate']]} | ${r['cost'][0]:.2f} → ${r['cost'][1]:.2f} | {r['minutes'][0]:.1f} → {r['minutes'][1]:.1f} | "
