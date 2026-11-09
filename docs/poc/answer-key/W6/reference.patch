@@ -1,0 +1,203 @@
+diff --git a/src/app/layout.tsx b/src/app/layout.tsx
+index 23f0335..2c3d949 100644
+--- a/src/app/layout.tsx
++++ b/src/app/layout.tsx
+@@ -7,10 +7,11 @@ export default async function RootLayout({ children }: { children: ReactNode })
+   const user = await getCurrentUser();
+   return (
+     <html lang="ja">
+-      <body style={{ fontFamily: "system-ui, sans-serif", margin: 24 }}>
++      <body style={{ fontFamily: "system-ui, sans-serif", margin: 16 }}>
+         {user && (
+-          <header style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
++          <header style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", marginBottom: 16 }}>
+             <a href="/tasks">タスク一覧</a>
++            <a href="/my-tasks">マイタスク</a>
+             <span data-testid="current-user">{user.name}（{user.id}）</span>
+             <form method="post" action="/api/logout">
+               <button type="submit">ログアウト</button>
+diff --git a/src/app/my-tasks/MyTasks.tsx b/src/app/my-tasks/MyTasks.tsx
+new file mode 100644
+index 0000000..f420a76
+--- /dev/null
++++ b/src/app/my-tasks/MyTasks.tsx
+@@ -0,0 +1,115 @@
++"use client";
++import { useState, type FormEvent } from "react";
++import type { Task, TaskStatus } from "@/lib/tasks";
++
++const TASK_STATUSES: TaskStatus[] = ["todo", "in_progress", "done"];
++const STATUS_LABELS: Record<TaskStatus, string> = { todo: "未着手", in_progress: "進行中", done: "完了" };
++
++const ADD_FAILED = "追加できませんでした。時間をおいてもう一度お試しください。";
++
++function sortTasks(tasks: Task[]): Task[] {
++  return [...tasks].sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.id - b.id);
++}
++
++export function MyTasks({ initialTasks, userId }: { initialTasks: Task[]; userId: string }) {
++  const [tasks, setTasks] = useState(initialTasks);
++  const [title, setTitle] = useState("");
++  const [dueDate, setDueDate] = useState("");
++  const [submitting, setSubmitting] = useState(false);
++  const [addErrors, setAddErrors] = useState<string[]>([]);
++  const [statusErrors, setStatusErrors] = useState<Record<number, boolean>>({});
++
++  async function add(e: FormEvent) {
++    e.preventDefault();
++    if (submitting) return;
++    setSubmitting(true);
++    try {
++      const res = await fetch("/api/tasks", {
++        method: "POST",
++        headers: { "content-type": "application/json" },
++        body: JSON.stringify({ title, dueDate, assignee: userId, status: "todo" }),
++      });
++      const data = await res.json().catch(() => undefined);
++      if (res.status === 400) setAddErrors(data?.details ?? [data?.error ?? ADD_FAILED]);
++      else if (!res.ok || !data?.task) setAddErrors([ADD_FAILED]);
++      else {
++        setTasks((t) => sortTasks([...t, data.task]));
++        setTitle("");
++        setDueDate("");
++        setAddErrors([]);
++      }
++    } catch {
++      setAddErrors([ADD_FAILED]);
++    } finally {
++      setSubmitting(false);
++    }
++  }
++
++  async function changeStatus(task: Task, status: TaskStatus) {
++    setTasks((ts) => ts.map((t) => (t.id === task.id ? { ...t, status } : t)));
++    let ok = false;
++    try {
++      const res = await fetch(`/api/tasks/${task.id}`, {
++        method: "PATCH",
++        headers: { "content-type": "application/json" },
++        body: JSON.stringify({ status }),
++      });
++      ok = res.ok;
++    } catch {
++      ok = false;
++    }
++    setStatusErrors((s) => ({ ...s, [task.id]: !ok }));
++    if (!ok) setTasks((ts) => ts.map((t) => (t.id === task.id ? { ...t, status: task.status } : t)));
++  }
++
++  return (
++    <>
++      {tasks.length === 0 ? (
++        <p>担当しているタスクはありません。</p>
++      ) : (
++        <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 8 }}>
++          {tasks.map((task) => (
++            <li key={task.id} data-testid="my-task" style={{ border: "1px solid #ccc", borderRadius: 6, padding: 8 }}>
++              <a href={`/tasks/${task.id}`} style={{ overflowWrap: "anywhere" }}>
++                {task.title}
++              </a>
++              <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 4 }}>
++                <label>
++                  ステータス{" "}
++                  <select value={task.status} onChange={(e) => changeStatus(task, e.target.value as TaskStatus)}>
++                    {TASK_STATUSES.map((s) => (
++                      <option key={s} value={s}>
++                        {STATUS_LABELS[s]}
++                      </option>
++                    ))}
++                  </select>
++                </label>
++                <span>期限 {task.dueDate}</span>
++              </div>
++              {statusErrors[task.id] && <p role="alert">ステータスを変更できませんでした。</p>}
++            </li>
++          ))}
++        </ul>
++      )}
++      <h2>タスクを追加</h2>
++      <form aria-label="タスクの追加" onSubmit={add} style={{ display: "grid", gap: 8, maxWidth: 480 }}>
++        <label>
++          タイトル <input name="title" value={title} onChange={(e) => setTitle(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
++        </label>
++        <label>
++          期限 <input name="dueDate" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
++        </label>
++        <button type="submit" disabled={submitting}>
++          追加する
++        </button>
++        {addErrors.length > 0 && (
++          <div role="alert">
++            {addErrors.map((m) => (
++              <p key={m}>{m}</p>
++            ))}
++          </div>
++        )}
++      </form>
++    </>
++  );
++}
+diff --git a/src/app/my-tasks/page.tsx b/src/app/my-tasks/page.tsx
+new file mode 100644
+index 0000000..c3e8e5e
+--- /dev/null
++++ b/src/app/my-tasks/page.tsx
+@@ -0,0 +1,13 @@
++import { requireUser } from "@/lib/session";
++import { listTasksByAssignee } from "@/lib/tasks";
++import { MyTasks } from "./MyTasks";
++
++export default async function MyTasksPage() {
++  const user = await requireUser();
++  return (
++    <main>
++      <h1>マイタスク</h1>
++      <MyTasks initialTasks={listTasksByAssignee(user.id)} userId={user.id} />
++    </main>
++  );
++}
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+index b533ce9..b365a4f 100644
+--- a/src/lib/tasks.ts
++++ b/src/lib/tasks.ts
+@@ -39,6 +39,14 @@ export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
+   return rows.map(toTask);
+ }
+ 
++/** 担当者のタスクを期限の近い順（同じ期限なら ID 順）に返す。 */
++export function listTasksByAssignee(assignee: string, db: Db = getDb()): Task[] {
++  const rows = db
++    .prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE assignee = ? ORDER BY due_date, id")
++    .all(assignee) as TaskRow[];
++  return rows.map(toTask);
++}
++
+ export function getTask(id: number, db: Db = getDb()): Task | undefined {
+   const row = db.prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE id = ?").get(id) as
+     | TaskRow
+diff --git a/tests/tasks.test.ts b/tests/tasks.test.ts
+index 66029e6..9a7f19d 100644
+--- a/tests/tasks.test.ts
++++ b/tests/tasks.test.ts
+@@ -6,6 +6,7 @@ import {
+   getTask,
+   isTaskStatus,
+   listTasks,
++  listTasksByAssignee,
+   parseTaskId,
+   updateTask,
+   validateTaskInput,
+@@ -90,3 +91,13 @@ describe("isTaskStatus", () => {
+     assert.equal(isTaskStatus(undefined), false);
+   });
+ });
++
++describe("listTasksByAssignee", () => {
++  it("returns only the assignee's tasks ordered by due date then id", () => {
++    const db = openDb();
++    createTask({ title: "同じ期限", status: "todo", assignee: "sato", dueDate: "2026-11-14" }, db);
++    const tasks = listTasksByAssignee("sato", db);
++    assert.ok(tasks.every((t) => t.assignee === "sato"));
++    assert.deepEqual(tasks.map((t) => t.title), ["要件定義書のレビュー", "API 設計", "同じ期限", "E2E テストの追加"]);
++  });
++});
