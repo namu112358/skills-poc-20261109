@@ -9,6 +9,8 @@ import re
 import statistics
 from pathlib import Path
 
+import two_axis
+
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "docs" / "poc" / "results" / "workflow" / "W5"
 NOTES = json.loads((DIR / "notes.json").read_text())
@@ -286,8 +288,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
   <div class="box"><p>{NOTES['isolation']}</p></div>
 
   <h2>次の対応</h2>
-  <div class="box"><ul>{lis('next')}</ul></div>
-</main>
+  <div class="box"><ul>{lis('next')}</ul></div>{two_axis.html_section("W5", DIR)}</main>
 </body>
 </html>
 """
@@ -359,6 +360,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
         for x in NOTES["decisions"]]
     out += ["", "## 試行間の独立性の確認結果", "", md(NOTES["isolation"]), ""]
     out += ["## 次の対応", ""] + [f"- {md(x)}" for x in NOTES["next"]]
+    out += [""] + two_axis.md_section("W5", DIR)[:-1]  # 2 本立ての点数（PLAN.md §4.4）。既存の節の後ろに足す
     (DIR / "report.md").write_text("\n".join(out) + "\n")
     print(f"wrote {DIR / 'report.md'}")
 
