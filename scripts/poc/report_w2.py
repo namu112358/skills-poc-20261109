@@ -6,6 +6,8 @@ import json
 import statistics
 from pathlib import Path
 
+import supplement_report
+
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "docs" / "poc" / "results" / "workflow" / "W2"
 ITEM_LABEL = {"conventions": "規約", "design": "設計", "security": "認可・入力", "tests": "テスト", "scope": "過不足"}
@@ -276,7 +278,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
   <div class="box"><ul>{decisions}</ul></div>
 
   <h2>次の対応</h2>
-  <div class="box"><ul>{nexts}</ul></div>
+  <div class="box"><ul>{nexts}</ul></div>{supplement_report.html_section("W2", scores, DIR)}
 </main>
 </body>
 </html>
@@ -343,6 +345,9 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
                          for i, l in enumerate(re.sub(r"\n+- ", "\n  - ", md(x)).replace("\n\n", "\n").split("\n")))
         for x in NOTES["decisions"]]
     out += ["", "## 次の対応", ""] + [f"- {md(x)}" for x in NOTES["next"]]
+    supp = supplement_report.md_section("W2", scores, DIR, md, cell)
+    if supp:
+        out += [""] + supp
     (DIR / "report.md").write_text("\n".join(out) + "\n")
     print(f"wrote {DIR / 'report.md'}")
 
