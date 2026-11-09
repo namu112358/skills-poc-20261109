@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "docs" / "poc" / "results" / "workflow" / "W6"
 BLIND = RESULTS / "blind"
 SEED = 20261109
-NAMES = re.compile(r"superpowers|feature[-_ ]?dev|gstack|compound[-_ ]?engineering|\bce-[a-z-]+|ponytail|/ship\b|/qa\b", re.I)
+NAMES = re.compile(r"superpowers|feature[-_ ]?dev|gstack|compound(?:[-_ ]?engineering)?|\bce-[a-z-]+|ponytail|/ship\b|/qa\b", re.I)
 ITEMS = ["a", "b", "c", "d"]
 
 
