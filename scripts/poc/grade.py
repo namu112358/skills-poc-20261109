@@ -237,6 +237,8 @@ def main():
         "elapsed_seconds": int((RAW / "elapsed-seconds").read_text()),
         "errors": (RAW / "errors.log").read_text() if (RAW / "errors.log").exists() else "",
         # run-trial.sh が「お任せします」で続けさせた回数（POC_MAX_NUDGES。W1 は 0 固定）
+        # run-trial.sh の watch モードで費用の見積もりが上限に達して止めたとき（無ければ空）。止めたステップの費用は result に含まれない
+        "budget_stopped": (RAW / "budget-stopped").read_text().strip() if (RAW / "budget-stopped").exists() else "",
         "interventions": len((RAW / "interventions.log").read_text().splitlines()) if (RAW / "interventions.log").exists() else 0,
         "checks": checks,
         "e2e": e2e,
