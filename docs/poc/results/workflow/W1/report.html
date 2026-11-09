@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PoC W1 結果</title>
+<style>
+:root {
+  --bg:#f7f7f5; --surface:#ffffff; --text:#1d1d1f; --muted:#5f6368; --line:#e3e3df;
+  --accent:#2f5bd3; --a:#2f5bd3; --b:#1f8a70; --c:#b7791f; --ok:#1f8a70; --ng:#c0392b; --top:#eef3ff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#121314; --surface:#1c1d1f; --text:#ececec; --muted:#a0a4a8; --line:#2e3033;
+    --accent:#7c9cff; --a:#7c9cff; --b:#4cc39f; --c:#e0a84a; --ok:#4cc39f; --ng:#ff7b6b; --top:#1f2738;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#121314; --surface:#1c1d1f; --text:#ececec; --muted:#a0a4a8; --line:#2e3033;
+  --accent:#7c9cff; --a:#7c9cff; --b:#4cc39f; --c:#e0a84a; --ok:#4cc39f; --ng:#ff7b6b; --top:#1f2738;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.7 "Hiragino Sans","Noto Sans JP",system-ui,sans-serif; }
+main { max-width:1080px; margin:0 auto; padding:32px 16px 64px; }
+h1 { font-size:26px; margin:0 0 4px; }
+h2 { font-size:19px; margin:40px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+.lead { color:var(--muted); margin:0 0 20px; }
+.summary { background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--accent);
+  border-radius:8px; padding:14px 18px; }
+.summary p { margin:4px 0; }
+.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+.card.top { background:var(--top); border-color:var(--accent); }
+.card header { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+.card h3 { font-size:15px; margin:0; }
+.runs, .meta { color:var(--muted); font-size:12px; }
+.score { margin:6px 0; } .score strong { font-size:30px; }
+dl { margin:0; display:grid; gap:2px; font-size:13px; }
+dl div { display:flex; justify-content:space-between; } dt { color:var(--muted); } dd { margin:0; }
+.table-wrap { overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:10px; }
+table { border-collapse:collapse; width:100%; font-size:13px; min-width:900px; }
+th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+thead th { color:var(--muted); font-weight:600; white-space:nowrap; }
+td.num { text-align:right; font-variant-numeric:tabular-nums; }
+.pill { display:inline-block; font-size:11px; padding:0 6px; border-radius:999px; margin-right:2px; }
+.pill.ok { color:var(--ok); border:1px solid var(--ok); } .pill.ng { color:var(--ng); border:1px solid var(--ng); }
+.bd-row { display:grid; grid-template-columns:180px 1fr; gap:12px; padding:8px 0; border-bottom:1px solid var(--line); }
+.bd-bars { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.bd-name { font-weight:600; font-size:14px; }
+.bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin-top:2px; }
+.bar span { display:block; height:100%; background:var(--a); }
+.bar.b span { background:var(--b); } .bar.c span { background:var(--c); }
+small { color:var(--muted); font-size:12px; }
+details { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin:8px 0; }
+summary { cursor:pointer; }
+.sub { color:var(--muted); font-size:12px; margin:10px 0 2px; }
+.warn { color:var(--ng); font-size:13px; margin:10px 0 2px; }
+ul { padding-left:20px; } .files { font-size:13px; margin:0; }
+.kind { color:var(--muted); font-size:11px; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+.cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+.box { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:4px 18px; }
+@media (max-width:640px) {
+  .bd-row { grid-template-columns:1fr; } .bd-bars { grid-template-columns:1fr; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>開発ワークフロー PoC — W1 小さな変更</h1>
+  <p class="lead">実施日 2026-11-09 ・ モデル claude-sonnet-5-5 ・ Claude Code 2.1.319 ・ 計画書 docs/poc/PLAN.md §5.1</p>
+
+  <section class="summary">
+    <p><strong>W1（小さな変更）では、実装の正しさに差は出ませんでした。</strong>4 候補と baseline の全 9 試行が、隠しの受け入れテスト 6 件をすべて通過し、型チェック・単体テスト・ビルドも成功しました。</p><p>差が出たのは費用・時間と、作るものの多さです。Superpowers（平均 98.0 点）と Feature Dev（97.5 点）は、候補なしの baseline（99.3 点）とほぼ同じ費用（約 $0.17）・時間（約 40 秒）で終わりました。</p><p>gstack（85.1 点）は実装自体は同じ内容でしたが、続く <code>/review</code> を含めて費用が約 3 倍（約 $0.46）、時間が約 1.5 倍（約 1 分）でした。<code>/review</code> は作業ブランチが無いため「レビュー対象なし」で止まりました。</p><p>Compound Engineering（70.0 点）は、計画書の作成とレビューまで進めるため、費用が約 10 倍（$1.66〜$1.91）、時間が約 5 倍（約 3.5 分）かかり、120 行超の計画書もコミットしました。小さな変更には重い進め方です。</p>
+  </section>
+
+  <h2>課題</h2>
+  <p>タスク一覧画面（/tasks）に、担当者で絞り込むフィルタ（<code>&lt;select name="assignee"&gt;</code>、<code>?assignee=</code>）を追加する。ステータスとの同時指定、存在しない担当者は「指定なし」。課題文: <code>docs/poc/tasks/wf-W1.md</code></p>
+
+  <h2>結果の概要（平均点）</h2>
+  <div class="cards">
+      <article class="card top">
+        <header><h3>Superpowers</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>98.0</strong><small> / 100</small></p>
+        <dl>
+          <div><dt>受け入れ</dt><dd>50.0 / 50</dd></div>
+          <div><dt>時間・費用</dt><dd>28.0 / 30</dd></div>
+          <div><dt>過剰さ</dt><dd>20 / 20</dd></div>
+        </dl>
+        <p class="meta">平均 $0.17 ・ 0.7 分</p>
+      </article>
+      <article class="card">
+        <header><h3>Feature Dev</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>97.5</strong><small> / 100</small></p>
+        <dl>
+          <div><dt>受け入れ</dt><dd>50.0 / 50</dd></div>
+          <div><dt>時間・費用</dt><dd>27.5 / 30</dd></div>
+          <div><dt>過剰さ</dt><dd>20 / 20</dd></div>
+        </dl>
+        <p class="meta">平均 $0.17 ・ 0.7 分</p>
+      </article>
+      <article class="card">
+        <header><h3>Compound Engineering</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>70.0</strong><small> / 100</small></p>
+        <dl>
+          <div><dt>受け入れ</dt><dd>50.0 / 50</dd></div>
+          <div><dt>時間・費用</dt><dd>4.0 / 30</dd></div>
+          <div><dt>過剰さ</dt><dd>16 / 20</dd></div>
+        </dl>
+        <p class="meta">平均 $1.78 ・ 3.7 分</p>
+      </article>
+      <article class="card">
+        <header><h3>gstack</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>85.1</strong><small> / 100</small></p>
+        <dl>
+          <div><dt>受け入れ</dt><dd>50.0 / 50</dd></div>
+          <div><dt>時間・費用</dt><dd>15.1 / 30</dd></div>
+          <div><dt>過剰さ</dt><dd>20 / 20</dd></div>
+        </dl>
+        <p class="meta">平均 $0.46 ・ 1.0 分</p>
+      </article>
+      <article class="card">
+        <header><h3>baseline（候補なし）</h3><span class="runs">1 回</span></header>
+        <p class="score"><strong>99.3</strong><small> / 100</small></p>
+        <dl>
+          <div><dt>受け入れ</dt><dd>50.0 / 50</dd></div>
+          <div><dt>時間・費用</dt><dd>29.3 / 30</dd></div>
+          <div><dt>過剰さ</dt><dd>20 / 20</dd></div>
+        </dl>
+        <p class="meta">平均 $0.15 ・ 0.7 分</p>
+      </article></div>
+
+  <h2>配点ごとの内訳</h2>
+  <div class="box">
+        <div class="bd-row">
+          <span class="bd-name">Superpowers</span>
+          <div class="bd-bars">
+            <div><small>受け入れ 50.0</small><div class="bar a"><span style="width:100%"></span></div></div>
+            <div><small>時間・費用 28.0</small><div class="bar b"><span style="width:93%"></span></div></div>
+            <div><small>過剰さ 20</small><div class="bar c"><span style="width:100%"></span></div></div>
+          </div>
+        </div>
+        <div class="bd-row">
+          <span class="bd-name">Feature Dev</span>
+          <div class="bd-bars">
+            <div><small>受け入れ 50.0</small><div class="bar a"><span style="width:100%"></span></div></div>
+            <div><small>時間・費用 27.5</small><div class="bar b"><span style="width:92%"></span></div></div>
+            <div><small>過剰さ 20</small><div class="bar c"><span style="width:100%"></span></div></div>
+          </div>
+        </div>
+        <div class="bd-row">
+          <span class="bd-name">Compound Engineering</span>
+          <div class="bd-bars">
+            <div><small>受け入れ 50.0</small><div class="bar a"><span style="width:100%"></span></div></div>
+            <div><small>時間・費用 4.0</small><div class="bar b"><span style="width:13%"></span></div></div>
+            <div><small>過剰さ 16</small><div class="bar c"><span style="width:80%"></span></div></div>
+          </div>
+        </div>
+        <div class="bd-row">
+          <span class="bd-name">gstack</span>
+          <div class="bd-bars">
+            <div><small>受け入れ 50.0</small><div class="bar a"><span style="width:100%"></span></div></div>
+            <div><small>時間・費用 15.1</small><div class="bar b"><span style="width:50%"></span></div></div>
+            <div><small>過剰さ 20</small><div class="bar c"><span style="width:100%"></span></div></div>
+          </div>
+        </div>
+        <div class="bd-row">
+          <span class="bd-name">baseline（候補なし）</span>
+          <div class="bd-bars">
+            <div><small>受け入れ 50.0</small><div class="bar a"><span style="width:100%"></span></div></div>
+            <div><small>時間・費用 29.3</small><div class="bar b"><span style="width:98%"></span></div></div>
+            <div><small>過剰さ 20</small><div class="bar c"><span style="width:100%"></span></div></div>
+          </div>
+        </div></div>
+
+  <h2>試行ごとの結果</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>試行</th><th>点数</th><th>E2E</th><th>チェック</th><th>コード追加行</th><th>テスト追加行</th>
+        <th>費用</th><th>時間（分）</th><th>ターン</th><th>サブエージェント</th><th>拒否された操作</th><th>使われた Skill</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <th scope="row">Superpowers #1</th>
+          <td class="num">97.5</td>
+          <td class="num">6/6</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">37</td>
+          <td class="num">28</td>
+          <td class="num">$0.17</td>
+          <td class="num">0.7</td>
+          <td class="num">14</td>
+          <td class="num">0</td>
+          <td class="num">1</td>
+          <td>superpowers:test-driven-development</td>
+        </tr>
+        <tr>
+          <th scope="row">Superpowers #2</th>
+          <td class="num">98.5</td>
+          <td class="num">6/6</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">36</td>
+          <td class="num">28</td>
+          <td class="num">$0.17</td>
+          <td class="num">0.7</td>
+          <td class="num">14</td>
+          <td class="num">0</td>
+          <td class="num">2</td>
+          <td>superpowers:test-driven-development</td>
+        </tr>
+        <tr>
+          <th scope="row">Feature Dev #1</th>
+          <td class="num">97.9</td>
+          <td class="num">6/6</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">37</td>
+          <td class="num">31</td>
+          <td class="num">$0.17</td>
+          <td class="num">0.7</td>
+          <td class="num">12</td>
+          <td class="num">0</td>
+          <td class="num">1</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">Feature Dev #2</th>
+          <td class="num">97.1</td>
+          <td class="num">6/6</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">37</td>
+          <td class="num">27</td>
+          <td class="num">$0.17</td>
+          <td class="num">0.7</td>
+          <td class="num">12</td>
+          <td class="num">0</td>
+          <td class="num">1</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">Compound Engineering #1</th>
+          <td class="num">70.3</td>
+          <td class="num">6/6</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">36</td>
+          <td class="num">39</td>
+          <td class="num">$1.66</td>
+          <td class="num">3.5</td>
+          <td class="num">61</td>
+          <td class="num">1</td>
+          <td class="num">7</td>
+          <td>compound-engineering:ce-code-review, compound-engineering:ce-doc-review, compound-engineering:ce-work</td>
+        </tr>
+        <tr>
+          <th scope="row">Compound Engineering #2</th>
+          <td class="num">69.8</td>
+          <td class="num">6/6</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">36</td>
+          <td class="num">37</td>
+          <td class="num">$1.91</td>
+          <td class="num">3.8</td>
+          <td class="num">38</td>
+          <td class="num">1</td>
+          <td class="num">10</td>
+          <td>compound-engineering:ce-code-review, compound-engineering:ce-doc-review, compound-engineering:ce-work</td>
+        </tr>
+        <tr>
+          <th scope="row">gstack #1</th>
+          <td class="num">84.8</td>
+          <td class="num">6/6</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">29</td>
+          <td class="num">25</td>
+          <td class="num">$0.47</td>
+          <td class="num">1.0</td>
+          <td class="num">14</td>
+          <td class="num">0</td>
+          <td class="num">1</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">gstack #2</th>
+          <td class="num">85.4</td>
+          <td class="num">6/6</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">36</td>
+          <td class="num">26</td>
+          <td class="num">$0.45</td>
+          <td class="num">1.0</td>
+          <td class="num">14</td>
+          <td class="num">0</td>
+          <td class="num">1</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">baseline（候補なし） #1</th>
+          <td class="num">99.3</td>
+          <td class="num">6/6</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">29</td>
+          <td class="num">24</td>
+          <td class="num">$0.15</td>
+          <td class="num">0.7</td>
+          <td class="num">13</td>
+          <td class="num">0</td>
+          <td class="num">2</td>
+          <td>—</td>
+        </tr></tbody>
+    </table>
+  </div>
+
+  <h2>所見</h2>
+  <div class="box"><ul><li><strong>全候補が同じ構成で実装しました。</strong>変更は <code>src/lib/tasks.ts</code>（<code>listAssignees</code> / <code>isAssignee</code> / 絞り込み条件）、<code>src/app/tasks/page.tsx</code>（選択欄）、<code>tests/tasks.test.ts</code> の 3 ファイルで、コードの追加は 29〜38 行でした。<code>CLAUDE.md</code> の規約（lib に処理を置く、型ガードで検証、テストを追加、ライブラリを足さない）も全試行で守られています。</li><li><strong>Superpowers</strong> は 2 回とも <code>test-driven-development</code> Skill が自動で発火し、テストを先に書いて失敗を確認してから実装しました。結果は baseline と同じでしたが、費用の増加は約 1 割にとどまりました。<code>brainstorming</code> は発火しませんでした（課題が明確なため）。</li><li><strong>Feature Dev</strong> は <code>/feature-dev:feature-dev</code> が動きましたが、「無人のため確認・設計案の比較・レビューのフェーズを省略」と判断し、サブエージェント（code-explorer / code-architect）を一度も使いませんでした。W1 では実質的に baseline と同じ動きで、特長は出ていません。</li><li><strong>Compound Engineering</strong> は <code>/ce-plan</code> の中で計画書を作り、<code>ce-doc-review</code>（サブエージェント）で計画をレビューしたうえで、そのまま実装・コミットまで進めました。そのため続く <code>/ce-work</code> は「作業なし」で終わりました。作業ブランチも自分で作ります。<code>/ce-code-review</code> は、範囲判定のスクリプトが権限で拒否されたため簡易レビューに切り替え、指摘はありませんでした。</li><li><strong>gstack</strong> は 50 以上の Skill が読み込まれましたが、実装の段階ではどの Skill も自動で発火せず、通常の実装と同じ内容になりました（gstack の初期設定では、自動で発火するのは <code>/office-hours</code>・<code>/review</code>・<code>/qa</code>・<code>/ship</code> だけ）。読み込まれる Skill が多い分、実装段階だけで baseline の約 2 倍の費用（約 $0.32）がかかりました。続く <code>/review</code> は、作業ブランチが無く <code>master</code> に直接コミットされていたため、スキルの規定どおり「レビュー対象なし」で停止しました（1 回目は代わりに差分を自分で読み直し）。外部送信の記録（<code>gstack-egress list</code>）は 2 回とも「no receipts」でした。</li><li><strong>拒否された操作</strong>は、baseline・Superpowers・Feature Dev が 1〜2 件（Bash でのファイル書き換え。Edit ツールで代替）だったのに対し、Compound Engineering は 7〜10 件でした。内訳は、プラグイン自身のスクリプトの実行と、動作確認のための開発サーバー起動です。対話で使う場合は人が承認する操作で、無人実行では不利に働きます。</li><li>W1 は計画どおり「差の確認」用のシナリオです。候補の特長（要件の掘り下げ、既存コードの読み込み、学習の蓄積など）は W2 以降で比べます。</li></ul></div>
+
+  <h2>試行の詳細</h2>
+  
+      <details>
+        <summary><strong>Superpowers #1</strong> — 97.5 点</summary>
+        <p>変更は 3 ファイルのみ。TDD Skill でテストを先に書いた。</p>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/tasks/page.tsx</code> +23 −3 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +14 −1 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +28 −1 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>9284741 タスク一覧に担当者フィルタを追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Superpowers #2</strong> — 98.5 点</summary>
+        <p>変更は 3 ファイルのみ。TDD Skill でテストを先に書いた。</p>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/tasks/page.tsx</code> +22 −3 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +14 −1 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +28 −1 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>74b682f タスク一覧に担当者での絞り込みを追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Feature Dev #1</strong> — 97.9 点</summary>
+        <p>変更は 3 ファイルのみ。確認・承認フェーズは無人のため省略。</p>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/tasks/page.tsx</code> +22 −3 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +15 −1 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +31 −1 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>ce809d9 タスク一覧に担当者での絞り込みフィルタを追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Feature Dev #2</strong> — 97.1 点</summary>
+        <p>変更は 3 ファイルのみ。フェーズ 3・4・6 は無人のため省略。</p>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/tasks/page.tsx</code> +22 −3 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +15 −1 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +27 −1 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>af6e471 タスク一覧に担当者での絞り込みフィルタを追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Compound Engineering #1</strong> — 70.3 点</summary>
+        <p>コードは 3 ファイルのみ。計画書（docs/plans/）を別コミットで追加。作業ブランチを作成。</p>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>docs/plans/2026-11-09-0139-feat-tasks-assignee-filter-plan.md</code> +126 −0 <span class="kind">tool-artifact</span></li><li><code>src/app/tasks/page.tsx</code> +22 −3 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +14 −1 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +39 −1 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>d36f010 docs: 担当者フィルタの実装計画を追加</code></li><li><code>d3e6235 feat: タスク一覧に担当者での絞り込みを追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Compound Engineering #2</strong> — 69.8 点</summary>
+        <p>コードは 3 ファイルのみ。計画書（docs/plans/）を同じコミットに含めた。作業ブランチを作成。</p>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>docs/plans/2026-11-09-0139-feat-task-assignee-filter-plan.md</code> +136 −0 <span class="kind">tool-artifact</span></li><li><code>src/app/tasks/page.tsx</code> +22 −3 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +14 −1 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +37 −1 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>e7aca4e feat(tasks): 担当者でタスク一覧を絞り込めるようにする</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>gstack #1</strong> — 84.8 点</summary>
+        <p>変更は 3 ファイルのみ。/review は master 上のためベースブランチとの差分がなく「レビュー対象なし」で停止し、自分で差分を読み直した。</p>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/tasks/page.tsx</code> +15 −3 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +14 −1 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +25 −1 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>e13e3cb タスク一覧に担当者での絞り込みフィルタを追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>gstack #2</strong> — 85.4 点</summary>
+        <p>変更は 3 ファイルのみ。/review は規定どおり「Nothing to review」で停止。</p>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/tasks/page.tsx</code> +22 −3 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +14 −1 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +26 −1 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>96e3a19 タスク一覧に担当者フィルタを追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>baseline（候補なし） #1</strong> — 99.3 点</summary>
+        <p>変更は lib・ページ・テストの 3 ファイルのみ。</p>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/tasks/page.tsx</code> +15 −3 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +14 −1 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +24 −1 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>db24069 タスク一覧に担当者での絞り込みフィルタを追加</code></li></ul>
+      </details>
+
+  <div class="cols">
+    <section><h2>採点方法</h2><div class="box"><p>100 点満点（計画書 §5.1 の W1）。</p><ul><li><strong>受け入れ 50</strong>: 隠しの E2E 6 件 × 5 点、型チェック・単体テスト・ビルド 10 点、規約（テスト追加 5 点・ライブラリを足さない 5 点）</li><li><strong>時間・費用 30</strong>: 費用 15 × 最安 / 自分、時間 15 × 最速 / 自分（W1 の全試行で比較）</li><li><strong>過剰さ 20</strong>: コード追加 41〜80 行 −4・81 行以上 −8、テスト以外の新規ファイル 1 つ −2（最大 −4）、計画書などの文書・管理ファイルをコミット −4、依頼範囲外の変更 −4</li></ul><p>採点スクリプト: <code>scripts/poc/grade.py</code>、<code>scripts/poc/score_w1.py</code>。受け入れテスト: <code>docs/poc/answer-key/W1/acceptance.cjs</code>。</p></div></section>
+    <section><h2>この結果の制約</h2><div class="box"><ul><li><strong>無人（ヘッドレス）実行です。</strong>確認の質問に答えられないため、対話を前提にしたフェーズ（Feature Dev の確認・設計比較、Superpowers の brainstorming など）は評価できていません。</li><li><strong>権限を絞っています。</strong>全許可での子セッション起動は安全判定で止められたため、編集と決まったコマンドだけを許可しました。プラグイン自身のスクリプトや開発サーバーの起動が拒否されることがあり、Compound Engineering に不利に働いた可能性があります。</li><li><strong>gstack はブラウザなしで入れています。</strong>setup 中の Chrome for Testing のダウンロード（<code>cdn.playwright.dev</code>）が環境のネットワーク制限で失敗するため <code>--no-browser</code> を付けました。W1 では使いませんが、ブラウザを使う W6 の前にこのホストの許可が必要です。</li><li><strong>試行はデフォルトブランチ（master）上で始めています。</strong>作業ブランチを前提にする gstack の <code>/review</code> が「レビュー対象なし」になりました（Compound Engineering は自分でブランチを作成）。W2 以降は全候補とも作業ブランチの上で始めます。</li><li><strong>採点は自動テストと Claude（このセッション）による差分の確認です。</strong>人のブラインドレビューは未実施です（W1 の配点には含まれません）。</li><li><strong>試行回数は候補ごとに 2 回、baseline は 1 回です。</strong></li><li>モデルは <code>claude-sonnet-5-5</code> に固定しています。この実行環境に元からあるプラグイン・Skill（<code>cc-plugin-*</code> など）も全試行で読み込まれています（条件は全試行で同じ）。GitHub MCP は認証情報がないため外しています（W1 では不要）。</li><li>最初の実行で、ハーネスに 3 つの不具合（プラグインの参照ファイルを読めない、Feature Dev のコマンド名の誤り、費用の二重計上）が見つかりました。修正後に全試行をやり直した結果だけを載せています。</li></ul></div></section>
+  </div>
+
+  <h2>次の対応</h2>
+  <div class="box"><ul><li><strong>W2（仕様が明確な機能追加）</strong>: コメント機能（DB + API + UI）を課題にします。評価用アプリに DB 層を足してから開始します。</li><li><strong>試行環境の見直し</strong>: 全候補とも作業ブランチの上で始める（gstack の <code>/review</code> が動くように）。W6 の前に <code>cdn.playwright.dev</code> の通信許可を相談します。</li><li><strong>権限設定の見直し</strong>: Compound Engineering・gstack のスクリプトが拒否されないよう、許可リストの書き方（環境変数付き・cd 付きのコマンド）を改善するか、拒否の影響を別集計にします。</li></ul></div>
+</main>
+</body>
+</html>

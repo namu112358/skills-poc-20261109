@@ -14,3 +14,12 @@
 - `npm run typecheck` / `npm test` / `npm run build`
 - `git status` / `git diff` / `git log` / `git show` / `git add` / `git commit`
 - `ls` / `cat` / `grep` などの読み取り系
+
+## gstack の導入（試行ごと）
+
+試行ごとの専用 HOME に固定コミット（`b615592`）を置き、次のとおり入れる（2026-11-09 にユーザーの許可を得て実行）。
+
+- `./setup --host claude --no-team --no-plan-tune-hooks --no-browser --quiet`
+  - `--no-browser`: Chrome for Testing のダウンロード先（`cdn.playwright.dev`）が環境のネットワーク制限で使えないため
+- `gstack-config set update_check false`、`gstack-config set codex_reviews disabled`（テレメトリーは初期値 off）
+- 試行後に `gstack-egress list` で外部送信の記録を保存する
