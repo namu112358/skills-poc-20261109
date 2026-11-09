@@ -6,6 +6,7 @@
   --cleanup:      採点して結果を書いた後、その試行の作業用コピーを片付ける
   --cleanup-only: 採点せずに作業用コピーだけを片付ける（ブラインドレビューなどが済んだ後に使う）
   どちらも付けなければ作業用コピーは残す（従来どおり）。
+  --supplement:   結果を results/workflow/<シナリオ>/supplement/<試行ID>.json に書く（元の試行と混ぜない補足の再試行用）
 """
 import json
 import os
@@ -26,7 +27,7 @@ LEGACY_WORK = ROOT / ".poc-work" / "trials" / TRIAL
 WORK = Path((RAW / "workdir").read_text().strip()) if (RAW / "workdir").exists() else LEGACY_WORK
 APP = WORK / "app"
 TRIAL_ID = re.compile(r"\bW\d+[a-z]?-(?:baseline|superpowers|feature-dev|compound-engineering|gstack)-\d+\b")
-OUT = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO / f"{TRIAL}.json"
+OUT = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO / ("supplement" if "--supplement" in FLAGS else "") / f"{TRIAL}.json"
 
 # 候補が作る管理用ファイル（コード量の集計から除く。過剰さの判定では別に数える）
 TOOL_ARTIFACT = re.compile(r"^(docs/(plans|solutions|superpowers|specs)/|\.compound-engineering/|\.claude/)")
@@ -82,6 +83,7 @@ def transcript_stats():
     tools = {}
     skills = set()
     subagents = 0
+    subagent_types = {}
     final_text = []
     # 注意: --resume で続けたステップの result に入る total_cost_usd / modelUsage は、セッションの累計になっている。
     # そのため費用・トークンは全 result の最後（累計）を使い、ターン数はステップごとの最後の result を足す。
@@ -112,6 +114,8 @@ def transcript_stats():
                             skills.add((c.get("input") or {}).get("skill", "?"))
                         if name in ("Agent", "Task"):
                             subagents += 1
+                            kind = (c.get("input") or {}).get("subagent_type") or "general-purpose"
+                            subagent_types[kind] = subagent_types.get(kind, 0) + 1
                         if name == "AskUserQuestion":
                             questions += 1
                         full = json.dumps(c.get("input"), ensure_ascii=False)
@@ -143,6 +147,8 @@ def transcript_stats():
         "tool_calls": tools,
         "skills_used": sorted(skills),
         "subagents": subagents,
+        # サブエージェントの種類ごとの回数（2026-11-09 追加。これより前に採点した試行の JSON には無い）
+        "subagent_types": subagent_types,
         "questions": questions,
         # 子セッションが実際に動いていた時間（ステップごとの result の duration_ms の合計。終了待ちで固まった時間を含まない）
         "active_seconds": round(active_ms / 1000),
@@ -242,6 +248,8 @@ def main():
         "elapsed_seconds": int((RAW / "elapsed-seconds").read_text()),
         "errors": (RAW / "errors.log").read_text() if (RAW / "errors.log").exists() else "",
         # run-trial.sh が「お任せします」で続けさせた回数（POC_MAX_NUDGES。W1 は 0 固定）
+        # run-trial.sh の watch モードで費用の見積もりが上限に達して止めたとき（無ければ空）。止めたステップの費用は result に含まれない
+        "budget_stopped": (RAW / "budget-stopped").read_text().strip() if (RAW / "budget-stopped").exists() else "",
         "interventions": len((RAW / "interventions.log").read_text().splitlines()) if (RAW / "interventions.log").exists() else 0,
         "checks": checks,
         "e2e": e2e,

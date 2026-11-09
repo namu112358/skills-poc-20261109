@@ -1,0 +1,182 @@
+{
+  "scenario": "W5",
+  "trial": "W5-gstack-2",
+  "candidate": "gstack",
+  "run": 2,
+  "elapsed_seconds": 76,
+  "errors": "",
+  "interventions": 0,
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": ": 'test'\n      ...\n    1..1\nok 13 - list cache after update\n  ---\n  duration_ms: 115.11125\n  type: 'suite'\n  ...\n# Subtest: createTask / updateTask\n    # Subtest: creates a task and updates only the given fields\n    ok 1 - creates a task and updates only the given fields\n      ---\n      duration_ms: 118.918677\n      type: 'test'\n      ...\n    1..1\nok 14 - createTask / updateTask\n  ---\n  duration_ms: 119.043636\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.217807\n      type: 'test'\n      ...\n    1..1\nok 15 - isTaskStatus\n  ---\n  duration_ms: 1.486894\n  type: 'suite'\n  ...\n1..15\n# tests 22\n# suites 15\n# pass 22\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1985.217632\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "g 3 workers (6/8) \n✓ Generating static pages using 3 workers (8/8) in 162ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:28764) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:28777) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:28785) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "[B1] 200 文字ちょうどのタイトルでタスクを作成できる（201）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B1] 200 文字ちょうどのタイトルに更新できる（PATCH 200）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B1] 201 文字のタイトルは今までどおり 400",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B2] ログインの Cookie の有効期限は 7 日（Max-Age=604800）のまま",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B3] ステータスを変更すると API の一覧（絞り込み・すべて）に反映される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B3] ステータスを変更すると一覧画面（/tasks?status=…）に反映される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B3] タイトル・担当者の変更も一覧に反映される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] 作成したタスクが一覧に出る・詳細画面が開ける・未ログインは 401",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "AGENTS.md",
+        "added": 9,
+        "deleted": 0,
+        "kind": "doc"
+      },
+      {
+        "path": "src/lib/auth.ts",
+        "added": 1,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/tasks.ts",
+        "added": 3,
+        "deleted": 2,
+        "kind": "code"
+      },
+      {
+        "path": "tests/auth.test.ts",
+        "added": 12,
+        "deleted": 0,
+        "kind": "test"
+      },
+      {
+        "path": "tests/tasks.test.ts",
+        "added": 32,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "AGENTS.md"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "f8ec42f poc: uncommitted leftovers",
+      "b29d1ea fix(qa): ISSUE-001/003 — タイトル 200 文字の許可と一覧キャッシュの破棄",
+      "e94d8c0 fix(qa): ISSUE-002 — セッションの有効期限を 7 日にする"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.3735,
+    "tokens": {
+      "input": 18,
+      "output": 5247,
+      "cache_read": 684645,
+      "cache_creation": 63128
+    },
+    "turns": 12,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 8,
+      "Read": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "questions": 0,
+    "active_seconds": 65,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "3 件とも原因を特定して修正し、2 コミットに分けてコミットしました。`npm test`(22 件)と `npm run typecheck` は通っています。開発サーバーでも API を確認しました。\n\n| # | 原因 | 修正 |\n|---|---|---|\n| 1 タイトル 200 文字 | `src/lib/tasks.ts` の `validateTaskInput` が `length >= 200` で拒否していた。 | `trim()` 後の長さで `> 200` に変更。登録(`POST`)と更新(`PATCH`)は同じ検証関数を通るため、両方直ります。 |\n| 2 ログインが切れる | `src/lib/auth.ts` の `createSession` が、秒単位の `SESSION_TTL_SECONDS`(604800)をミリ秒として足していた。約 10 分で期限切れになり、Cookie の 7 日表示とずれていた。 | `SESSION_TTL_MS` を使うように変更。 |\n| 3 絞り込みに反映されない | `updateTask` が一覧キャッシュを破棄していなかった。登録時だけ破棄していたので、更新後も古いステータスが残っていた。 | `updateTask` でもキャッシュを破棄するよう変更。 |\n\n回帰テストは修正前に追加し、3 件とも失敗することを確認してから直しました。1 は `tests/tasks.test.ts` で 200 字の登録・更新が通り、201 字が弾かれることを確認します。2 は `tests/auth.test.ts` で、セッションが 7 日間有効であることを確認します。3 は `tests/tasks.test.ts` で、更新後の一覧(絞り込みあり・なし)に新しいステータスが出ることを確認します。\n\n開発サーバーでの確認結果は次のとおりです。\n- 200 文字のタイトルは 200 で登録でき、201 文字は 400 でした。\n- ログイン応答の `Max-Age` は 604800 でした。\n- `PATCH /api/tasks/2` で完了にすると、「完了」で絞り込んだ行が 1 件増えました。\n\n- **コミット:** 修正 1 と 3 は同じファイル(`src/lib/tasks.ts`)を触るため、1 つのコミットにまとめました。もう 1 つのコミット(`e94d8c0`)は修正 2 です。\n- **対象外のファイル:** リポジトリ直下に未追跡の `AGENTS.md` がありましたが、自分で作ったものではないのでコミットしていません。\n- **レポート:** gstack の手順にある QA レポートの出力と、`TODOS.md` の更新、学習ログの記録、テレメトリは行っていません。"
+  },
+  "w5": {
+    "hidden": {
+      "by_bug": {
+        "B1": true,
+        "B2": true,
+        "B3": true
+      },
+      "rows": [
+        {
+          "name": "[B1] validateTaskInput は 200 文字ちょうどのタイトルを受け付け、201 文字は拒否する",
+          "pass": true
+        },
+        {
+          "name": "[B2] セッションは 7 日間有効（1 時間後・7 日後の直前も有効、7 日を過ぎたら無効）",
+          "pass": true
+        },
+        {
+          "name": "[B3] updateTask の後の listTasks は、更新後の内容を返す（先に一覧を読んでいても）",
+          "pass": true
+        }
+      ]
+    },
+    "original_tests": {
+      "pass": 19,
+      "total": 19,
+      "failed": []
+    },
+    "regression": {
+      "files": [
+        "tests/auth.test.ts",
+        "tests/tasks.test.ts"
+      ],
+      "by_bug": {
+        "B1": true,
+        "B2": true,
+        "B3": true
+      },
+      "evidence": {
+        "B1": [
+          "tests/tasks.test.ts: accepts 200 characters and rejects 201 (create and partial update)"
+        ],
+        "B2": [
+          "tests/auth.test.ts: stays valid for 7 days"
+        ],
+        "B3": [
+          "tests/tasks.test.ts: reflects status changes in filtered and unfiltered lists"
+        ]
+      },
+      "ref_failures": []
+    },
+    "injected_patch": "a336c47908fb67f6a019eb5f565cfe0bfeab5ebe3233501bb6be6a64fa88de80  docs/poc/answer-key/W5/bugs.patch"
+  }
+}

@@ -10,17 +10,22 @@
                      テスト以外の新規ファイル: 1 つにつき −2（最大 −4）
                      計画書・設計書などの文書や候補の管理ファイルをコミット: −4
                      依頼範囲外の変更（人の確認による。manual-review.json）: −4
+
+--supplement: 補足の再試行（supplement/W1-*.json）を採点して supplement/scores.json に書く。
+  費用・時間の基準（最安・最速）は元の試行の値に固定し（それより安い・速い場合は 15 点で頭打ち）、元の scores.json は変えない。
 """
+import sys
 import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "docs" / "poc" / "results" / "workflow" / "W1"
+SUPP = DIR / "supplement"
 
 
-def load():
-    trials = [json.loads(p.read_text()) for p in sorted(DIR.glob("W1-*.json"))]
-    review_path = DIR / "manual-review.json"
+def load(d=DIR):
+    trials = [json.loads(p.read_text()) for p in sorted(d.glob("W1-*.json"))]
+    review_path = d / "manual-review.json"
     review = json.loads(review_path.read_text()) if review_path.exists() else {}
     return trials, review
 
@@ -44,8 +49,8 @@ def score(t, min_cost, min_time, review):
     }
     cost = t["transcript"]["cost_usd"] or 1e-9
     eff = {
-        "cost": round(15 * min_cost / cost, 1),
-        "time": round(15 * min_time / max(t["elapsed_seconds"], 1), 1),
+        "cost": round(min(15.0, 15 * min_cost / cost), 1),
+        "time": round(min(15.0, 15 * min_time / max(t["elapsed_seconds"], 1)), 1),
     }
     deduct = {
         "code_lines": -8 if code_added > 80 else (-4 if code_added > 40 else 0),
@@ -79,8 +84,12 @@ def main():
     trials, review = load()
     min_cost = min(t["transcript"]["cost_usd"] for t in trials)
     min_time = min(t["elapsed_seconds"] for t in trials)
+    out = DIR
+    if "--supplement" in sys.argv[1:]:
+        trials, review = load(SUPP)
+        out = SUPP
     scores = [score(t, min_cost, min_time, review) for t in trials]
-    (DIR / "scores.json").write_text(json.dumps(scores, ensure_ascii=False, indent=2) + "\n")
+    (out / "scores.json").write_text(json.dumps(scores, ensure_ascii=False, indent=2) + "\n")
     for s in scores:
         print(f"{s['trial']:32} total={s['total']:5}  acc={s['acceptance']:4} eff={s['efficiency']:4} over={s['overengineering']}")
 

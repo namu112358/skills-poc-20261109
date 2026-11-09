@@ -1,0 +1,177 @@
+{
+  "scenario": "W5",
+  "trial": "W5-baseline-1",
+  "candidate": "baseline",
+  "run": 1,
+  "elapsed_seconds": 45,
+  "errors": "",
+  "interventions": 0,
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "ons\n    # Subtest: accepts a 200-character title and rejects 201\n    ok 1 - accepts a 200-character title and rejects 201\n      ---\n      duration_ms: 129.044123\n      type: 'test'\n      ...\n    # Subtest: reflects updates in filtered lists\n    ok 2 - reflects updates in filtered lists\n      ---\n      duration_ms: 113.682553\n      type: 'test'\n      ...\n    1..2\nok 12 - regressions\n  ---\n  duration_ms: 242.916084\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 1.30508\n      type: 'test'\n      ...\n    1..1\nok 13 - isTaskStatus\n  ---\n  duration_ms: 1.40205\n  type: 'suite'\n  ...\n1..13\n# tests 21\n# suites 13\n# pass 21\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1900.89135\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "sing 3 workers (6/8) \n✓ Generating static pages using 3 workers (8/8) in 146ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:9850) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9844) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9857) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "[B1] 200 文字ちょうどのタイトルでタスクを作成できる（201）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B1] 200 文字ちょうどのタイトルに更新できる（PATCH 200）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B1] 201 文字のタイトルは今までどおり 400",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B2] ログインの Cookie の有効期限は 7 日（Max-Age=604800）のまま",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B3] ステータスを変更すると API の一覧（絞り込み・すべて）に反映される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B3] ステータスを変更すると一覧画面（/tasks?status=…）に反映される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B3] タイトル・担当者の変更も一覧に反映される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] 作成したタスクが一覧に出る・詳細画面が開ける・未ログインは 401",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/lib/auth.ts",
+        "added": 1,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/tasks.ts",
+        "added": 2,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "tests/auth.test.ts",
+        "added": 1,
+        "deleted": 0,
+        "kind": "test"
+      },
+      {
+        "path": "tests/tasks.test.ts",
+        "added": 20,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [],
+    "package_json_changed": false,
+    "commits": [
+      "d769ca5 不具合修正: タイトル200文字の検証・セッション有効期限・一覧キャッシュの破棄"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.1675,
+    "tokens": {
+      "input": 16,
+      "output": 3859,
+      "cache_read": 351426,
+      "cache_creation": 23442
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'E'\\nimport re\\np='src/lib/tasks.ts'; s=open(p).read()\\ns=s.replace(\\\"b.title.length >= 200\\\",\\\"b.title.length > 200\\\")\\ns=s.replace(\\\"\\\"\\\"  return getTask(id, db);\\n}\\\"\\\"\\\",\\"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Edit": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "questions": 0,
+    "active_seconds": 35,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "3 件とも原因を特定して直し、コミットしました（`d769ca5`）。`npm test`（21 件）と `npm run typecheck` は通っています。サーバーを起動しての画面・API の再現確認はしていません。\n\n1. **200 文字のタイトル**: `src/lib/tasks.ts` の検証が `length >= 200` になっていたので、200 文字ちょうどが弾かれていました。`> 200` に直しました。登録も変更もこの検証を通るので、両方とも直ります。201 文字以上は今までどおり 400 です。\n2. **ログインが 10 分で切れる**: `src/lib/auth.ts` の `createSession` が、有効期限の計算にミリ秒ではなく秒の値（`SESSION_TTL_SECONDS`）を使っていました。7 日が 604,800 ミリ秒（約 10 分）になっていたのが原因で、Cookie の期限は正しく 7 日のままでした。`SESSION_TTL_MS` を使うように直しました。直す前にログインしたセッションは DB に短い期限のまま残るので、再ログインが必要です。\n3. **ステータス変更が一覧に反映されない**: `src/lib/tasks.ts` の一覧キャッシュを `updateTask` が破棄していませんでした。登録時だけ破棄していたため、更新後も古い一覧が返っていました。`updateTask` でもキャッシュを破棄するようにしました。\n\nテストも追加しました。200 文字と 201 文字のタイトル、更新後の絞り込み結果、セッションの有効期間が対象です。"
+  },
+  "w5": {
+    "hidden": {
+      "by_bug": {
+        "B1": true,
+        "B2": true,
+        "B3": true
+      },
+      "rows": [
+        {
+          "name": "[B1] validateTaskInput は 200 文字ちょうどのタイトルを受け付け、201 文字は拒否する",
+          "pass": true
+        },
+        {
+          "name": "[B2] セッションは 7 日間有効（1 時間後・7 日後の直前も有効、7 日を過ぎたら無効）",
+          "pass": true
+        },
+        {
+          "name": "[B3] updateTask の後の listTasks は、更新後の内容を返す（先に一覧を読んでいても）",
+          "pass": true
+        }
+      ]
+    },
+    "original_tests": {
+      "pass": 19,
+      "total": 19,
+      "failed": []
+    },
+    "regression": {
+      "files": [
+        "tests/auth.test.ts",
+        "tests/tasks.test.ts"
+      ],
+      "by_bug": {
+        "B1": true,
+        "B2": true,
+        "B3": true
+      },
+      "evidence": {
+        "B1": [
+          "tests/tasks.test.ts: accepts a 200-character title and rejects 201"
+        ],
+        "B2": [
+          "tests/auth.test.ts: resolves a token to its user until it expires or is deleted"
+        ],
+        "B3": [
+          "tests/tasks.test.ts: reflects updates in filtered lists"
+        ]
+      },
+      "ref_failures": []
+    },
+    "injected_patch": "a336c47908fb67f6a019eb5f565cfe0bfeab5ebe3233501bb6be6a64fa88de80  docs/poc/answer-key/W5/bugs.patch"
+  }
+}

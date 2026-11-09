@@ -9,6 +9,7 @@
 | W2 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W3 | `<課題>` | `<課題>`（`brainstorming` の自動発火） | `/feature-dev:feature-dev <課題>`（確認質問のフェーズまで） | `/office-hours <課題>` → `/plan-ceo-review` | `/ce-brainstorm <課題>` |
 | W4 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `/autoplan <課題>` → 「計画に沿って実装し、変更を git にコミットしてください。」→ `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
+| W5 | `<課題>` | `<課題>`（`systematic-debugging` の自動発火） | `<課題>`（通常の指示） | `/qa <課題>` | `/ce-debug <課題>` |
 
 ### W2 以降の共通の決まり
 
@@ -25,6 +26,13 @@
 - 質問用のツール（`AskUserQuestion`）は外す（`--disallowedTools AskUserQuestion`）。質問はメッセージ本文で受ける。
 - 手順を終えて `REQUIREMENTS.md` がコミットされていなければ、定型の「お任せします。確認は不要なので、要件を REQUIREMENTS.md にまとめ、git にコミットしてください。」で続けさせる（最大 2 回）。
 - gstack は `/office-hours` の質問がやり取りで終わってから `/plan-ceo-review` に進む（そのステップの質問にも同じように答える）。
+
+### W5 の決まり（バグ修正）
+
+- 仕込みバグのパッチ（正解データ `docs/poc/answer-key/W5/bugs.patch`）を、`run-trial.sh` が作業用コピーにだけ当ててから baseline コミットを作る。バグは初期状態の一部になるので、候補からは差分として見えない。パッチファイル自体は作業用コピーに置かない（当てたパッチのハッシュを `raw/<試行ID>/injected-patch` に記録する）。W5 以外では当てない。
+- 課題文は利用者からの報告 3 件（再現手順と期待する動作）だけで、原因の場所やテストの追加は指示しない（テストについては `poc-app/CLAUDE.md` の規約 5 のとおり）。
+- 介入の定型文は「お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。」（最大 2 回）。
+- 採点は `scripts/poc/grade_w5.py`（`docs/poc/answer-key/W5/grading.md`）。
 
 ## 権限
 
@@ -60,3 +68,16 @@
 - 新文言（W4 以降の既定）: 「この作業は無人で実行しています。確認の質問には答えられないので、課題文に書かれていないことの判断はお任せしますが、ツールの手順にある工程（調査・設計・レビューなど）は省かずに進めてください。作業が終わったら、変更内容を git にコミットしてください。」
 - 変更の理由: 旧文言のもとで、Feature Dev が W1〜W2 で「無人実行のため」と質問・設計案の比較・エージェントの工程を省き、候補の特長が出ていなかったため。
 - 切り替え: `POC_TASK_SUFFIX=old|new` で明示できる（W1・W2 を新文言で再試行するときは `new`）。使った文言は `raw/<試行ID>/task-suffix` に記録する。
+
+## W1・W2 の Feature Dev の補足の再試行（2026-11-09）
+
+- 新文言（`POC_TASK_SUFFIX=new`）で Feature Dev だけを各 2 回（回の番号 3・4）やり直した。結果は `results/workflow/<W>/supplement/` に置き、元の試行の点数・順位は置き換えない（`grade.py`・`score_w1.py`・`score_w2.py`・`blind_w2.py` の `--supplement`）。
+- W1 は、元の試行と同じ評価用アプリ（ログイン・SQLite の追加前、コミット `83e3877` の `poc-app/`）で実行する。`run-trial.sh` の `POC_APP_SRC` に、その版を取り出して `npm ci` したディレクトリを指定する（既定は現行の `poc-app/`）。
+
+## 費用の上限の守り方（2026-11-09 追加。W6 から適用）
+
+- 1 試行の上限は「規模係数（その W の baseline の実額 ÷ W1 baseline $0.15）× W1 の候補平均 × 5、最大 $10」（ユーザー承認済み。$10 を超える上限が要るときだけユーザーに確認する）。規模係数と上限は各 W の report.md の判断の記録に残す。
+- W5 までは上限を `--max-budget-usd` で子セッションに渡していた（`POC_BUDGET_MODE=flag`、既定）。この値は子セッションのモデルに「USD budget: $0/$0.9; $0.9 remaining」のように見え、予算を意識して工程を減らした例があった（W1 の Feature Dev 再試行）。
+- W6 からは `POC_BUDGET_MODE=watch` にする。`--max-budget-usd` を渡さず、`run-trial.sh` が実行中のトークン使用量から費用を見積もり、上限に達したら子セッションを止める（`raw/<試行ID>/budget-stopped` に見積額を記録し、`grade.py` は `budget_stopped` に転記する）。
+  - 見積もりの単価（米ドル / 100 万トークン。`POC_RATE_IN`・`POC_RATE_OUT`・`POC_RATE_CACHE_READ`・`POC_RATE_CACHE_5M`・`POC_RATE_CACHE_1H`）は、2026-11-09 に claude-sonnet-5-5 の実測（result の costUSD）から求めた値を既定にしている。較正用の 2 回では、見積もりは実額の −13%〜+7% だった。
+  - 見積もりは応答が 1 つ終わるごとに更新されるため、1 回の長い応答の途中では止まらない。安全のための打ち切りであり、正式な費用は従来どおり result の `total_cost_usd`。

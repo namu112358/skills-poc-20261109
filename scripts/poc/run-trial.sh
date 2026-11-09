@@ -23,7 +23,11 @@ rm -rf "$WORK" "$OUT"; mkdir -p "$APP" "$HOME_DIR" "$OUT"
 echo "$WORK" > "$OUT/workdir"
 
 # 1) 評価用アプリのコピー（node_modules を含む）と、常時有効な Skills・MCP
-cp -a "$ROOT/poc-app/." "$APP/"
+# POC_APP_SRC: コピー元の評価用アプリ（既定は $ROOT/poc-app）。W1 を当時の poc-app（ログイン・SQLite の追加前）で
+# 再試行するときなどに、その版を取り出したディレクトリを指定する。使ったコピー元は raw/<ID>/app-src に記録する。
+APP_SRC="${POC_APP_SRC:-$ROOT/poc-app}"
+[[ -n "${POC_APP_SRC:-}" ]] && echo "$APP_SRC" > "$OUT/app-src"
+cp -a "$APP_SRC/." "$APP/"
 rm -rf "$APP/.next" "$APP"/*.tsbuildinfo
 mkdir -p "$APP/.claude"
 cp -a "$ROOT/.claude/skills" "$APP/.claude/skills"
@@ -33,7 +37,17 @@ cat > "$APP/.mcp.json" <<'JSON'
   "playwright":{"type":"stdio","command":"npx","args":["-y","@playwright/mcp@0.0.84"]},
   "next-devtools":{"type":"stdio","command":"npx","args":["-y","next-devtools-mcp@0.4.0"]}}}
 JSON
-( cd "$APP" && git init -q && git add -A && git -c user.name=poc -c user.email=poc@example.invalid commit -qm baseline )
+# W5（バグ修正）: 仕込みバグのパッチ（正解データ）を作業用コピーにだけ当ててから baseline コミットを作る。
+# バグは baseline の一部になるので、候補からは差分として見えない。パッチファイル自体は作業用コピーに置かない。
+# W5 以外は既定で当てない（POC_INJECT_PATCH で明示したときだけ当てる）。
+INJECT="${POC_INJECT_PATCH:-}"
+[[ -z "$INJECT" && "$SCENARIO" == W5 ]] && INJECT="$ROOT/docs/poc/answer-key/W5/bugs.patch"
+( cd "$APP" && git init -q )
+if [[ -n "$INJECT" ]]; then
+  git -C "$APP" apply "$INJECT"
+  sha256sum "$INJECT" | sed "s#$ROOT/##" > "$OUT/injected-patch"
+fi
+( cd "$APP" && git add -A && git -c user.name=poc -c user.email=poc@example.invalid commit -qm baseline )
 git -C "$APP" config user.name poc
 git -C "$APP" config user.email poc@example.invalid
 git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
@@ -137,9 +151,26 @@ fi
 if [[ "$SCENARIO" == W4 && "$CAND" == gstack ]]; then
   STEPS=("/autoplan $TASK" "計画に沿って実装し、変更を git にコミットしてください。" "/review")
 fi
+if [[ "$SCENARIO" == W5 ]]; then
+  # W5 の手順（docs/poc/tasks/wf-procedures.md）。gstack は /qa、Compound Engineering は /ce-debug に課題を渡す。
+  case "$CAND" in
+    baseline|superpowers|feature-dev) STEPS=("$TASK") ;;
+    compound-engineering) STEPS=("/ce-debug $TASK") ;;
+    gstack) STEPS=("/qa $TASK") ;;
+  esac
+fi
 
-# 1 試行の費用の上限（米ドル。空なら上限なし）。各ステップには、それまでの累計を引いた残りを --max-budget-usd で渡す。
+# 1 試行の費用の上限（米ドル。空なら上限なし）。
 MAX_USD="${POC_MAX_TRIAL_USD:-}"
+# 上限の守り方（POC_BUDGET_MODE）:
+#   flag（既定。W5 までの手順）: 各ステップに、それまでの累計を引いた残りを --max-budget-usd で渡す。
+#     この値は子セッションのモデルに「USD budget: $0/$0.9; $0.9 remaining」のように見えるため、
+#     予算を意識して工程を減らすことがある（W1 の Feature Dev 再試行で確認）。
+#   watch（W6 から）: --max-budget-usd を渡さず、run-trial.sh が途中のトークン使用量から費用を見積もり、
+#     上限に達したら子セッションを止める。見積もりの単価は POC_RATE_*（米ドル / 100 万トークン）で変えられる。
+#     正式な費用は従来どおり result の total_cost_usd。止めたときは budget-stopped に見積額を記録する。
+BUDGET_MODE="${POC_BUDGET_MODE:-flag}"
+case "$BUDGET_MODE" in flag|watch) ;; *) echo "POC_BUDGET_MODE は flag か watch: $BUDGET_MODE" >&2; exit 1 ;; esac
 # 介入（定型の「お任せします」で続けさせる）の上限回数。0 なら介入しない（W1 の手順）。
 MAX_NUDGES="${POC_MAX_NUDGES:-0}"
 NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、変更を git にコミットしてください。"
@@ -147,6 +178,7 @@ NUDGE="お任せします。確認は不要なので、課題を最後まで実�
 MAX_QA="${POC_MAX_QA_ROUNDS:-10}"
 QA_CLOSE="質問はここまでで締め切ります。残りはお任せします。ここまでの回答をもとに要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
 [[ "$SCENARIO" == W3 ]] && NUDGE="お任せします。確認は不要なので、要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
+[[ "$SCENARIO" == W5 ]] && NUDGE="お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。"
 
 session_cost() {  # これまでの全ステップの最後の result の total_cost_usd（--resume では累計）
   python3 -c '
@@ -163,7 +195,35 @@ for f in sorted(glob.glob(sys.argv[1] + "/step*.jsonl"), key=lambda p: int(re.se
 print(cost)' "$OUT"
 }
 over_budget() {
+  [[ -s "$OUT/budget-stopped" ]] && return 0
   [[ -n "$MAX_USD" ]] && python3 -c "import sys; sys.exit(0 if $(session_cost) >= $MAX_USD * 0.98 else 1)"
+}
+step_estimate() {  # watch 用: 実行中のステップの費用の見積もり（それまでの result の累計 + このステップのトークン × 単価）
+  python3 -c '
+import json, os, sys
+rate = {k: float(os.environ.get("POC_RATE_" + k.upper(), d)) / 1e6 for k, d in
+        {"in": 1.87, "out": 9.96, "cache_read": 0.187, "cache_5m": 2.34, "cache_1h": 3.74}.items()}
+# 途中のメッセージの usage.output_tokens は書き始め時点の値なので、出力は本文の文字数 / 3 との大きい方で見積もる
+msgs = {}
+for line in open(sys.argv[2]):
+    try:
+        d = json.loads(line)
+    except ValueError:
+        continue
+    m = d.get("message") or {}
+    if d.get("type") != "assistant" or not m.get("usage"):
+        continue
+    e = msgs.setdefault(m.get("id"), {"usage": m["usage"], "chars": 0})
+    e["chars"] += len(json.dumps(m.get("content") or [], ensure_ascii=False))
+est = 0.0
+for e in msgs.values():
+    u = e["usage"]; cc = u.get("cache_creation") or {}
+    w1h = cc.get("ephemeral_1h_input_tokens", 0)
+    w5m = cc.get("ephemeral_5m_input_tokens", u.get("cache_creation_input_tokens", 0) - w1h)
+    out = max(u.get("output_tokens", 0), e["chars"] / 3)
+    est += (u.get("input_tokens", 0) * rate["in"] + out * rate["out"]
+            + u.get("cache_read_input_tokens", 0) * rate["cache_read"] + w5m * rate["cache_5m"] + w1h * rate["cache_1h"])
+print(round(float(sys.argv[1]) + est, 4))' "$1" "$2"
 }
 first_session_id() {
   python3 -c '
@@ -192,7 +252,8 @@ reap_servers() {  # 作業用コピーを cwd にして動く next のプロセ�
 run_step() {  # run_step <番号> <プロンプト>
   local n="$1" prompt="$2" RESUME=() BUDGET=()
   [[ -n "$SESSION" ]] && RESUME=(--resume "$SESSION")
-  if [[ -n "$MAX_USD" ]]; then
+  local before; before="$(session_cost)"
+  if [[ -n "$MAX_USD" && "$BUDGET_MODE" == flag ]]; then
     BUDGET=(--max-budget-usd "$(python3 -c "print(max(0.01, round($MAX_USD - $(session_cost), 2)))")")
   fi
   ( cd "$APP" && HOME="$HOME_DIR" timeout "${POC_STEP_TIMEOUT:-2400}" claude -p "$prompt" \
@@ -205,6 +266,15 @@ run_step() {  # run_step <番号> <プロンプト>
   # claude -p が終了待ちになる。結果が出てから 30 秒たっても終わらなければ、作業用コピーで動く next のプロセスを止める。
   while kill -0 "$pid" 2>/dev/null; do
     sleep 5
+    if [[ -n "$MAX_USD" && "$BUDGET_MODE" == watch ]] && ! grep -q '"type":"result"' "$OUT/step$n.jsonl" 2>/dev/null; then
+      local est; est="$(step_estimate "$before" "$OUT/step$n.jsonl")"
+      if python3 -c "import sys; sys.exit(0 if $est >= $MAX_USD else 1)"; then
+        echo "step$n est=\$$est limit=\$$MAX_USD" > "$OUT/budget-stopped"
+        echo "step$n stopped: estimated \$$est reached budget \$$MAX_USD" >> "$OUT/errors.log"
+        pkill -TERM -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null
+        break
+      fi
+    fi
     if grep -q '"type":"result"' "$OUT/step$n.jsonl" 2>/dev/null; then
       waited=$((waited + 5))
       if [[ "$waited" -ge 30 ]]; then reap_servers "$n"; waited=-60; fi
