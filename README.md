@@ -70,6 +70,10 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 
 AI 駆動開発の標準基盤・設計原則: [docs/standards/ai-software-factory-engineering-standard.md](docs/standards/ai-software-factory-engineering-standard.md)（v1.1 Draft、レビュー記録は [docs/standards/REVIEW.md](docs/standards/REVIEW.md)）
 
+## GitHub リポジトリの初期設定
+
+新規リポジトリを作るときの GitHub 側の標準設定（Rulesets、Advanced Security、Actions、Environments、標準ファイル）と、AI エージェントが品質ゲートを迂回できないようにする権限設計は [docs/github-setup/README.md](docs/github-setup/README.md) にまとめています。
+
 ## Issue・PR テンプレート
 
 各プロジェクト共通の Issue Forms（機能要望 / 不具合報告 / 技術的負債）・PR テンプレートと、AI エージェント向けの Issue・PR 記述ルールを `templates/github/` に置いています。決めたこと・導入手順（ラベル作成を含む）・記入済みサンプルは [docs/github-templates/README.md](docs/github-templates/README.md)、調査結果と出典は [docs/github-templates/research.md](docs/github-templates/research.md) を参照してください。
