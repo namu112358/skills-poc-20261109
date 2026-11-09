@@ -7,6 +7,7 @@ import statistics
 from pathlib import Path
 
 import supplement_report
+import two_axis
 
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "docs" / "poc" / "results" / "workflow" / "W2"
@@ -278,8 +279,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
   <div class="box"><ul>{decisions}</ul></div>
 
   <h2>次の対応</h2>
-  <div class="box"><ul>{nexts}</ul></div>{supplement_report.html_section("W2", scores, DIR)}
-</main>
+  <div class="box"><ul>{nexts}</ul></div>{supplement_report.html_section("W2", scores, DIR)}{two_axis.html_section("W2", DIR)}</main>
 </body>
 </html>
 """
@@ -348,6 +348,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
     supp = supplement_report.md_section("W2", scores, DIR, md, cell)
     if supp:
         out += [""] + supp
+    out += [""] + two_axis.md_section("W2", DIR)[:-1]  # 2 本立ての点数（PLAN.md §4.4）。既存の節の後ろに足す
     (DIR / "report.md").write_text("\n".join(out) + "\n")
     print(f"wrote {DIR / 'report.md'}")
 
