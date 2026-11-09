@@ -1,0 +1,85 @@
+{
+ "scenario": "W11",
+ "task": "B1",
+ "kind": "bug",
+ "repo": "pytest-dev/pytest",
+ "trial": "W11-B1-compound-engineering-1",
+ "candidate": "compound-engineering",
+ "run": 1,
+ "resolved": true,
+ "quality": 100.0,
+ "hidden_tests": {
+  "f2p_total": 1,
+  "f2p_pass": 1,
+  "new_total": 1,
+  "new_pass": 1,
+  "existing_total": 56,
+  "existing_pass": 56,
+  "p2p_total": 56,
+  "p2p_pass": 56,
+  "f2p_failed": [],
+  "p2p_broken": [],
+  "seconds": 1.8,
+  "log_tail": ""
+ },
+ "diff": {
+  "src_added": 13,
+  "src_removed": 2,
+  "src_files": [
+   "src/_pytest/fixtures.py"
+  ],
+  "test_added": 31,
+  "test_files": [
+   "testing/python/fixtures.py"
+  ],
+  "other_files": [
+   "changelog/14600.bugfix.rst"
+  ],
+  "upstream_src_added": 25,
+  "upstream_src_removed": 0
+ },
+ "facts": {
+  "cost_usd": 0.5001,
+  "elapsed_seconds": 130,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 1
+ },
+ "transcript": {
+  "cost_usd": 0.5001,
+  "turns": 33,
+  "tools": {
+   "Read": 5,
+   "Bash": 15,
+   "Write": 7,
+   "Edit": 5
+  },
+  "skills": [],
+  "subagents": 0,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W11-B1-compound-engineering-1-app/6dd079d0-8a0a-4fea-bfac-f4fb9eeadd99/scratchpad && rm -rf $S/r && mkdir -p $S/r/tests/components/a $S/r/tests/components/"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W11-B1-compound-engineering-1-app/6dd079d0-8a0a-4fea-bfac-f4fb9eeadd99/scratchpad/r && PYTHONPATH=/tmp/poc-trials/W11-B1-compound-engineering-1/app/src py"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"PYTHONPATH=/tmp/poc-trials/W11-B1-compound-engineering-1/app/src python -m pytest --collect-only -q --rootdir=/tmp/claude-0/-tmp-poc-trials-W11-B1-compound-engineering-1-app/6dd079d0-8a0a"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W11-B1-compound-engineering-1-app/6dd079d0-8a0a-4fea-bfac-f4fb9eeadd99/scratchpad; cat > $S/run.py <<'E'\\nimport os, sys\\nsys.path.insert(0, \\\"/tmp/poc-tri"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"git stash push -q src/_pytest/fixtures.py && python -m pytest testing/python/fixtures.py -q -k parent_dir_recollected -p no:cacheprovider 2>&1 | tail -3; git stash pop -q && python -m pyt"
+   }
+  ],
+  "isolation_suspects": [],
+  "final_text": "re the fix. After the fix it collects 3 tests with no error. I did not run the real Home Assistant collection from the issue.\n\n**Fix** (`src/_pytest/fixtures.py`):\n- The conftest plugin entry is no longer consumed with `pop`.\n- Fixtures are now registered once for every Directory node of that path, tracked in a new `_conftest_parsed_nodes` set. The set is cleared in `pytest_collection_finish` together with `_pending_conftests`.\n\n**Tests**:\n- I added `test_conftest_fixtures_visible_when_parent_dir_recollected` in `testing/python/fixtures.py`. It uses the same shape as the reproduction.\n- I ran `testing/python/fixtures.py`, `testing/test_collection.py` and `testing/test_conftest.py`: 390 passed, 4 skipped, 4 xfailed.\n- I did not re-run the new test against the unfixed source, because the stash step needed an approval I couldn't get in this unattended run. Its failure before the fix is covered by the manual reproduction above.\n\n**Other changes**:\n- I added `changelog/14600.bugfix.rst`. The issue number is a placeholder, since the real number wasn't given. Please rename it.\n- I did not go through the options menu or the extra review and simplify steps. The task asked for a fix directly and ran unattended, so I committed the fix straight away.\n\n**Commit**: `4eecfda` on the current branch. Nothing was pushed.\n\n**Confidence**: High on the mechanism. The reproduction fails and passes exactly where the hypothesis predicts. Medium on the full Home Assistant case, which I could not run."
+ }
+}
