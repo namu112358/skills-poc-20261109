@@ -213,9 +213,12 @@ def run_key(name):
                 time.sleep(1)
         env = dict(os.environ, NODE_PATH=subprocess.run("npm root -g", shell=True, capture_output=True, text=True).stdout.strip())
         key = ROOT / "docs" / "poc" / "answer-key" / SCENARIO / name
-        code, log = run(f"node {key} http://127.0.0.1:{port}", timeout=600, env=env)
+        # run() は出力の末尾 3000 字だけを返すため、不合格が多いと結果の JSON が途中で切れる。ここでは標準出力を丸ごと読む
+        p = subprocess.run(f"node {key} http://127.0.0.1:{port}", cwd=APP, shell=True, capture_output=True, text=True,
+                           timeout=600, env=env)
+        log = p.stdout + p.stderr
         try:
-            results = json.loads(log.strip().splitlines()[-1])
+            results = json.loads(p.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):
             results = [{"name": f"{name} の実行", "pass": False, "detail": log[-500:]}]
     finally:

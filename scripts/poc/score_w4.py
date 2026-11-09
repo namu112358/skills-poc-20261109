@@ -83,6 +83,11 @@ def budget_mentions(trial):
     return hits
 
 
+def stopped_estimate(t):
+    m = re.findall(r"est=\$([0-9.]+)", t.get("budget_stopped", "") or t.get("errors", ""))
+    return round(max(map(float, m)), 4) if m else 0.0
+
+
 def score(t, code_reviews, design_reviews):
     e2e_pass = sum(1 for c in t["e2e"] if c["pass"])
     authz_pass = sum(1 for c in t.get("authz", []) if c["pass"])
@@ -133,7 +138,10 @@ def score(t, code_reviews, design_reviews):
             "test_added": sum(f["added"] for f in files if f["kind"] == "test"),
             "files_changed": sum(1 for f in files if f["kind"] in ("code", "test")),
             "artifacts": [f["path"] for f in files if f["kind"] in ("doc", "tool-artifact")],
-            "cost_usd": tr["cost_usd"], "elapsed_seconds": t["elapsed_seconds"], "active_seconds": tr.get("active_seconds"),
+            # 打ち切りで result が出なかった試行は、run-trial.sh の見積額（budget-stopped の est=$…）を使う
+            "cost_usd": tr["cost_usd"] or stopped_estimate(t),
+            "cost_estimated": not tr["cost_usd"] and bool(stopped_estimate(t)),
+            "budget_stopped": t.get("budget_stopped", ""), "elapsed_seconds": t["elapsed_seconds"], "active_seconds": tr.get("active_seconds"),
             "turns": tr["turns"], "subagents": tr["subagents"], "skills_used": tr["skills_used"],
             "denials": len(tr["permission_denials"]), "commits": len(t["diff"]["commits"]),
             "package_json_changed": t["diff"]["package_json_changed"],
