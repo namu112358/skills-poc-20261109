@@ -76,6 +76,7 @@ def score(t, reviews):
             "elicited_ids": qa["elicited_ids"], "closed_by_limit": qa["closed_by_limit"],
             "doc_source": t["doc_source"], "doc_lines": t["doc_lines"], "code_changed": t["code_changed"],
             "interventions": t["interventions"], "answer_key_access": tr.get("answer_key_access", []),
+            "isolation_suspects": tr.get("isolation_suspects", []),
             "cost_usd": tr["cost_usd"], "answerer_cost_usd": qa["answerer_cost_usd"],
             "elapsed_seconds": t["elapsed_seconds"], "active_seconds": tr.get("active_seconds"),
             "turns": tr["turns"], "subagents": tr["subagents"], "skills_used": tr["skills_used"],
