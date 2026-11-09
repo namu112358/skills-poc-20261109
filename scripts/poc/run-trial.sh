@@ -159,13 +159,18 @@ fi
 # 1 試行の費用の上限（米ドル。空なら上限なし）。
 MAX_USD="${POC_MAX_TRIAL_USD:-}"
 # 上限の守り方（POC_BUDGET_MODE）:
-#   flag（既定。W5 までの手順）: 各ステップに、それまでの累計を引いた残りを --max-budget-usd で渡す。
+#   flag（W1〜W5 の既定）: 各ステップに、それまでの累計を引いた残りを --max-budget-usd で渡す。
 #     この値は子セッションのモデルに「USD budget: $0/$0.9; $0.9 remaining」のように見えるため、
 #     予算を意識して工程を減らすことがある（W1 の Feature Dev 再試行で確認）。
-#   watch（W6 から）: --max-budget-usd を渡さず、run-trial.sh が途中のトークン使用量から費用を見積もり、
+#   watch（W6 以降の既定）: --max-budget-usd を渡さず、run-trial.sh が途中のトークン使用量から費用を見積もり、
 #     上限に達したら子セッションを止める。見積もりの単価は POC_RATE_*（米ドル / 100 万トークン）で変えられる。
 #     正式な費用は従来どおり result の total_cost_usd。止めたときは budget-stopped に見積額を記録する。
-BUDGET_MODE="${POC_BUDGET_MODE:-flag}"
+# 既定はシナリオで決める（W1〜W5 は再現のため flag、W6 以降は watch）。POC_BUDGET_MODE で上書きできる。
+BUDGET_MODE="${POC_BUDGET_MODE:-}"
+if [[ -z "$BUDGET_MODE" ]]; then
+  case "$SCENARIO" in W1|W2|W3|W4|W5) BUDGET_MODE=flag ;; *) BUDGET_MODE=watch ;; esac
+fi
+echo "$BUDGET_MODE" > "$OUT/budget-mode"
 case "$BUDGET_MODE" in flag|watch) ;; *) echo "POC_BUDGET_MODE は flag か watch: $BUDGET_MODE" >&2; exit 1 ;; esac
 # 介入（定型の「お任せします」で続けさせる）の上限回数。0 なら介入しない（W1 の手順）。
 MAX_NUDGES="${POC_MAX_NUDGES:-0}"
