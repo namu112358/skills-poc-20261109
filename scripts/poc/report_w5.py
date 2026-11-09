@@ -37,7 +37,6 @@ def md(s):
     """notes.json の HTML 断片を GitHub で読める Markdown に変える。"""
     s = str(s)
     s = re.sub(r"<code>(.*?)</code>", lambda m: "`" + m.group(1) + "`", s, flags=re.S)
-    s = re.sub(r"<strong>(.*?)</strong>", lambda m: "**" + m.group(1) + "**", s, flags=re.S)
     s = re.sub(r"<li>", "\n- ", s)
     s = re.sub(r"</p>\s*", "\n\n", s)
     s = re.sub(r"<ul>\s*", "\n", s)
@@ -76,7 +75,9 @@ def main():
         return sum(1 for s in by_cand[c] for b in BUGS if s["regression_by_bug"][b])
 
     ranked = sorted([c for c in cands if c != "baseline"], key=lambda c: -mean(c, "total"))
-    top = ranked[0] if ranked else None
+    # 同点の首位はすべて強調する
+    best = max((mean(c, "total") for c in ranked), default=None)
+    tops = {c for c in ranked if mean(c, "total") == best}
     trial_rows = [(c, s) for c in cands for s in sorted(by_cand[c], key=lambda s: s["run"])]
 
     # ---------- HTML ----------
@@ -85,7 +86,7 @@ def main():
         runs = by_cand[c]
         parts = "".join(f"<div><dt>{lab}</dt><dd>{mean(c, k)} / {mx}</dd></div>" for k, lab, mx, _ in PARTS)
         cards.append(f"""
-      <article class="card{' top' if c == top else ''}">
+      <article class="card{' top' if c in tops else ''}">
         <header><h3>{e(LABEL[c])}</h3><span class="runs">{len(runs)} 回</span></header>
         <p class="score"><strong>{mean(c, 'total')}</strong><small> / 100</small></p>
         <dl>{parts}</dl>
@@ -305,7 +306,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
             "| 候補 | 回数 | 合計 / 100 | 根本原因 / 50 | 回帰テスト / 25 | 既存テスト / 10 | 所要時間 / 15 | 直せたバグ | 回帰テスト | 平均費用 | 平均時間（分） |",
             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for c in cands:
-        name = f"**{LABEL[c]}**" if c == top else LABEL[c]
+        name = f"**{LABEL[c]}**" if c in tops else LABEL[c]
         n = len(by_cand[c])
         out.append(f"| {name} | {n} | {mean(c, 'total')} | {mean(c, 'root_cause')} | {mean(c, 'regression')} | {mean(c, 'keep_tests')} | "
                    f"{mean(c, 'time')} | {fixed_count(c)} / {3 * n} | {reg_count(c)} / {3 * n} | ${mean_fact(c, 'cost_usd'):.2f} | "

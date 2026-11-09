@@ -133,5 +133,57 @@
     "answer_key_access": [],
     "isolation_suspects": [],
     "final_message": "3件とも原因を特定して直し、1コミットにまとめました（`6853209`）。単体テスト 21 件と型チェックは通っています。画面や API を実際に動かした確認はしていません。\n\n| 報告 | 原因 | 修正 |\n|---|---|---|\n| 1. 200 文字ちょうどで 400 になる | `src/lib/tasks.ts` の上限判定が `>= 200` だった | `> 200` に変更。登録（POST）と変更（PATCH）の両方に効き、201 文字以上は従来どおり 400 です |\n| 2. 約 10 分でログインが切れる | `src/lib/auth.ts` の `createSession` が、秒単位の値（`SESSION_TTL_SECONDS`）をミリ秒として足していた。7 日ではなく 604,800 ミリ秒（約 10 分）で期限が切れていた | ミリ秒の定数（`SESSION_TTL_MS`）を使うように変更。Cookie の `maxAge` は秒の値のままで正しいので触っていません |\n| 3. ステータス変更が絞り込みに反映されない | 一覧の結果を DB ごと・絞り込み条件ごとにキャッシュしていて、`updateTask` で破棄していなかった（`createTask` では破棄していたので、新規登録だけは反映されていた） | `updateTask` でもキャッシュを破棄するようにした |\n\n次のテストを追加しました。\n- タイトル 200 文字は通り、201 文字は通らないこと（登録と部分更新の両方）。\n- セッションが 7 日後の直前まで有効で、期限を過ぎると無効になること。\n- ステータス更新後、「完了」や「進行中」で絞り込んだ一覧にすぐ反映されること。\n\n別のレビュー担当（エージェント）にも差分を見てもらい、追加の問題はありませんでした。\n\n無人実行のため確認の質問ができず、フィーチャー開発の手順にある質問・設計案の承認の工程は省略しました。いずれも原因が 1 行で特定でき、直し方が一つに決まるため、設計案の比較も行っていません。\n\nキャッシュは `globalThis` に持つ仕組みのままです。サーバーが 1 プロセスなら問題ありませんが、将来 DB を別プロセスから書き換えるようになると古い表示が出る可能性があります。"
+  },
+  "w5": {
+    "hidden": {
+      "by_bug": {
+        "B1": true,
+        "B2": true,
+        "B3": true
+      },
+      "rows": [
+        {
+          "name": "[B1] validateTaskInput は 200 文字ちょうどのタイトルを受け付け、201 文字は拒否する",
+          "pass": true
+        },
+        {
+          "name": "[B2] セッションは 7 日間有効（1 時間後・7 日後の直前も有効、7 日を過ぎたら無効）",
+          "pass": true
+        },
+        {
+          "name": "[B3] updateTask の後の listTasks は、更新後の内容を返す（先に一覧を読んでいても）",
+          "pass": true
+        }
+      ]
+    },
+    "original_tests": {
+      "pass": 19,
+      "total": 19,
+      "failed": []
+    },
+    "regression": {
+      "files": [
+        "tests/auth.test.ts",
+        "tests/tasks.test.ts"
+      ],
+      "by_bug": {
+        "B1": true,
+        "B2": true,
+        "B3": true
+      },
+      "evidence": {
+        "B1": [
+          "tests/tasks.test.ts: accepts a 200-character title and rejects 201"
+        ],
+        "B2": [
+          "tests/auth.test.ts: resolves a token to its user until it expires or is deleted"
+        ],
+        "B3": [
+          "tests/tasks.test.ts: reflects updates in filtered lists despite the list cache"
+        ]
+      },
+      "ref_failures": []
+    },
+    "injected_patch": "a336c47908fb67f6a019eb5f565cfe0bfeab5ebe3233501bb6be6a64fa88de80  docs/poc/answer-key/W5/bugs.patch"
   }
 }
