@@ -55,6 +55,12 @@ def bar(value, maximum, cls=""):
     return f'<div class="bar {cls}"><span style="width:{pct:.0f}%"></span></div>'
 
 
+def home_mem(mem):
+    """専用 HOME に残ったもの。Claude Code のセッションの記録（.claude/projects/ の memory/ 以外）は新しいセッションに読み込まれないので除く
+    （grade_w7.py が除くようになる前に採点した試行の分も、ここで同じように除く）。"""
+    return [x for x in mem.get("in_home", []) if not (x.startswith(".claude/projects/") and "/memory/" not in x)]
+
+
 def yn(v):
     return "✅" if v else "❌"
 
@@ -79,6 +85,43 @@ def main():
     best = max((mean(c, "total") for c in ranked), default=None)
     tops = {c for c in ranked if mean(c, "total") == best}
     rows_sorted = [(c, s) for c in cands for s in sorted(by_cand[c], key=lambda s: s["run"])]
+    controls = sorted(json.loads((DIR / "scores.json").read_text()).get("controls", []),
+                      key=lambda x: ORDER.index(x["candidate"]) if x["candidate"] in ORDER else 99)
+
+    def learn_rows():
+        """組ごとの学習の記録: (a) 前段の知見を読んだか、(b) 同じ間違いを繰り返したか。"""
+        out = []
+        for c, s in rows_sorted:
+            used = sorted({m["file"] for m in s.get("memory_used", [])})
+            out.append((f"{LABEL[c]} #{s['run']}", ", ".join(s.get("learned", [])) or "なし",
+                        ", ".join(s.get("repeated", [])) or ("なし" if s.get("learned") else "—"), used))
+        return out
+
+    def control_rows():
+        """対照（W7a を引き継がない W7b）と、同じ候補の続けて行った W7b（平均）の比較。"""
+        out = []
+        for x in controls:
+            c, b = x["candidate"], x["b"]
+            pair = by_cand.get(c, [])
+            n = len(pair)
+            pav = sum(int(s["b"]["pitfalls_first"][p]) for s in pair for p in ("P1", "P2"))
+            out.append({
+                "name": LABEL.get(c, c),
+                "ctl_pit": " ".join(f"{p}{yn(b['pitfalls_first'][p])}" for p in ("P1", "P2")),
+                "pair_pit": f"{pav} / {2 * n}" if n else "—",
+                "ctl_acc": f"{b['e2e_pass']}/{b['e2e_total']}",
+                "ctl_cost": b["cost_usd"], "pair_cost": statistics.mean(s["b"]["cost_usd"] for s in pair) if n else None,
+                "ctl_time": b["elapsed_seconds"], "pair_time": statistics.mean(s["b"]["elapsed_seconds"] for s in pair) if n else None,
+                "ctl_turns": b["turns"], "pair_turns": statistics.mean(s["b"]["turns"] for s in pair) if n else None,
+                "ctl_q": x["quality"], "ctl_eff": x["efficiency"],
+                "pair_q": statistics.mean(s["quality"] for s in pair) if n else None,
+                "pair_eff": statistics.mean(s["efficiency"] for s in pair) if n else None,
+                "stopped": b.get("budget_stopped") or "",
+            })
+        return out
+
+    def f2(v, fmt):
+        return "—" if v is None else fmt.format(v)
 
     # ---------- HTML ----------
     cards = []
@@ -139,7 +182,7 @@ def main():
         <p>{note}</p>
         {'<p class="warn">不合格の受け入れテスト</p><ul>' + fa + '</ul>' if fa else ''}
         <p class="sub">W7a から W7b に残ったもの（作業用コピー）</p><ul class="files">{''.join(f'<li><code>{e(x)}</code></li>' for x in mem.get('in_app', [])) or '<li>なし</li>'}</ul>
-        <p class="sub">W7a から W7b に残ったもの（専用 HOME。セッションの記録を除く）</p><ul class="files">{''.join(f'<li><code>{e(x)}</code></li>' for x in mem.get('in_home', [])[:30]) or '<li>なし</li>'}</ul>
+        <p class="sub">W7a から W7b に残ったもの（専用 HOME。セッションの記録を除く）</p><ul class="files">{''.join(f'<li><code>{e(x)}</code></li>' for x in home_mem(mem)[:30]) or '<li>なし</li>'}</ul>
         <p class="sub">W7b で記憶になりうるものを読んだ形跡（最初の 10 件）</p><ul class="files">{''.join(f'<li>{e(x["tool"])}: <code>{e(x["input"][:160])}</code></li>' for x in reads[:10]) or '<li>なし</li>'}</ul>
       </details>""")
 
@@ -255,6 +298,24 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
     </table>
   </div>
 
+  <h2>前の段階の知見を読んだか・同じ間違いを繰り返したか</h2>
+  <p class="lead">「W7a で指摘を受けた」は W7a で指摘の前に避けられなかった落とし穴（学ぶ機会があったもの）。「W7b で繰り返した」はそのうち W7b でも指摘の前に避けられなかったもの。</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>組</th><th>W7a で指摘を受けた</th><th>W7b で繰り返した</th><th>W7b で読んだ前の段階の知見（W7a が残したファイル）</th></tr></thead>
+      <tbody>{''.join(f"<tr><th scope='row'>{e(n)}</th><td>{e(l)}</td><td>{e(r)}</td><td>{'<br>'.join(f'<code>{e(u)}</code>' for u in used) or 'なし'}</td></tr>" for n, l, r, used in learn_rows())}</tbody>
+    </table>
+  </div>
+
+  <h2>対照（W7a を引き継がない W7b）との比較</h2>
+  <p class="lead">対照は、同じ候補で W7b だけを、新しい作業用コピー（初期状態 + W7a の参照実装）と新しい HOME で行ったもの（各候補 1 回）。候補の記憶も、候補自身が書いた W7a のコードも無い。右側は続けて行った W7b（2 組の平均）。</p>
+  <div class="table-wrap">
+    <table class="wide">
+      <thead><tr><th>候補</th><th>対照: 指摘前</th><th>続けて: 指摘前に避けた数</th><th>対照: 受入</th><th>費用 対照 / 続けて</th><th>時間（分）対照 / 続けて</th><th>ターン 対照 / 続けて</th><th>品質 対照 / 続けて</th><th>効率 対照 / 続けて</th></tr></thead>
+      <tbody>{''.join(f"<tr><th scope='row'>{e(r['name'])}</th><td>{e(r['ctl_pit'])}</td><td class='num'>{r['pair_pit']}</td><td class='num'>{r['ctl_acc']}</td><td class='num'>${r['ctl_cost']:.2f} / {f2(r['pair_cost'], '${:.2f}')}</td><td class='num'>{r['ctl_time'] / 60:.1f} / {f2(r['pair_time'] and r['pair_time'] / 60, '{:.1f}')}</td><td class='num'>{r['ctl_turns']} / {f2(r['pair_turns'], '{:.1f}')}</td><td class='num'>{r['ctl_q']} / {f2(r['pair_q'], '{:.1f}')}</td><td class='num'>{r['ctl_eff']} / {f2(r['pair_eff'], '{:.1f}')}</td></tr>" for r in control_rows())}</tbody>
+    </table>
+  </div>
+
   <h2>所見</h2>
   <div class="box"><ul>{lis('observations')}</ul></div>
 
@@ -325,6 +386,19 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
                    f"{a['elapsed_seconds'] / 60:.1f} → {b['elapsed_seconds'] / 60:.1f}（{s['time_ratio']}） | {s['interventions_a']} → {s['interventions_b']} | "
                    f"${a['cost_usd']:.2f} → ${b['cost_usd']:.2f} | {a['turns']} → {b['turns']} | "
                    f"{cell(', '.join(sorted(set(a['skills_used']) | set(b['skills_used']))) or '—')} |")
+    out += ["", "## 前の段階の知見を読んだか・同じ間違いを繰り返したか", "",
+            "「W7a で指摘を受けた」は W7a で指摘の前に避けられなかった落とし穴（学ぶ機会があったもの）。「W7b で繰り返した」はそのうち W7b でも指摘の前に避けられなかったもの。", "",
+            "| 組 | W7a で指摘を受けた | W7b で繰り返した | W7b で読んだ前の段階の知見（W7a が残したファイル） |", "|---|---|---|---|"]
+    for n, l, r, used in learn_rows():
+        out.append(f"| {n} | {l} | {r} | {'<br>'.join(f'`{u}`' for u in used) or 'なし'} |")
+    out += ["", "## 対照（W7a を引き継がない W7b）との比較", "",
+            "対照は、同じ候補で W7b だけを、新しい作業用コピー（初期状態 + W7a の参照実装）と新しい HOME で行ったもの（各候補 1 回）。候補の記憶も、候補自身が書いた W7a のコードも無い。「続けて」は続けて行った W7b（2 組の平均）。", "",
+            "| 候補 | 対照: 指摘前 | 続けて: 指摘前に避けた数 | 対照: 受入 | 費用 対照 / 続けて | 時間（分）対照 / 続けて | ターン 対照 / 続けて | 品質 対照 / 続けて | 効率 対照 / 続けて |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|"]
+    for r in control_rows():
+        out.append(f"| {r['name']} | {r['ctl_pit']} | {r['pair_pit']} | {r['ctl_acc']} | ${r['ctl_cost']:.2f} / {f2(r['pair_cost'], '${:.2f}')} | "
+                   f"{r['ctl_time'] / 60:.1f} / {f2(r['pair_time'] and r['pair_time'] / 60, '{:.1f}')} | {r['ctl_turns']} / {f2(r['pair_turns'], '{:.1f}')} | "
+                   f"{r['ctl_q']} / {f2(r['pair_q'], '{:.1f}')} | {r['ctl_eff']} / {f2(r['pair_eff'], '{:.1f}')} |")
     out += ["", "## 所見", ""] + [f"- {md(x)}" for x in NOTES["observations"]]
     out += ["", "## 各候補が W7a → W7b に残したもの", ""] + [f"- {md(x)}" for x in NOTES["memory"]]
     out += ["", "## 組の詳細", ""]
@@ -335,7 +409,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
         if failed:
             out += ["不合格の受け入れテスト:", ""] + [f"- {x}" for x in failed] + [""]
         out += ["W7a から W7b に残ったもの（作業用コピー）:", ""] + ([f"- `{x}`" for x in mem.get("in_app", [])] or ["- なし"])
-        out += ["", "W7a から W7b に残ったもの（専用 HOME。セッションの記録を除く）:", ""] + ([f"- `{x}`" for x in mem.get("in_home", [])[:30]] or ["- なし"])
+        out += ["", "W7a から W7b に残ったもの（専用 HOME。セッションの記録を除く）:", ""] + ([f"- `{x}`" for x in home_mem(mem)[:30]] or ["- なし"])
         out += ["", "W7b で記憶になりうるものを読んだ形跡（最初の 10 件）:", ""]
         out += [f"- {x['tool']}: `{cell(x['input'][:160]).replace('`', '')}`" for x in s["memory_reads"][:10]] or ["- なし"]
         out.append("")
