@@ -1,0 +1,68 @@
+{
+ "date": "2026-11-09",
+ "model": "claude-sonnet-5-5",
+ "claude_code": "2.1.319",
+ "summary": [
+  "<strong>W7（続けて行う作業での学習効果）では、品質に差は出ませんでした。</strong>4 候補 × 2 組と baseline の全 9 組が、W7b（作業記録）で 2 件の落とし穴（日時は UTC で保存し JST で表示する、新しい API は独自のエラー型で返す）をレビューの指摘の前に避け、受け入れテストも 14/14 でした（品質は全組 100 点）。",
+  "W7a（完了報告）で落とし穴を外したのは Feature Dev #1・Compound Engineering #1・#2 の 3 組（いずれも P2 のエラー型）で、3 組とも W7b では指摘の前に避けました（<strong>同じ間違いの繰り返しは 0 件</strong>）。Compound Engineering は <code>/ce-compound</code> で決まりを <code>docs/solutions/</code> に残し、#2 は W7b の最初の調査でそれを読みました。",
+  "ただし、<strong>前の段階の知見が無い対照（W7a を引き継がず、W7a の参照実装だけがある状態で W7b を実行）でも 4 候補すべてが 2 件とも避けた</strong>ため、W7b での回避は「W7a で直ったコードが手本として残っていること」で説明でき、記憶の仕組みの効き目はこの 2 段階の設計では切り分けられません。",
+  "効率（同じ品質での費用・時間。基準は W7b baseline の $0.36・96 秒）は baseline（100 点）と Superpowers（94 点）が最も良く、Feature Dev 77 点、Compound Engineering 36.5 点、gstack 36 点です。続けて行った W7b の費用は対照と比べても下がっておらず（Compound Engineering $5.67 対 $3.96、gstack $3.48 対 $3.02）、記憶を引き継ぐことによる費用・時間の削減は見られませんでした。"
+ ],
+ "task_html": "<p>同じ評価用アプリで、W7a「タスクの完了報告」（API 3 本と詳細画面の表示。課題文 <code>docs/poc/tasks/wf-W7a.md</code>）を行い、続けて新しいセッションで W7b「タスクの作業記録」（API 3 本と詳細画面の一覧・合計。<code>wf-W7b.md</code>）を行わせた。W7b は W7a の作業用コピーと専用 HOME をそのまま引き継ぐ。初期状態は v2（決まりへの移行の途中。既存のコメント・タスクの API は古い書き方のまま、新しい決まりは <code>src/lib/errors.ts</code>・<code>src/lib/datetime.ts</code>・<code>withApi</code>・<code>GET /api/me</code> とテストにだけ現れる）。どちらの課題文にも決まりは書かず、W7a・W7b の両方に同じ 2 件の落とし穴を含めた。手順を終えた後に落とし穴を判定し、外していればレビューの定型の指摘を送って直させた（最大 2 回）。採点は W7b の指摘前の判定で行う。</p>",
+ "observations": [
+  "品質（W7b の落とし穴 + 受け入れ）は 9 組すべて 100 点で、候補の間に差はありません。W7a の受け入れテストも全組 16/16 でした。",
+  "W7a で落とし穴を外したのは 3 組で、すべて P2（新しい API で <code>AppError</code>・<code>withApi</code> を使わず、既存のタスク API と同じ <code>jsonError</code> で返した）。P1（日時）は全組が W7a から避けました。既存コードに <code>toUtcIso</code>・<code>formatJst</code> とテストがあり、日時は気づきやすかったと考えられます。",
+  "W7a で指摘を受けた 3 組（Feature Dev #1、Compound Engineering #1・#2）は、W7b で 3 組とも指摘の前に避けました（同じ間違いの繰り返し 0 件）。ほかの 6 組は W7a でも避けていたため、学ぶ機会自体がありませんでした。",
+  "前の段階の知見を読んだ形跡: Compound Engineering #2 は W7b の 1 ステップ目で <code>docs/solutions/conventions/new-api-routes-use-withapi-and-apperror.md</code> を直接読みました。#1 は記録上、W7a の計画書（<code>docs/plans/</code>）を読んだ形跡だけが残り、<code>docs/solutions/</code> を読んだかはサブエージェントの中で読んだ可能性も含めて確認できませんでした。Feature Dev #1 は記憶の仕組みを持たず、W7a で直したコード（同じ作業用コピーに残る）を手本にしたと考えられます。",
+  "対照（W7a を引き継がない W7b、各候補 1 回）: Superpowers・Feature Dev・Compound Engineering・gstack の 4 本とも、指摘の前に 2 件とも避け、受け入れ 14/14 でした。対照の作業用コピーには W7a の参照実装（決まりに沿ったコード）があるので、続けて行った W7b と同じく「手本」はあり、違いは候補の記憶と候補自身の W7a のコードの有無だけです。この差で回避の結果は変わりませんでした。",
+  "費用・時間の対照との比較（続けて行った W7b の 2 組平均 / 対照）: Superpowers $0.66・3.9 分 / $0.75・3.4 分、Feature Dev $1.30・3.0 分 / $1.36・4.3 分、Compound Engineering $5.67・11.9 分 / $3.96・10.3 分、gstack $3.48・7.5 分 / $3.02・7.2 分。続けて行うことで安く速くなったとは言えず、Compound Engineering は記憶を引き継いだ側の方が高くつきました（#2 は上限 $7.67 で止めた）。",
+  "W7a → W7b の費用の変化は、baseline $0.36 → $0.36、Superpowers $0.63 → $0.66（平均）、Feature Dev $1.42 → $1.30、Compound Engineering $4.97 → $5.67、gstack $2.43 → $3.48。W7b は W7a と別の機能なので、この変化は学習だけでなく課題の違いも含みます。",
+  "gstack #2 の W7b は、<code>/review</code> が足したテストを未コミットのまま確認待ちで止まり、「お任せします」の介入を 1 回受けました（効率の介入 0 点）。Compound Engineering #2 の W7b は watch の見積もりが上限（$7.67）に達し、<code>/ce-work</code> の途中で止めました（実装とコミットは済んでおり、品質は 100 点）。"
+ ],
+ "memory": [
+  "<strong>Compound Engineering</strong>: 2 組とも W7a の指摘の後の <code>/ce-compound</code> で、決まり（新しい API は <code>withApi</code> と <code>AppError</code> を使う）を <code>docs/solutions/conventions/</code> に 1 件残しました。W7a の計画書（<code>docs/plans/</code>）も作業用コピーに残ります。",
+  "<strong>gstack</strong>: 専用 HOME の <code>~/.gstack/</code> に設定・状態が残りました。#2 は学習データ（<code>learnings.jsonl</code>）を 1 件残しましたが、内容は gstack 自身の QA の道具の使い方で、プロジェクトの決まりではありません（W7a で指摘を受けておらず、学ぶ機会がなかった）。",
+  "<strong>Superpowers・Feature Dev・baseline</strong>: 記憶の仕組みを持たないため、残ったのは W7a で書いたコードとコミットだけです（Claude Code の自動メモリは全試行で止めた）。",
+  "候補が <code>CLAUDE.md</code> の API の一覧を更新した組がある（baseline・Feature Dev #2・gstack #1 の W7b など）が、内容は API の追加の記載で、落とし穴の決まりを書き足した組はありませんでした。"
+ ],
+ "trials": {
+  "baseline-1": "W7a・W7b とも最初に <code>api.ts</code>・<code>errors.ts</code>・<code>datetime.ts</code> を読み、2 件とも避けた。費用・時間は W7a・W7b ともほぼ同じ（$0.36・約 1.6 分）。",
+  "superpowers-1": "2 段階とも <code>brainstorming</code> が発火。W7a は <code>requesting-code-review</code> でレビューもさせた。2 件とも W7a から避けた。",
+  "superpowers-2": "2 件とも W7a から避けた。W7b は <code>test-driven-development</code>・<code>requesting-code-review</code> まで進み、時間が W7a の 1.9 倍になった（総合点の時間の比は 0 点）。",
+  "feature-dev-1": "W7a で P2 を外し、指摘 1 回で直した。W7b は 2 件とも指摘の前に避けた。記憶の仕組みは無く、W7a で直したコードを手本にしたと考えられる。",
+  "feature-dev-2": "2 件とも W7a から避けた。W7a の <code>isolation_suspects</code> 1 件は自分の作業用コピーの中の参照（下の「試行間の独立性」）。",
+  "compound-engineering-1": "W7a で P2 を外し、指摘 1 回で直した後、<code>/ce-compound</code> で決まりを <code>docs/solutions/</code> に残した。W7b は 2 件とも指摘の前に避けた。W7b で読んだ形跡として記録に残ったのは W7a の計画書。",
+  "compound-engineering-2": "W7a で P2 を外し、指摘 1 回で直した後、<code>/ce-compound</code> で決まりを残した。W7b の最初の調査でその <code>docs/solutions/</code> を読み、2 件とも避けた。W7b は watch の上限（$7.67）で <code>/ce-work</code> の途中で止めた（費用は見積額 $7.73 で数える。<code>/ce-code-review</code> は未実行）。",
+  "gstack-1": "2 件とも W7a から避けた。W7b の <code>/review</code> は専門家別のサブエージェントでレビューした。",
+  "gstack-2": "2 件とも W7a から避けた。W7b で <code>/review</code> が足したテストを未コミットのまま確認待ちで止まり、介入 1 回。費用は W7b で $4.59。"
+ },
+ "scoring_html": "<p>手順は <code>docs/poc/answer-key/W7/grading.md</code>（試行前に固定）。試行ごとに <code>scripts/poc/grade_w7.py</code>（受け入れテスト、落とし穴の判定 <code>pitfalls.cjs</code>、W7a が残したもの、W7b でそれを読んだ形跡）、組ごとに <code>score_w7.py</code>、2 本立てを <code>two_axis.py</code> で計算した。</p><ul><li><strong>品質</strong>（主表示）=（W7b で指摘の前に避けた落とし穴 50 + W7b の受け入れテスト 20）/ 70 × 100。</li><li><strong>効率</strong>（主表示）= 費用 50 + 時間 30 + 介入 20。W7b の費用・時間を W7b baseline（$0.3638・96 秒）に対する倍率で段階評価する。上限で止めたステップの費用は見積額で数える。</li><li><strong>総合</strong>（並記。PLAN.md §5.1）= W7b の落とし穴 50 + W7b の所要時間の W7a 比 15 + 介入回数の W7a 比 15 + W7b の受け入れ 20。</li><li>学習の記録（点数に入れない）: 前の段階の知見を読んだか（<code>memory_used</code>）、同じ間違いを繰り返したか（<code>learned</code>・<code>repeated</code>）、対照との差（<code>controls</code>）。</li></ul>",
+ "limitations": [
+  "各候補 2 組、baseline 1 組、対照は各候補 1 回（baseline の対照なし）。全組が品質 100 点で、落とし穴の回避に差が出なかったため、学習の効き目の大きさは測れていない。",
+  "W7a で落とし穴を外して学ぶ機会があったのは 3 組だけ（すべて P2）。P1 は全組が W7a から避けたため、P1 での学習は観察できない。",
+  "続けて行った W7b と対照の差は、候補の記憶と、候補自身が書いた W7a のコードの両方を含む。対照にも W7a の参照実装（決まりに沿ったコード）があるので、「コードの手本」による回避と「記憶」による回避を区別できない。",
+  "W7b は W7a と別の機能なので、W7a → W7b の費用・時間の変化は課題の違いを含む。",
+  "対照 Feature Dev・Superpowers・gstack は、ほかの組と別の日時・別のコンテナで実行した（モデル・Claude Code・プラグインの固定コミット・許可リストは同じ）。",
+  "引き継ぎ後に実行した対照 3 本（Feature Dev・Superpowers・gstack）以外の試行のトランスクリプト（<code>raw/</code>、Git 管理外）はコンテナの入れ替えで残っておらず、採点結果の JSON に残った記録だけで判断した箇所がある（Compound Engineering #1 が <code>docs/solutions/</code> を読んだか、など）。"
+ ],
+ "decisions": [
+  "v1 の初期状態（既存のコメント機能が決まりに沿っていた）では、baseline が W7a・W7b とも既存のコードを真似るだけで 2 件とも避け、学習の効果を測れなかったため、試行を始める前に v2 に改めた（パイロットの費用 $0.37 + $0.40。<code>W7/pilot-v1/</code>）。",
+  "v2 でも baseline は最初に <code>api.ts</code>・<code>errors.ts</code>・<code>datetime.ts</code> を読み 2 件とも避けた。これ以上隠すと「作業中に気づける形」（PLAN.md §5.1）を満たさなくなるため、v2 のまま実施した。",
+  "W6 の許可リストの変更（開発サーバーの起動・ブラウザ）は W7 の試行の開始時点で main に入っていなかったため、W7 は従来の許可リストで統一した。引き継ぎ後に main を取り込んだところ、<code>run-trial.sh</code> がシナリオ番号 6 以上に開発サーバー等を許可する形になっていたため、<strong>W7 だけをその追加から外した</strong>（子セッションの許可リストの変更。CLAUDE.md の例外としてコーディネーターが判断）。理由: 採点済みの 18 試行と対照 Compound Engineering が従来の許可リストで行われており、残りの対照 3 本も同じ条件にするため。W6・W9 以降の許可は変えていない。",
+  "Claude Code の自動メモリは候補の記憶の仕組みではなく、W7b が W7a の HOME を引き継ぐと全候補に同じ記憶が残るため、W7 の全試行で止めた（<code>CLAUDE_CODE_DISABLE_AUTO_MEMORY=1</code>）。",
+  "ユーザーの要望で、段階を W7c 以降に増やせる形（<code>run-trial.sh</code> は 1 つ前の段階を引き継ぐ。<code>POC_W7_LAST_STAGE</code>）、前の段階の知見を読んだか・同じ間違いの繰り返し・対照の記録を足した。対照は W7a を引き継がない W7b（<code>base.patch</code> + <code>reference-W7a.patch</code>、回の番号 11）。baseline の対照・baseline の 2 回目は、ユーザー未承認のため行っていない。",
+  "品質・効率の 2 本立てを主表示にし、総合点を並記した（効率の基準は W7b baseline の $0.3638・96 秒）。",
+  "watch の上限で止めたステップの費用は result に入らないため、見積額で数えた（Compound Engineering #2 の W7b、$7.73）。",
+  "上限はすべて $7.67（v2 baseline の W7a 実額 $0.3566 ÷ W1 baseline $0.15 × W1 の候補平均 $0.6457 × 5）。$10 を超える上限は不要だった。",
+  "中断とやり直し: 1 回目の中断（06:05 UTC、usage の上限）で W7a の途中だった Compound Engineering #1・#2 を止め、再開後に W7a からやり直した。2 回目の中断（14:45 UTC、別アカウントへの引き継ぎ）で対照 Feature Dev を途中で止め、その記録は使わずに引き継ぎ後に最初からやり直した。",
+  "引き継ぎ後の新しいコンテナでは、前任の作業用コピー（<code>/tmp/poc-trials/</code>）とトランスクリプト（<code>raw/</code>、Git 管理外）が残っていなかった。採点は済んでいたため再実行はせず、対照 3 本だけを新しく実行した。作業用コピーの片付け（<code>grade.py --cleanup-only</code>）は、前任の分はコンテナとともに消えているため不要。",
+  "<code>report_w7.py</code> の HOME に残ったものの一覧は、Claude Code のセッションの記録（<code>.claude/projects/</code> の <code>memory/</code> 以外）を除いて表示する（<code>grade_w7.py</code> が除くようになる前に採点した試行の分も同じに揃えるため）。"
+ ],
+ "isolation": "<code>grade.py</code> の検出で、対照 4 本を含む全 22 試行の <code>answer_key_access</code>（正解データを読んだ形跡）は無し、<code>isolation_suspects</code>（作業用コピーの外への参照）は Feature Dev #2 の W7a の 1 件を除いて 0。その 1 件は作業用コピーの <code>src/app</code> から <code>../../tests</code> を読んだもので、自分の作業用コピーの中の参照。W7b が W7a の作業用コピー・HOME を読むのは自分の試行の一部として扱った（<code>continued-from</code> の ID は他の試行に数えない）。",
+ "next": [
+  "<strong>2 段階で言えること</strong>: 決まりに沿ったコードが作業用コピーに 1 か所でもあれば、記憶の仕組みの有無にかかわらず、4 候補と baseline のすべてが次の作業で同じ落とし穴を避けた。W7a で指摘を受けた 3 組も W7b で繰り返さなかった。続けて行うことで費用・時間が下がる効果は見られず、Compound Engineering・gstack は記憶を引き継いでも高いままだった。",
+  "<strong>2 段階で言えないこと</strong>: 記憶の仕組み（Compound Engineering の <code>docs/solutions/</code>、gstack の学習データ）の寄与。対照でも避けられたため、コードの手本の効果と切り分けられない。段階を重ねたときに費用が下がるか・記憶が古くなって害になるか。",
+  "<strong>5 段階に延ばす価値の見立て</strong>: 今の課題の形（同じ層・同じ書き方の API を足す）のまま延ばしても、コードの手本で避けられるため差は出にくく、費用に見合わない。延ばすなら、後の段階を「前の段階のコードを手本にできない」形にする（別の層・別の画面で同じ決まりが要る、決まりに例外がある、決まりがコードに現れない運用上の約束など）。その場合は記憶の仕組みの差が出る見込みがあり、価値がある。W7c〜W7e の課題文・受け入れテスト・参照実装を足せば、今の <code>run-trial.sh</code> のまま実行できる（<code>grading.md</code> の「段階を増やすとき」）。",
+  "延長するかどうかは、費用（1 組あたり最大 $7.67 × 段階数）とあわせてユーザーの判断を仰ぐ。"
+ ]
+}

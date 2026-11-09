@@ -1,5 +1,8 @@
 # W7 の引き継ぎメモ（2026-11-09 14:45 UTC 時点）
 
+> **2026-11-09 15:30 UTC 追記（引き継ぎ先）**: 下の「次にやること」はすべて完了した。対照の Feature Dev・Superpowers・gstack を実行・採点し、
+> report.md・report.html・notes.json・PLAN.md §6 を更新した。結果は [report.md](report.md)。このメモは経緯の記録として残す。
+
 ユーザーの指示（秘書経由）で、W7 は別アカウントに引き継ぐ。PR #25 は開いたまま、自動マージは有効にしていない。
 
 ## 終わった試行（採点済み。`W7/<試行ID>.json`、組ごとの点数は `W7/scores.json`、2 本立ては `W7/two_axis.json`）
