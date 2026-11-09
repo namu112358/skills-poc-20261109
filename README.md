@@ -106,6 +106,7 @@ scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
 
 - MCP の認証情報やトークンを Git にコミットしない（`.env*` と `.claude/settings.local.json` は `.gitignore` 済み）。
 - GitHub MCP には業務上必要な最小限の権限だけを付与する。マージ・ファイル削除・リポジトリ作成は `.claude/settings.json` で毎回確認する設定にしている。
+- `.claude/settings.json` の `permissions.allow` で、確認なしで実行してよい操作を決めている（git の読み取り・コミット、`agent/*` ブランチへの push、`npm ci` / `npm test` / `npm run *`、PoC のスクリプト、GitHub の読み取りと PR の作成・更新）。force push・`main` を含む push・ブランチ削除の push は `ask` で毎回確認する（`ask` は `allow` より優先される）。`cat` や `grep` などファイルを読むコマンドは、`.env` を読めてしまうため許可していない。
 - Sentry MCP / Cloudflare MCP はトークンをファイルに書かず OAuth で認証する。Cloudflare API MCP は Cloudflare の API をほぼすべて操作できるため、開発用アカウントで、必要な権限だけを許可する。
 - Supabase MCP は開発用プロジェクトにだけ接続する。やむを得ず本番プロジェクトにつなぐ場合は、URL に `&read_only=true` を付けて読み取り専用にする。
 - Vercel MCP は OAuth で認証し、必要に応じて `https://mcp.vercel.com/<team-slug>/<project-slug>` で対象プロジェクトを限定する。
