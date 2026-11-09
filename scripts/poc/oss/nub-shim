@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# W11 の zod の課題（B3・F1）用の nub の代替（本物の nub はこの環境に無い）。
+# zod の CLAUDE.md が指示する nub のコマンドを、事前に入れた依存（node_modules）だけで実行する。
+# ネットワークからパッケージを取らない（npx --no-install）。依存の変更（install・add・remove など）と、
+# 知らないサブコマンドは拒否してエラーで終わる。2026-11-09 コーディネーター承認（wf-W11-design.md）。
+set -euo pipefail
+deny() { echo "nub (PoC shim): '$*' is not available in this environment (dependencies are pre-installed and cannot be changed)" >&2; exit 2; }
+[[ $# -eq 0 ]] && deny "(no command)"
+case "$1" in
+  --version|-v) echo "0.8.3 (PoC shim)"; exit 0 ;;
+  exec)
+    shift
+    [[ "${1:-}" == --node ]] && shift
+    [[ $# -gt 0 ]] || deny exec
+    exec npx --no-install "$@" ;;
+  run)
+    shift
+    [[ $# -gt 0 ]] || deny run
+    case "$1" in -r|--recursive|--filter) exec pnpm --offline run "$@" ;; esac
+    exec pnpm --offline run "$@" ;;
+  install|i|add|remove|rm|uninstall|update|up|upgrade|link|unlink|dlx|x|create|publish|pack|self-update|cache)
+    deny "$@" ;;
+  -*)
+    # nub --conditions <x> <file>: Node のオプション付きで TypeScript を実行する
+    exec npx --no-install tsx "$@" ;;
+  *)
+    if [[ -f "$1" && "$1" =~ \.(ts|tsx|mts|cts|js|mjs|cjs)$ ]]; then
+      exec npx --no-install tsx "$@"
+    fi
+    deny "$@" ;;
+esac

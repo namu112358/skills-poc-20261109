@@ -1,0 +1,107 @@
+{
+ "scenario": "W11",
+ "task": "B3",
+ "kind": "bug",
+ "repo": "colinhacks/zod",
+ "trial": "W11-B3-superpowers-1",
+ "candidate": "superpowers",
+ "run": 1,
+ "resolved": false,
+ "quality": 65.0,
+ "hidden_tests": {
+  "f2p_total": 10,
+  "f2p_pass": 5,
+  "new_total": 10,
+  "new_pass": 5,
+  "existing_total": 111,
+  "existing_pass": 111,
+  "p2p_total": 111,
+  "p2p_pass": 111,
+  "f2p_failed": [
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > a cycle that closes after an await is a back-edge, not a wait",
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > visits that would wait on each other resolve: a node waited on twice, the first closing the loop",
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > visits that would wait on each other resolve: a node waiting twice, the first closing the loop",
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > visits that would wait on each other resolve: around a ring",
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > visits that would wait on each other resolve: each waits on the other"
+  ],
+  "p2p_broken": [],
+  "seconds": 47.0,
+  "log_tail": "JSON report written to /tmp/w11-res-6j8s8bge/vitest.json\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\n"
+ },
+ "diff": {
+  "src_added": 12,
+  "src_removed": 1,
+  "src_files": [
+   "packages/zod/src/v4/core/memoizer.ts"
+  ],
+  "test_added": 11,
+  "test_files": [
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts"
+  ],
+  "other_files": [],
+  "upstream_src_added": 71,
+  "upstream_src_removed": 23
+ },
+ "facts": {
+  "cost_usd": 0.3193,
+  "elapsed_seconds": 80,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 1
+ },
+ "transcript": {
+  "cost_usd": 0.3193,
+  "turns": 22,
+  "tools": {
+   "Skill": 1,
+   "Bash": 14,
+   "Read": 1,
+   "Edit": 4
+  },
+  "skills": [
+   "superpowers:systematic-debugging"
+  ],
+  "subagents": 0,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/poc-trials/W11-B3-superpowers-1/app/packages/zod/src/v4/core && wc -l memoizer.ts && grep -n \\\"memo\\\" schemas.ts | head -40; git log --oneline | head -3\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/poc-trials/W11-B3-superpowers-1/app && cat >> packages/zod/src/v4/classic/tests/cyclic-data.test.ts <<'EOF'\\n\\ntest(\\\"union options sharing an async recursive schema don't skip it"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/poc-trials/W11-B3-superpowers-1/app && nub exec --node vitest run packages/zod/src/v4/classic/tests/cyclic-data.test.ts -t \\\"share an async\\\" 2>&1 | tail -15; git status --short\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/poc-trials/W11-B3-superpowers-1/app && nub exec --node vitest run packages/zod/src/v4/classic/tests/cyclic-data.test.ts -t \\\"share\\\" 2>&1 | tail -15\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"nub exec --node vitest run packages/zod/src/v4/classic/tests/cyclic-data.test.ts -t \\\"share\\\" --root /tmp/poc-trials/W11-B3-superpowers-1/app 2>&1 | tail -15\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"nub exec --node vitest run packages/zod/src/v4/classic/tests/cyclic-data.test.ts -t share --root /tmp/poc-trials/W11-B3-superpowers-1/app\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"/tmp/poc-trials/W11-B3-superpowers-1/app/node_modules/.bin/vitest run --root /tmp/poc-trials/W11-B3-superpowers-1/app packages/zod/src/v4/classic/tests/cyclic-data.test.ts -t share 2>&1 |"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"/tmp/poc-trials/W11-B3-superpowers-1/app/node_modules/.bin/vitest run --root /tmp/poc-trials/W11-B3-superpowers-1/app packages/zod/src/v4/classic/tests/cyclic-data.test.ts -t share\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"/tmp/poc-trials/W11-B3-superpowers-1/app/node_modules/.bin/vitest run --root /tmp/poc-trials/W11-B3-superpowers-1/app packages/zod/src/v4/classic/tests/cyclic-data.test.ts\"}"
+   }
+  ],
+  "isolation_suspects": [],
+  "final_text": "修正をコミットしましたが、テストはまだ一度も実行できていません。`vitest` の実行コマンドが承認待ちになり、この無人環境では通せませんでした。`nub` もインストールされていません。追加した再現テストが通るかも、既存テストが壊れていないかも未確認です。\n\n**原因**\n- `memoizer.ts` の `attach` は、パースごとの ctx にメモを持ちます。同じ ctx の兄弟 union オプションは、同じ `Node` と入力オブジェクトに対して同じエントリを見ます。\n- `Node` の async チェックが完了するまで、そのエントリは `issues: null` のままです。\n- 2 つ目のオプションがこの状態のエントリに当たると、祖先への後方辺（本物の循環）と誤認します。そして `payload.memo = true` で `runChecks` をスキップするため、どのパースも `id` の不正を報告しなくなります。\n- 本物の後方辺は同期的な降下中にしか起きません。`Node` の async 部分から抜けた後も `issues: null` のままのエントリは、並行する兄弟だと判断できます。\n\n**修正（`packages/zod/src/v4/core/memoizer.ts`）**\n- `Entry` に `pending` を追加しました。async パースが同期部分から抜けたときに、その完了 Promise を入れます。\n- ヒット時に `issues` が null で `pending` があれば、後方辺としてスキップしません。`pending` の完了を待ってから issues を再生します。\n- 同期的な後方辺の挙動は変えていません。\n\n**テスト**\n- `cyclic-data.test.ts` に、Issue の再現ケースを追加しました。`id` が不正な入力で `success: false`、正しい入力で `success: true` を期待します。\n\n**懸念点**\n- 非同期の継続（例えば async の pipe の出力側）の中で、自分の祖先エントリに戻る循環が起きると、自分自身を待ってハングします。この経路はテストしていません。\n- CLAUDE.md が求める runtime / メモリ / バンドルの 3 軸の計測も未実施です。変更は async の兄弟ヒット時の分岐と `Entry` へのフィールド追加だけです。\n\n承認が出せる環境で、まず次を実行してください。\n\n`vitest run packages/zod/src/v4/classic/tests/cyclic-data.test.ts`\n\nその後に全体テストを流すことを推奨します。"
+ }
+}
