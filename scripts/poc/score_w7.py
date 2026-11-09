@@ -9,6 +9,12 @@ W7/scores.json に書き出す。
   W7b の受け入れテスト 20            = 20 × 合格数 / 総数
   正解データを読んだ形跡があれば、落とし穴の 50 点は 0
 
+品質と効率（2026-11-09 コーディネーターの指示。主表示。上の合計は「総合」として並記する）:
+  品質（100）= （W7b の落とし穴 50 + W7b の受け入れテスト 20）/ 70 × 100
+  効率（100）= 費用 50 + 時間 30 + 介入 20。W7b の費用・時間を、W7b baseline の実額・実時間に対する倍率で段階評価する
+               （2 倍以下 = 満点、3 倍以下 = 80%、5 倍以下 = 60%、10 倍以下 = 30%、10 倍超 = 0）。
+               介入（W7b の「お任せします」+ 落とし穴の指摘）0 回 = 20、1 回 = 10、2 回以上 = 0。質問は引かず、回数を参考値にする
+
 学習の効き目を直接見る記録（点数には入れない）:
   memory_used: W7a が残したもの（作業用コピーの変更ファイル・専用 HOME のファイル）を W7b で読んだ形跡
   repeated:    W7a で指摘を受けた落とし穴を、W7b でも指摘の前に避けられなかったもの（同じ間違いの繰り返し）
@@ -50,7 +56,7 @@ def half_facts(t):
         "nudges": t.get("interventions", 0), "feedback": t.get("feedback_rounds", 0),
         "cost_usd": tr["cost_usd"], "elapsed_seconds": t["elapsed_seconds"], "active_seconds": tr.get("active_seconds"),
         "check_seconds": t["w7"].get("check_seconds", 0),
-        "turns": tr["turns"], "subagents": tr["subagents"], "skills_used": tr["skills_used"],
+        "turns": tr["turns"], "subagents": tr["subagents"], "skills_used": tr["skills_used"], "questions": tr.get("questions", 0),
         "denials": len(tr["permission_denials"]), "commits": len(t["diff"]["commits"]),
         "code_added": sum(f["added"] for f in files if f["kind"] == "code"),
         "test_added": sum(f["added"] for f in files if f["kind"] == "test"),
@@ -107,6 +113,26 @@ def control(b):
             "acceptance": round(20 * p / n, 1) if n else 0, "interventions_b": interventions(b)}
 
 
+def tier(ratio):
+    for limit, rate in ((2, 1.0), (3, 0.8), (5, 0.6), (10, 0.3)):
+        if ratio <= limit:
+            return rate
+    return 0.0
+
+
+def quality_efficiency(s, base):
+    s["quality"] = round((s["pitfalls"] + s["acceptance"]) / 70 * 100, 1)
+    b = s["b"]
+    cr = b["cost_usd"] / base["cost_usd"] if base["cost_usd"] else 1
+    tr = b["elapsed_seconds"] / max(1, base["elapsed_seconds"])
+    ib = s["interventions_b"]
+    s["efficiency_detail"] = {"cost": round(50 * tier(cr), 1), "time": round(30 * tier(tr), 1),
+                              "interventions": 20 if ib == 0 else 10 if ib == 1 else 0,
+                              "cost_ratio": round(cr, 2), "time_ratio": round(tr, 2)}
+    d = s["efficiency_detail"]
+    s["efficiency"] = round(d["cost"] + d["time"] + d["interventions"], 1)
+
+
 def main():
     trials = {p.stem: json.loads(p.read_text()) for p in sorted(DIR.glob("W7[ab]-*.json"))}
     scores, controls = [], []
@@ -119,13 +145,20 @@ def main():
         a = trials.get("W7a-" + tid[4:])
         if a:
             scores.append(score(a, b))
-    (DIR / "scores.json").write_text(json.dumps({"scores": scores, "controls": controls}, ensure_ascii=False, indent=2) + "\n")
+    base = next((s["b"] for s in scores if s["candidate"] == "baseline"), None)
+    if base:
+        for s in scores + controls:
+            s.setdefault("pitfalls", 0)
+            quality_efficiency(s, base)
+    (DIR / "scores.json").write_text(json.dumps({"scores": scores, "controls": controls,
+                                                 "efficiency_base": base and {"cost_usd": base["cost_usd"], "elapsed_seconds": base["elapsed_seconds"]}},
+                                                ensure_ascii=False, indent=2) + "\n")
     for c in controls:
         print(f"control {c['trial']:24} pit={c['pitfalls']} acc={c['acceptance']} time={c['b']['elapsed_seconds']}s first={c['b']['pitfalls_first']}")
     for s in scores:
         print(f"{s['pair']:26} total={s['total']:5} pit={s['pitfalls']:2} time={s['time']:4} (r={s['time_ratio']}) "
               f"int={s['interventions']:4} ({s['interventions_a']}→{s['interventions_b']}) acc={s['acceptance']:4} "
-              f"W7a first={s['a']['pitfalls_first']} W7b first={s['b']['pitfalls_first']}")
+              f"W7a first={s['a']['pitfalls_first']} W7b first={s['b']['pitfalls_first']} quality={s.get('quality')} efficiency={s.get('efficiency')}")
 
 
 if __name__ == "__main__":
