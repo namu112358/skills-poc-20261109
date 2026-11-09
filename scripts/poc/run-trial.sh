@@ -97,6 +97,10 @@ case "$CAND" in
   compound-engineering) STEPS=("/ce-plan $TASK" "/ce-work" "/ce-code-review") ;;
   gstack) STEPS=("$TASK" "/review") ;;
 esac
+# W4 の gstack は /autoplan → 実装 → /review（PLAN.md §5.1。W1・W2 の手順は変えない）
+if [[ "$SCENARIO" == W4 && "$CAND" == gstack ]]; then
+  STEPS=("/autoplan $TASK" "計画に沿って実装し、変更を git にコミットしてください。" "/review")
+fi
 
 # 1 試行の費用の上限（米ドル。空なら上限なし）。各ステップには、それまでの累計を引いた残りを --max-budget-usd で渡す。
 MAX_USD="${POC_MAX_TRIAL_USD:-}"

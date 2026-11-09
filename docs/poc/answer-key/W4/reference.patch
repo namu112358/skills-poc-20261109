@@ -1,0 +1,1110 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index acfc6a0..afd320d 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -18,7 +18,9 @@
+ 
+ - 初期ユーザーは `sato` / `suzuki` / `tanaka`（パスワードは共通で `password`。PoC の検証用）。`/login` からログインする。
+ - セッションは DB の `sessions` テーブルと Cookie `poc_session`（`src/lib/auth.ts`）。ページでは `requireUser()`、API Route では `requireApiUser()`（`src/lib/session.ts`・`src/lib/api.ts`）でログインを確認する。
+-- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/tasks`、`GET/PATCH /api/tasks/:id`。エラーは `{ error, details? }` の JSON で返す。
++- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/tasks`、`GET/PATCH /api/tasks/:id`、`GET/POST /api/teams`、`GET/POST /api/teams/:id/members`、`DELETE /api/teams/:id/members/:userId`。エラーは `{ error, details? }` の JSON で返す。
++- 権限: タスクは個人タスク（`team_id` が NULL。作成者だけが閲覧・編集）かチームのタスク（そのチームのメンバー全員が閲覧・編集）。閲覧できないタスクは存在しないものとして 404 を返す（`src/lib/tasks.ts` の `listTasks`・`getTask` がログイン中のユーザーで絞り込む）。メンバーの追加・削除はチームの管理者だけ（`src/lib/teams.ts`）。
++- 初期データのチーム: 1「開発チーム」（sato 管理者・suzuki）、2「デザインチーム」（suzuki 管理者・tanaka）。
+ 
+ ## コーディング規約
+ 
+diff --git a/src/app/api/tasks/[id]/route.ts b/src/app/api/tasks/[id]/route.ts
+index 275c08d..6030f1a 100644
+--- a/src/app/api/tasks/[id]/route.ts
++++ b/src/app/api/tasks/[id]/route.ts
+@@ -1,7 +1,8 @@
+ // GET /api/tasks/:id — タスクを 1 件取得 / PATCH /api/tasks/:id — 送った項目だけを更新する。ログインが必要。
++// 閲覧できないタスク（他人の個人タスク・所属していないチームのタスク）は 404。
+ import { NextResponse } from "next/server";
+ import { jsonError, readJson, requireApiUser } from "@/lib/api";
+-import { getTask, parseTaskId, updateTask, validateTaskInput } from "@/lib/tasks";
++import { canChangeTeam, getTask, parseTaskId, updateTask, validateTaskInput } from "@/lib/tasks";
+ 
+ type Context = { params: Promise<{ id: string }> };
+ 
+@@ -9,7 +10,7 @@ export async function GET(_request: Request, { params }: Context) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
+   const id = parseTaskId((await params).id);
+-  const task = id === undefined ? undefined : getTask(id);
++  const task = id === undefined ? undefined : getTask(id, user.id);
+   return task ? NextResponse.json({ task }) : jsonError(404, "タスクが見つかりません");
+ }
+ 
+@@ -17,8 +18,13 @@ export async function PATCH(request: Request, { params }: Context) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
+   const id = parseTaskId((await params).id);
+-  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
+-  const result = validateTaskInput(await readJson(request), { partial: true });
++  const task = id === undefined ? undefined : getTask(id, user.id);
++  if (!task) return jsonError(404, "タスクが見つかりません");
++  const body = await readJson(request);
++  if (typeof body === "object" && body !== null && "teamId" in body && !canChangeTeam(task, user.id)) {
++    return jsonError(403, "所属を変更できるのはタスクの作成者だけです");
++  }
++  const result = validateTaskInput(body, { partial: true, userId: user.id, current: task });
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+-  return NextResponse.json({ task: updateTask(id, result.value) });
++  return NextResponse.json({ task: updateTask(task.id, result.value) });
+ }
+diff --git a/src/app/api/tasks/route.ts b/src/app/api/tasks/route.ts
+index 687d509..7e45f18 100644
+--- a/src/app/api/tasks/route.ts
++++ b/src/app/api/tasks/route.ts
+@@ -1,19 +1,22 @@
+-// GET /api/tasks?status=… — タスク一覧 / POST /api/tasks — タスクを作成する。いずれもログインが必要。
++// GET /api/tasks?status=…&teamId=… — 閲覧できるタスクの一覧 / POST /api/tasks — タスクを作成する。いずれもログインが必要。
+ import { NextResponse } from "next/server";
+ import { jsonError, readJson, requireApiUser } from "@/lib/api";
+-import { createTask, isTaskStatus, listTasks, validateTaskInput, type TaskInput } from "@/lib/tasks";
++import { createTask, isTaskStatus, listTasks, parseTeamFilter, validateTaskInput, type TaskInput } from "@/lib/tasks";
+ 
+ export async function GET(request: Request) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
+-  const status = new URL(request.url).searchParams.get("status");
+-  return NextResponse.json({ tasks: listTasks({ status: isTaskStatus(status) ? status : undefined }) });
++  const params = new URL(request.url).searchParams;
++  const status = params.get("status");
++  return NextResponse.json({
++    tasks: listTasks(user.id, { status: isTaskStatus(status) ? status : undefined, team: parseTeamFilter(params.get("teamId")) }),
++  });
+ }
+ 
+ export async function POST(request: Request) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
+-  const result = validateTaskInput(await readJson(request));
++  const result = validateTaskInput(await readJson(request), { userId: user.id });
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+-  return NextResponse.json({ task: createTask(result.value as TaskInput) }, { status: 201 });
++  return NextResponse.json({ task: createTask(result.value as TaskInput, user.id) }, { status: 201 });
+ }
+diff --git a/src/app/api/teams/[id]/members/[userId]/route.ts b/src/app/api/teams/[id]/members/[userId]/route.ts
+new file mode 100644
+index 0000000..1cf3e1d
+--- /dev/null
++++ b/src/app/api/teams/[id]/members/[userId]/route.ts
+@@ -0,0 +1,21 @@
++// DELETE /api/teams/:id/members/:userId — メンバーをチームから外す（管理者だけ）。最後の管理者は外せない。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { parseTaskId } from "@/lib/tasks";
++import { getRole, removeMember } from "@/lib/teams";
++
++type Context = { params: Promise<{ id: string; userId: string }> };
++
++export async function DELETE(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const p = await params;
++  const id = parseTaskId(p.id);
++  const role = id === undefined ? undefined : getRole(id, user.id);
++  if (id === undefined || !role) return jsonError(404, "チームが見つかりません");
++  if (role !== "admin") return jsonError(403, "メンバーを外せるのは管理者だけです");
++  const result = removeMember(id, p.userId);
++  if (result === "not_found") return jsonError(404, "メンバーが見つかりません");
++  if (result === "last_admin") return jsonError(400, "最後の管理者は外せません");
++  return new NextResponse(null, { status: 204 });
++}
+diff --git a/src/app/api/teams/[id]/members/route.ts b/src/app/api/teams/[id]/members/route.ts
+new file mode 100644
+index 0000000..5d480d4
+--- /dev/null
++++ b/src/app/api/teams/[id]/members/route.ts
+@@ -0,0 +1,29 @@
++// GET /api/teams/:id/members — メンバー一覧 / POST — メンバーを追加する（管理者だけ）。所属していないチームは 404。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { parseTaskId } from "@/lib/tasks";
++import { addMember, getRole, listMembers, validateMemberInput } from "@/lib/teams";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  if (id === undefined || !getRole(id, user.id)) return jsonError(404, "チームが見つかりません");
++  return NextResponse.json({ members: listMembers(id) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  const role = id === undefined ? undefined : getRole(id, user.id);
++  if (id === undefined || !role) return jsonError(404, "チームが見つかりません");
++  if (role !== "admin") return jsonError(403, "メンバーを追加できるのは管理者だけです");
++  const result = validateMemberInput(await readJson(request));
++  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
++  const member = addMember(id, result.value);
++  if (member === "exists") return jsonError(409, "既にチームに所属しています");
++  return NextResponse.json({ member }, { status: 201 });
++}
+diff --git a/src/app/api/teams/route.ts b/src/app/api/teams/route.ts
+new file mode 100644
+index 0000000..463cf13
+--- /dev/null
++++ b/src/app/api/teams/route.ts
+@@ -0,0 +1,18 @@
++// GET /api/teams — 所属するチームの一覧 / POST /api/teams — チームを作る（作った人が管理者）。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { createTeam, listTeams, validateTeamName } from "@/lib/teams";
++
++export async function GET() {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  return NextResponse.json({ teams: listTeams(user.id) });
++}
++
++export async function POST(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const result = validateTeamName(await readJson(request));
++  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
++  return NextResponse.json({ team: createTeam(result.value, user.id) }, { status: 201 });
++}
+diff --git a/src/app/layout.tsx b/src/app/layout.tsx
+index 23f0335..8edcd7a 100644
+--- a/src/app/layout.tsx
++++ b/src/app/layout.tsx
+@@ -11,6 +11,7 @@ export default async function RootLayout({ children }: { children: ReactNode })
+         {user && (
+           <header style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
+             <a href="/tasks">タスク一覧</a>
++            <a href="/teams">チーム</a>
+             <span data-testid="current-user">{user.name}（{user.id}）</span>
+             <form method="post" action="/api/logout">
+               <button type="submit">ログアウト</button>
+diff --git a/src/app/tasks/[id]/page.tsx b/src/app/tasks/[id]/page.tsx
+index 6325e66..d071a64 100644
+--- a/src/app/tasks/[id]/page.tsx
++++ b/src/app/tasks/[id]/page.tsx
+@@ -1,6 +1,7 @@
+ import { notFound } from "next/navigation";
+ import { requireUser } from "@/lib/session";
+ import { STATUS_LABELS, getTask, parseTaskId } from "@/lib/tasks";
++import { getTeam } from "@/lib/teams";
+ import { getUser } from "@/lib/users";
+ 
+ type Props = {
+@@ -8,11 +9,12 @@ type Props = {
+ };
+ 
+ export default async function TaskDetailPage({ params }: Props) {
+-  await requireUser();
++  const user = await requireUser();
+   const id = parseTaskId((await params).id);
+-  const task = id === undefined ? undefined : getTask(id);
++  const task = id === undefined ? undefined : getTask(id, user.id);
+   if (!task) notFound();
+   const assignee = getUser(task.assignee);
++  const team = task.teamId === null ? undefined : getTeam(task.teamId, user.id);
+ 
+   return (
+     <main>
+@@ -27,6 +29,8 @@ export default async function TaskDetailPage({ params }: Props) {
+         <dd data-testid="task-assignee">{assignee?.name ?? task.assignee}</dd>
+         <dt>期限</dt>
+         <dd data-testid="task-due-date">{task.dueDate}</dd>
++        <dt>所属</dt>
++        <dd data-testid="task-team">{task.teamId === null ? "個人" : (team?.name ?? "")}</dd>
+       </dl>
+     </main>
+   );
+diff --git a/src/app/tasks/page.tsx b/src/app/tasks/page.tsx
+index 1da2fed..3f91cb1 100644
+--- a/src/app/tasks/page.tsx
++++ b/src/app/tasks/page.tsx
+@@ -1,15 +1,19 @@
+ import { requireUser } from "@/lib/session";
+-import { STATUS_LABELS, TASK_STATUSES, isTaskStatus, listTasks } from "@/lib/tasks";
++import { STATUS_LABELS, TASK_STATUSES, isTaskStatus, listTasks, parseTeamFilter } from "@/lib/tasks";
++import { listTeams } from "@/lib/teams";
+ 
+ type Props = {
+-  searchParams: Promise<{ status?: string }>;
++  searchParams: Promise<{ status?: string; teamId?: string }>;
+ };
+ 
+ export default async function TasksPage({ searchParams }: Props) {
+-  await requireUser();
++  const user = await requireUser();
+   const params = await searchParams;
+   const status = isTaskStatus(params.status) ? params.status : undefined;
+-  const tasks = listTasks({ status });
++  const team = parseTeamFilter(params.teamId);
++  const tasks = listTasks(user.id, { status, team });
++  const teams = listTeams(user.id);
++  const teamNames = new Map(teams.map((t) => [t.id, t.name]));
+ 
+   return (
+     <main>
+@@ -26,6 +30,18 @@ export default async function TasksPage({ searchParams }: Props) {
+             ))}
+           </select>
+         </label>{" "}
++        <label>
++          所属{" "}
++          <select name="teamId" defaultValue={team === undefined ? "" : String(team)}>
++            <option value="">すべて</option>
++            <option value="personal">個人</option>
++            {teams.map((t) => (
++              <option key={t.id} value={t.id}>
++                {t.name}
++              </option>
++            ))}
++          </select>
++        </label>{" "}
+         <button type="submit">絞り込む</button>
+       </form>
+       <table>
+@@ -35,6 +51,7 @@ export default async function TasksPage({ searchParams }: Props) {
+             <th>ステータス</th>
+             <th>担当者</th>
+             <th>期限</th>
++            <th>所属</th>
+           </tr>
+         </thead>
+         <tbody>
+@@ -46,6 +63,7 @@ export default async function TasksPage({ searchParams }: Props) {
+               <td>{STATUS_LABELS[task.status]}</td>
+               <td>{task.assignee}</td>
+               <td>{task.dueDate}</td>
++              <td data-testid="task-team">{task.teamId === null ? "個人" : (teamNames.get(task.teamId) ?? "")}</td>
+             </tr>
+           ))}
+         </tbody>
+diff --git a/src/app/teams/[id]/members.tsx b/src/app/teams/[id]/members.tsx
+new file mode 100644
+index 0000000..3c7f36f
+--- /dev/null
++++ b/src/app/teams/[id]/members.tsx
+@@ -0,0 +1,76 @@
++"use client";
++
++import { useRouter } from "next/navigation";
++import { useState, type FormEvent } from "react";
++import type { User } from "@/lib/users";
++
++async function errorMessage(res: Response): Promise<string> {
++  try {
++    const data = (await res.json()) as { error?: string; details?: string[] };
++    return [data.error, ...(data.details ?? [])].filter(Boolean).join(" ") || "操作に失敗しました";
++  } catch {
++    return "操作に失敗しました";
++  }
++}
++
++export function AddMemberForm({ teamId, candidates }: { teamId: number; candidates: User[] }) {
++  const router = useRouter();
++  const [error, setError] = useState("");
++
++  async function onSubmit(e: FormEvent<HTMLFormElement>) {
++    e.preventDefault();
++    const form = e.currentTarget;
++    const userId = new FormData(form).get("userId");
++    const res = await fetch(`/api/teams/${teamId}/members`, {
++      method: "POST",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ userId, role: "member" }),
++    });
++    if (!res.ok) return setError(await errorMessage(res));
++    setError("");
++    form.reset();
++    router.refresh();
++  }
++
++  return (
++    <form aria-label="メンバーの追加" onSubmit={onSubmit}>
++      <label>
++        ユーザー{" "}
++        <select name="userId" defaultValue="">
++          <option value="" disabled>
++            選択してください
++          </option>
++          {candidates.map((u) => (
++            <option key={u.id} value={u.id}>
++              {u.name}（{u.id}）
++            </option>
++          ))}
++        </select>
++      </label>{" "}
++      <button type="submit">追加する</button>
++      {error && <p role="alert">{error}</p>}
++    </form>
++  );
++}
++
++export function RemoveMemberButton({ teamId, userId }: { teamId: number; userId: string }) {
++  const router = useRouter();
++  const [error, setError] = useState("");
++
++  async function onClick() {
++    const res = await fetch(`/api/teams/${teamId}/members/${encodeURIComponent(userId)}`, { method: "DELETE" });
++    if (!res.ok) return setError(await errorMessage(res));
++    setError("");
++    router.refresh();
++  }
++
++  return (
++    <>
++      {" "}
++      <button type="button" onClick={onClick}>
++        外す
++      </button>
++      {error && <span role="alert">{error}</span>}
++    </>
++  );
++}
+diff --git a/src/app/teams/[id]/page.tsx b/src/app/teams/[id]/page.tsx
+new file mode 100644
+index 0000000..1cfcde1
+--- /dev/null
++++ b/src/app/teams/[id]/page.tsx
+@@ -0,0 +1,43 @@
++import { notFound } from "next/navigation";
++import { requireUser } from "@/lib/session";
++import { parseTaskId } from "@/lib/tasks";
++import { ROLE_LABELS, getTeam, listMembers } from "@/lib/teams";
++import { listUsers } from "@/lib/users";
++import { AddMemberForm, RemoveMemberButton } from "./members.tsx";
++
++type Props = {
++  params: Promise<{ id: string }>;
++};
++
++export default async function TeamDetailPage({ params }: Props) {
++  const user = await requireUser();
++  const id = parseTaskId((await params).id);
++  const team = id === undefined ? undefined : getTeam(id, user.id);
++  if (!team) notFound();
++  const members = listMembers(team.id);
++  const isAdmin = team.role === "admin";
++  // クライアント部品に渡すので、DB の行（null プロトタイプ）をふつうのオブジェクトにする
++  const candidates = isAdmin
++    ? listUsers()
++        .filter((u) => !members.some((m) => m.userId === u.id))
++        .map((u) => ({ id: u.id, name: u.name }))
++    : [];
++
++  return (
++    <main>
++      <p>
++        <a href="/teams">← チーム一覧へ戻る</a>
++      </p>
++      <h1>{team.name}</h1>
++      <h2>メンバー</h2>
++      <ul>
++        {members.map((m) => (
++          <li key={m.userId} data-testid="member">
++            {m.name}（{ROLE_LABELS[m.role]}）{isAdmin && <RemoveMemberButton teamId={team.id} userId={m.userId} />}
++          </li>
++        ))}
++      </ul>
++      {isAdmin && <AddMemberForm teamId={team.id} candidates={candidates} />}
++    </main>
++  );
++}
+diff --git a/src/app/teams/page.tsx b/src/app/teams/page.tsx
+new file mode 100644
+index 0000000..56b6998
+--- /dev/null
++++ b/src/app/teams/page.tsx
+@@ -0,0 +1,21 @@
++import { requireUser } from "@/lib/session";
++import { ROLE_LABELS, listTeams } from "@/lib/teams";
++
++export default async function TeamsPage() {
++  const user = await requireUser();
++  const teams = listTeams(user.id);
++
++  return (
++    <main>
++      <h1>チーム</h1>
++      <ul>
++        {teams.map((team) => (
++          <li key={team.id} data-testid="team">
++            <a href={`/teams/${team.id}`}>{team.name}</a>（{ROLE_LABELS[team.role]}）
++          </li>
++        ))}
++      </ul>
++      {teams.length === 0 && <p>所属しているチームはありません。</p>}
++    </main>
++  );
++}
+diff --git a/src/lib/db/index.ts b/src/lib/db/index.ts
+index 27530d3..fca66b2 100644
+--- a/src/lib/db/index.ts
++++ b/src/lib/db/index.ts
+@@ -5,7 +5,7 @@
+ import { DatabaseSync } from "node:sqlite";
+ import { MIGRATIONS, type Migration } from "./migrations.ts";
+ import { hashPassword } from "../password.ts";
+-import { SEED_PASSWORD, SEED_TASKS, SEED_USERS } from "./seed.ts";
++import { SEED_PASSWORD, SEED_TASKS, SEED_TEAMS, SEED_TEAM_MEMBERS, SEED_USERS } from "./seed.ts";
+ 
+ export type Db = DatabaseSync;
+ 
+@@ -26,8 +26,14 @@ export function seed(db: Db): void {
+   transaction(db, () => {
+     const insertUser = db.prepare("INSERT INTO users (id, name, password_hash) VALUES (?, ?, ?)");
+     for (const u of SEED_USERS) insertUser.run(u.id, u.name, hashPassword(SEED_PASSWORD));
+-    const insertTask = db.prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES (?, ?, ?, ?)");
+-    for (const t of SEED_TASKS) insertTask.run(t.title, t.status, t.assignee, t.dueDate);
++    const insertTeam = db.prepare("INSERT INTO teams (id, name) VALUES (?, ?)");
++    for (const t of SEED_TEAMS) insertTeam.run(t.id, t.name);
++    const insertMember = db.prepare("INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, ?)");
++    for (const m of SEED_TEAM_MEMBERS) insertMember.run(m.teamId, m.userId, m.role);
++    const insertTask = db.prepare(
++      "INSERT INTO tasks (title, status, assignee, due_date, team_id, owner) VALUES (?, ?, ?, ?, ?, ?)",
++    );
++    for (const t of SEED_TASKS) insertTask.run(t.title, t.status, t.assignee, t.dueDate, t.teamId, t.owner);
+   });
+ }
+ 
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 4e1b0a4..78487c1 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -38,4 +38,27 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX sessions_user ON sessions(user_id);
+     `,
+   },
++  {
++    version: 3,
++    name: "teams",
++    sql: `
++      CREATE TABLE teams (
++        id   INTEGER PRIMARY KEY AUTOINCREMENT,
++        name TEXT NOT NULL
++      );
++      CREATE TABLE team_members (
++        team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
++        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++        role    TEXT NOT NULL CHECK (role IN ('admin', 'member')),
++        PRIMARY KEY (team_id, user_id)
++      );
++      CREATE INDEX team_members_user ON team_members(user_id);
++      -- team_id が NULL のタスクは個人タスク。既存のタスクは担当者の個人タスクにする。
++      ALTER TABLE tasks ADD COLUMN team_id INTEGER REFERENCES teams(id);
++      ALTER TABLE tasks ADD COLUMN owner TEXT REFERENCES users(id);
++      UPDATE tasks SET owner = assignee;
++      CREATE INDEX tasks_team ON tasks(team_id);
++      CREATE INDEX tasks_owner ON tasks(owner);
++    `,
++  },
+ ];
+diff --git a/src/lib/db/seed.ts b/src/lib/db/seed.ts
+index eb745e0..ecb8c6e 100644
+--- a/src/lib/db/seed.ts
++++ b/src/lib/db/seed.ts
+@@ -8,12 +8,25 @@ export const SEED_USERS = [
+   { id: "tanaka", name: "田中" },
+ ] as const;
+ 
++export const SEED_TEAMS = [
++  { id: 1, name: "開発チーム" },
++  { id: 2, name: "デザインチーム" },
++] as const;
++
++export const SEED_TEAM_MEMBERS = [
++  { teamId: 1, userId: "sato", role: "admin" },
++  { teamId: 1, userId: "suzuki", role: "member" },
++  { teamId: 2, userId: "suzuki", role: "admin" },
++  { teamId: 2, userId: "tanaka", role: "member" },
++] as const;
++
++// teamId が null のタスクは owner の個人タスク。
+ export const SEED_TASKS = [
+-  { title: "要件定義書のレビュー", status: "done", assignee: "sato", dueDate: "2026-11-02" },
+-  { title: "ログイン画面のデザイン", status: "in_progress", assignee: "suzuki", dueDate: "2026-11-12" },
+-  { title: "API 設計", status: "in_progress", assignee: "sato", dueDate: "2026-11-14" },
+-  { title: "DB スキーマ作成", status: "todo", assignee: "tanaka", dueDate: "2026-11-18" },
+-  { title: "CI の整備", status: "todo", assignee: "suzuki", dueDate: "2026-11-20" },
+-  { title: "E2E テストの追加", status: "todo", assignee: "sato", dueDate: "2026-11-25" },
+-  { title: "リリースノート作成", status: "done", assignee: "tanaka", dueDate: "2026-11-05" },
++  { title: "要件定義書のレビュー", status: "done", assignee: "sato", dueDate: "2026-11-02", teamId: 1, owner: "sato" },
++  { title: "ログイン画面のデザイン", status: "in_progress", assignee: "suzuki", dueDate: "2026-11-12", teamId: 1, owner: "sato" },
++  { title: "API 設計", status: "in_progress", assignee: "sato", dueDate: "2026-11-14", teamId: 1, owner: "sato" },
++  { title: "DB スキーマ作成", status: "todo", assignee: "tanaka", dueDate: "2026-11-18", teamId: 2, owner: "suzuki" },
++  { title: "CI の整備", status: "todo", assignee: "suzuki", dueDate: "2026-11-20", teamId: 1, owner: "sato" },
++  { title: "E2E テストの追加", status: "todo", assignee: "sato", dueDate: "2026-11-25", teamId: null, owner: "sato" },
++  { title: "リリースノート作成", status: "done", assignee: "tanaka", dueDate: "2026-11-05", teamId: null, owner: "tanaka" },
+ ] as const;
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+index b533ce9..60800a3 100644
+--- a/src/lib/tasks.ts
++++ b/src/lib/tasks.ts
+@@ -8,6 +8,8 @@ export type Task = {
+   status: TaskStatus;
+   assignee: string;
+   dueDate: string; // YYYY-MM-DD
++  teamId: number | null; // null は個人タスク
++  owner: string; // 作成者のユーザー ID
+ };
+ 
+ export const TASK_STATUSES: readonly TaskStatus[] = ["todo", "in_progress", "done"];
+@@ -22,37 +24,96 @@ export function isTaskStatus(value: unknown): value is TaskStatus {
+   return typeof value === "string" && (TASK_STATUSES as readonly string[]).includes(value);
+ }
+ 
++/** 所属での絞り込み。チームの ID か、個人タスク（"personal"）。 */
++export type TaskTeamFilter = number | "personal";
++
+ export type TaskFilter = {
+   status?: TaskStatus;
++  team?: TaskTeamFilter;
+ };
+ 
+-type TaskRow = { id: number; title: string; status: TaskStatus; assignee: string; due_date: string };
++/** URL のクエリの teamId を検証する。不正な値は undefined（指定なし）。 */
++export function parseTeamFilter(value: unknown): TaskTeamFilter | undefined {
++  if (value === "personal") return "personal";
++  return parseTaskId(value);
++}
++
++type TaskRow = {
++  id: number;
++  title: string;
++  status: TaskStatus;
++  assignee: string;
++  due_date: string;
++  team_id: number | null;
++  owner: string;
++};
+ 
+ function toTask(row: TaskRow): Task {
+-  return { id: row.id, title: row.title, status: row.status, assignee: row.assignee, dueDate: row.due_date };
++  return {
++    id: row.id,
++    title: row.title,
++    status: row.status,
++    assignee: row.assignee,
++    dueDate: row.due_date,
++    teamId: row.team_id,
++    owner: row.owner,
++  };
+ }
+ 
+-export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
++const COLUMNS = "id, title, status, assignee, due_date, team_id, owner";
++// :user が閲覧できるタスク（自分の個人タスクと、所属するチームのタスク）
++const VISIBLE = `((team_id IS NULL AND owner = :user)
++  OR team_id IN (SELECT team_id FROM team_members WHERE user_id = :user))`;
++
++/** userId が閲覧できるタスクの一覧。 */
++export function listTasks(userId: string, filter: TaskFilter = {}, db: Db = getDb()): Task[] {
++  const team = filter.team;
+   const rows = db
+-    .prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id")
+-    .all({ status: filter.status ?? null }) as TaskRow[];
++    .prepare(
++      `SELECT ${COLUMNS} FROM tasks WHERE ${VISIBLE}
++        AND (:status IS NULL OR status = :status)
++        AND (:personal = 0 OR team_id IS NULL)
++        AND (:team IS NULL OR team_id = :team)
++        ORDER BY id`,
++    )
++    .all({
++      user: userId,
++      status: filter.status ?? null,
++      personal: team === "personal" ? 1 : 0,
++      team: typeof team === "number" ? team : null,
++    }) as TaskRow[];
+   return rows.map(toTask);
+ }
+ 
+-export function getTask(id: number, db: Db = getDb()): Task | undefined {
+-  const row = db.prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE id = ?").get(id) as
++/** userId が閲覧できるタスクを返す。存在しない・閲覧できないなら undefined。 */
++export function getTask(id: number, userId: string, db: Db = getDb()): Task | undefined {
++  const row = db.prepare(`SELECT ${COLUMNS} FROM tasks WHERE id = :id AND ${VISIBLE}`).get({ id, user: userId }) as
+     | TaskRow
+     | undefined;
+   return row && toTask(row);
+ }
+ 
++function getTaskById(id: number, db: Db): Task | undefined {
++  const row = db.prepare(`SELECT ${COLUMNS} FROM tasks WHERE id = ?`).get(id) as TaskRow | undefined;
++  return row && toTask(row);
++}
++
++function isTeamMember(teamId: number, userId: string, db: Db): boolean {
++  return db.prepare("SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?").get(teamId, userId) !== undefined;
++}
++
++/** 所属（teamId）を変えられるのはタスクの作成者だけ。 */
++export function canChangeTeam(task: Task, userId: string): boolean {
++  return task.owner === userId;
++}
++
+ /** URL のパス・クエリの ID を検証する。正の整数でなければ undefined。 */
+ export function parseTaskId(value: unknown): number | undefined {
+   if (typeof value !== "string" || !/^[1-9][0-9]{0,9}$/.test(value)) return undefined;
+   return Number(value);
+ }
+ 
+-export type TaskInput = Omit<Task, "id">;
++export type TaskInput = Omit<Task, "id" | "owner">;
+ 
+ export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
+ 
+@@ -60,11 +121,13 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+ 
+ /**
+  * API に送られたタスクの内容を検証する。partial = true（更新）のときは、送られた項目だけを検証する。
+- * 担当者が存在するかは DB で確認する。
++ * - userId: 操作するユーザー。teamId は userId が所属するチームか null（個人タスク）だけを受け付ける。
++ * - current: 更新するタスク（更新時）。作成時は userId が作成者になる。
++ * 担当者は、個人タスクなら作成者本人、チームのタスクならそのチームのメンバーでなければならない。
+  */
+ export function validateTaskInput(
+   body: unknown,
+-  options: { partial?: boolean } = {},
++  options: { partial?: boolean; userId: string; current?: Task },
+   db: Db = getDb(),
+ ): ValidationResult<Partial<TaskInput>> {
+   if (typeof body !== "object" || body === null || Array.isArray(body)) {
+@@ -90,6 +153,23 @@ export function validateTaskInput(
+     if (!exists) errors.push("担当者が存在しません");
+     else value.assignee = b.assignee as string;
+   }
++  // teamId は作成時は省略可（個人タスク）。更新時は送られたときだけ検証する。
++  if ("teamId" in b && b.teamId !== undefined) {
++    if (b.teamId === null) value.teamId = null;
++    else if (typeof b.teamId === "number" && Number.isInteger(b.teamId) && isTeamMember(b.teamId, options.userId, db)) {
++      value.teamId = b.teamId;
++    } else errors.push("チームが存在しないか、所属していません");
++  } else if (!options.partial) value.teamId = null;
++  // 担当者の規則（変更後の所属と担当者で確かめる）
++  if (errors.length === 0 && ("assignee" in value || "teamId" in value)) {
++    const owner = options.current?.owner ?? options.userId;
++    const teamId = "teamId" in value ? (value.teamId ?? null) : (options.current?.teamId ?? null);
++    const assignee = value.assignee ?? options.current?.assignee;
++    const ok = teamId === null ? assignee === owner : assignee !== undefined && isTeamMember(teamId, assignee, db);
++    if (!ok) {
++      errors.push(teamId === null ? "個人タスクの担当者は作成者本人にしてください" : "担当者はチームのメンバーから選んでください");
++    }
++  }
+   if (need("dueDate")) {
+     if (typeof b.dueDate !== "string" || !DATE_RE.test(b.dueDate) || Number.isNaN(Date.parse(b.dueDate))) {
+       errors.push("期限は YYYY-MM-DD 形式で入力してください");
+@@ -98,24 +178,26 @@ export function validateTaskInput(
+   return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
+ }
+ 
+-export function createTask(input: TaskInput, db: Db = getDb()): Task {
++/** タスクを作る。作成者は owner（ログイン中のユーザー）。 */
++export function createTask(input: TaskInput, owner: string, db: Db = getDb()): Task {
+   const { lastInsertRowid } = db
+-    .prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES (?, ?, ?, ?)")
+-    .run(input.title, input.status, input.assignee, input.dueDate);
+-  return getTask(Number(lastInsertRowid), db)!;
++    .prepare("INSERT INTO tasks (title, status, assignee, due_date, team_id, owner) VALUES (?, ?, ?, ?, ?, ?)")
++    .run(input.title, input.status, input.assignee, input.dueDate, input.teamId, owner);
++  return getTaskById(Number(lastInsertRowid), db)!;
+ }
+ 
+-/** 指定した項目だけを更新する。タスクが無ければ undefined。 */
++/** 指定した項目だけを更新する（作成者は変えない）。タスクが無ければ undefined。閲覧権限の確認は呼び出し側で行う。 */
+ export function updateTask(id: number, changes: Partial<TaskInput>, db: Db = getDb()): Task | undefined {
+-  const current = getTask(id, db);
++  const current = getTaskById(id, db);
+   if (!current) return undefined;
+   const next = { ...current, ...changes };
+-  db.prepare("UPDATE tasks SET title = ?, status = ?, assignee = ?, due_date = ? WHERE id = ?").run(
++  db.prepare("UPDATE tasks SET title = ?, status = ?, assignee = ?, due_date = ?, team_id = ? WHERE id = ?").run(
+     next.title,
+     next.status,
+     next.assignee,
+     next.dueDate,
++    next.teamId,
+     id,
+   );
+-  return getTask(id, db);
++  return getTaskById(id, db);
+ }
+diff --git a/src/lib/teams.ts b/src/lib/teams.ts
+new file mode 100644
+index 0000000..d9c9f2f
+--- /dev/null
++++ b/src/lib/teams.ts
+@@ -0,0 +1,109 @@
++import { getDb, transaction, type Db } from "./db/index.ts";
++import type { ValidationResult } from "./tasks.ts";
++
++export type TeamRole = "admin" | "member";
++
++export const TEAM_ROLES: readonly TeamRole[] = ["admin", "member"];
++
++export const ROLE_LABELS: Record<TeamRole, string> = {
++  admin: "管理者",
++  member: "メンバー",
++};
++
++export function isTeamRole(value: unknown): value is TeamRole {
++  return typeof value === "string" && (TEAM_ROLES as readonly string[]).includes(value);
++}
++
++/** 自分から見たチーム（自分の役割つき）。 */
++export type Team = { id: number; name: string; role: TeamRole };
++
++export type Member = { userId: string; name: string; role: TeamRole };
++
++/** userId が所属するチームを ID 順に返す。 */
++export function listTeams(userId: string, db: Db = getDb()): Team[] {
++  return db
++    .prepare(
++      "SELECT t.id, t.name, m.role FROM teams t JOIN team_members m ON m.team_id = t.id WHERE m.user_id = ? ORDER BY t.id",
++    )
++    .all(userId)
++    .map((r) => ({ ...r }) as Team);
++}
++
++/** userId が所属していればそのチームを返す。所属していない・存在しないなら undefined。 */
++export function getTeam(teamId: number, userId: string, db: Db = getDb()): Team | undefined {
++  const row = db
++    .prepare(
++      "SELECT t.id, t.name, m.role FROM teams t JOIN team_members m ON m.team_id = t.id WHERE t.id = ? AND m.user_id = ?",
++    )
++    .get(teamId, userId);
++  return row && ({ ...row } as Team);
++}
++
++export function getRole(teamId: number, userId: string, db: Db = getDb()): TeamRole | undefined {
++  return getTeam(teamId, userId, db)?.role;
++}
++
++export function listMembers(teamId: number, db: Db = getDb()): Member[] {
++  return db
++    .prepare(
++      "SELECT u.id AS userId, u.name, m.role FROM team_members m JOIN users u ON u.id = m.user_id WHERE m.team_id = ? ORDER BY u.id",
++    )
++    .all(teamId)
++    .map((r) => ({ ...r }) as Member);
++}
++
++export function validateTeamName(body: unknown): ValidationResult<string> {
++  const name = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>).name : undefined;
++  if (typeof name !== "string" || name.trim().length < 1 || name.trim().length > 50) {
++    return { ok: false, errors: ["チーム名は 1〜50 文字で入力してください"] };
++  }
++  return { ok: true, value: name.trim() };
++}
++
++/** チームを作り、作った人を管理者にする。 */
++export function createTeam(name: string, userId: string, db: Db = getDb()): Team {
++  return transaction(db, () => {
++    const { lastInsertRowid } = db.prepare("INSERT INTO teams (name) VALUES (?)").run(name);
++    const id = Number(lastInsertRowid);
++    db.prepare("INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, 'admin')").run(id, userId);
++    return getTeam(id, userId, db)!;
++  });
++}
++
++export type MemberInput = { userId: string; role: TeamRole };
++
++export function validateMemberInput(body: unknown, db: Db = getDb()): ValidationResult<MemberInput> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  const exists = typeof b.userId === "string" && db.prepare("SELECT 1 FROM users WHERE id = ?").get(b.userId) !== undefined;
++  if (!exists) errors.push("ユーザーが存在しません");
++  const role = b.role ?? "member";
++  if (!isTeamRole(role)) errors.push("役割が正しくありません");
++  return errors.length > 0 ? { ok: false, errors } : { ok: true, value: { userId: b.userId as string, role: role as TeamRole } };
++}
++
++/** メンバーを追加する。既に所属していれば "exists"。 */
++export function addMember(teamId: number, input: MemberInput, db: Db = getDb()): Member | "exists" {
++  if (getRole(teamId, input.userId, db)) return "exists";
++  db.prepare("INSERT INTO team_members (team_id, user_id, role) VALUES (?, ?, ?)").run(teamId, input.userId, input.role);
++  return listMembers(teamId, db).find((m) => m.userId === input.userId)!;
++}
++
++/** メンバーを外す。所属していなければ "not_found"、最後の管理者なら "last_admin"。 */
++export function removeMember(teamId: number, userId: string, db: Db = getDb()): "ok" | "not_found" | "last_admin" {
++  return transaction(db, () => {
++    const role = getRole(teamId, userId, db);
++    if (!role) return "not_found";
++    if (role === "admin") {
++      const { n } = db
++        .prepare("SELECT COUNT(*) AS n FROM team_members WHERE team_id = ? AND role = 'admin'")
++        .get(teamId) as { n: number };
++      if (n <= 1) return "last_admin";
++    }
++    db.prepare("DELETE FROM team_members WHERE team_id = ? AND user_id = ?").run(teamId, userId);
++    return "ok";
++  });
++}
+diff --git a/tests/tasks.test.ts b/tests/tasks.test.ts
+index 66029e6..6395b7d 100644
+--- a/tests/tasks.test.ts
++++ b/tests/tasks.test.ts
+@@ -2,38 +2,60 @@ import { describe, it } from "node:test";
+ import assert from "node:assert/strict";
+ import { openDb } from "../src/lib/db/index.ts";
+ import {
++  canChangeTeam,
+   createTask,
+   getTask,
+   isTaskStatus,
+   listTasks,
+   parseTaskId,
++  parseTeamFilter,
+   updateTask,
+   validateTaskInput,
+ } from "../src/lib/tasks.ts";
+ 
++const ids = (tasks: { id: number }[]) => tasks.map((t) => t.id);
++
+ describe("listTasks", () => {
+-  it("returns all tasks without a filter", () => {
+-    assert.equal(listTasks({}, openDb()).length, 7);
++  it("returns only the user's personal tasks and the tasks of their teams", () => {
++    const db = openDb();
++    assert.deepEqual(ids(listTasks("sato", {}, db)), [1, 2, 3, 5, 6]);
++    assert.deepEqual(ids(listTasks("suzuki", {}, db)), [1, 2, 3, 4, 5]);
++    assert.deepEqual(ids(listTasks("tanaka", {}, db)), [4, 7]);
+   });
+ 
+-  it("filters by status", () => {
+-    const tasks = listTasks({ status: "todo" }, openDb());
+-    assert.ok(tasks.length > 0);
+-    assert.ok(tasks.every((t) => t.status === "todo"));
++  it("filters by status and team", () => {
++    const db = openDb();
++    const todo = listTasks("sato", { status: "todo" }, db);
++    assert.ok(todo.length > 0 && todo.every((t) => t.status === "todo"));
++    assert.deepEqual(ids(listTasks("sato", { team: 1 }, db)), [1, 2, 3, 5]);
++    assert.deepEqual(ids(listTasks("sato", { team: "personal" }, db)), [6]);
++    assert.deepEqual(ids(listTasks("sato", { team: 2 }, db)), []);
+   });
+ });
+ 
+ describe("getTask", () => {
+-  it("returns a task by id, or undefined", () => {
++  it("returns a visible task, or undefined", () => {
+     const db = openDb();
+-    assert.deepEqual(getTask(1, db), {
++    assert.deepEqual(getTask(1, "sato", db), {
+       id: 1,
+       title: "要件定義書のレビュー",
+       status: "done",
+       assignee: "sato",
+       dueDate: "2026-11-02",
++      teamId: 1,
++      owner: "sato",
+     });
+-    assert.equal(getTask(999, db), undefined);
++    assert.equal(getTask(999, "sato", db), undefined);
++    assert.equal(getTask(1, "tanaka", db), undefined);
++    assert.equal(getTask(7, "sato", db), undefined);
++  });
++});
++
++describe("parseTeamFilter", () => {
++  it("accepts a team id or personal", () => {
++    assert.equal(parseTeamFilter("2"), 2);
++    assert.equal(parseTeamFilter("personal"), "personal");
++    for (const bad of ["0", "abc", "", undefined]) assert.equal(parseTeamFilter(bad), undefined, String(bad));
+   });
+ });
+ 
+@@ -45,40 +67,82 @@ describe("parseTaskId", () => {
+ });
+ 
+ describe("validateTaskInput", () => {
+-  const valid = { title: " 新しいタスク ", status: "todo", assignee: "tanaka", dueDate: "2026-12-01" };
++  const valid = { title: " 新しいタスク ", status: "todo", assignee: "sato", dueDate: "2026-12-01" };
+ 
+-  it("accepts a complete input and trims the title", () => {
+-    const r = validateTaskInput(valid, {}, openDb());
+-    assert.deepEqual(r, { ok: true, value: { ...valid, title: "新しいタスク" } });
++  it("accepts a complete input, trims the title and defaults to a personal task", () => {
++    const r = validateTaskInput(valid, { userId: "sato" }, openDb());
++    assert.deepEqual(r, { ok: true, value: { ...valid, title: "新しいタスク", teamId: null } });
+   });
+ 
+   it("reports every invalid field", () => {
+-    const r = validateTaskInput({ title: "", status: "x", assignee: "nobody", dueDate: "12/01" }, {}, openDb());
++    const r = validateTaskInput({ title: "", status: "x", assignee: "nobody", dueDate: "12/01" }, { userId: "sato" }, openDb());
+     assert.equal(r.ok, false);
+     assert.equal(!r.ok && r.errors.length, 4);
+   });
+ 
+   it("rejects non-object bodies", () => {
+-    for (const body of [undefined, null, "x", []]) assert.equal(validateTaskInput(body, {}, openDb()).ok, false);
++    for (const body of [undefined, null, "x", []]) assert.equal(validateTaskInput(body, { userId: "sato" }, openDb()).ok, false);
+   });
+ 
+   it("validates only the given fields when partial", () => {
+-    assert.deepEqual(validateTaskInput({ status: "done" }, { partial: true }, openDb()), {
++    const db = openDb();
++    assert.deepEqual(validateTaskInput({ status: "done" }, { partial: true, userId: "sato", current: getTask(1, "sato", db) }, db), {
+       ok: true,
+       value: { status: "done" },
+     });
+-    assert.equal(validateTaskInput({ status: "x" }, { partial: true }, openDb()).ok, false);
++    assert.equal(validateTaskInput({ status: "x" }, { partial: true, userId: "sato" }, db).ok, false);
++  });
++
++  it("accepts only teams the user belongs to", () => {
++    const db = openDb();
++    assert.equal(validateTaskInput({ ...valid, teamId: 1 }, { userId: "sato" }, db).ok, true);
++    for (const teamId of [2, 999, "1", 1.5]) {
++      assert.equal(validateTaskInput({ ...valid, teamId }, { userId: "sato" }, db).ok, false, String(teamId));
++    }
++  });
++
++  it("requires the owner as the assignee of a personal task", () => {
++    const db = openDb();
++    assert.equal(validateTaskInput({ ...valid, assignee: "suzuki" }, { userId: "sato" }, db).ok, false);
++    const task6 = getTask(6, "sato", db)!;
++    assert.equal(validateTaskInput({ assignee: "suzuki" }, { partial: true, userId: "sato", current: task6 }, db).ok, false);
++  });
++
++  it("requires a team member as the assignee of a team task", () => {
++    const db = openDb();
++    assert.equal(validateTaskInput({ ...valid, teamId: 1, assignee: "suzuki" }, { userId: "sato" }, db).ok, true);
++    assert.equal(validateTaskInput({ ...valid, teamId: 1, assignee: "tanaka" }, { userId: "sato" }, db).ok, false);
++    const task2 = getTask(2, "sato", db)!; // 開発チーム、担当 suzuki
++    // 個人タスクにすると担当者（suzuki）が作成者（sato）でなくなる
++    assert.equal(validateTaskInput({ teamId: null }, { partial: true, userId: "sato", current: task2 }, db).ok, false);
++    assert.equal(
++      validateTaskInput({ teamId: null, assignee: "sato" }, { partial: true, userId: "sato", current: task2 }, db).ok,
++      true,
++    );
++  });
++});
++
++describe("canChangeTeam", () => {
++  it("allows only the owner", () => {
++    const task = getTask(1, "sato", openDb())!;
++    assert.equal(canChangeTeam(task, "sato"), true);
++    assert.equal(canChangeTeam(task, "suzuki"), false);
+   });
+ });
+ 
+ describe("createTask / updateTask", () => {
+-  it("creates a task and updates only the given fields", () => {
++  it("creates a task with the owner and updates only the given fields", () => {
+     const db = openDb();
+-    const created = createTask({ title: "新規", status: "todo", assignee: "sato", dueDate: "2026-12-01" }, db);
++    const created = createTask({ title: "新規", status: "todo", assignee: "sato", dueDate: "2026-12-01", teamId: null }, "sato", db);
+     assert.equal(created.id, 8);
+-    assert.equal(listTasks({}, db).length, 8);
++    assert.equal(created.owner, "sato");
++    assert.deepEqual(ids(listTasks("sato", {}, db)), [1, 2, 3, 5, 6, 8]);
++    assert.equal(getTask(8, "suzuki", db), undefined);
+     const updated = updateTask(created.id, { status: "done" }, db);
+     assert.deepEqual(updated, { ...created, status: "done" });
++    const moved = updateTask(created.id, { teamId: 1 }, db);
++    assert.equal(moved?.teamId, 1);
++    assert.ok(getTask(8, "suzuki", db));
+     assert.equal(updateTask(999, { status: "done" }, db), undefined);
+   });
+ });
+diff --git a/tests/teams.test.ts b/tests/teams.test.ts
+new file mode 100644
+index 0000000..cd5b0b5
+--- /dev/null
++++ b/tests/teams.test.ts
+@@ -0,0 +1,86 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { MIGRATIONS } from "../src/lib/db/migrations.ts";
++import { migrate } from "../src/lib/db/index.ts";
++import { DatabaseSync } from "node:sqlite";
++import { getTask, listTasks } from "../src/lib/tasks.ts";
++import {
++  addMember,
++  createTeam,
++  getRole,
++  listMembers,
++  listTeams,
++  removeMember,
++  validateMemberInput,
++  validateTeamName,
++} from "../src/lib/teams.ts";
++
++describe("listTeams / listMembers", () => {
++  it("returns the user's teams with their role", () => {
++    const db = openDb();
++    assert.deepEqual(listTeams("suzuki", db), [
++      { id: 1, name: "開発チーム", role: "member" },
++      { id: 2, name: "デザインチーム", role: "admin" },
++    ]);
++    assert.deepEqual(listMembers(1, db), [
++      { userId: "sato", name: "佐藤", role: "admin" },
++      { userId: "suzuki", name: "鈴木", role: "member" },
++    ]);
++  });
++});
++
++describe("createTeam", () => {
++  it("makes the creator an admin", () => {
++    const db = openDb();
++    const team = createTeam("新チーム", "tanaka", db);
++    assert.deepEqual(team, { id: 3, name: "新チーム", role: "admin" });
++    assert.equal(getRole(3, "tanaka", db), "admin");
++  });
++
++  it("validates the name", () => {
++    assert.deepEqual(validateTeamName({ name: "  営業  " }), { ok: true, value: "営業" });
++    for (const name of ["", "   ", "あ".repeat(51), 1, undefined]) assert.equal(validateTeamName({ name }).ok, false);
++    assert.equal(validateTeamName("x").ok, false);
++  });
++});
++
++describe("addMember / removeMember", () => {
++  it("validates the input", () => {
++    const db = openDb();
++    assert.deepEqual(validateMemberInput({ userId: "tanaka" }, db), { ok: true, value: { userId: "tanaka", role: "member" } });
++    assert.equal(validateMemberInput({ userId: "nobody" }, db).ok, false);
++    assert.equal(validateMemberInput({ userId: "tanaka", role: "owner" }, db).ok, false);
++  });
++
++  it("adds a member once and gives access to the team's tasks", () => {
++    const db = openDb();
++    assert.equal(getTask(1, "tanaka", db), undefined);
++    assert.deepEqual(addMember(1, { userId: "tanaka", role: "member" }, db), { userId: "tanaka", name: "田中", role: "member" });
++    assert.equal(addMember(1, { userId: "tanaka", role: "member" }, db), "exists");
++    assert.ok(getTask(1, "tanaka", db));
++  });
++
++  it("removes a member and revokes access, but keeps the last admin", () => {
++    const db = openDb();
++    assert.equal(removeMember(2, "tanaka", db), "ok");
++    assert.equal(getTask(4, "tanaka", db), undefined); // 担当者のままでも見えなくなる
++    assert.deepEqual(listTasks("tanaka", {}, db).map((t) => t.id), [7]);
++    assert.equal(removeMember(2, "tanaka", db), "not_found");
++    assert.equal(removeMember(2, "suzuki", db), "last_admin");
++    addMember(2, { userId: "sato", role: "admin" }, db);
++    assert.equal(removeMember(2, "suzuki", db), "ok");
++  });
++});
++
++describe("migration 3", () => {
++  it("turns existing tasks into personal tasks of their assignee", () => {
++    const db = new DatabaseSync(":memory:");
++    db.exec("PRAGMA foreign_keys = ON");
++    migrate(db, MIGRATIONS.filter((m) => m.version < 3));
++    db.exec("INSERT INTO users (id, name) VALUES ('sato', '佐藤')");
++    db.exec("INSERT INTO tasks (title, status, assignee, due_date) VALUES ('既存', 'todo', 'sato', '2026-12-01')");
++    migrate(db);
++    assert.deepEqual({ ...db.prepare("SELECT team_id, owner FROM tasks").get() }, { team_id: null, owner: "sato" });
++  });
++});
