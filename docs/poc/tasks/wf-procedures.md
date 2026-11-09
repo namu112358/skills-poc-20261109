@@ -8,9 +8,12 @@
 | W1 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W2 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W3 | `<課題>` | `<課題>`（`brainstorming` の自動発火） | `/feature-dev:feature-dev <課題>`（確認質問のフェーズまで） | `/office-hours <課題>` → `/plan-ceo-review` | `/ce-brainstorm <課題>` |
+| W4 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `/autoplan <課題>` → 「計画に沿って実装し、変更を git にコミットしてください。」→ `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W5 | `<課題>` | `<課題>`（`systematic-debugging` の自動発火） | `<課題>`（通常の指示） | `/qa <課題>` | `/ce-debug <課題>` |
+| W6 | `<課題>` | `<課題>` → `/superpowers:finishing-a-development-branch` | `/feature-dev:feature-dev <課題>` → PR 作成の指示 | `<課題>` → `/qa` → `/ship` | `/ce-work <課題>` → `/ce-test-browser` → `/ce-commit-push-pr` |
 | W7a | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` →（落とし穴の指摘の後）`/ce-compound` |
 | W7b | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
+| W9 | `<課題>` | `/superpowers:requesting-code-review <課題>` | 「Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。」+ `<課題>` | `/review <課題>` | `/ce-code-review <課題>` |
 
 ### W2 以降の共通の決まり
 
@@ -35,6 +38,23 @@
 - 介入の定型文は「お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。」（最大 2 回）。
 - 採点は `scripts/poc/grade_w5.py`（`docs/poc/answer-key/W5/grading.md`）。
 
+### W6 の決まり（UI 実装からブラウザ検証・PR 作成まで）
+
+- 課題文で、実装後にブラウザで確認（スマートフォンの幅を含む）し、証跡をリポジトリに保存して PR から参照するよう指示する（baseline を含む全候補に同じ文面）。
+- PR はローカルで完結させる。作業用コピーにはリモートが無く、`git push` と `gh` は許可リストに無いため実行できない。課題文で「作成するはずだった PR のタイトルと本文を `PR.md` に書いてコミットする」と指示する。`/ship`・`/ce-commit-push-pr`・`finishing-a-development-branch` が push や PR の作成を試みたときの挙動（拒否された操作）は記録する。
+- Feature Dev の「PR 作成の指示」は「PR を作成してください（課題文の「確認と PR」のとおり、PR のタイトルと本文を PR.md に書いてコミットします）。」。
+- 介入の定型文は「お任せします。確認は不要なので、課題を最後まで実装し、PR.md を含めて変更を git にコミットしてください。」（最大 2 回）。`PR.md` がコミットされていなければ未完了とみなす。
+- 費用の上限は `POC_BUDGET_MODE=watch`（下の「費用の上限の守り方」）。
+- 採点は `scripts/poc/grade_w6.py`（`docs/poc/answer-key/W6/grading.md`）。
+
+### W9 の決まり（レビューで不具合を見つける。2026-11-09 追加）
+
+- レビュー対象の差分（正解データ `docs/poc/answer-key/W9/review.patch`。不具合 10 件とおとり 5 件を含む PR 相当の変更）を、`run-trial.sh` が作業用コピーの作業ブランチにだけ当て、PR の説明（課題文の「# PR:」以降）をメッセージにしたコミットを 1 つ作る。候補は `master` との差分をレビューする。パッチファイルは作業用コピーに置かない（ハッシュを `raw/<試行ID>/review-patch` に記録する）。`baseline-commit` はこのレビュー対象のコミットにする（候補の成果は `REVIEW.md` などの差分だけになる）。W9 以外では当てない。
+- 入口は各候補のレビュー機能: gstack は `/review`、Compound Engineering は `/ce-code-review`、Superpowers は `requesting-code-review`（コードレビューを依頼する Skill。`/superpowers:requesting-code-review` で起動）、Feature Dev はレビュー用のコマンドが無いため code-reviewer エージェントを使うよう指示する。baseline は課題文だけ（「この変更をコードレビューし…」）。
+- 課題文で、指摘を `REVIEW.md` に書いてコミットし、コードは直さないよう指示する（全候補に同じ文面）。採点は `REVIEW.md` だけで行う。
+- 介入の定型文は「お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。」（最大 2 回）。`REVIEW.md` がコミットされていなければ未完了とみなす。
+- 費用の上限は `POC_BUDGET_MODE=watch`、課題文の末尾は新文言（どちらもシナリオ名で決まる既定）。子セッションの許可リストは W6 以降と同じ（開発サーバーの起動・ブラウザを含む。レビューで動作を確かめる場合に使える）。
+- 採点は `scripts/poc/grade_w9.py`・`blind_w9.py`・`score_w9.py`（`docs/poc/answer-key/W9/grading.md`）。
 ### W7 の決まり（続けて行う作業での学習効果。2026-11-09 追加）
 
 - W7a（完了報告）と W7b（作業記録）を、同じ候補・同じ回で続けて行う（`run-trial.sh W7a <候補> <回>` → 採点 → `run-trial.sh W7b <候補> <回>`）。W7b は新しいセッション（`--resume` しない）で始める。
@@ -56,6 +76,7 @@
 - `npm run typecheck` / `npm test` / `npm run build`
 - `git status` / `git diff` / `git log` / `git show` / `git add` / `git commit`
 - `ls` / `cat` / `grep` などの読み取り系
+- W6 以降だけ（2026-11-09 追加）: 開発サーバーの起動（`npm run dev` / `npm run start` / `npx next dev` / `npx next start`。`timeout` を付けた形も可）、Playwright MCP と Next.js DevTools MCP のツール、gstack の browse（`~/.claude/skills/gstack/browse/dist/`）。gstack のブラウザは Chrome for Testing を取得できないため、環境変数 `GSTACK_CHROMIUM_PATH` で事前インストール済みの Chromium（`/opt/pw-browsers/chromium`）を使わせる。子セッションが起動したサーバー・ブラウザは、結果が出た 30 秒後と試行の終了時に止める。W1〜W5 の許可リストは変えていない。
 
 ## gstack の導入（試行ごと）
 

@@ -192,32 +192,52 @@ def acceptance():
     for name, cmd in [("typecheck", "npm run typecheck"), ("test", "npm test"), ("build", "npm run build")]:
         code, log = run(cmd)
         checks[name] = {"pass": code == 0, "log": log[-800:]}
-    e2e = []
-    if checks["build"]["pass"]:
-        port = free_port()
-        server = subprocess.Popen(f"npx next start -p {port}", cwd=APP, shell=True,
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        try:
-            for _ in range(60):
-                try:
-                    socket.create_connection(("127.0.0.1", port), timeout=1).close()
-                    break
-                except OSError:
-                    time.sleep(1)
-            env = dict(os.environ, NODE_PATH=subprocess.run("npm root -g", shell=True, capture_output=True, text=True).stdout.strip())
-            # W7a・W7b の受け入れテストは answer-key/W7/acceptance-<シナリオ>.cjs（それ以外は answer-key/<シナリオ>/acceptance.cjs）
-            if SCENARIO.startswith("W7"):
-                key = ROOT / "docs" / "poc" / "answer-key" / "W7" / f"acceptance-{SCENARIO}.cjs"
-            else:
-                key = ROOT / "docs" / "poc" / "answer-key" / SCENARIO / "acceptance.cjs"
-            code, log = run(f"node {key} http://127.0.0.1:{port}", timeout=180, env=env)
+    e2e, authz = [], []
+    # 隠しの E2E が無い W（W9 のレビューなど）は E2E を実行しない（W1〜W8 は従来どおり）
+    if checks["build"]["pass"] and key_path("acceptance.cjs").exists():
+        e2e = run_key("acceptance.cjs")
+        # 認可プローブ（W4 以降。正解データに authz.cjs があるシナリオだけ、別に起動したサーバーで実行する）
+        if key_path("authz.cjs").exists():
+            authz = run_key("authz.cjs")
+    return checks, e2e, authz
+
+
+def key_path(name):
+    """正解データの検査スクリプトの場所。W7a・W7b などは answer-key/W7/<名前>-<シナリオ>.cjs（例: acceptance-W7a.cjs）、
+    それ以外は answer-key/<シナリオ>/<名前>。"""
+    if SCENARIO.startswith("W7"):
+        stem, ext = name.rsplit(".", 1)
+        return ROOT / "docs" / "poc" / "answer-key" / "W7" / f"{stem}-{SCENARIO}.{ext}"
+    return ROOT / "docs" / "poc" / "answer-key" / SCENARIO / name
+
+
+def run_key(name):
+    """正解データの検査スクリプト（acceptance.cjs など）を、起動したばかりのサーバーに対して実行する。"""
+    results = []
+    port = free_port()
+    server = subprocess.Popen(f"npx next start -p {port}", cwd=APP, shell=True,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    try:
+        for _ in range(60):
             try:
-                e2e = json.loads(log.strip().splitlines()[-1])
-            except (ValueError, IndexError):
-                e2e = [{"name": "E2E 実行", "pass": False, "detail": log[-500:]}]
-        finally:
-            os.killpg(server.pid, 15)
-    return checks, e2e
+                socket.create_connection(("127.0.0.1", port), timeout=1).close()
+                break
+            except OSError:
+                time.sleep(1)
+        env = dict(os.environ, NODE_PATH=subprocess.run("npm root -g", shell=True, capture_output=True, text=True).stdout.strip())
+        key = key_path(name)
+        # run() は出力の末尾 3000 字だけを返すため、不合格が多いと結果の JSON が途中で切れる。ここでは標準出力を丸ごと読む
+        p = subprocess.run(f"node {key} http://127.0.0.1:{port}", cwd=APP, shell=True, capture_output=True, text=True,
+                           timeout=600, env=env)
+        log = p.stdout + p.stderr
+        try:
+            results = json.loads(p.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            results = [{"name": f"{name} の実行", "pass": False, "detail": log[-500:]}]
+    finally:
+        os.killpg(server.pid, 15)
+        time.sleep(2)
+    return results
 
 
 def cleanup():
@@ -238,7 +258,7 @@ def main():
     if "--cleanup-only" in FLAGS:
         cleanup()
         return
-    checks, e2e = acceptance()
+    checks, e2e, authz = acceptance()
     result = {
         "scenario": SCENARIO,
         "trial": TRIAL,
@@ -255,6 +275,7 @@ def main():
         "continued_from": CONTINUED_FROM,
         "checks": checks,
         "e2e": e2e,
+        **({"authz": authz} if authz else {}),
         "diff": diff_stats(),
         "transcript": transcript_stats(),
     }

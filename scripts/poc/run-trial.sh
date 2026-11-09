@@ -96,6 +96,20 @@ git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
 # 試行は作業ブランチの上で始める（W2 以降。W1 で gstack の /review が master 直コミットのため差分なしで止まったため）
 #（W1 は master のまま。W1 の手順を同じ条件で再実行できるようにするため）
 [[ "$SCENARIO" != W1 ]] && git -C "$APP" switch -q -c "poc/wf/$CAND/$SCENARIO/$RUN"
+# W9（レビューで不具合を見つける）: レビュー対象の差分（正解データ docs/poc/answer-key/W9/review.patch）を
+# 作業ブランチにだけ当て、PR の説明（課題文の「# PR:」以降）をメッセージにしたコミットを作る。候補は master との差分をレビューする。
+# パッチファイル自体は作業用コピーに置かない。baseline-commit はレビュー対象のコミットにする（候補が書いた REVIEW.md などだけが成果の差分になる）。
+# W9 以外では何もしない。
+if [[ "$SCENARIO" == W9 ]]; then
+  REVIEW_PATCH="${POC_REVIEW_PATCH:-$ROOT/docs/poc/answer-key/W9/review.patch}"
+  git -C "$APP" apply "$REVIEW_PATCH"
+  sha256sum "$REVIEW_PATCH" | sed "s#$ROOT/##" > "$OUT/review-patch"
+  git -C "$APP" rev-parse HEAD > "$OUT/review-base-commit"
+  sed -n '/^# PR:/,$p' "$ROOT/docs/poc/tasks/wf-W9.md" | sed '1s/^# PR: //' > "$WORK/review-commit-msg"
+  ( cd "$APP" && git add -A && git commit -q -F "$WORK/review-commit-msg" )
+  rm -f "$WORK/review-commit-msg"
+  git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
+fi
 fi
 
 # 2) 必須プラグイン + 候補プラグイン（すべて固定コミット。scripts/poc/fetch-plugins.sh で取得）
@@ -156,6 +170,31 @@ if [[ "$CAND" == gstack ]]; then
   # gstack 自身のコマンド（~/.claude/skills/gstack/bin/*）
   ALLOWED+=("Bash($GSTACK/bin/:*)" "Bash(~/.claude/skills/gstack/bin/:*)" "Bash(bun $GSTACK/:*)")
 fi
+# W6 以降（UI 実装からブラウザ検証まで）: 開発サーバーの起動とブラウザ操作を許可する（2026-11-09 追加）。
+# W1〜W5 は比較の条件を揃えるため従来の許可リストのまま。サーバーは試行後に reap_servers が止める。
+SCN_NUM="${SCENARIO#W}"; SCN_NUM="${SCN_NUM%%[a-z]*}"
+CHILD_ENV=()
+# W7 は除く: W7 の試行は、この許可の追加が main に入る前に現行の許可リストで始めたため、
+# 対照も含めて同じ許可リストのまま行う（W7 の report.md「判断の記録」）。
+if [[ "$SCN_NUM" -ge 6 && "$SCN_NUM" != 7 ]]; then
+  ALLOWED+=(
+    "Bash(npm run dev)" "Bash(npm run dev:*)" "Bash(npm run start)" "Bash(npm run start:*)"
+    "Bash(timeout * npm run dev*)" "Bash(timeout * npm run start*)" "Bash(timeout * npx next *)"
+    # npm start（npm run start の別名）と、ポートを環境変数で渡す形（PORT=3100 npm run start など）。
+    # 2026-11-09 の最初の試行でこの形が漏れていて、2 試行がサーバーを起動できなかったため追加した
+    "Bash(npm start)" "Bash(npm start:*)" "Bash(PORT=* npm start*)" "Bash(PORT=* npm run start*)"
+    "Bash(PORT=* npm run dev*)" "Bash(PORT=* npx next *)"
+    # ブラウザ: Playwright MCP（全候補共通。事前インストール済みの Chromium を使う）と Next.js DevTools MCP
+    "mcp__playwright" "mcp__next-devtools"
+  )
+  if [[ "$CAND" == gstack ]]; then
+    # gstack のブラウザ（browse）。Chrome for Testing は取得できないので、事前インストール済みの Chromium を使わせる
+    ALLOWED+=("Bash($GSTACK/browse/dist/:*)" "Bash(~/.claude/skills/gstack/browse/dist/:*)")
+  fi
+  CHILD_ENV=(GSTACK_CHROMIUM_PATH=/opt/pw-browsers/chromium)
+  # 子セッションが起動したサーバー・ブラウザが試行後に残らないよう、終了時にも止める（reap_servers は下で定義）
+  trap 'declare -F reap_servers >/dev/null && reap_servers end' EXIT
+fi
 
 # 4) 手順（docs/poc/tasks/wf-procedures.md）
 if [[ "$SCENARIO" == W3 ]]; then
@@ -203,12 +242,40 @@ fi
 POST_STEPS=()
 # 後から段階を足すときは、最後の段階を除く各段階の後に行う（POC_W7_LAST_STAGE。既定は W7b）
 [[ "$SCENARIO" =~ ^W7[a-z]$ && "$SCENARIO" < "${POC_W7_LAST_STAGE:-W7b}" && "$CAND" == compound-engineering ]] && POST_STEPS=("/ce-compound")
+# W4 の gstack は /autoplan → 実装 → /review（PLAN.md §5.1。ほかのシナリオの手順は変えない）
+if [[ "$SCENARIO" == W4 && "$CAND" == gstack ]]; then
+  STEPS=("/autoplan $TASK" "計画に沿って実装し、変更を git にコミットしてください。" "/review")
+fi
+if [[ "$SCENARIO" == W6 ]]; then
+  # W6 の手順（docs/poc/tasks/wf-procedures.md）。PR はリモートが無いので PR.md に書かせる（課題文に明記）。
+  PR_STEP="PR を作成してください（課題文の「確認と PR」のとおり、PR のタイトルと本文を PR.md に書いてコミットします）。"
+  case "$CAND" in
+    baseline) STEPS=("$TASK") ;;
+    superpowers) STEPS=("$TASK" "/superpowers:finishing-a-development-branch") ;;
+    feature-dev) STEPS=("/feature-dev:feature-dev $TASK" "$PR_STEP") ;;
+    compound-engineering) STEPS=("/ce-work $TASK" "/ce-test-browser" "/ce-commit-push-pr") ;;
+    gstack) STEPS=("$TASK" "/qa" "/ship") ;;
+  esac
+fi
 if [[ "$SCENARIO" == W5 ]]; then
   # W5 の手順（docs/poc/tasks/wf-procedures.md）。gstack は /qa、Compound Engineering は /ce-debug に課題を渡す。
   case "$CAND" in
     baseline|superpowers|feature-dev) STEPS=("$TASK") ;;
     compound-engineering) STEPS=("/ce-debug $TASK") ;;
     gstack) STEPS=("/qa $TASK") ;;
+  esac
+fi
+if [[ "$SCENARIO" == W9 ]]; then
+  # W9 の手順（docs/poc/tasks/wf-procedures.md）。各候補のレビューの入口に課題を渡す。Feature Dev はレビュー用のコマンドが
+  # 無いため、code-reviewer エージェントを使うよう指示する。指摘は REVIEW.md に書かせる（課題文に明記）。
+  case "$CAND" in
+    baseline) STEPS=("$TASK") ;;
+    superpowers) STEPS=("/superpowers:requesting-code-review $TASK") ;;
+    feature-dev) STEPS=("Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。
+
+$TASK") ;;
+    compound-engineering) STEPS=("/ce-code-review $TASK") ;;
+    gstack) STEPS=("/review $TASK") ;;
   esac
 fi
 
@@ -247,6 +314,8 @@ if [[ "${POC_DISABLE_AUTO_MEMORY:-}" == 1 ]] || [[ -z "${POC_DISABLE_AUTO_MEMORY
   AUTO_MEMORY_ENV=(CLAUDE_CODE_DISABLE_AUTO_MEMORY=1)
   echo 1 > "$OUT/auto-memory-disabled"
 fi
+[[ "$SCENARIO" == W6 ]] && NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、PR.md を含めて変更を git にコミットしてください。"
+[[ "$SCENARIO" == W9 ]] && NUDGE="お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。"
 
 session_cost() {  # これまでの全ステップの最後の result の total_cost_usd（--resume では累計）
   python3 -c '
@@ -312,7 +381,8 @@ reap_servers() {  # 作業用コピーを cwd にして動く next のプロセ�
     [[ "$cwd" == "$APP"* ]] || continue
     cmd="$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)" || continue
     case "$cmd" in claude*|timeout*|*run-trial.sh*|*playwright-mcp*|*next-devtools-mcp*) continue ;; esac
-    if [[ "$cmd" == *next* ]]; then
+    # next（開発サーバー）に加え、W6 以降の gstack の browse デーモンと、そのブラウザ（chrome）も止める
+    if [[ "$cmd" == *next* || "$cmd" == *browse/dist/* || "$cmd" == *chrom* ]]; then
       kill "$pid" 2>/dev/null && echo "step$1 killed leftover: ${cmd:0:120}" >> "$OUT/errors.log"
     fi
   done
@@ -324,7 +394,7 @@ run_step() {  # run_step <番号> <プロンプト>
   if [[ -n "$MAX_USD" && "$BUDGET_MODE" == flag ]]; then
     BUDGET=(--max-budget-usd "$(python3 -c "print(max(0.01, round($MAX_USD - $(session_cost), 2)))")")
   fi
-  ( cd "$APP" && env HOME="$HOME_DIR" "${AUTO_MEMORY_ENV[@]}" timeout "${POC_STEP_TIMEOUT:-2400}" claude -p "$prompt" \
+  ( cd "$APP" && env HOME="$HOME_DIR" "${CHILD_ENV[@]}" "${AUTO_MEMORY_ENV[@]}" timeout "${POC_STEP_TIMEOUT:-2400}" claude -p "$prompt" \
       --model "$MODEL" --permission-mode acceptEdits --allowedTools "${ALLOWED[@]}" \
       --mcp-config "$APP/.mcp.json" --strict-mcp-config --add-dir "$PLUG" "${PLUG_EXTRA[@]}" \
       "${PLUGINS[@]}" "${RESUME[@]}" "${BUDGET[@]}" \
@@ -390,9 +460,14 @@ done
 for _ in $(seq 1 "$MAX_NUDGES"); do
   commits="$(git -C "$APP" rev-list --count "$(cat "$OUT/baseline-commit")"..HEAD)"
   # AGENTS.md は next dev が自動で書き出すファイルなので、未コミットの変更に数えない
-  dirty="$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' | head -1)"
+  # W6 以降の Playwright MCP が自動で書き出すページの記録（.playwright-mcp/）も数えない（W5 までは出ない）
+  dirty="$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' ':!.playwright-mcp' | head -1)"
   # W3 は要件文書（REQUIREMENTS.md）がコミットされていることも完了の条件にする
   if [[ "$SCENARIO" == W3 ]] && ! git -C "$APP" cat-file -e HEAD:REQUIREMENTS.md 2>/dev/null; then commits=0; fi
+  # W6 は PR の本文（PR.md）がコミットされていることも完了の条件にする
+  if [[ "$SCENARIO" == W6 ]] && ! git -C "$APP" cat-file -e HEAD:PR.md 2>/dev/null; then commits=0; fi
+  # W9 はレビューの指摘（REVIEW.md）がコミットされていることも完了の条件にする
+  if [[ "$SCENARIO" == W9 ]] && ! git -C "$APP" cat-file -e HEAD:REVIEW.md 2>/dev/null; then commits=0; fi
   [[ "$commits" -gt 0 && -z "$dirty" ]] && break
   if over_budget; then echo "nudge skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
   i=$((i+1))

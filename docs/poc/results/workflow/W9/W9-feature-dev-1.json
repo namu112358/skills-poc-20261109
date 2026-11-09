@@ -1,0 +1,77 @@
+{
+  "scenario": "W9",
+  "trial": "W9-feature-dev-1",
+  "candidate": "feature-dev",
+  "run": 1,
+  "elapsed_seconds": 116,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "   type: 'test'\n      ...\n    1..4\nok 16 - validateTaskInput\n  ---\n  duration_ms: 708.633161\n  type: 'suite'\n  ...\n# Subtest: createTask / updateTask\n    # Subtest: creates a task and updates only the given fields\n    ok 1 - creates a task and updates only the given fields\n      ---\n      duration_ms: 88.723415\n      type: 'test'\n      ...\n    1..1\nok 17 - createTask / updateTask\n  ---\n  duration_ms: 88.993074\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.213387\n      type: 'test'\n      ...\n    1..1\nok 18 - isTaskStatus\n  ---\n  duration_ms: 0.289483\n  type: 'suite'\n  ...\n1..18\n# tests 26\n# suites 18\n# pass 26\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1667.440628\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "5ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /api/tasks/bulk-status\n├ ƒ /api/tasks/overdue\n├ ƒ /api/tasks/search\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:13774) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:13787) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:13780) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [],
+  "diff": {
+    "files": [
+      {
+        "path": "REVIEW.md",
+        "added": 92,
+        "deleted": 0,
+        "kind": "doc"
+      }
+    ],
+    "new_files": [
+      "REVIEW.md"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "15eeaab PRのコードレビュー結果(REVIEW.md)を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.3239,
+    "tokens": {
+      "input": 24,
+      "output": 11637,
+      "cache_read": 352219,
+      "cache_creation": 48735
+    },
+    "turns": 4,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 4,
+      "Agent": 1,
+      "Glob": 3,
+      "Read": 9,
+      "Grep": 1
+    },
+    "skills_used": [],
+    "subagents": 1,
+    "subagent_types": {
+      "feature-dev:code-reviewer": 1
+    },
+    "questions": 0,
+    "active_seconds": 53,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "レビュー結果をリポジトリ直下の `REVIEW.md` に書き、コミットしました（`15eeaab`）。結論は、このままではマージ不可です。コードは直していません。指摘は高 8 件、中 1 件で、場所・問題・直し方は `REVIEW.md` に書いてあります。レビューは feature-dev:code-reviewer に依頼しました。エージェント自身は差分を取れなかったので、マイグレーションの指摘と各指摘の該当箇所は、私が差分と現行コードで確認しました。テストや型チェックは実行していません。\n\n**高**\n1. **検索が SQL 文字列連結**（`src/lib/tasks.ts:86`）: SQL インジェクションになります。`%` と `_` もワイルドカードとして働きます。構文エラーは route の `catch` で握りつぶされ、200 で空の結果が返ります。\n2. **OFFSET が 1 ページずれる**（`src/lib/tasks.ts:90`）: `page * limit` を使っているので、`page=1` で先頭 `limit` 件が飛ばされます。\n3. **`limit` の検証がない**（`src/app/api/tasks/search/route.ts:134`）: `limit=abc` は NaN になります。`limit=-1` は件数無制限、`limit=1000` は 50 超のまま通ります。\n4. **一括ステータス変更が原子的でない**（`src/lib/tasks.ts:186-198`）: `ids=[1, 999]` だと ID 1 だけ更新されたまま 404 が返ります。\n5. **「今日（日本時間）」が UTC で計算されている**（`src/lib/tasks.ts:96`）: 日本時間 0〜9 時は前日の期限切れが漏れます。\n6. **削除の権限判定が素通りする**（`src/app/api/tasks/[id]/route.ts:40`）: 作成者なしのタスクは誰でも削除できます。この PR より前のタスクは全部これに当たります。\n7. **同時編集の検知が原子的でない**（`src/app/api/tasks/[id]/route.ts:22-31`、`src/lib/tasks.ts:163-175`）:\n   - 取得、比較、更新が別々なので、割り込まれると上書きされます。\n   - `version` の型を検証していません。\n   - 直すには `UPDATE … WHERE id = ? AND version = ?` を使います。\n8. **既存のマイグレーション v1 を書き換えている**（`src/lib/db/migrations.ts:24-25`）: 規約 7 違反です。適用済みの永続 DB には列が追加されず、タスク API 全体が壊れます。末尾に新しいマイグレーションを追加する形にします。\n\n**中**\n- **テストの不足**（`tests/tasks-search.test.ts`）: 削除のテストは削除前の件数を見ているので、何も検証していません。上の指摘を拾えるテストが足りません。\n\nルートの競合、ログイン確認、重複 ID の扱いは確認して問題なしとし、補足として `REVIEW.md` に残しました。"
+  },
+  "w9": {
+    "review_md": "# コードレビュー: タスクの検索・削除・一括ステータス変更・期限切れ一覧・同時編集の検知\n\n対象: `master...HEAD`（1 コミット）。結論: **このままではマージ不可**（高 8 件）。\nレビューは feature-dev:code-reviewer が行い、マイグレーションと各指摘の該当箇所は差分と現行コードで再確認した。\n\n## 高\n\n### 1. 検索が SQL 文字列連結で、SQL インジェクションになる\n- 場所: `src/lib/tasks.ts:86`（`searchTasks` の `title LIKE '%${query}%'`）、`src/app/api/tasks/search/route.ts:135-139`\n- 問題:\n  - 検索語をそのまま SQL に埋め込んでいる（規約 8 違反）。\n  - `q=' OR '1'='1` なら全件が返る。`UNION` で `users` などほかのテーブルの値も取り出せる。\n  - `'` を含む検索語は構文エラーになる。route の `catch` がそれを握りつぶして `{tasks: [], total: 0}` を 200 で返すので、不具合が見えない。\n  - `%` と `_` がワイルドカードとして働く（`q=%` で全件一致）。\n- 直し方:\n  - `title LIKE ? ESCAPE '\\'` とし、値は `%${escapeLike(q)}%` を渡す。`escapeLike` は `\\`、`%`、`_` を `\\` でエスケープする。\n  - COUNT と SELECT の両方に同じ値を渡す。\n  - route の `try/catch` は外す。\n\n### 2. ページングの OFFSET が 1 ページずれる\n- 場所: `src/lib/tasks.ts:90`（`.all(limit, page * limit)`）\n- 問題: `page` は 1 始まりなのに `page * limit` を OFFSET にしている。`page=1` で先頭 `limit` 件が飛ばされ、最終ページは空になる。\n- 直し方: `(page - 1) * limit` にする。page=1、page=2、最終ページ、範囲外ページのテストを追加する。\n\n### 3. `limit` を検証していない（仕様は 1〜50 の整数、範囲外は 400）\n- 場所: `src/app/api/tasks/search/route.ts:134`（`Number(params.get(\"limit\") ?? ...)`）\n- 問題:\n  - `limit=abc` は NaN、`limit=` は 0、`2.5` は小数のまま通る。\n  - `limit=-1` は SQLite で LIMIT 無制限になり、全件が返る。\n  - `limit=1000` は 50 を超えたまま通る。\n  - `SEARCH_LIMIT_MAX` は定義だけで使われていない。\n  - 応答の `limit` も入力値のまま返る。\n- 直し方: `parsePageParam` と同様の `parseLimitParam`（`^[1-9][0-9]*$` かつ 1〜`SEARCH_LIMIT_MAX`）を `src/lib/tasks.ts` に追加し、不正なら 400 を返す。\n\n### 4. 一括ステータス変更が原子的でない\n- 場所: `src/lib/tasks.ts:186-198`（`bulkUpdateStatus`）\n- 問題: ID ごとに UPDATE を実行していて、トランザクションがなく、存在確認もしていない。`ids=[1, 999]` だと ID 1 だけ更新されたまま 404 が返る。仕様は「1 件でも存在しなければ、どのタスクも変えない」。\n- 直し方: 先に `SELECT id FROM tasks WHERE id IN (?,…)` で存在を確認し、欠けがあれば更新せずに `missing` を返す。更新は `src/lib/db` の `transaction(db, …)` の中で行う。\n- テスト: `[存在する ID, 存在しない ID]` を渡して、存在する側のステータスと version が変わらないことを確認する。\n\n### 5. 「今日（日本時間）」が UTC で計算されている\n- 場所: `src/lib/tasks.ts:96`（`now.toISOString().slice(0, 10)`）\n- 問題: `toISOString()` は UTC の日付を返す。日本時間 0:00〜8:59 は UTC ではまだ前日なので、前日が期限のタスクが期限切れに含まれない。例: `2026-11-14T15:00:00Z`（JST 11/15 0:00）なら今日は 11/15 だが、11/14 と判定される。\n- 直し方: `new Date(now.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10)` か、`Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" })` を使う。JST 境界のテストを追加する。\n\n### 6. 削除の権限判定が、作成者なし（NULL）のタスクで素通りする\n- 場所: `src/app/api/tasks/[id]/route.ts:40`（`task.createdBy && task.createdBy !== user.id && task.assignee !== user.id`）\n- 問題: `createdBy` が null だと条件全体が false になり、担当者でも作成者でもないユーザーが 204 で削除できる。この PR より前のタスク（シードを含む）は全部 null なので、実質的に既存タスクは誰でも消せる。仕様は「作成者か担当者だけ。ほかは 403」。\n- 直し方: `if (task.createdBy !== user.id && task.assignee !== user.id) return jsonError(403, …)` にする。null は不一致として扱われる。判定は `src/lib/` の関数（例: `canDeleteTask(task, userId)`）に出して、単体テストを書く。\n\n### 7. 同時編集の検知（楽観ロック）が原子的でない\n- 場所: `src/app/api/tasks/[id]/route.ts:22-31`、`src/lib/tasks.ts:163-175`（`updateTask`）\n- 問題:\n  - `current` を取得してから `await readJson(request)` を挟み、その後に version を比較している。間に別リクエストが更新すると、古い `current.version` と比べてしまい、競合を見逃して上書きする。\n  - `updateTask` は SELECT のあと無条件に UPDATE するので、比較と更新の間で割り込まれても同様に lost update になる。\n  - `version` に文字列（`\"1\"`）、小数、null を送ると、検証されずに 409 になる。入力誤りなので 400 にすべき。\n- 直し方:\n  - `UPDATE tasks SET …, version = version + 1 WHERE id = ? AND version = ?` とし、`changes === 0` なら再度 SELECT して、存在しなければ 404、存在すれば 409 にする。`updateTask` に `expectedVersion?` を渡し、結果が「成功／競合／不在」を区別できる形にする。\n  - `version` は `Number.isInteger` で検証し、不正なら 400 にする（規約 9: 本文は `src/lib/` の検証関数を通す）。\n- テスト: 版が古い PATCH で 409 になること、version を省略すると従来どおり更新され `version` が +1 されることを確認する。\n\n### 8. 既存のマイグレーション（version 1）を書き換えている\n- 場所: `src/lib/db/migrations.ts:24-25`（`CREATE TABLE tasks` に `created_by`、`version` を追加）\n- 問題:\n  - 規約 7 違反。適用済みの DB は `user_version >= 1` でスキップされるので、列が追加されない。\n  - `DATABASE_PATH` で永続化した DB では、`SELECT … created_by, version` が \"no such column\" で失敗し、タスク API 全体が壊れる。\n  - 既定の `:memory:` では毎回作り直すので気づきにくい。\n  - 「この PR より前に作られたタスクは作成者なし」という仕様も、既存データがある環境でしか意味を持たない。\n- 直し方: version 1 を元に戻し、末尾に version 3 を追加する。\n  - `ALTER TABLE tasks ADD COLUMN created_by TEXT REFERENCES users(id);`\n  - `ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1;`\n  - 既存データがある状態から v3 へ上がるテストを追加する。\n\n## 中\n\n### 9. テストが不十分で、一部は何も検証していない\n- 場所: `tests/tasks-search.test.ts`\n  - 52-58 行の `deleteTask` のテストは、削除前に取得した `tasks` の長さを見ている（`assert.equal(tasks.length, 7)`）ので、削除に失敗しても通る。\n- 足りないテスト（上の指摘 1〜7 を見逃した原因）:\n  - 検索: `%`、`_`、`'` を含む検索語、total、page=2、最終ページ\n  - 削除: 削除後に `getTask` が undefined になること、存在しない ID で false が返ること、権限（作成者／担当者／第三者／作成者 NULL）\n  - 一括変更: 原子性\n  - 期限切れ: JST 境界、期限当日、完了済みの除外\n  - 同時編集: version の競合\n  - `limit` の検証\n- 直し方: 上記を追加する。権限判定と version 判定は route 内にあって単体テストしにくいので、`src/lib/` の関数に移す（規約 1、5）。\n\n## 補足（問題なしと確認した点）\n- `/tasks/search`、`/tasks/overdue`、`/tasks/bulk-status` は静的セグメントなので、`[id]` と競合しない。\n- ログイン確認は各ルートの先頭にある。\n- `due_date` は NOT NULL で、期限なしの扱いは問題にならない。\n- 重複 ID は `Set` で除去されている。\n",
+    "review_committed": true,
+    "review_chars": 4863,
+    "code_changed": [],
+    "artifacts": []
+  }
+}
