@@ -216,7 +216,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 
 試行数: 8 シナリオ × 4 候補 × 2 回 = 64 回（W7 は W7a・W7b で 1 回と数える）+ `baseline` 8 シナリオ × 1 回 = 合計 72 回。実行者 2 名で Week 2（W1〜W4）と Week 3（W5〜W8）に分けて行う。
 
-### 5.2 セキュリティ監査（Week 3 前半）
+### 5.2 セキュリティ監査（Week 4 前半）
 
 1. 脆弱性を仕込んだ `poc-app` のスナップショットに対し、全体スキャンを実行する。
    - Claude Security: `/claude-security`（全体スキャン、effort は medium と high の 2 段階で記録）
@@ -227,7 +227,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 
 試行数: 全体 2 候補 × 2 回 + 差分 2 候補 × 2 回 = 8 回
 
-### 5.3 PR レビュー（Week 3 後半）
+### 5.3 PR レビュー（Week 4 後半）
 
 1. レビュー用 PR 7 本を GitHub 上に作成する（PoC 専用リポジトリまたは本リポジトリの PoC ブランチ）。
 2. 各 PR に対して実行する。
