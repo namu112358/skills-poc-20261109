@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """W2 の結果から HTML レポート（docs/poc/results/workflow/W2/report.html）を作る。"""
 import html
+import re
 import json
 import statistics
 from pathlib import Path
@@ -22,6 +23,22 @@ ORDER = ["superpowers", "feature-dev", "compound-engineering", "gstack", "baseli
 
 def e(s):
     return html.escape(str(s))
+
+
+def md(s):
+    """notes.json の HTML 断片を GitHub で読める Markdown に変える（report_w1.py と同じ）。"""
+    s = str(s)
+    s = re.sub(r"<code>(.*?)</code>", lambda m: "`" + m.group(1) + "`", s, flags=re.S)
+    s = re.sub(r"<li>", "\n- ", s)
+    s = re.sub(r"</p>\s*", "\n\n", s)
+    s = re.sub(r"<ul>\s*", "\n", s)
+    s = re.sub(r"</ul>\s*", "\n\n", s)
+    s = re.sub(r"</?(p|li)>", "", s)
+    return html.unescape(s).strip()
+
+
+def cell(s):
+    return str(s).replace("|", "\\|").replace("\n", " ")
 
 
 def bar(value, maximum, cls=""):
@@ -135,6 +152,7 @@ def main():
                 + "</p>") if gaps else "<p class=\"sub\">採点者 2 名の差が 3 点以上の項目はありませんでした。</p>"
     observations = "".join(f"<li>{x}</li>" for x in NOTES["observations"])
     limits = "".join(f"<li>{x}</li>" for x in NOTES["limitations"])
+    decisions = "".join(f"<li>{x}</li>" for x in NOTES["decisions"])
     nexts = "".join(f"<li>{x}</li>" for x in NOTES["next"])
 
     doc = f"""<!doctype html>
@@ -254,6 +272,9 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
     <section><h2>この結果の制約</h2><div class="box"><ul>{limits}</ul></div></section>
   </div>
 
+  <h2>判断の記録</h2>
+  <div class="box"><ul>{decisions}</ul></div>
+
   <h2>次の対応</h2>
   <div class="box"><ul>{nexts}</ul></div>
 </main>
@@ -262,6 +283,68 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
 """
     (DIR / "report.html").write_text(doc)
     print(f"wrote {DIR / 'report.html'}")
+
+    # 同じ内容の Markdown（GitHub 上でそのまま読める形）
+    out = [
+        "# 開発ワークフロー PoC — W2 仕様が明確な機能追加", "",
+        f"実施日 {NOTES['date']} ・ モデル {NOTES['model']} ・ Claude Code {NOTES['claude_code']} ・ 計画書 docs/poc/PLAN.md §5.1", "",
+        "> HTML 版: [report.html](report.html)（同じデータから `scripts/poc/report_w2.py` で生成）", "",
+    ]
+    out += [md(x) + "\n" for x in NOTES["summary"]]
+    out += ["## 課題", "", md(NOTES["task_html"]), ""]
+    out += ["## 結果の概要（平均点）", "",
+            "| 候補 | 回数 | 合計 / 100 | 受け入れ / 40 | 介入 / 20 | 設計・テスト / 25 | 費用 / 15 | 平均費用 | 平均時間（分） |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    for c in cands:
+        name = f"**{LABEL[c]}**" if ranked and c == ranked[0] else LABEL[c]
+        out.append(f"| {name} | {len(by_cand[c])} | {mean(c, 'total')} | {mean(c, 'acceptance')} | {mean(c, 'intervention')} | "
+                   f"{mean(c, 'quality')} | {mean(c, 'cost')} | ${mean_fact(c, 'cost_usd'):.2f} | {mean_fact(c, 'elapsed_seconds') / 60:.1f} |")
+    out += ["", "## 試行ごとの結果", "",
+            "| 試行 | 点数 | E2E | チェック | 介入 / 質問 | 設計・テスト | コード追加行 | テスト追加行 | 費用 | 時間（分） | ターン | サブエージェント | 拒否された操作 | 使われた Skill |",
+            "|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
+    for c in cands:
+        for s in sorted(by_cand[c], key=lambda s: s["run"]):
+            f = s["facts"]
+            t = trials[s["trial"]]
+            checks = " ".join(f"{k} {'✅' if t['checks'][k]['pass'] else '❌'}" for k in ("typecheck", "test", "build"))
+            out.append(f"| {LABEL[c]} #{s['run']} | {s['total']} | {f['e2e_pass']}/{f['e2e_total']} | {checks} | "
+                       f"{f['interventions']} / {f['questions']} | {s['quality']} | {f['code_added']} | {f['test_added']} | "
+                       f"${f['cost_usd']:.2f} | {f['elapsed_seconds'] / 60:.1f} | {f['turns']} | {f['subagents']} | "
+                       f"{f['denials']} | {cell(', '.join(f['skills_used']) or '—')} |")
+    out += ["", "## ブラインドレビューの項目別平均（0〜5）", "",
+            "| 候補 | " + " | ".join(ITEM_LABEL.values()) + " |", "|---|" + "---:|" * len(ITEM_LABEL)]
+    for c in cands:
+        vals = [str(round(statistics.mean(s["quality_detail"][k] for s in by_cand[c]), 1)) if all(s["quality_detail"] for s in by_cand[c]) else "—"
+                for k in ITEM_LABEL]
+        out.append(f"| {LABEL[c]} | " + " | ".join(vals) + " |")
+    out += ["", re.sub(r"<[^>]+>", "", gap_html), ""]
+    out += ["## 所見", ""] + [f"- {md(x)}" for x in NOTES["observations"]]
+    out += ["", "## 試行の詳細", ""]
+    for c in cands:
+        for s in sorted(by_cand[c], key=lambda s: s["run"]):
+            t = trials[s["trial"]]
+            out += [f"### {LABEL[c]} #{s['run']} — {s['total']} 点", "", md(NOTES["trials"].get(s["trial"], "")), ""]
+            detail = " ・ ".join(f"{ITEM_LABEL[k]} {v}" for k, v in s["quality_detail"].items()) or "未実施"
+            out += [f"ブラインドレビュー（{detail}）:", ""] + [f"- {cell(x)}" for x in s["quality_comments"]] + [""]
+            failed = [x for x in t["e2e"] if not x["pass"]]
+            if failed:
+                out += ["不合格の受け入れテスト:", ""]
+                out += [f"- {x['name']}: `{x['detail'][:160].replace(chr(10), ' ')}`" for x in failed]
+                out.append("")
+            out += ["変更ファイル:", ""]
+            out += [f"- `{f['path']}` +{f['added']} −{f['deleted']}（{f['kind']}）" for f in t["diff"]["files"]] or ["- なし"]
+            out += ["", "コミット:", ""]
+            out += [f"- `{x}`" for x in t["diff"]["commits"]] or ["- なし"]
+            out.append("")
+    out += ["## 採点方法", "", md(NOTES["scoring_html"]), ""]
+    out += ["## この結果の制約", ""] + [f"- {md(x)}" for x in NOTES["limitations"]]
+    out += ["", "## 判断の記録", ""] + [
+        "- " + "\n".join(l if i == 0 or l.startswith("  ") else "  " + l
+                         for i, l in enumerate(re.sub(r"\n+- ", "\n  - ", md(x)).replace("\n\n", "\n").split("\n")))
+        for x in NOTES["decisions"]]
+    out += ["", "## 次の対応", ""] + [f"- {md(x)}" for x in NOTES["next"]]
+    (DIR / "report.md").write_text("\n".join(out) + "\n")
+    print(f"wrote {DIR / 'report.md'}")
 
 
 if __name__ == "__main__":

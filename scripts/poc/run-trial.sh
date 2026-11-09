@@ -34,7 +34,8 @@ git -C "$APP" config user.name poc
 git -C "$APP" config user.email poc@example.invalid
 git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
 # 試行は作業ブランチの上で始める（W2 以降。W1 で gstack の /review が master 直コミットのため差分なしで止まったため）
-git -C "$APP" switch -q -c "poc/wf/$CAND/$SCENARIO/$RUN"
+#（W1 は master のまま。W1 の手順を同じ条件で再実行できるようにするため）
+[[ "$SCENARIO" != W1 ]] && git -C "$APP" switch -q -c "poc/wf/$CAND/$SCENARIO/$RUN"
 
 # 2) 必須プラグイン + 候補プラグイン（すべて固定コミット。scripts/poc/fetch-plugins.sh で取得）
 #    Skill が自分の参照ファイル（references/*.md など）を読めるよう、試行ごとの作業領域にコピーして
