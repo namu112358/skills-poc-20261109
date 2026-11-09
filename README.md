@@ -63,6 +63,10 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 - Playwright MCP: `.mcp.json` のバージョンを上げて PR でレビュー
 - Plugins: `/plugin` から更新し、動作確認後にチームへ周知
 
+## GitHub リポジトリの初期設定
+
+新規リポジトリを作るときの GitHub 側の標準設定（Rulesets、Advanced Security、Actions、Environments、標準ファイル）と、AI エージェントが品質ゲートを迂回できないようにする権限設計は [docs/github-setup/README.md](docs/github-setup/README.md) にまとめています。設定の反映には `scripts/github-setup/apply-repo-settings.sh`（既定はドライラン）を使います。
+
 ## 比較検討中ツールの PoC
 
 計画書: [docs/poc/PLAN.md](docs/poc/PLAN.md)
