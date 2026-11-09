@@ -3,7 +3,7 @@
 
 使い方: python3 scripts/poc/report_w11.py
   results/workflow/W11/W11-*.json（grade_w11.py の出力）を読む。
-  判断の記録など、手で書く節は results/workflow/W11/notes.md に置くと、report の末尾に入る。
+  所見・判断の記録など、手で書く節は results/workflow/W11/notes.md に置くと、report の冒頭（表の前）に入る。
 """
 import html
 import json
@@ -88,7 +88,10 @@ md.append("実在する OSS（pytest・zod・packaging・click）で、2026 年 
           "解決前の状態から各候補に解かせた。採点は本家の修正で追加されたテスト（隠しテスト）で行った。"
           "設計は [wf-W11-design.md](../../../tasks/wf-W11-design.md)。\n")
 
-# 要点（候補ごと）
+# 手書きの節（所見・制約・判断の記録・次の対応）は、表より先に置く
+notes = DIR / "notes.md"
+if notes.exists():
+    md.append(notes.read_text())
 md.append("## 候補ごとのまとめ\n")
 md.append("| 候補 | 解決（全 6） | 不具合 3 の解決 | 機能 3 の解決 | 品質の平均 | 費用の合計 | 時間の合計 | 効率の平均 |")
 md.append("|---|---:|---:|---:|---:|---:|---:|---:|")
@@ -155,9 +158,6 @@ for r in rows:
               f"{tr['subagents']} | {r['facts']['interventions']} | {'あり' if r['facts']['budget_stopped'] else '—'} |")
 md.append("")
 
-notes = DIR / "notes.md"
-if notes.exists():
-    md.append(notes.read_text())
 (DIR / "report.md").write_text("\n".join(md) + "\n")
 
 # HTML（同じ内容。表は markdown から素直に変換する）

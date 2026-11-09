@@ -347,7 +347,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 > | W8 人の介入なしでの自律実行 | 未着手 | — |
 > | W9 レビューで不具合を見つける | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W9/report.md)・[report.html](results/workflow/W9/report.html) |
 > | W10 仕様に書かれていない落とし穴がある機能追加 | 未着手 | — |
-> | W11 実在する OSS の解決済み課題 | 実施中 | — |
+> | W11 実在する OSS の解決済み課題 | 完了（2026-11-09。6 課題 × 4 候補 × 1 回 + baseline） | [report.md](results/workflow/W11/report.md)・[report.html](results/workflow/W11/report.html) |
 >
 > 状態は「未着手」「実施中」「完了」のいずれか。「完了」は結果レポート（report.md と report.html）と採点を含む PR が main にマージされた状態を指す。
 
