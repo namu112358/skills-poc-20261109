@@ -1,0 +1,153 @@
+{
+  "scenario": "W7e",
+  "trial": "W7e-baseline-31",
+  "candidate": "baseline",
+  "run": 31,
+  "elapsed_seconds": 66,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "..\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.281853\n      type: 'test'\n      ...\n    1..1\nok 21 - isTaskStatus\n  ---\n  duration_ms: 0.398211\n  type: 'suite'\n  ...\n# Subtest: validateExportRange は不正な期間を弾く\nok 22 - validateExportRange は不正な期間を弾く\n  ---\n  duration_ms: 1.83365\n  type: 'test'\n  ...\n# Subtest: csvCell はカンマ・引用符・改行を囲み、式になる先頭を無効化する\nok 23 - csvCell はカンマ・引用符・改行を囲み、式になる先頭を無効化する\n  ---\n  duration_ms: 0.257718\n  type: 'test'\n  ...\n# Subtest: worklogsToCsv は見出しと日本時間の記録日時を出し、記録が無ければ見出しだけ\nok 24 - worklogsToCsv は見出しと日本時間の記録日時を出し、記録が無ければ見出しだけ\n  ---\n  duration_ms: 134.964626\n  type: 'test'\n  ...\n1..24\n# tests 33\n# suites 15\n# pass 33\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2574.692099\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "pi/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /api/tasks/[id]/completion\n├ ƒ /api/tasks/[id]/schedules\n├ ƒ /api/tasks/[id]/worklogs\n├ ƒ /api/tasks/[id]/worklogs/[worklogId]\n├ ƒ /login\n├ ƒ /my/worklogs\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:13141) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:13135) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:13147) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは 401",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "記録の無い期間は見出しの行だけ（200、CSV の Content-Type と添付のファイル名）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "自分の作業記録だけが古い順に 1 行ずつ出る（タスクの名前・作業時間・メモ）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "改行は CRLF",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ほかの人の CSV には自分の記録だけが出る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "from・to が無い・形式が違う・存在しない日付・from が to より後・31 日を超えるときは 400（CSV を返さない）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "期間の境界（ちょうど 31 日、from と to が同じ日）は受け付ける",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] タスクの作業記録の API は今までどおり使える",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/api/me/worklogs/export/route.ts",
+        "added": 18,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/worklog-export.ts",
+        "added": 32,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "tests/worklog-export.test.ts",
+        "added": 38,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/me/worklogs/export/route.ts",
+      "src/lib/worklog-export.ts",
+      "tests/worklog-export.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "e537fd5 自分の作業記録を期間指定で CSV 出力する API を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.2196,
+    "tokens": {
+      "input": 16,
+      "output": 7211,
+      "cache_read": 372129,
+      "cache_creation": 27549
+    },
+    "turns": 10,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p src/app/api/me/worklogs/export && cat > src/lib/worklog-export.ts <<'EOF'\\nimport { formatJst, isValidDate } from \\\"./datetime.ts\\\";\\nimport { ValidationError } from \\\"./errors.t"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 npx next dev -p 3917 >/tmp/claude-0/dev.log 2>&1 &) ; sleep 8\\nB=http://localhost:3917\\ncurl -s -o /dev/null -w \\\"unauth %{http_code}\\\\n\\\" \\\"$B/api/me/worklogs/export?from=2026"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 54,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`GET /api/me/worklogs/export?from=&to=` を追加し、git にコミットしました（e537fd5）。型チェックと単体テストは通っています。ただし、サーバーを起動して HTTP で確かめる作業は、コマンドが実行前チェックで止まったため行えていません。実際の 401 / 400 / CSV の応答は未確認です。\n\n実装は仕様どおりです。ログインしていなければ 401 を返し、`from`・`to` の形式や存在しない日付、`from` が `to` より後、31 日超は 400 を返します。期間は日本時間の日付で、両端を含みます。既存の `listMyWorklogs` を再利用したので、作業記録のデータや既存 API は変えていません。画面も変えていません。\n\n追加したファイルは次の 3 つです。\n- `src/app/api/me/worklogs/export/route.ts`\n- `src/lib/worklog-export.ts`\n- `tests/worklog-export.test.ts`\n\n仕様に書かれていなかったため、私の判断で次の 2 点を加えています。\n- **BOM**: CSV の先頭に UTF-8 の BOM を付けました。付けないと Excel で日本語が文字化けすることが多いためです。ただし、本文の先頭が見出しの文字そのものではなく BOM から始まります。\n- **式の無効化**: メモやタスク名が `=` `+` `-` `@` で始まる場合、先頭に `'` を付けています。表計算ソフトで式として実行されるのを防ぐためです。その代わり、該当する値は元のメモと 1 文字違います。\n\nどちらも不要であれば、`worklog-export.ts` の `BOM` と `csvCell` の該当行を外せば戻せます。"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": true,
+        "P2": true,
+        "P1_reasons": [],
+        "P2_failed": []
+      }
+    ],
+    "check_seconds": 9,
+    "auto_memory_disabled": true,
+    "control": true,
+    "memory": {
+      "in_app": [],
+      "in_home": []
+    },
+    "memory_reads": [],
+    "injected_patch": "a5dd7b7a25fd46b9f24dd3a076d8ea7127d68b9c42535e2b0a0e9bf3e03df28e  docs/poc/answer-key/W7/base.patch\nc489a3a66f3cc9004c5c1a19650a519fdd31d1dbae6de5eaab83761451cb8d1e  docs/poc/answer-key/W7/reference-W7a.patch\ndbf1d69535b9e7069d1bdc87ca675b4a8aea2455a9d0f64aa2f7410e98e746b6  docs/poc/answer-key/W7/reference-W7b.patch\n1c8b1e78d16e59c70f10913666f49ebc65f2c7633e780e5c3f05cf10d8803f39  docs/poc/answer-key/W7/reference-W7c.patch\nf74ce069589c5e64b1e19eff88f63eb7ec4a5105c3524a3bc2b06fc23a03df89  docs/poc/answer-key/W7/reference-W7d.patch"
+  }
+}
