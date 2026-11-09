@@ -242,7 +242,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 | W4 | 通常の指示 | `/feature-dev` | `/autoplan` → 実装 → `/review` | `/ce-plan` → `/ce-work` → `/ce-code-review` |
 | W5 | 通常の指示（`systematic-debugging` の発火） | 通常の指示 | `/qa` | `/ce-debug` |
 | W6 | 通常の指示 → `finishing-a-development-branch` | `/feature-dev` → PR 作成の指示 | 実装 → `/qa` → `/ship` | `/ce-work` → `/ce-test-browser` → `/ce-commit-push-pr` |
-| W8 | `writing-plans` → `subagent-driven-development` | `/feature-dev` | `/autoplan` → `/ship` | `/ce-brainstorm` → `/lfg` |
+| W8 | `writing-plans` → `subagent-driven-development` | （対象外。参考値 1 回は `/feature-dev`） | `/autoplan` → `/ship` | `/ce-brainstorm` → `/lfg` |
 | W9 | `requesting-code-review` | code-reviewer エージェント（レビュー用のコマンドが無いため、エージェントを使うよう指示する） | `/review` | `/ce-code-review` |
 | W10 | 通常の指示（Skill の自動発火） | `/feature-dev <課題文>` | 実装の指示 → `/review` | `/ce-plan` → `/ce-work` → `/ce-code-review` |
 
@@ -255,6 +255,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 5. トランスクリプト、`/cost`、差分統計、各候補が作った成果物の一覧を `docs/poc/results/workflow/` に保存する。
 
 試行数: 10 シナリオ × 4 候補 × 2 回 = 80 回（W7 は W7a・W7b で 1 回と数える）+ `baseline` 10 シナリオ × 1 回 = 合計 90 回（うち W9・W10 の 18 回は 2026-11-09 の追加分）。実行者 2 名で Week 2（W1〜W4）と Week 3（W5〜W8）に分けて行い、W9・W10 は準備ができ次第行う。
+ただし W8 は Feature Dev を対象外とする（上のシナリオ表のとおり 3 候補 × 2 回 + `baseline`。Feature Dev は参考値 1 回）。W8 は 1 試行の費用の上限を設けない（ユーザー指示 2026-11-09。ほかの W は「規模係数 × W1 の候補平均 × 5、最大 $10」）。
 
 ### 5.2 セキュリティ監査（Week 4 前半）
 

@@ -51,7 +51,8 @@
 - 課題文は `wf-W8.md`（タスクのタグ機能。DB + API + 画面で W2 と同程度の規模、W2 のコメント機能とは別の機能）。
 - 最初の指示（課題文 + 末尾の新文言）と、上の表の手順のコマンド以外は送らない。介入（定型の「お任せします」）は行わない（`POC_MAX_NUDGES=0`。全候補で同じ）。手順を終えた時点で終わっていなければ、介入で続けさせずに「途中停止」として採点する。
 - 2 ステップ目以降のコマンド（`/superpowers:subagent-driven-development`・`/ship`・`/lfg`）は引数なしで送る（同じセッションを `--resume` で続けるので、1 ステップ目の計画・要件が会話に残っている）。gstack の手順に実装のステップは無い（PLAN の W8 の行のとおり。`/autoplan` の後に実装まで進むかどうかも結果として記録する）。
-- 費用の上限は watch 方式（W8 の既定）。上限は「規模係数 × W1 の候補平均 × 5、最大 $10」（「費用の上限の守り方」）。
+- 費用の上限: 当初は watch 方式で「規模係数 × W1 の候補平均 × 5、最大 $10」としたが、2026-11-09 のユーザー指示で **W8 は上限なし**に変更した（`POC_W8_NOCAP=1 scripts/poc/run_w8_trials.sh ...`。watch 方式のまま上限を渡さない）。上限で途中停止した試行は同じ回の番号で上限なしでやり直し、上限ありの結果は `results/workflow/W8/capped/` に参考として残す。上限内で終わった試行は、watch 方式では子セッションに上限が見えないため上限なしと同じ条件とみなし、やり直さない。
+- 対象は Superpowers・Compound Engineering・gstack と baseline（PLAN §5.1 のシナリオ表）。Feature Dev の 1 回は参考値（`results/workflow/W8/reference/`）。
 - 子セッションの許可リストは W6 以降のもの（開発サーバーの起動・Playwright MCP・gstack の browse を含む。`SCN_NUM >= 6` で W8 にも効く）。
 - リモートが無いので、`/ship`・`/lfg` の push・PR 作成は手前で止まる（W6 と同じく結果として記録する）。
 - 破壊的操作と暴走の判定方法は `docs/poc/answer-key/W8/grading.md` に試行前に固定した。採点は `scripts/poc/grade_w8.py` → `scripts/poc/score_w8.py`。
