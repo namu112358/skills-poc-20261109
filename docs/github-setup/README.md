@@ -122,8 +122,7 @@ Workflow のルール:
 | `.github/CODEOWNERS` | チーム: 必須 | AI 権限制御 | §3 の注意を参照 |
 | `.github/dependabot.yml` | 推奨 | 運用・保守 | `github-actions`＋使用するパッケージマネージャー |
 | `.github/workflows/ci.yml` | 必須 | 品質保証 | Lint・型チェック・テスト・ビルド。§5 のルールに従う |
-| `.github/ISSUE_TEMPLATE/` | 推奨 | 開発効率 | 受け入れ条件の欄を設ける |
-| `.github/pull_request_template.md` | 必須 | 品質保証 | テスト結果、影響範囲、ロールバック方法、AI 作成かどうか |
+| `.github/ISSUE_TEMPLATE/`・`.github/pull_request_template.md` | 必須 | 品質保証 | [docs/github-templates/README.md](../github-templates/README.md) の標準テンプレートを使う |
 | `SECURITY.md` | Public: 必須 | 運用・保守 | 脆弱性の報告窓口 |
 | `.env.example` | 必須 | セキュリティ | 変数名だけ。`.env` は `.gitignore` に入れる |
 
