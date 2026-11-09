@@ -61,7 +61,28 @@ def security_guidance_findings(trial):
     return hits
 
 
-def score(t, code_reviews, design_reviews):
+# 効率（100 点。コーディネーター経由のユーザー指示、2026-11-09）: 費用 50 + 時間 30 + 介入 20。
+# 費用・時間は W4 baseline の実額・実時間に対する倍率の段階で付ける。
+EFF_STEPS = [(2, 1.0), (3, 0.8), (5, 0.6), (10, 0.3)]
+
+
+def step_score(ratio, full):
+    for limit, rate in EFF_STEPS:
+        if ratio <= limit:
+            return round(full * rate, 1)
+    return 0.0
+
+
+def efficiency(t, base_cost, base_time):
+    cost_ratio = t["transcript"]["cost_usd"] / base_cost
+    time_ratio = t["elapsed_seconds"] / base_time
+    nudges = t.get("interventions", 0)
+    parts = {"cost": step_score(cost_ratio, 50), "time": step_score(time_ratio, 30),
+             "intervention": 20 if nudges == 0 else 10 if nudges == 1 else 0}
+    return round(sum(parts.values()), 1), parts, round(cost_ratio, 2), round(time_ratio, 2)
+
+
+def score(t, code_reviews, design_reviews, base_cost=None, base_time=None):
     e2e_pass = sum(1 for c in t["e2e"] if c["pass"])
     authz_pass = sum(1 for c in t.get("authz", []) if c["pass"])
     checks = t["checks"]
@@ -80,9 +101,13 @@ def score(t, code_reviews, design_reviews):
     files = t["diff"]["files"]
     completed = any("poc: uncommitted leftovers" not in c for c in t["diff"]["commits"])
     total = round(impact + sum(acc.values()) + authz_probe + authz_review + design, 1)
+    eff, eff_parts, cost_ratio, time_ratio = efficiency(t, base_cost, base_time)
     return {
         "trial": t["trial"], "candidate": t["candidate"], "run": t["run"],
-        "total": total,
+        # 品質（100 点）は PLAN §5.1 の W4 の配点そのもの。従来の総合点（total）も同じ値
+        "total": total, "quality": total,
+        "efficiency": eff, "efficiency_detail": eff_parts, "cost_ratio": cost_ratio, "time_ratio": time_ratio,
+        "budget_mode": t.get("budget_mode", ""),
         "impact": impact,
         "impact_detail": {k: round(statistics.mean(r["impact"][k] for r in cr), 2) for k in IMPACT_ITEMS} if cr else {},
         "acceptance": round(sum(acc.values()), 1), "acceptance_detail": acc,
@@ -118,17 +143,25 @@ def score(t, code_reviews, design_reviews):
 
 def main():
     trials = [json.loads(p.read_text()) for p in sorted(DIR.glob("W4-*.json"))]
+    for t in trials:
+        mode = RAW / t["trial"] / "budget-mode"
+        t["budget_mode"] = mode.read_text().strip() if mode.exists() else ""
     code_reviews, design_reviews = load("code"), load("design")
-    scores = [score(t, code_reviews, design_reviews) for t in trials]
+    bases = [t for t in trials if t["candidate"] == "baseline"]
+    base_cost = statistics.mean(t["transcript"]["cost_usd"] for t in bases)
+    base_time = statistics.mean(t["elapsed_seconds"] for t in bases)
+    scores = [score(t, code_reviews, design_reviews, base_cost, base_time) for t in trials]
     review_gaps = []
     for trial, rs in code_reviews.items():
         review_gaps += gaps(trial, rs, "impact", IMPACT_ITEMS, 1) + gaps(trial, rs, "authz", AUTHZ_ITEMS, 3)
     for trial, rs in design_reviews.items():
         review_gaps += gaps(trial, rs, "design", DESIGN_ITEMS, 3)
-    (DIR / "scores.json").write_text(json.dumps({"scores": scores, "review_gaps": review_gaps}, ensure_ascii=False, indent=2) + "\n")
+    (DIR / "scores.json").write_text(json.dumps({"scores": scores, "review_gaps": review_gaps,
+                                                 "baseline": {"cost_usd": round(base_cost, 4), "elapsed_seconds": round(base_time)}},
+                                                ensure_ascii=False, indent=2) + "\n")
     for s in scores:
         print(f"{s['trial']:32} total={s['total']:5}  impact={s['impact']:4} acc={s['acceptance']:4} authz={s['authz']:4} "
-              f"design={s['design']:4}  (${s['facts']['cost_usd']}, {s['facts']['elapsed_seconds']}s)")
+              f"design={s['design']:4} eff={s['efficiency']:4}  (${s['facts']['cost_usd']}, {s['facts']['elapsed_seconds']}s)")
     if review_gaps:
         print("採点者の差が大きい項目:", review_gaps)
 
