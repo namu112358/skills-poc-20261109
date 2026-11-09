@@ -39,7 +39,7 @@
 | Claude Code | PoC 開始時点の最新版で固定し、期間中は更新しない（バージョンを結果に記録） |
 | モデル | 全試行で同一モデル・同一 effort。`/model` の設定を結果に記録 |
 | プラグイン | `scripts/poc-profile.sh <profile>` で **同時に有効な候補を 1 つだけ** にする（§3.3） |
-| 常時有効なもの | 必須ツール一式（UI/UX Pro Max を含む）と、`react-nextjs` stack（Vercel の React 系 Skills、Next.js DevTools MCP）。全条件で同じなので比較には影響しない前提だが、候補との干渉は §5.4 で確認する |
+| 常時有効なもの | 必須ツール一式（UI/UX Pro Max を含む）と、`typescript` stack（TypeScript LSP）・`react-nextjs` stack（Vercel の React 系 Skills、Next.js DevTools MCP）。全条件で同じなので比較には影響しない前提だが、候補との干渉は §5.4 で確認する |
 | セッション | 試行ごとに新規セッション。前試行の会話・メモリを持ち込まない |
 | 入力 | 試行ごとのプロンプトは `docs/poc/tasks/` に固定した文面を使い、両候補で同一 |
 | 試行回数 | 出力のぶれを吸収するため、各シナリオ × 各候補を **2 回** 実行し平均を取る |

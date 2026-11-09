@@ -18,23 +18,29 @@
 
 ### 採用技術・利用サービスに応じて追加するもの
 
-`scripts/add-stack.sh <stack>...` で、該当するプロジェクトにだけ追加します（`.mcp.json` と `.claude/skills/` を更新し、`.claude/settings.json` の `enabledMcpjsonServers` に登録）。
+`scripts/add-stack.sh <stack>...` で、該当するプロジェクトにだけ追加します（`.mcp.json`・`.claude/skills/`・`.claude/settings.json` を更新）。
 
 | stack | 対象 | 種別 | ツール | 提供元 | リポジトリ | 認証 |
 |---|---|---|---|---|---|---|
+| `typescript` | TypeScript を使う場合 | Plugin | TypeScript LSP（`typescript-language-server` を別途インストール） | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/typescript-lsp) | 不要 |
 | `react-nextjs` | React / Next.js を使う場合 | Skill | React Best Practices | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/react-best-practices) | 不要 |
 | `react-nextjs` | 〃 | Skill | Composition Patterns | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/composition-patterns) | 不要 |
 | `react-nextjs` | 〃 | Skill | React View Transitions | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/react-view-transitions) | 不要 |
 | `react-nextjs` | 〃 | MCP | Next.js DevTools MCP（`next-devtools-mcp@0.4.0`。Next.js 16 以上の `next dev` 起動中に使う） | Vercel | [vercel/next-devtools-mcp](https://github.com/vercel/next-devtools-mcp) | 不要 |
+| `supabase` | Supabase を使う場合 | MCP | Supabase MCP（`https://mcp.supabase.com/mcp?project_ref=${SUPABASE_PROJECT_REF}`。開発用プロジェクトに限定） | Supabase | [supabase/mcp](https://github.com/supabase/mcp) | 初回接続時に OAuth（`/mcp` から） |
+| `vercel` | Vercel を使う場合 | MCP | Vercel MCP（`https://mcp.vercel.com`） | Vercel | [Vercel MCP ドキュメント](https://vercel.com/docs/agent-resources/vercel-mcp) | 初回接続時に OAuth（`/mcp` から） |
 | `sentry` | Sentry を使う場合 | MCP | Sentry MCP（`https://mcp.sentry.dev/mcp`） | Sentry | [getsentry/sentry-mcp](https://github.com/getsentry/sentry-mcp) | 初回接続時に OAuth（`/mcp` から） |
 | `cloudflare` | Cloudflare を使う場合 | MCP | Cloudflare API MCP（`https://mcp.cloudflare.com/mcp`） | Cloudflare | [cloudflare/mcp](https://github.com/cloudflare/mcp) | OAuth |
 | `cloudflare` | 〃 | MCP | Cloudflare Docs MCP（`https://docs.mcp.cloudflare.com/mcp`） | Cloudflare | [cloudflare/mcp-server-cloudflare](https://github.com/cloudflare/mcp-server-cloudflare) | 不要 |
 
 ```bash
-scripts/add-stack.sh react-nextjs sentry
+scripts/add-stack.sh typescript react-nextjs supabase vercel
 ```
 
-**このリポジトリでは `react-nextjs` を適用済み**です（PoC 用アプリが Next.js のため）。
+**このリポジトリでは `typescript` と `react-nextjs` を適用済み**です（PoC 用アプリが TypeScript + Next.js のため）。
+
+- TypeScript LSP を使うには、`npm install -g typescript-language-server typescript` で言語サーバーを入れておく必要があります。
+- Supabase MCP を使う場合は、開発用プロジェクトの project ref を環境変数 `SUPABASE_PROJECT_REF` に設定します（`.env.example` 参照）。
 
 Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.claude/skills/SOURCES.md) を参照してください。
 
@@ -80,5 +86,6 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 - MCP の認証情報やトークンを Git にコミットしない（`.env*` と `.claude/settings.local.json` は `.gitignore` 済み）。
 - GitHub MCP には業務上必要な最小限の権限だけを付与する。マージ・ファイル削除・リポジトリ作成は `.claude/settings.json` で毎回確認する設定にしている。
 - Sentry MCP / Cloudflare MCP はトークンをファイルに書かず OAuth で認証する。Cloudflare API MCP は Cloudflare の API をほぼすべて操作できるため、開発用アカウントで、必要な権限だけを許可する。
-- Supabase MCP / Vercel MCP（推奨）を追加する場合は、開発環境のみに接続し、本番への書き込み権限を付けない。
+- Supabase MCP は開発用プロジェクトにだけ接続する。やむを得ず本番プロジェクトにつなぐ場合は、URL に `&read_only=true` を付けて読み取り専用にする。
+- Vercel MCP は OAuth で認証し、必要に応じて `https://mcp.vercel.com/<team-slug>/<project-slug>` で対象プロジェクトを限定する。
 - Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施する。

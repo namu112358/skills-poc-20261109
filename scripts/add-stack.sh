@@ -4,6 +4,9 @@
 #   react-nextjs : Vercel の React / Next.js 向け Skills + Next.js DevTools MCP
 #   sentry       : Sentry MCP（リモート、OAuth）
 #   cloudflare   : Cloudflare API MCP + Cloudflare Docs MCP（リモート、OAuth / 認証なし）
+#   supabase     : Supabase MCP（リモート、OAuth。開発用プロジェクトに限定）
+#   vercel       : Vercel MCP（リモート、OAuth）
+#   typescript   : TypeScript LSP プラグイン（typescript-language-server が必要）
 # 実行後は Claude Code を再起動し、/mcp で接続・認証を確認すること。
 set -euo pipefail
 
@@ -11,7 +14,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERCEL_SKILLS_REF="1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62" # vercel-labs/agent-skills
 NEXT_DEVTOOLS_MCP_VERSION="0.4.0"                         # vercel/next-devtools-mcp
 
-[[ $# -gt 0 ]] || { sed -n '2,8p' "$0"; exit 1; }
+[[ $# -gt 0 ]] || { sed -n '2,11p' "$0"; exit 1; }
 
 # .mcp.json にサーバーを追加し、.claude/settings.json の enabledMcpjsonServers に登録する
 add_mcp() { # name json
@@ -30,6 +33,19 @@ if name not in enabled:
 st.write_text(json.dumps(s, indent=2, ensure_ascii=False) + "\n")
 print(f"MCP: {name} を追加")
 PY
+}
+
+# .claude/settings.json の enabledPlugins にプラグインを登録する
+add_plugin() { # plugin@marketplace
+  python3 - "$ROOT" "$1" <<'PY2'
+import json, sys, pathlib
+root, plugin = pathlib.Path(sys.argv[1]), sys.argv[2]
+st = root / ".claude" / "settings.json"
+s = json.loads(st.read_text())
+s.setdefault("enabledPlugins", {})[plugin] = True
+st.write_text(json.dumps(s, indent=2, ensure_ascii=False) + "\n")
+print(f"Plugin: {plugin} を有効化")
+PY2
 }
 
 vendor_vercel_skills() { # skill...
@@ -61,6 +77,20 @@ for stack in "$@"; do
       # API サーバーは OAuth。開発用アカウントで、必要最小限の権限だけを許可すること
       add_mcp cloudflare '{"type":"http","url":"https://mcp.cloudflare.com/mcp"}'
       add_mcp cloudflare-docs '{"type":"http","url":"https://docs.mcp.cloudflare.com/mcp"}'
+      ;;
+    supabase)
+      # 開発用プロジェクトだけに限定する（SUPABASE_PROJECT_REF に開発用の project ref を設定）。
+      # 本番プロジェクトに接続する場合は URL に &read_only=true を付けること
+      add_mcp supabase '{"type":"http","url":"https://mcp.supabase.com/mcp?project_ref=${SUPABASE_PROJECT_REF}"}'
+      ;;
+    vercel)
+      # 認証は OAuth。特定プロジェクトに限定する場合は https://mcp.vercel.com/<team-slug>/<project-slug> に変更する
+      add_mcp vercel '{"type":"http","url":"https://mcp.vercel.com"}'
+      ;;
+    typescript)
+      add_plugin typescript-lsp@claude-plugins-official
+      command -v typescript-language-server >/dev/null 2>&1 \
+        || echo "注意: typescript-language-server が見つかりません。npm install -g typescript-language-server typescript を実行してください"
       ;;
     *) echo "unknown stack: $stack" >&2; exit 1 ;;
   esac
