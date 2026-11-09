@@ -1,0 +1,271 @@
+{
+  "scenario": "W7d",
+  "trial": "W7d-baseline-22",
+  "candidate": "baseline",
+  "run": 22,
+  "elapsed_seconds": 25,
+  "errors": "step1 exit=1\nstep2 exit=1\nstep3 exit=1\nstep4 exit=1\nstep5 exit=1\n",
+  "budget_stopped": "",
+  "interventions": 2,
+  "feedback_rounds": 2,
+  "continued_from": "W7c-baseline-22",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": " type: 'test'\n      ...\n    1..4\nok 13 - validateTaskInput\n  ---\n  duration_ms: 988.433841\n  type: 'suite'\n  ...\n# Subtest: createTask / updateTask\n    # Subtest: creates a task and updates only the given fields\n    ok 1 - creates a task and updates only the given fields\n      ---\n      duration_ms: 122.056756\n      type: 'test'\n      ...\n    1..1\nok 14 - createTask / updateTask\n  ---\n  duration_ms: 122.305368\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.206975\n      type: 'test'\n      ...\n    1..1\nok 15 - isTaskStatus\n  ---\n  duration_ms: 0.287236\n  type: 'suite'\n  ...\n1..15\n# tests 24\n# suites 15\n# pass 24\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2182.124609\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "lizing page optimization ...\n\nRoute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/me\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /api/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:30434) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:30428) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:30436) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは GET・POST とも 401",
+      "pass": false,
+      "detail": "got 404,404"
+    },
+    {
+      "name": "予定の無いタスクは空配列（200）",
+      "pass": false,
+      "detail": "got 404 undefined"
+    },
+    {
+      "name": "担当者が登録すると 201 で返り、登録した人はログイン中のユーザー・件名は前後の空白を除く",
+      "pass": false,
+      "detail": "got 404 undefined"
+    },
+    {
+      "name": "一覧は開始日時の早い順",
+      "pass": false,
+      "detail": "ids="
+    },
+    {
+      "name": "担当者以外は 403、完了（done）のタスクは 409",
+      "pass": false,
+      "detail": "other=404 done=404 count=undefined"
+    },
+    {
+      "name": "件名・開始日時が正しくない・本文がオブジェクトでないときは 400",
+      "pass": false,
+      "detail": "got 404,404,404,404,404,404,404,404,404,404,404,404 count=undefined"
+    },
+    {
+      "name": "境界値（件名 100 文字・23:59）は受け付ける",
+      "pass": false,
+      "detail": "got 404"
+    },
+    {
+      "name": "存在しないタスク・不正な ID は 404",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "詳細画面に予定が早い順に並び、件名と登録した人が表示される",
+      "pass": false,
+      "detail": "見出し「予定」がない"
+    },
+    {
+      "name": "予定の無いタスクの詳細画面には「予定はありません。」と表示する",
+      "pass": false,
+      "detail": "n=0"
+    },
+    {
+      "name": "[既存] 作業記録とコメントは今までどおり使える",
+      "pass": false,
+      "detail": "worklog=404 comment=201"
+    }
+  ],
+  "diff": {
+    "files": [],
+    "new_files": [],
+    "package_json_changed": false,
+    "commits": []
+  },
+  "transcript": {
+    "cost_usd": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0,
+      "cache_creation": 0
+    },
+    "turns": 5,
+    "permission_denials": [],
+    "tool_calls": {},
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 2,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "You've hit your 5-hour limit · resets 7:10pm (UTC)"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": false,
+        "P2": false,
+        "P1_reasons": [
+          "予定の登録が失敗した（404）",
+          "予定の登録が失敗した（404）",
+          "詳細画面に開始日時が日本時間（2026-11-20T10:00）で表示されていない",
+          "詳細画面に開始日時が日本時間（2026-11-21T08:30）で表示されていない"
+        ],
+        "P2_failed": [
+          {
+            "label": "未ログイン",
+            "expected": 401,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "存在しないタスク",
+            "expected": 404,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "担当者以外の登録",
+            "expected": 403,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "開始日時の形式が違う",
+            "expected": 400,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "完了済みのタスク",
+            "expected": 409,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          }
+        ]
+      },
+      {
+        "round": 2,
+        "build": true,
+        "error": "",
+        "P1": false,
+        "P2": false,
+        "P1_reasons": [
+          "予定の登録が失敗した（404）",
+          "予定の登録が失敗した（404）",
+          "詳細画面に開始日時が日本時間（2026-11-20T10:00）で表示されていない",
+          "詳細画面に開始日時が日本時間（2026-11-21T08:30）で表示されていない"
+        ],
+        "P2_failed": [
+          {
+            "label": "未ログイン",
+            "expected": 401,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "存在しないタスク",
+            "expected": 404,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "担当者以外の登録",
+            "expected": 403,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "開始日時の形式が違う",
+            "expected": 400,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "完了済みのタスク",
+            "expected": 409,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          }
+        ]
+      },
+      {
+        "round": 3,
+        "build": true,
+        "error": "",
+        "P1": false,
+        "P2": false,
+        "P1_reasons": [
+          "予定の登録が失敗した（404）",
+          "予定の登録が失敗した（404）",
+          "詳細画面に開始日時が日本時間（2026-11-20T10:00）で表示されていない",
+          "詳細画面に開始日時が日本時間（2026-11-21T08:30）で表示されていない"
+        ],
+        "P2_failed": [
+          {
+            "label": "未ログイン",
+            "expected": 401,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "存在しないタスク",
+            "expected": 404,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "担当者以外の登録",
+            "expected": 403,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "開始日時の形式が違う",
+            "expected": 400,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "完了済みのタスク",
+            "expected": 409,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          }
+        ]
+      }
+    ],
+    "check_seconds": 15,
+    "auto_memory_disabled": true,
+    "control": false,
+    "memory": {
+      "in_app": [],
+      "in_home": []
+    },
+    "memory_reads": []
+  }
+}
