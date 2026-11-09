@@ -47,7 +47,10 @@ def transcript_stats():
     # 注意: --resume で続けたステップの result に入る total_cost_usd / modelUsage は、セッションの累計になっている。
     # そのため費用・トークンは全 result の最後（累計）を使い、ターン数はステップごとの最後の result を足す。
     last_result = None
-    for step in sorted(RAW.glob("step*.jsonl")):
+    questions = 0
+    active_ms = 0
+    answer_key_access = []
+    for step in sorted(RAW.glob("step*.jsonl"), key=lambda p: int(re.search(r"step(\d+)", p.name).group(1))):
         step_last = None
         for line in step.open():
             try:
@@ -69,8 +72,14 @@ def transcript_stats():
                             skills.add((c.get("input") or {}).get("skill", "?"))
                         if name in ("Agent", "Task"):
                             subagents += 1
+                        if name == "AskUserQuestion":
+                            questions += 1
+                        # 正解データ（docs/poc/answer-key/）を覗いていないか
+                        if "answer-key" in json.dumps(c.get("input"), ensure_ascii=False):
+                            answer_key_access.append(f"{name}: {json.dumps(c.get('input'), ensure_ascii=False)[:200]}")
         if step_last:
             turns += step_last.get("num_turns") or 0
+            active_ms += step_last.get("duration_ms") or 0
             if step_last.get("result"):
                 final_text.append(step_last["result"][-1500:])
             last_result = step_last
@@ -89,6 +98,10 @@ def transcript_stats():
         "tool_calls": tools,
         "skills_used": sorted(skills),
         "subagents": subagents,
+        "questions": questions,
+        # 子セッションが実際に動いていた時間（ステップごとの result の duration_ms の合計。終了待ちで固まった時間を含まない）
+        "active_seconds": round(active_ms / 1000),
+        "answer_key_access": answer_key_access,
         "final_message": final_text[-1] if final_text else "",
     }
 
@@ -156,6 +169,8 @@ def main():
         "run": int(TRIAL.rsplit("-", 1)[1]),
         "elapsed_seconds": int((RAW / "elapsed-seconds").read_text()),
         "errors": (RAW / "errors.log").read_text() if (RAW / "errors.log").exists() else "",
+        # run-trial.sh が「お任せします」で続けさせた回数（POC_MAX_NUDGES。W1 は 0 固定）
+        "interventions": len((RAW / "interventions.log").read_text().splitlines()) if (RAW / "interventions.log").exists() else 0,
         "checks": checks,
         "e2e": e2e,
         "diff": diff_stats(),

@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PoC W2 結果</title>
+<style>
+:root {
+  --bg:#f7f7f5; --surface:#ffffff; --text:#1d1d1f; --muted:#5f6368; --line:#e3e3df;
+  --accent:#2f5bd3; --a:#2f5bd3; --b:#1f8a70; --c:#b7791f; --d:#8e44ad; --ok:#1f8a70; --ng:#c0392b; --top:#eef3ff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#121314; --surface:#1c1d1f; --text:#ececec; --muted:#a0a4a8; --line:#2e3033;
+    --accent:#7c9cff; --a:#7c9cff; --b:#4cc39f; --c:#e0a84a; --d:#c39bd3; --ok:#4cc39f; --ng:#ff7b6b; --top:#1f2738;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#121314; --surface:#1c1d1f; --text:#ececec; --muted:#a0a4a8; --line:#2e3033;
+  --accent:#7c9cff; --a:#7c9cff; --b:#4cc39f; --c:#e0a84a; --d:#c39bd3; --ok:#4cc39f; --ng:#ff7b6b; --top:#1f2738;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.7 "Hiragino Sans","Noto Sans JP",system-ui,sans-serif; }
+main { max-width:1080px; margin:0 auto; padding:32px 16px 64px; }
+h1 { font-size:26px; margin:0 0 4px; }
+h2 { font-size:19px; margin:40px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+.lead { color:var(--muted); margin:0 0 20px; }
+.summary { background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--accent);
+  border-radius:8px; padding:14px 18px; }
+.summary p { margin:4px 0; }
+.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+.card.top { background:var(--top); border-color:var(--accent); }
+.card header { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+.card h3 { font-size:15px; margin:0; }
+.runs, .meta { color:var(--muted); font-size:12px; }
+.score { margin:6px 0; } .score strong { font-size:30px; }
+dl { margin:0; display:grid; gap:2px; font-size:13px; }
+dl div { display:flex; justify-content:space-between; } dt { color:var(--muted); } dd { margin:0; }
+.table-wrap { overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:10px; }
+table { border-collapse:collapse; width:100%; font-size:13px; min-width:900px; }
+th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+thead th { color:var(--muted); font-weight:600; white-space:nowrap; }
+td.num { text-align:right; font-variant-numeric:tabular-nums; }
+.pill { display:inline-block; font-size:11px; padding:0 6px; border-radius:999px; margin-right:2px; }
+.pill.ok { color:var(--ok); border:1px solid var(--ok); } .pill.ng { color:var(--ng); border:1px solid var(--ng); }
+.bd-row { display:grid; grid-template-columns:180px 1fr; gap:12px; padding:8px 0; border-bottom:1px solid var(--line); }
+.bd-bars { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+.bd-name { font-weight:600; font-size:14px; }
+.bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin-top:2px; }
+.bar span { display:block; height:100%; background:var(--a); }
+.bar.b span { background:var(--b); } .bar.c span { background:var(--c); } .bar.d span { background:var(--d); }
+small { color:var(--muted); font-size:12px; }
+details { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin:8px 0; }
+summary { cursor:pointer; }
+.sub { color:var(--muted); font-size:12px; margin:10px 0 2px; }
+.warn { color:var(--ng); font-size:13px; margin:10px 0 2px; }
+ul { padding-left:20px; } .files { font-size:13px; margin:0; }
+.kind { color:var(--muted); font-size:11px; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+.cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+.box { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:4px 18px; }
+@media (max-width:640px) {
+  .bd-row { grid-template-columns:1fr; } .bd-bars { grid-template-columns:1fr; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>開発ワークフロー PoC — W2 仕様が明確な機能追加</h1>
+  <p class="lead">実施日 2026-11-09 ・ モデル claude-sonnet-5-5 ・ Claude Code 2.1.319 ・ 計画書 docs/poc/PLAN.md §5.1</p>
+
+  <section class="summary">
+    <p><strong>W2（仕様が明確な機能追加）でも、実装の正しさに差は出ませんでした。</strong>4 候補と baseline の全 9 試行が、隠しの受け入れテスト 16 件（API 9・画面 6・既存の動作 1）をすべて通過し、型チェック・単体テスト・ビルドも成功しました。</p><p>Feature Dev（平均 96.2 点）と Superpowers（95.3 点）は、候補なしの baseline（97.1 点）とほぼ同じ費用（約 $0.35）・時間（約 1.7 分）で終わりました。ただし Feature Dev は「無人実行のため」と自ら設計案・確認・エージェントの工程を省いており、実質は baseline と同じ進め方でした。</p><p>Compound Engineering（87.2 点）は設計・テストの質のブラインドレビューで最も高い評価（平均 24.5 / 25）でしたが、費用が baseline の約 4〜10 倍（$1.25〜$3.35）で費用の点を大きく落としました。</p><p>gstack（84.6 点）は、続く <code>/review</code> が見つけた修正（CLAUDE.md の追記、文字数の数え方の変更）をコミットせずに終わり、2 回とも「お任せします」での続行（介入）が 1 回ずつ必要でした。費用は baseline の約 2〜3 倍です。</p>
+  </section>
+
+  <h2>課題</h2>
+  <p>タスク詳細画面（/tasks/:id）にコメント機能を追加する。DB（投稿日時は UTC）、API 3 本（<code>GET/POST /api/tasks/:id/comments</code>、<code>DELETE …/:commentId</code>）、本文の検証（前後の空白を除いて 1〜1000 文字）、本人だけが削除できる権限、画面（一覧・空状態・投稿フォーム・エラー表示・本人だけの削除ボタン）。仕様書は <code>docs/poc/tasks/wf-W2.md</code>。</p>
+
+  <h2>結果の概要（平均点）</h2>
+  <div class="cards">
+      <article class="card">
+        <header><h3>Superpowers</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>95.3</strong><small> / 100</small></p>
+        <dl>
+          <div><dt>受け入れ</dt><dd>40.0 / 40</dd></div>
+          <div><dt>介入</dt><dd>20 / 20</dd></div>
+          <div><dt>設計・テスト</dt><dd>21.2 / 25</dd></div>
+          <div><dt>費用</dt><dd>14.1 / 15</dd></div>
+        </dl>
+        <p class="meta">平均 $0.36 ・ 1.6 分</p>
+      </article>
+      <article class="card top">
+        <header><h3>Feature Dev</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>96.2</strong><small> / 100</small></p>
+        <dl>
+          <div><dt>受け入れ</dt><dd>40.0 / 40</dd></div>
+          <div><dt>介入</dt><dd>20 / 20</dd></div>
+          <div><dt>設計・テスト</dt><dd>23 / 25</dd></div>
+          <div><dt>費用</dt><dd>13.2 / 15</dd></div>
+        </dl>
+        <p class="meta">平均 $0.38 ・ 1.7 分</p>
+      </article>
+      <article class="card">
+        <header><h3>Compound Engineering</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>87.2</strong><small> / 100</small></p>
+        <dl>
+          <div><dt>受け入れ</dt><dd>40.0 / 40</dd></div>
+          <div><dt>介入</dt><dd>20 / 20</dd></div>
+          <div><dt>設計・テスト</dt><dd>24.5 / 25</dd></div>
+          <div><dt>費用</dt><dd>2.8 / 15</dd></div>
+        </dl>
+        <p class="meta">平均 $2.30 ・ 5.5 分</p>
+      </article>
+      <article class="card">
+        <header><h3>gstack</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>84.6</strong><small> / 100</small></p>
+        <dl>
+          <div><dt>受け入れ</dt><dd>40.0 / 40</dd></div>
+          <div><dt>介入</dt><dd>15 / 20</dd></div>
+          <div><dt>設計・テスト</dt><dd>23.2 / 25</dd></div>
+          <div><dt>費用</dt><dd>6.3 / 15</dd></div>
+        </dl>
+        <p class="meta">平均 $0.83 ・ 2.9 分</p>
+      </article>
+      <article class="card">
+        <header><h3>baseline（候補なし）</h3><span class="runs">1 回</span></header>
+        <p class="score"><strong>97.1</strong><small> / 100</small></p>
+        <dl>
+          <div><dt>受け入れ</dt><dd>40.0 / 40</dd></div>
+          <div><dt>介入</dt><dd>20 / 20</dd></div>
+          <div><dt>設計・テスト</dt><dd>22.5 / 25</dd></div>
+          <div><dt>費用</dt><dd>14.6 / 15</dd></div>
+        </dl>
+        <p class="meta">平均 $0.34 ・ 1.6 分</p>
+      </article></div>
+
+  <h2>配点ごとの内訳</h2>
+  <div class="box">
+        <div class="bd-row">
+          <span class="bd-name">Superpowers</span>
+          <div class="bd-bars">
+            <div><small>受け入れ 40.0 / 40</small><div class="bar a"><span style="width:100%"></span></div></div>
+            <div><small>介入 20 / 20</small><div class="bar b"><span style="width:100%"></span></div></div>
+            <div><small>設計・テスト 21.2 / 25</small><div class="bar c"><span style="width:85%"></span></div></div>
+            <div><small>費用 14.1 / 15</small><div class="bar d"><span style="width:94%"></span></div></div>
+          </div>
+        </div>
+        <div class="bd-row">
+          <span class="bd-name">Feature Dev</span>
+          <div class="bd-bars">
+            <div><small>受け入れ 40.0 / 40</small><div class="bar a"><span style="width:100%"></span></div></div>
+            <div><small>介入 20 / 20</small><div class="bar b"><span style="width:100%"></span></div></div>
+            <div><small>設計・テスト 23 / 25</small><div class="bar c"><span style="width:92%"></span></div></div>
+            <div><small>費用 13.2 / 15</small><div class="bar d"><span style="width:88%"></span></div></div>
+          </div>
+        </div>
+        <div class="bd-row">
+          <span class="bd-name">Compound Engineering</span>
+          <div class="bd-bars">
+            <div><small>受け入れ 40.0 / 40</small><div class="bar a"><span style="width:100%"></span></div></div>
+            <div><small>介入 20 / 20</small><div class="bar b"><span style="width:100%"></span></div></div>
+            <div><small>設計・テスト 24.5 / 25</small><div class="bar c"><span style="width:98%"></span></div></div>
+            <div><small>費用 2.8 / 15</small><div class="bar d"><span style="width:19%"></span></div></div>
+          </div>
+        </div>
+        <div class="bd-row">
+          <span class="bd-name">gstack</span>
+          <div class="bd-bars">
+            <div><small>受け入れ 40.0 / 40</small><div class="bar a"><span style="width:100%"></span></div></div>
+            <div><small>介入 15 / 20</small><div class="bar b"><span style="width:75%"></span></div></div>
+            <div><small>設計・テスト 23.2 / 25</small><div class="bar c"><span style="width:93%"></span></div></div>
+            <div><small>費用 6.3 / 15</small><div class="bar d"><span style="width:42%"></span></div></div>
+          </div>
+        </div>
+        <div class="bd-row">
+          <span class="bd-name">baseline（候補なし）</span>
+          <div class="bd-bars">
+            <div><small>受け入れ 40.0 / 40</small><div class="bar a"><span style="width:100%"></span></div></div>
+            <div><small>介入 20 / 20</small><div class="bar b"><span style="width:100%"></span></div></div>
+            <div><small>設計・テスト 22.5 / 25</small><div class="bar c"><span style="width:90%"></span></div></div>
+            <div><small>費用 14.6 / 15</small><div class="bar d"><span style="width:97%"></span></div></div>
+          </div>
+        </div></div>
+
+  <h2>試行ごとの結果</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>試行</th><th>点数</th><th>E2E</th><th>チェック</th><th>介入 / 質問</th><th>設計・テスト</th><th>コード追加行</th><th>テスト追加行</th>
+        <th>費用</th><th>時間（分）</th><th>ターン</th><th>サブエージェント</th><th>拒否された操作</th><th>使われた Skill</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <th scope="row">Superpowers #1</th>
+          <td class="num">96.1</td>
+          <td class="num">16/16</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">23</td>
+          <td class="num">234</td>
+          <td class="num">59</td>
+          <td class="num">$0.38</td>
+          <td class="num">1.6</td>
+          <td class="num">22</td>
+          <td class="num">0</td>
+          <td class="num">3</td>
+          <td>superpowers:test-driven-development</td>
+        </tr>
+        <tr>
+          <th scope="row">Superpowers #2</th>
+          <td class="num">94.5</td>
+          <td class="num">16/16</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">19.5</td>
+          <td class="num">243</td>
+          <td class="num">45</td>
+          <td class="num">$0.33</td>
+          <td class="num">1.6</td>
+          <td class="num">19</td>
+          <td class="num">0</td>
+          <td class="num">2</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">Feature Dev #1</th>
+          <td class="num">96.6</td>
+          <td class="num">16/16</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">23</td>
+          <td class="num">255</td>
+          <td class="num">46</td>
+          <td class="num">$0.37</td>
+          <td class="num">1.7</td>
+          <td class="num">20</td>
+          <td class="num">0</td>
+          <td class="num">2</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">Feature Dev #2</th>
+          <td class="num">95.8</td>
+          <td class="num">16/16</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">23</td>
+          <td class="num">243</td>
+          <td class="num">54</td>
+          <td class="num">$0.39</td>
+          <td class="num">1.8</td>
+          <td class="num">21</td>
+          <td class="num">0</td>
+          <td class="num">4</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">Compound Engineering #1</th>
+          <td class="num">86.5</td>
+          <td class="num">16/16</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">25</td>
+          <td class="num">273</td>
+          <td class="num">180</td>
+          <td class="num">$3.35</td>
+          <td class="num">6.9</td>
+          <td class="num">66</td>
+          <td class="num">5</td>
+          <td class="num">13</td>
+          <td>compound-engineering:ce-code-review, compound-engineering:ce-doc-review, compound-engineering:ce-simplify-code, compound-engineering:ce-work</td>
+        </tr>
+        <tr>
+          <th scope="row">Compound Engineering #2</th>
+          <td class="num">88.0</td>
+          <td class="num">16/16</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">24</td>
+          <td class="num">284</td>
+          <td class="num">131</td>
+          <td class="num">$1.25</td>
+          <td class="num">4.1</td>
+          <td class="num">57</td>
+          <td class="num">0</td>
+          <td class="num">12</td>
+          <td>compound-engineering:ce-code-review</td>
+        </tr>
+        <tr>
+          <th scope="row">gstack #1</th>
+          <td class="num">83.4</td>
+          <td class="num">16/16</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">1 / 0</td>
+          <td class="num">23.5</td>
+          <td class="num">235</td>
+          <td class="num">44</td>
+          <td class="num">$1.01</td>
+          <td class="num">3.2</td>
+          <td class="num">28</td>
+          <td class="num">2</td>
+          <td class="num">3</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">gstack #2</th>
+          <td class="num">85.7</td>
+          <td class="num">16/16</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">1 / 0</td>
+          <td class="num">23</td>
+          <td class="num">248</td>
+          <td class="num">54</td>
+          <td class="num">$0.65</td>
+          <td class="num">2.6</td>
+          <td class="num">29</td>
+          <td class="num">0</td>
+          <td class="num">4</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">baseline（候補なし） #1</th>
+          <td class="num">97.1</td>
+          <td class="num">16/16</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">22.5</td>
+          <td class="num">258</td>
+          <td class="num">60</td>
+          <td class="num">$0.34</td>
+          <td class="num">1.6</td>
+          <td class="num">18</td>
+          <td class="num">0</td>
+          <td class="num">3</td>
+          <td>—</td>
+        </tr></tbody>
+    </table>
+  </div>
+
+  <h2>ブラインドレビューの項目別平均（0〜5）</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>候補</th><th>規約</th><th>設計</th><th>認可・入力</th><th>テスト</th><th>過不足</th></tr></thead>
+      <tbody><tr><th scope="row">Superpowers</th><td class="num">4.5</td><td class="num">3.8</td><td class="num">5</td><td class="num">3.2</td><td class="num">4.8</td></tr><tr><th scope="row">Feature Dev</th><td class="num">5</td><td class="num">4</td><td class="num">5</td><td class="num">4</td><td class="num">5</td></tr><tr><th scope="row">Compound Engineering</th><td class="num">5</td><td class="num">4.5</td><td class="num">5</td><td class="num">5</td><td class="num">5</td></tr><tr><th scope="row">gstack</th><td class="num">5</td><td class="num">4.2</td><td class="num">5</td><td class="num">4</td><td class="num">5</td></tr><tr><th scope="row">baseline（候補なし）</th><td class="num">5</td><td class="num">3.5</td><td class="num">5</td><td class="num">4</td><td class="num">5</td></tr></tbody>
+    </table>
+  </div>
+  <p class="sub">採点者 2 名の差が 3 点以上の項目はありませんでした。</p>
+
+  <h2>所見</h2>
+  <div class="box"><ul><li>受け入れテスト・介入・規約・認可と入力の安全性では、ほとんど差が出ませんでした。<strong>差が付いたのは費用と、テストの厚さ・設計の細部だけ</strong>です。仕様が明確な機能追加は、候補なしでも十分にこなせる範囲でした。</li><li>ブラインドレビューの評価が最も高かったのは Compound Engineering の 2 試行（25 点・24 点）で、計画書を作ってから進める分、テストが他の 2〜4 倍の行数（131〜180 行）あり、境界値・並び順・外部キーまで確かめていました。ただし受け入れテストの結果には差が無く、その分の費用（baseline の 4〜10 倍）を回収できていません。</li><li>Feature Dev は 2 回とも、課題文末尾の定型文（無人なので質問には答えられない）を受けて、7 フェーズのうち探索・設計案の比較・レビューを自ら省きました。W1 と同じ傾向で、無人の試行では Feature Dev の特徴が出ません。</li><li>Superpowers の Skill（test-driven-development）が発火したのは 2 回中 1 回でした。発火しなかった回は、削除の権限判定を API Route に書いてテストを付けておらず、品質の評価が 9 試行で最も低くなりました。</li><li>gstack の /review は、W1 と違い作業ブランチの上だったため差分を正しく読み、指摘に基づく修正まで行いました。ただし修正をコミットせずに終わる点が 2 回とも共通で、介入が必要になりました。</li><li>ほぼ全試行が、実サーバーを起動して API を確かめようとし、権限（許可リスト）で拒否されています。最終確認は単体テストと型チェック・ビルドまでで、画面の動作確認はどの候補も行えていません。</li></ul></div>
+
+  <h2>試行の詳細</h2>
+  
+      <details>
+        <summary><strong>Superpowers #1</strong> — 96.1 点</summary>
+        <p>test-driven-development Skill が発火し、テストを先に書いてから実装した。変更の範囲は baseline と同じ。</p>
+        <p class="sub">ブラインドレビュー（規約 5 ・ 設計 4 ・ 認可・入力 5 ・ テスト 4 ・ 過不足 5）</p>
+        <ul class="files"><li>comments.tsx で Comment 型と同じ形の CommentView を別に定義しており、コメント ID の検証にも parseTaskId を流用している（軽微）。tests/comments.test.ts は権限・別タスク・境界値を押さえているが、1 文字の受理を確かめていない。</li><li>src/lib/comments.ts の validateCommentInput が ValidationResult&lt;string&gt; を返し、既存の validateTaskInput（オブジェクトを返す）と形が揃っていない。comments.tsx で Comment 型を再定義（CommentView）している。テストは権限・別タスク・並び順を押さえているが、1 文字の下限や各ケースが 1 つの it に詰め込まれている。</li></ul>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/api/tasks/[id]/comments/[commentId]/route.ts</code> +21 −0 <span class="kind">code</span></li><li><code>src/app/api/tasks/[id]/comments/route.ts</code> +25 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/comments.tsx</code> +86 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/page.tsx</code> +4 −1 <span class="kind">code</span></li><li><code>src/lib/comments.ts</code> +84 −0 <span class="kind">code</span></li><li><code>src/lib/db/migrations.ts</code> +14 −0 <span class="kind">code</span></li><li><code>tests/comments.test.ts</code> +59 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>e276c52 タスクにコメント機能を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Superpowers #2</strong> — 94.5 点</summary>
+        <p>Skill は発火せず、baseline と同じ進め方。削除の権限・別タスクの判定を src/lib/ ではなく API Route に書いており、その部分の単体テストが無い点で 2 名とも減点（テスト 2.5、規約 4）。※最初の実行は採点スクリプトの不具合（next dev が自動生成する AGENTS.md を未コミット扱い、開発サーバーが残って終了待ち）で介入が誤って 2 回送られたため破棄し、修正後に同条件でやり直した。</p>
+        <p class="sub">ブラインドレビュー（規約 4 ・ 設計 3.5 ・ 認可・入力 5 ・ テスト 2.5 ・ 過不足 4.5）</p>
+        <ul class="files"><li>本人確認とタスクの一致の判定を [commentId]/route.ts に直接書き、lib/comments.ts の deleteComment(id) は無条件に削除するため、認可のロジックが lib に無く単体テストもできない（規約 1・5）。そのため tests に削除権限・別タスク・存在しないコメントのテストが無い。users の LEFT JOIN と author へのフォールバックは外部キーがあるので不要。</li><li>本人確認と別タスク判定を API Route（[commentId]/route.ts）に直接書いており、src/lib/ に置かれていないため単体テストされていない。tests/comments.test.ts には他人のコメント削除（403）・別タスク・存在しないコメントのテストが無い。users を LEFT JOIN してフォールバックするなど、必要の薄い分岐もある。</li></ul>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/api/tasks/[id]/comments/[commentId]/route.ts</code> +21 −0 <span class="kind">code</span></li><li><code>src/app/api/tasks/[id]/comments/route.ts</code> +26 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/comments.tsx</code> +101 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/page.tsx</code> +4 −1 <span class="kind">code</span></li><li><code>src/lib/comments.ts</code> +77 −0 <span class="kind">code</span></li><li><code>src/lib/db/migrations.ts</code> +14 −0 <span class="kind">code</span></li><li><code>tests/comments.test.ts</code> +45 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>96ec8a6 タスクへのコメント機能を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Feature Dev #1</strong> — 96.6 点</summary>
+        <p>「無人実行のため、質問フェーズとエージェント起動は省いて」直接実装した（サブエージェント 0）。結果は baseline とほぼ同じ。</p>
+        <p class="sub">ブラインドレビュー（規約 5 ・ 設計 4 ・ 認可・入力 5 ・ テスト 4 ・ 過不足 5）</p>
+        <ul class="files"><li>comments.tsx で Comment と同じ形の CommentView 型を重複して定義しており、コメント ID の検証には parseTaskId を流用している。テストは並び順・権限・別タスクを押さえているが、1001 文字の拒否が他の不正値とまとめて 1 つのループに入っていて、境界の意図が読み取りにくい。</li><li>comments.tsx で lib の Comment と同じ型を CommentView として再定義している。並び順を created_at, id とし、テストで投稿日時の逆順投入まで確認しているのは良い。ケースが少数の it にまとめられ、1001 文字は不正入力の列挙に埋もれている。</li></ul>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/api/tasks/[id]/comments/[commentId]/route.ts</code> +21 −0 <span class="kind">code</span></li><li><code>src/app/api/tasks/[id]/comments/route.ts</code> +26 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/comments.tsx</code> +107 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/page.tsx</code> +4 −1 <span class="kind">code</span></li><li><code>src/lib/comments.ts</code> +83 −0 <span class="kind">code</span></li><li><code>src/lib/db/migrations.ts</code> +14 −0 <span class="kind">code</span></li><li><code>tests/comments.test.ts</code> +46 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>e1d1eb6 タスクへのコメント機能（API・詳細画面）を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Feature Dev #2</strong> — 95.8 点</summary>
+        <p>1 回目と同じく工程を省いて直接実装。設計案の比較やレビューのフェーズは行われなかった。</p>
+        <p class="sub">ブラインドレビュー（規約 5 ・ 設計 4 ・ 認可・入力 5 ・ テスト 4 ・ 過不足 5）</p>
+        <ul class="files"><li>comments.ts と comment-section.tsx で SQL 断片や URL を + で連結しており、既存コードのテンプレートリテラルと書き方が揃っていない。また 0 件のときも空の &lt;ul&gt; を描画する。テストに 1 文字の境界と、前後の空白を除いた後の長さ判定の確認が無い。</li><li>comment-section.tsx・comments.ts で URL やメッセージを文字列連結で組み立てており、他の箇所のテンプレートリテラルと揃っていない。コメントが無いときも空の &lt;ul&gt; を描画する。テストは権限・別タスク・境界値を押さえているが、下限 1 文字の確認が無い。</li></ul>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/api/tasks/[id]/comments/[commentId]/route.ts</code> +20 −0 <span class="kind">code</span></li><li><code>src/app/api/tasks/[id]/comments/route.ts</code> +26 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/comment-section.tsx</code> +95 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/page.tsx</code> +4 −1 <span class="kind">code</span></li><li><code>src/lib/comments.ts</code> +84 −0 <span class="kind">code</span></li><li><code>src/lib/db/migrations.ts</code> +14 −0 <span class="kind">code</span></li><li><code>tests/comments.test.ts</code> +54 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>ff8fa12 タスクへのコメント機能を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Compound Engineering #1</strong> — 86.5 点</summary>
+        <p>計画書（docs/plans/）を作り、/ce-work で 2 コミットに分けて実装、ce-simplify-code・ce-doc-review・ce-code-review の Skill とサブエージェント 5 つを使った。テストは 180 行で最も厚く、ブラインドレビューは 2 名とも満点。費用は全試行で最高の $3.35。</p>
+        <p class="sub">ブラインドレビュー（規約 5 ・ 設計 5 ・ 認可・入力 5 ・ テスト 5 ・ 過不足 5）</p>
+        <ul class="files"><li>lib に parseCommentId・formatCommentTime を置き、ページ側は表示と小さなクライアント部品（router.refresh）だけにしていて既存の構成と揃っている。テストは境界値（1/1000/1001・コードポイント・前後空白）、権限、別タスク、同時刻の並び順、カスケード削除まで網羅している。migration テスト名の「idempotent」は実際には検証していない（ごく軽微）。</li><li>一覧をサーバーコンポーネントで描き、投稿・削除だけをクライアント部品に分けて router.refresh で更新しており、規約 1 に最も忠実。parseCommentId は parseTaskId を再利用。テストは境界値（1/1000/1001・絵文字・trim 後の長さ）、権限、別タスク、削除済み、同時刻の並び順まで網羅している（migration のテスト名の「idempotent」は内容と合わないが軽微）。</li></ul>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>docs/plans/2026-11-09-0331-feat-task-comments-plan.md</code> +212 −0 <span class="kind">tool-artifact</span></li><li><code>src/app/api/tasks/[id]/comments/[commentId]/route.ts</code> +20 −0 <span class="kind">code</span></li><li><code>src/app/api/tasks/[id]/comments/route.ts</code> +25 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/comment-form.tsx</code> +53 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/delete-comment-button.tsx</code> +38 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/page.tsx</code> +25 −1 <span class="kind">code</span></li><li><code>src/lib/comments.ts</code> +98 −0 <span class="kind">code</span></li><li><code>src/lib/db/migrations.ts</code> +14 −0 <span class="kind">code</span></li><li><code>tests/comments.test.ts</code> +180 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>f61cb73 feat: タスク詳細画面にコメントの API と画面を追加</code></li><li><code>f6cef56 feat: タスクコメントの保存・取得・削除の処理を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Compound Engineering #2</strong> — 88.0 点</summary>
+        <p>計画書を作って実装。/ce-code-review は自分の補助スクリプト（先頭に環境変数を付けた python3 の実行）が許可リストに合わず拒否され、レビュアーを起動せずに「スクリプトの実行を承認してください」と止まった（コードはコミット済みのため介入には数えない）。テストは 131 行で厚く、レビューは 24 点。</p>
+        <p class="sub">ブラインドレビュー（規約 5 ・ 設計 4 ・ 認可・入力 5 ・ テスト 5 ・ 過不足 5）</p>
+        <ul class="files"><li>comments.ts の parseCommentId が parseTaskId の正規表現を重複して持っている（軽微）。comment-time.ts への分離はクライアントから使うためで理由がある。テストは境界値・権限・別タスク（403 で存在を漏らさない）・同時刻の並び順・外部キーまで網羅している。</li><li>src/lib/comments.ts の parseCommentId が parseTaskId の正規表現を複製しており、再利用すれば済む。権限・別タスク（403 で存在を漏らさない）・境界値・絵文字・SQL/HTML 風の本文・外部キーまで、テストが最も丁寧。</li></ul>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>docs/plans/2026-11-09-0338-feat-task-comments-plan.md</code> +148 −0 <span class="kind">tool-artifact</span></li><li><code>src/app/api/tasks/[id]/comments/[commentId]/route.ts</code> +25 −0 <span class="kind">code</span></li><li><code>src/app/api/tasks/[id]/comments/route.ts</code> +26 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/comments.tsx</code> +111 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/page.tsx</code> +4 −1 <span class="kind">code</span></li><li><code>src/lib/comment-time.ts</code> +6 −0 <span class="kind">code</span></li><li><code>src/lib/comments.ts</code> +98 −0 <span class="kind">code</span></li><li><code>src/lib/db/migrations.ts</code> +14 −0 <span class="kind">code</span></li><li><code>tests/comments.test.ts</code> +131 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>8c79b90 feat: タスクにコメントを付けられるようにする</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>gstack #1</strong> — 83.4 点</summary>
+        <p>実装後の /review でテスト・保守性と adversarial の 2 つのサブエージェントを使い、CLAUDE.md の API 一覧に追記したがコミットせずに終了。介入 1 回で追記をコミット。/review 自身は「実サーバーでの QA ができなかった」として COMPLETED: false と報告した。</p>
+        <p class="sub">ブラインドレビュー（規約 5 ・ 設計 4.5 ・ 認可・入力 5 ・ テスト 4 ・ 過不足 5）</p>
+        <ul class="files"><li>[commentId]/route.ts でコメント ID の検証に parseTaskId を流用している（軽微）。テストは authorName を length&gt;0 でしか確かめておらず、1 文字の受理と、他人による削除が拒否された後もコメントが残ることの確認が無い。</li><li>削除の権限判定を src/lib/comments.ts の deleteComment に置いて結果型で返す、整った構成。tests/comments.test.ts は authorName を長さ &gt; 0 でしか確認しておらず、境界値・不正入力が 1 つの it にまとめて書かれている。</li></ul>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>CLAUDE.md</code> +1 −1 <span class="kind">doc</span></li><li><code>src/app/api/tasks/[id]/comments/[commentId]/route.ts</code> +21 −0 <span class="kind">code</span></li><li><code>src/app/api/tasks/[id]/comments/route.ts</code> +26 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/comments.tsx</code> +87 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/page.tsx</code> +4 −1 <span class="kind">code</span></li><li><code>src/lib/comments.ts</code> +83 −0 <span class="kind">code</span></li><li><code>src/lib/db/migrations.ts</code> +14 −0 <span class="kind">code</span></li><li><code>tests/comments.test.ts</code> +44 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>3d90e45 CLAUDE.md の API 一覧にコメント API を追記</code></li><li><code>3439cc0 タスクにコメント機能を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>gstack #2</strong> — 85.7 点</summary>
+        <p>/review が本文の文字数をコードポイント単位で数えるよう修正したがコミットせずに終了。介入 1 回でコミット。</p>
+        <p class="sub">ブラインドレビュー（規約 5 ・ 設計 4 ・ 認可・入力 5 ・ テスト 4 ・ 過不足 5）</p>
+        <ul class="files"><li>comments.ts の createComment/deleteComment がユーザー ID の文字列ではなく Pick&lt;User,&#x27;id&#x27;&gt; を受け取り、既存の関数より引数が回りくどい。コメント ID には parseTaskId を流用している。テストに 1 文字の境界と、拒否された削除の後にコメントが残ることの確認が無い。</li><li>src/lib/comments.ts の createComment / deleteComment がユーザーを Pick&lt;User, &quot;id&quot;&gt; で受け取り、ID 文字列を受ける既存の lib 関数と流儀が違う。コードポイントで数える点は良い。テストは要点を押さえているが、下限の 1 文字の確認が無く、ケースがまとめて書かれている。</li></ul>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/api/tasks/[id]/comments/[commentId]/route.ts</code> +21 −0 <span class="kind">code</span></li><li><code>src/app/api/tasks/[id]/comments/route.ts</code> +25 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/comments.tsx</code> +98 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/page.tsx</code> +4 −1 <span class="kind">code</span></li><li><code>src/lib/comments.ts</code> +86 −0 <span class="kind">code</span></li><li><code>src/lib/db/migrations.ts</code> +14 −0 <span class="kind">code</span></li><li><code>tests/comments.test.ts</code> +54 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>ae3f584 コメント本文の長さをコードポイント単位で数える</code></li><li><code>98201c4 タスクにコメント機能を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>baseline（候補なし） #1</strong> — 97.1 点</summary>
+        <p>変更はコード 6 ファイルとテスト 1 ファイル。実サーバーでの確認は権限で拒否され、単体テスト・ビルドまでで完了とした。ブラインドレビューではクライアント側でのコメント型の重複など設計の細かい点で減点。</p>
+        <p class="sub">ブラインドレビュー（規約 5 ・ 設計 3.5 ・ 認可・入力 5 ・ テスト 4 ・ 過不足 5）</p>
+        <ul class="files"><li>comments.ts の parseCommentId が parseTaskId の正規表現をそのままコピーしており、comments.tsx でも CommentView 型を重複して定義している。page.tsx では相対 import を @/lib の import の間に挟んでいる。軽微な一貫性の問題が重なっている。テストに 1 文字の境界と前後空白の確認が無い。</li><li>comments.tsx で Comment 型を CommentView として再定義し、src/lib/comments.ts の parseCommentId は parseTaskId と同じ正規表現を複製している。page.tsx の import 順も崩れている。テストは要点を押さえるが、ケースがまとめて書かれている。</li></ul>
+        
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>src/app/api/tasks/[id]/comments/[commentId]/route.ts</code> +21 −0 <span class="kind">code</span></li><li><code>src/app/api/tasks/[id]/comments/route.ts</code> +26 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/comments.tsx</code> +103 −0 <span class="kind">code</span></li><li><code>src/app/tasks/[id]/page.tsx</code> +4 −1 <span class="kind">code</span></li><li><code>src/lib/comments.ts</code> +90 −0 <span class="kind">code</span></li><li><code>src/lib/db/migrations.ts</code> +14 −0 <span class="kind">code</span></li><li><code>tests/comments.test.ts</code> +60 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>d3f3bae タスク詳細画面にコメント機能を追加</code></li></ul>
+      </details>
+
+  <div class="cols">
+    <section><h2>採点方法</h2><div class="box"><p>試行前に固定した手順（<code>docs/poc/answer-key/W2/grading.md</code>）で採点した。</p><ul><li><strong>受け入れテスト 40</strong>: 隠しの E2E 16 件 × 1.875 点 + 型チェック・単体テスト・ビルド 各 10/3 点。</li><li><strong>介入回数 20</strong>: 20 − 5 ×（「お任せします」で続けさせた回数 + 質問ツールの回数）。手順を終えた時点でコミットが無い、または未コミットの変更が残ると自動で続けさせた（最大 2 回）。</li><li><strong>設計・テストの質 25</strong>: 候補名・テスト結果・費用を伏せ、管理用ファイルと文書を除いた差分に記号を付けて、独立した採点者 2 名（それぞれ新しいサブエージェント、読む順番も別）が 5 項目 × 0〜5 点で採点。2 名の平均。</li><li><strong>費用 15</strong>: 15 ×（全試行の最安 / 自分）。</li></ul></div></section>
+    <section><h2>この結果の制約</h2><div class="box"><ul><li>各候補 2 回（baseline 1 回）なので、1〜2 点の差は誤差の範囲です。</li><li>無人の実行なので、確認・承認を前提にした工程（Feature Dev の設計案の選択、Compound Engineering のレビュー後の修正指示）は評価できていません。</li><li>子セッションの許可リストでは、サーバーをバックグラウンドで起動するコマンドや、環境変数を前に付けたスクリプトの実行が拒否されます。そのため実サーバー・ブラウザでの確認はどの候補もできておらず、Compound Engineering #2 のレビューは途中で止まりました。</li><li>ブラインドレビューの採点者は人ではなくサブエージェント（同じモデル系統）です。採点者間で 3 点以上の差が出た項目はありませんでした。</li><li>Superpowers #2 は、採点スクリプトの不具合（next dev が自動生成する AGENTS.md の扱い、残った開発サーバー）を直してからやり直した結果です。破棄した 1 回目（$0.52）は集計に含めていません。</li></ul></div></section>
+  </div>
+
+  <h2>判断の記録</h2>
+  <div class="box"><ul><li><strong>費用の上限</strong>: コーディネーターの式で決めた。規模係数は W2 baseline の実額 ÷ W1 baseline の平均 = $0.34 ÷ $0.15 = 2.21。候補ごとの上限は「W1 平均 × 規模係数 × 5（最大 $9.5）」。<ul><li>baseline: W1 平均 $0.15 → 上限 $1.71（試行時の打ち切り $0.77、W2 の最高額 $0.34）</li><li>Superpowers: W1 平均 $0.17 → 上限 $1.87（試行時の打ち切り $0.85、W2 の最高額 $0.38）</li><li>Feature Dev: W1 平均 $0.17 → 上限 $1.90（試行時の打ち切り $0.86、W2 の最高額 $0.39）</li><li>gstack: W1 平均 $0.46 → 上限 $5.05（試行時の打ち切り $2.29、W2 の最高額 $1.01）</li><li>Compound Engineering: W1 平均 $1.78 → 上限 $9.50（試行時の打ち切り $8.92、W2 の最高額 $3.35）</li></ul>実際の試行は、この式が届く前に、より厳しい W1 平均 × 5 を <code>--max-budget-usd</code> の打ち切り額にして実行した。どちらの上限にも達した試行は無い。</li><li><strong>介入の数え方</strong>: 手順を終えた時点でコミットが無い、または未コミットの変更が残るときに、定型の「お任せします」で続けさせ、その回数を数えた（試行前に固定）。<code>next dev</code> が自動で作る <code>AGENTS.md</code> は候補の作業ではないので、未コミットの変更から除いた。</li><li><strong>Superpowers #2 のやり直し</strong>: 1 回目は上記の <code>AGENTS.md</code> と、残った開発サーバーによる終了待ちで、介入が誤って 2 回送られた。条件が崩れたので破棄し、スクリプトを直してから同じ条件でやり直した。他の試行はこの不具合に当たっていない（介入が送られていないか、送られた理由が本当の未コミットの修正だった）。</li><li><strong>Compound Engineering #2 のレビューの停止</strong>: <code>/ce-code-review</code> が「スクリプトの実行を承認してください」と止まった。ただしコードはコミット済みで作業ツリーもきれいだったので、固定したルールどおり介入には数えていない。</li><li><strong>試行の並列度</strong>: 最初は 2 本並列で始めた。子セッションがそろって 3917 番ポートでサーバーを起動しようとするため、取り違えが起きないよう、途中から 1 本ずつ順に実行した。結果的に取り違えは起きていない。</li><li><strong>ブラインドレビューの対象</strong>: 文書（<code>*.md</code>）と候補の管理用ファイルは差分から除いた。gstack #1 の CLAUDE.md への追記と、Compound Engineering の計画書は採点対象外。レビュー担当は人ではなく、互いに独立したサブエージェント 2 名。</li><li><strong>W1 との後方互換</strong>: 次の変更は W2 以降だけに効く。W1 を同じ手順で再実行したときの動きは変わらない。<ul><li>作業ブランチは W1 では作らない。</li><li>介入は既定で 0 回。</li><li>費用の上限は既定で無し。</li></ul></li></ul></div>
+
+  <h2>次の対応</h2>
+  <div class="box"><ul><li>W3（曖昧な要望から要件を固める）では、質問への定型回答シートを用意し、確認の工程を持つ候補（Superpowers の brainstorming、gstack の /office-hours、Compound Engineering の /ce-brainstorm）が無人でも働く条件にする。</li><li>子セッションの許可リストに、試行用コピー内でのサーバー起動（バックグラウンド実行）を加えるか検討する（権限設定の変更なのでユーザーの承認が必要）。W6 の UI 検証では必須になる。</li><li>gstack の /review が修正を未コミットのまま終える点は、W4 以降でも同じか記録する。</li></ul></div>
+</main>
+</body>
+</html>

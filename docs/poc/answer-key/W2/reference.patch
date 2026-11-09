@@ -1,0 +1,262 @@
+diff --git a/src/app/api/tasks/[id]/comments/[commentId]/route.ts b/src/app/api/tasks/[id]/comments/[commentId]/route.ts
+new file mode 100644
+index 0000000..31983b4
+--- /dev/null
++++ b/src/app/api/tasks/[id]/comments/[commentId]/route.ts
+@@ -0,0 +1,20 @@
++// DELETE /api/tasks/:id/comments/:commentId — 自分のコメントを削除する。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { deleteComment } from "@/lib/comments";
++import { parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string; commentId: string }> };
++
++export async function DELETE(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const p = await params;
++  const taskId = parseTaskId(p.id);
++  const commentId = parseTaskId(p.commentId);
++  if (taskId === undefined || commentId === undefined) return jsonError(404, "コメントが見つかりません");
++  const result = deleteComment(taskId, commentId, user.id);
++  if (result === "not_found") return jsonError(404, "コメントが見つかりません");
++  if (result === "forbidden") return jsonError(403, "自分のコメントだけを削除できます");
++  return new NextResponse(null, { status: 204 });
++}
+diff --git a/src/app/api/tasks/[id]/comments/route.ts b/src/app/api/tasks/[id]/comments/route.ts
+new file mode 100644
+index 0000000..3e5ea17
+--- /dev/null
++++ b/src/app/api/tasks/[id]/comments/route.ts
+@@ -0,0 +1,30 @@
++// GET /api/tasks/:id/comments — コメント一覧（古い順） / POST — コメントを投稿する。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { createComment, listComments, validateCommentInput } from "@/lib/comments";
++import { getTask, parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string }> };
++
++async function findTaskId(params: Context["params"]): Promise<number | undefined> {
++  const id = parseTaskId((await params).id);
++  return id !== undefined && getTask(id) ? id : undefined;
++}
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const taskId = await findTaskId(params);
++  if (taskId === undefined) return jsonError(404, "タスクが見つかりません");
++  return NextResponse.json({ comments: listComments(taskId) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const taskId = await findTaskId(params);
++  if (taskId === undefined) return jsonError(404, "タスクが見つかりません");
++  const result = validateCommentInput(await readJson(request));
++  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
++  return NextResponse.json({ comment: createComment({ taskId, author: user.id, body: result.value.body }) }, { status: 201 });
++}
+diff --git a/src/app/tasks/[id]/comments.tsx b/src/app/tasks/[id]/comments.tsx
+new file mode 100644
+index 0000000..0b3e2e0
+--- /dev/null
++++ b/src/app/tasks/[id]/comments.tsx
+@@ -0,0 +1,68 @@
++"use client";
++import { useRouter } from "next/navigation";
++import { useState } from "react";
++import type { Comment } from "@/lib/comments";
++
++type Props = { taskId: number; currentUserId: string; comments: Comment[] };
++
++export function Comments({ taskId, currentUserId, comments }: Props) {
++  const router = useRouter();
++  const [body, setBody] = useState("");
++  const [error, setError] = useState<string | null>(null);
++  const [busy, setBusy] = useState(false);
++
++  async function submit(e: React.FormEvent) {
++    e.preventDefault();
++    setBusy(true);
++    setError(null);
++    const res = await fetch(`/api/tasks/${taskId}/comments`, {
++      method: "POST",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ body }),
++    });
++    setBusy(false);
++    if (!res.ok) {
++      const data = (await res.json().catch(() => ({}))) as { error?: string; details?: string[] };
++      setError(data.details?.join(" ") || data.error || "投稿できませんでした");
++      return;
++    }
++    setBody("");
++    router.refresh();
++  }
++
++  async function remove(id: number) {
++    const res = await fetch(`/api/tasks/${taskId}/comments/${id}`, { method: "DELETE" });
++    if (!res.ok) setError("削除できませんでした");
++    router.refresh();
++  }
++
++  return (
++    <section>
++      <h2>コメント</h2>
++      {comments.length === 0 ? (
++        <p>コメントはまだありません。</p>
++      ) : (
++        <ul>
++          {comments.map((c) => (
++            <li key={c.id} data-testid="comment">
++              <strong>{c.authorName}</strong> <time dateTime={c.createdAt}>{new Date(c.createdAt).toLocaleString("ja-JP")}</time>
++              <p style={{ whiteSpace: "pre-wrap" }}>{c.body}</p>
++              {c.author === currentUserId && (
++                <button type="button" onClick={() => remove(c.id)}>
++                  削除
++                </button>
++              )}
++            </li>
++          ))}
++        </ul>
++      )}
++      <form aria-label="コメント" onSubmit={submit}>
++        <textarea name="body" value={body} onChange={(e) => setBody(e.target.value)} rows={3} />
++        {error && <p role="alert">{error}</p>}
++        <button type="submit" disabled={busy}>
++          投稿する
++        </button>
++      </form>
++    </section>
++  );
++}
+diff --git a/src/app/tasks/[id]/page.tsx b/src/app/tasks/[id]/page.tsx
+index 6325e66..5b449ba 100644
+--- a/src/app/tasks/[id]/page.tsx
++++ b/src/app/tasks/[id]/page.tsx
+@@ -1,14 +1,16 @@
+ import { notFound } from "next/navigation";
++import { listComments } from "@/lib/comments";
+ import { requireUser } from "@/lib/session";
+ import { STATUS_LABELS, getTask, parseTaskId } from "@/lib/tasks";
+ import { getUser } from "@/lib/users";
++import { Comments } from "./comments";
+ 
+ type Props = {
+   params: Promise<{ id: string }>;
+ };
+ 
+ export default async function TaskDetailPage({ params }: Props) {
+-  await requireUser();
++  const user = await requireUser();
+   const id = parseTaskId((await params).id);
+   const task = id === undefined ? undefined : getTask(id);
+   if (!task) notFound();
+@@ -28,6 +30,7 @@ export default async function TaskDetailPage({ params }: Props) {
+         <dt>期限</dt>
+         <dd data-testid="task-due-date">{task.dueDate}</dd>
+       </dl>
++      <Comments taskId={task.id} currentUserId={user.id} comments={listComments(task.id)} />
+     </main>
+   );
+ }
+diff --git a/src/lib/comments.ts b/src/lib/comments.ts
+new file mode 100644
+index 0000000..e1e1180
+--- /dev/null
++++ b/src/lib/comments.ts
+@@ -0,0 +1,67 @@
++import { getDb, type Db } from "./db/index.ts";
++import type { ValidationResult } from "./tasks.ts";
++
++export type Comment = {
++  id: number;
++  taskId: number;
++  author: string;
++  authorName: string;
++  body: string;
++  createdAt: string; // ISO 8601（UTC）
++};
++
++export const COMMENT_MAX_LENGTH = 1000;
++
++type CommentRow = { id: number; task_id: number; author: string; author_name: string; body: string; created_at: string };
++
++const SELECT =
++  "SELECT c.id, c.task_id, c.author, u.name AS author_name, c.body, c.created_at FROM comments c JOIN users u ON u.id = c.author";
++
++function toComment(r: CommentRow): Comment {
++  return { id: r.id, taskId: r.task_id, author: r.author, authorName: r.author_name, body: r.body, createdAt: r.created_at };
++}
++
++export function listComments(taskId: number, db: Db = getDb()): Comment[] {
++  return (db.prepare(`${SELECT} WHERE c.task_id = ? ORDER BY c.id`).all(taskId) as CommentRow[]).map(toComment);
++}
++
++export function getComment(id: number, db: Db = getDb()): Comment | undefined {
++  const row = db.prepare(`${SELECT} WHERE c.id = ?`).get(id) as CommentRow | undefined;
++  return row && toComment(row);
++}
++
++/** 投稿の本文を検証する。前後の空白を除いて 1〜1000 文字。 */
++export function validateCommentInput(body: unknown): ValidationResult<{ body: string }> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const text = (body as Record<string, unknown>).body;
++  if (typeof text !== "string") return { ok: false, errors: ["本文を入力してください"] };
++  const trimmed = text.trim();
++  if (trimmed.length === 0 || trimmed.length > COMMENT_MAX_LENGTH) {
++    return { ok: false, errors: [`本文は 1〜${COMMENT_MAX_LENGTH} 文字で入力してください`] };
++  }
++  return { ok: true, value: { body: trimmed } };
++}
++
++export function createComment(
++  input: { taskId: number; author: string; body: string },
++  db: Db = getDb(),
++  now: Date = new Date(),
++): Comment {
++  const { lastInsertRowid } = db
++    .prepare("INSERT INTO comments (task_id, author, body, created_at) VALUES (?, ?, ?, ?)")
++    .run(input.taskId, input.author, input.body, now.toISOString());
++  return getComment(Number(lastInsertRowid), db)!;
++}
++
++export type DeleteResult = "deleted" | "not_found" | "forbidden";
++
++/** taskId のコメント commentId を、投稿者本人（userId）のときだけ削除する。 */
++export function deleteComment(taskId: number, commentId: number, userId: string, db: Db = getDb()): DeleteResult {
++  const c = getComment(commentId, db);
++  if (!c || c.taskId !== taskId) return "not_found";
++  if (c.author !== userId) return "forbidden";
++  db.prepare("DELETE FROM comments WHERE id = ?").run(commentId);
++  return "deleted";
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 4e1b0a4..b491630 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -38,4 +38,18 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX sessions_user ON sessions(user_id);
+     `,
+   },
++  {
++    version: 3,
++    name: "comments",
++    sql: `
++      CREATE TABLE comments (
++        id         INTEGER PRIMARY KEY AUTOINCREMENT,
++        task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
++        author     TEXT NOT NULL REFERENCES users(id),
++        body       TEXT NOT NULL,
++        created_at TEXT NOT NULL -- ISO 8601（UTC）
++      );
++      CREATE INDEX comments_task ON comments(task_id, id);
++    `,
++  },
+ ];
