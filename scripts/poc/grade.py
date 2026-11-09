@@ -189,29 +189,43 @@ def acceptance():
     for name, cmd in [("typecheck", "npm run typecheck"), ("test", "npm test"), ("build", "npm run build")]:
         code, log = run(cmd)
         checks[name] = {"pass": code == 0, "log": log[-800:]}
-    e2e = []
-    key = ROOT / "docs" / "poc" / "answer-key" / SCENARIO / "acceptance.cjs"
+    e2e, authz = [], []
     # 隠しの E2E が無い W（W9 のレビューなど）は E2E を実行しない（W1〜W8 は従来どおり）
-    if checks["build"]["pass"] and key.exists():
-        port = free_port()
-        server = subprocess.Popen(f"npx next start -p {port}", cwd=APP, shell=True,
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        try:
-            for _ in range(60):
-                try:
-                    socket.create_connection(("127.0.0.1", port), timeout=1).close()
-                    break
-                except OSError:
-                    time.sleep(1)
-            env = dict(os.environ, NODE_PATH=subprocess.run("npm root -g", shell=True, capture_output=True, text=True).stdout.strip())
-            code, log = run(f"node {key} http://127.0.0.1:{port}", timeout=180, env=env)
+    if checks["build"]["pass"] and (ROOT / "docs" / "poc" / "answer-key" / SCENARIO / "acceptance.cjs").exists():
+        e2e = run_key("acceptance.cjs")
+        # 認可プローブ（W4 以降。正解データに authz.cjs があるシナリオだけ、別に起動したサーバーで実行する）
+        if (ROOT / "docs" / "poc" / "answer-key" / SCENARIO / "authz.cjs").exists():
+            authz = run_key("authz.cjs")
+    return checks, e2e, authz
+
+
+def run_key(name):
+    """正解データの検査スクリプト（acceptance.cjs など）を、起動したばかりのサーバーに対して実行する。"""
+    results = []
+    port = free_port()
+    server = subprocess.Popen(f"npx next start -p {port}", cwd=APP, shell=True,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    try:
+        for _ in range(60):
             try:
-                e2e = json.loads(log.strip().splitlines()[-1])
-            except (ValueError, IndexError):
-                e2e = [{"name": "E2E 実行", "pass": False, "detail": log[-500:]}]
-        finally:
-            os.killpg(server.pid, 15)
-    return checks, e2e
+                socket.create_connection(("127.0.0.1", port), timeout=1).close()
+                break
+            except OSError:
+                time.sleep(1)
+        env = dict(os.environ, NODE_PATH=subprocess.run("npm root -g", shell=True, capture_output=True, text=True).stdout.strip())
+        key = ROOT / "docs" / "poc" / "answer-key" / SCENARIO / name
+        # run() は出力の末尾 3000 字だけを返すため、不合格が多いと結果の JSON が途中で切れる。ここでは標準出力を丸ごと読む
+        p = subprocess.run(f"node {key} http://127.0.0.1:{port}", cwd=APP, shell=True, capture_output=True, text=True,
+                           timeout=600, env=env)
+        log = p.stdout + p.stderr
+        try:
+            results = json.loads(p.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            results = [{"name": f"{name} の実行", "pass": False, "detail": log[-500:]}]
+    finally:
+        os.killpg(server.pid, 15)
+        time.sleep(2)
+    return results
 
 
 def cleanup():
@@ -229,7 +243,7 @@ def main():
     if "--cleanup-only" in FLAGS:
         cleanup()
         return
-    checks, e2e = acceptance()
+    checks, e2e, authz = acceptance()
     result = {
         "scenario": SCENARIO,
         "trial": TRIAL,
@@ -243,6 +257,7 @@ def main():
         "interventions": len((RAW / "interventions.log").read_text().splitlines()) if (RAW / "interventions.log").exists() else 0,
         "checks": checks,
         "e2e": e2e,
+        **({"authz": authz} if authz else {}),
         "diff": diff_stats(),
         "transcript": transcript_stats(),
     }

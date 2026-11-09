@@ -8,6 +8,7 @@
 | W1 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W2 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W3 | `<課題>` | `<課題>`（`brainstorming` の自動発火） | `/feature-dev:feature-dev <課題>`（確認質問のフェーズまで） | `/office-hours <課題>` → `/plan-ceo-review` | `/ce-brainstorm <課題>` |
+| W4 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `/autoplan <課題>` → 「計画に沿って実装し、変更を git にコミットしてください。」→ `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W5 | `<課題>` | `<課題>`（`systematic-debugging` の自動発火） | `<課題>`（通常の指示） | `/qa <課題>` | `/ce-debug <課題>` |
 | W6 | `<課題>` | `<課題>` → `/superpowers:finishing-a-development-branch` | `/feature-dev:feature-dev <課題>` → PR 作成の指示 | `<課題>` → `/qa` → `/ship` | `/ce-work <課題>` → `/ce-test-browser` → `/ce-commit-push-pr` |
 | W9 | `<課題>` | `/superpowers:requesting-code-review <課題>` | 「Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。」+ `<課題>` | `/review <課題>` | `/ce-code-review <課題>` |

@@ -184,6 +184,10 @@ else
     gstack) STEPS=("$TASK" "/review") ;;
   esac
 fi
+# W4 の gstack は /autoplan → 実装 → /review（PLAN.md §5.1。ほかのシナリオの手順は変えない）
+if [[ "$SCENARIO" == W4 && "$CAND" == gstack ]]; then
+  STEPS=("/autoplan $TASK" "計画に沿って実装し、変更を git にコミットしてください。" "/review")
+fi
 if [[ "$SCENARIO" == W6 ]]; then
   # W6 の手順（docs/poc/tasks/wf-procedures.md）。PR はリモートが無いので PR.md に書かせる（課題文に明記）。
   PR_STEP="PR を作成してください（課題文の「確認と PR」のとおり、PR のタイトルと本文を PR.md に書いてコミットします）。"
