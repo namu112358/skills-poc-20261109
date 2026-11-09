@@ -11,7 +11,9 @@ cd "$ROOT"
 for t in "$@"; do
   c=${t%%:*}; r=${t##*:}
   [[ -f /tmp/claude-0/STOP ]] && { echo "stopped before $c-$r"; break; }
-  POC_MAX_NUDGES=0 POC_MAX_TRIAL_USD="$(cap "$c")" scripts/poc/run-trial.sh W8 "$c" "$r"
+  # POC_W8_NOCAP=1 なら費用の上限を渡さない（2026-11-09 のユーザー指示で W8 は上限なし。watch 方式のまま、上限が空なので止めない）
+  if [[ "${POC_W8_NOCAP:-}" == 1 ]]; then usd=""; else usd="$(cap "$c")"; fi
+  POC_MAX_NUDGES=0 POC_MAX_TRIAL_USD="$usd" scripts/poc/run-trial.sh W8 "$c" "$r"
   R="docs/poc/results/workflow/raw/W8-$c-$r"
   echo "suffix=$(cat "$R/task-suffix") budget=$(cat "$R/budget-mode") stopped=$(cat "$R/budget-stopped" 2>/dev/null)"
   python3 scripts/poc/grade_w8.py "W8-$c-$r"
