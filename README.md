@@ -63,6 +63,16 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 - Playwright MCP: `.mcp.json` のバージョンを上げて PR でレビュー
 - Plugins: `/plugin` から更新し、動作確認後にチームへ周知
 
+## Issue・PR テンプレート
+
+各プロジェクト共通の Issue Forms（機能要望 / 不具合報告 / 技術的負債）・PR テンプレートと、AI エージェント向けの Issue・PR 記述ルールを `templates/github/` に置いています。調査結果・設計方針・記入済みサンプルは [docs/github-templates/README.md](docs/github-templates/README.md) を参照してください。
+
+```bash
+scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
+```
+
+既存のファイルは上書きしません。`--with-check` を付けると、PR 本文の必須見出しを検証する GitHub Actions も配置します。
+
 ## 比較検討中ツールの PoC
 
 計画書: [docs/poc/PLAN.md](docs/poc/PLAN.md)
