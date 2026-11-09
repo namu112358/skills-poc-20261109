@@ -6,6 +6,8 @@ import re
 import statistics
 from pathlib import Path
 
+import two_axis
+
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "docs" / "poc" / "results" / "workflow" / "W3"
 NOTES = json.loads((DIR / "notes.json").read_text())
@@ -267,8 +269,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
   <div class="box"><ul>{ul(NOTES['decisions'])}</ul></div>
 
   <h2>次の対応</h2>
-  <div class="box"><ul>{ul(NOTES['next'])}</ul></div>
-</main>
+  <div class="box"><ul>{ul(NOTES['next'])}</ul></div>{two_axis.html_section("W3", DIR)}</main>
 </body>
 </html>
 """
@@ -325,6 +326,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
                          for i, l in enumerate(re.sub(r"\n+- ", "\n  - ", md(x)).replace("\n\n", "\n").split("\n")))
         for x in NOTES["decisions"]]
     out += ["", "## 次の対応", ""] + [f"- {md(x)}" for x in NOTES["next"]]
+    out += [""] + two_axis.md_section("W3", DIR)[:-1]  # 2 本立ての点数（PLAN.md §4.4）。既存の節の後ろに足す
     (DIR / "report.md").write_text("\n".join(out) + "\n")
     print(f"wrote {DIR / 'report.md'}")
 
