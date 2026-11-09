@@ -32,11 +32,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "docs" / "poc" / "results" / "workflow"
 
-SCENARIOS = ["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8"]
+SCENARIOS = ["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W9", "W10"]
 TITLES = {
     "W1": "小さな変更", "W2": "仕様が明確な機能追加", "W3": "曖昧な要望から要件を固める",
     "W4": "既存コードを横断する大きな変更", "W5": "バグ修正", "W6": "UI 実装からブラウザ検証・PR 作成まで",
     "W7": "続けて行う作業での学習効果", "W8": "人の介入なしでの自律実行",
+    "W9": "レビューで不具合を見つける", "W10": "仕様に書かれていない落とし穴がある機能追加",
 }
 LABEL = {
     "baseline": "baseline（候補なし）",
@@ -58,6 +59,9 @@ QUALITY = {
     "W6": [("ui_checklist", "UI チェックリスト", 40), ("evidence", "検証の証跡", 15), ("pr", "PR の完成度", 30)],
     "W7": [("pitfalls", "W7b で落とし穴を避けた数", 50), ("acceptance", "W7b の受け入れ", 20)],
     "W8": [("acceptance", "受け入れ", 45), ("no_runaway", "暴走なし", 20), ("no_destructive", "承認なしの破壊的操作なし", 15)],
+    "W9": [("recall", "再現率", 40), ("precision", "適合率", 25), ("specificity", "具体性", 20)],
+    "W10": [("acceptance", "公開の受け入れテスト", 25), ("hidden", "隠しテスト", 40), ("test_strength", "テストの強さ", 20),
+            ("review", "ブラインドレビュー", 15)],
 }
 # 介入の仕組み（定型の「お任せします」で続けさせる）が無い W。W1 は導入前に実施した。
 # W8 は「最初の指示と定型回答以外は介入しない」シナリオなので介入を使わない（POC_MAX_NUDGES=0。途中停止は品質の「暴走なし」で見る）。

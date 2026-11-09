@@ -10,7 +10,7 @@
 
 | カテゴリ | 第一候補（A） | 対抗候補（B） | 主な判断軸 |
 |---|---|---|---|
-| 開発ワークフロー | Superpowers（`superpowers@claude-plugins-official`） | Feature Dev（`feature-dev@claude-plugins-official`）、gstack（[garrytan/gstack](https://github.com/garrytan/gstack)）、Compound Engineering（`compound-engineering@compound-engineering-plugin`） | 得意範囲ごとの成果（§5.1 の 8 シナリオ）・コスト |
+| 開発ワークフロー | Superpowers（`superpowers@claude-plugins-official`） | Feature Dev（`feature-dev@claude-plugins-official`）、gstack（[garrytan/gstack](https://github.com/garrytan/gstack)）、Compound Engineering（`compound-engineering@compound-engineering-plugin`） | 得意範囲ごとの成果（§5.1 の 10 シナリオ）・コスト |
 | セキュリティ監査 | Claude Security（`claude-security@claude-plugins-official`） | Cloudflare Security Audit（`cloudflare/security-audit-skill`） | 検出率・誤検知率・修正提案の質 |
 | PR レビュー | Code Review（`code-review@claude-plugins-official`） | PR Review Toolkit（`pr-review-toolkit@claude-plugins-official`） | 有効指摘率・ノイズ・GitHub 連携 |
 
@@ -63,7 +63,7 @@
 | 既知脆弱性 12 件 | IDOR / 認可漏れ、SQL インジェクション、XSS（`dangerouslySetInnerHTML`）、SSRF、パストラバーサル、ハードコード秘密情報、オープンリダイレクト、CSRF、安全でないデシリアライズ、過剰なエラー情報露出、レート制限なしのログイン、JWT 検証不備。うち 4 件は複数ファイルにまたがるデータフローで成立するもの |
 | 誤検知の罠 3 件 | 一見危険だが実際は安全なコード（サニタイズ済みの innerHTML、テスト専用の固定トークンなど） |
 | レビュー用 PR 7 本 | ロジックバグ、型の誤用、例外の握りつぶし（silent failure）、CLAUDE.md 違反、テスト不足、不要なコメント・冗長実装、**問題のないクリーンな PR 1 本** |
-| 開発ワークフロー用の素材 | §5.1 の 8 シナリオ（W1〜W8）の課題文、定型回答シート、シナリオごとの正解データ（W3 の隠れ要件 10 項目、W4 の影響箇所リスト、W5 の仕込みバグ 3 件、W6 の UI チェックリスト 8 項目、W7 のプロジェクト固有の落とし穴 2 件） |
+| 開発ワークフロー用の素材 | §5.1 の 10 シナリオ（W1〜W10）の課題文、定型回答シート、シナリオごとの正解データ（W3 の隠れ要件 10 項目、W4 の影響箇所リスト、W5 の仕込みバグ 3 件、W6 の UI チェックリスト 8 項目、W7 のプロジェクト固有の落とし穴 2 件、W9 のレビュー対象の差分に仕込んだ不具合 10 件とおとり 5 件、W10 の隠しテスト 10 項目程度） |
 
 ### 3.3 プロファイル（候補の切り替え）
 
@@ -134,6 +134,8 @@ scripts/poc-profile.sh wf-superpowers
 | W7 続けて行う作業での学習効果 | 10% | 長期運用での生産性に効く |
 | W8 人の介入なしでの自律実行 | 10% | 任せられる範囲の広さ |
 
+W9・W10 は、W1〜W8 の受け入れテストがほぼ全員満点で品質の差が出にくかったため、品質に差が出るシナリオとして 2026-11-09 に追加した（ユーザー指示）。上の重み（W1〜W8 の合計 100%）は変えない。W9・W10 を総合判定にどう入れるか（重みを付け直すか、品質の比較の参考として扱うか）は判定会で決め、それまでは §4.4 の 2 本立て（品質・効率）で結果を示す。
+
 重みは Week 1 に PoC オーナーが確定し、試行開始後は変えない。
 
 #### 開発ワークフローの判断
@@ -179,6 +181,8 @@ scripts/poc-profile.sh wf-superpowers
 | W6 | UI チェックリスト 40 + 検証の証跡 15 + PR の完成度 30 | 85 |
 | W7 | W7b で落とし穴を避けた数 50 + W7b の受け入れ 20 | 70 |
 | W8 | 受け入れ 45 + 暴走なし 20 + 承認なしの破壊的操作なし 15 | 80 |
+| W9 | 再現率 40 + 適合率 25 + 具体性 20 | 85 |
+| W10 | 公開の受け入れテスト 25 + 隠しテスト 40 + テストの強さ 20 + ブラインドレビュー 15 | 100 |
 
 **効率（100 点）**: 費用 50 + 時間 30 + 介入 20。その W に介入の仕組み（定型の「お任せします」で続けさせる）が無ければ 費用 60 + 時間 40（W1 と、介入しないシナリオの W8 が該当）。
 
@@ -222,6 +226,8 @@ scripts/poc-profile.sh wf-superpowers
 | W6 | UI 実装からブラウザ検証・PR 作成まで | gstack、Compound Engineering | 空状態・エラー表示・レスポンシブ対応を含む画面の追加。PR 作成まで | UI チェックリスト 8 項目の残存不具合 40、検証の証跡（スクリーンショット・操作記録）15、PR の完成度（説明・テスト・CI 成功）30、費用 15 |
 | W7 | 続けて行う作業での学習効果 | Compound Engineering、gstack | W7a と W7b を順番に行う。W7a にはプロジェクト固有の落とし穴 2 件（例: 日時は UTC で保存し JST で表示する、独自のエラー型を使う）を含め、作業中に気づける形にする。W7b は別の機能だが同じ落とし穴を含む。W7b は新しいセッションで始める | W7b で同じ落とし穴を避けられた数 50、W7b の所要時間・介入回数の W7a 比 30、W7b の受け入れテスト 20 |
 | W8 | 人の介入なしでの自律実行 | Superpowers、Compound Engineering、gstack | W2 と同程度の機能を、最初の指示と定型回答以外は介入せずに完了させる | 受け入れテスト 45、所要時間・費用 20、暴走の有無（同じ失敗の繰り返し・ループ・途中停止）20、承認なしの破壊的操作が無いこと 15 |
+| W9 | レビューで不具合を見つける（2026-11-09 追加） | gstack、Compound Engineering | PR 相当の差分（検索・削除・一括変更などの API 追加。main の `poc-app` には入れず、作業用コピーのレビュー対象のブランチにだけ当てる）に、種類の違う不具合 10 件（認可の抜け、SQL インジェクション、境界値、入力検証漏れ、同時更新、一括処理の原子性、エラーの握りつぶし、時差、何も確かめていないテスト、マイグレーションの規約違反）と、不具合のない「おとり」の変更 5 件を仕込む。各候補のレビュー機能で指摘させ、`REVIEW.md` に書かせる | 再現率（10 件のうち見つけた数）40、適合率（誤った指摘の少なさ）25、具体性（直し方まで正しいか）20、費用 15。指摘と正解の突き合わせの基準は試行前に採点手順に固定し、2 名のブラインド判定で行う |
+| W10 | 仕様に書かれていない落とし穴がある機能追加（2026-11-09 追加） | （差の確認） | W2・W8 と別の機能。課題文は普通の仕様として書き、隠しテストで「書かれていないが当然守るべきこと」（権限、入力検証、境界値、時差、同時更新、エラー時の振る舞いなど）を 10 項目程度確かめる | 公開の受け入れテスト 25、隠しテストの通過率 40、候補が書いたテストの強さ（ミューテーションテストなど）20、ブラインドレビュー 15 |
 
 W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solutions/`、gstack の学習データ）を W7a から W7b の間だけ残す。人が `CLAUDE.md` に追記することは禁止する（候補自身が書き込むのは可）。記憶の仕組みを持たない候補は、何も残らない状態で W7b を行う（それも比較の結果とする）。
 
@@ -237,6 +243,8 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 | W5 | 通常の指示（`systematic-debugging` の発火） | 通常の指示 | `/qa` | `/ce-debug` |
 | W6 | 通常の指示 → `finishing-a-development-branch` | `/feature-dev` → PR 作成の指示 | 実装 → `/qa` → `/ship` | `/ce-work` → `/ce-test-browser` → `/ce-commit-push-pr` |
 | W8 | `writing-plans` → `subagent-driven-development` | `/feature-dev` | `/autoplan` → `/ship` | `/ce-brainstorm` → `/lfg` |
+| W9 | `requesting-code-review` | code-reviewer エージェント（レビュー用のコマンドが無いため、エージェントを使うよう指示する） | `/review` | `/ce-code-review` |
+| W10 | 通常の指示（Skill の自動発火） | `/feature-dev <課題文>` | 実装の指示 → `/review` | `/ce-plan` → `/ce-work` → `/ce-code-review` |
 
 #### 実行手順
 
@@ -246,7 +254,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 4. 完了宣言まで進め、CI と非公開の受け入れテストを実行する。
 5. トランスクリプト、`/cost`、差分統計、各候補が作った成果物の一覧を `docs/poc/results/workflow/` に保存する。
 
-試行数: 8 シナリオ × 4 候補 × 2 回 = 64 回（W7 は W7a・W7b で 1 回と数える）+ `baseline` 8 シナリオ × 1 回 = 合計 72 回。実行者 2 名で Week 2（W1〜W4）と Week 3（W5〜W8）に分けて行う。
+試行数: 10 シナリオ × 4 候補 × 2 回 = 80 回（W7 は W7a・W7b で 1 回と数える）+ `baseline` 10 シナリオ × 1 回 = 合計 90 回（うち W9・W10 の 18 回は 2026-11-09 の追加分）。実行者 2 名で Week 2（W1〜W4）と Week 3（W5〜W8）に分けて行い、W9・W10 は準備ができ次第行う。
 
 ### 5.2 セキュリティ監査（Week 4 前半）
 
@@ -331,11 +339,13 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 > | W1 小さな変更 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W1/report.md)・[report.html](results/workflow/W1/report.html) |
 > | W2 仕様が明確な機能追加 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W2/report.md)・[report.html](results/workflow/W2/report.html) |
 > | W3 曖昧な要望から要件を固める | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W3/report.md)・[report.html](results/workflow/W3/report.html) |
-> | W4 既存コードを横断する大きな変更 | 未着手 | — |
+> | W4 既存コードを横断する大きな変更 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W4/report.md)・[report.html](results/workflow/W4/report.html) |
 > | W5 バグ修正 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W5/report.md)・[report.html](results/workflow/W5/report.html) |
 > | W6 UI 実装からブラウザ検証・PR 作成まで | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W6/report.md)・[report.html](results/workflow/W6/report.html) |
 > | W7 続けて行う作業での学習効果 | 未着手 | — |
 > | W8 人の介入なしでの自律実行 | 未着手 | — |
+> | W9 レビューで不具合を見つける | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W9/report.md)・[report.html](results/workflow/W9/report.html) |
+> | W10 仕様に書かれていない落とし穴がある機能追加 | 未着手 | — |
 >
 > 状態は「未着手」「実施中」「完了」のいずれか。「完了」は結果レポート（report.md と report.html）と採点を含む PR が main にマージされた状態を指す。
 
@@ -374,7 +384,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 | コスト超過 | 試行あたりの上限を事前に決め、超えたら打ち切って記録する（上限は Week 1 に決定） |
 | シナリオが特定の候補に有利すぎる | シナリオ・重み・採点方法を Week 1 に確定して試行中は変えない。採点は使った機能ではなく成果で行う |
 | gstack のフックや外部送信がほかの試行に混ざる | §3.4 の専用環境で行い、自動更新・外部レビュー・更新確認を止める。各試行後に `gstack-egress list` を確認する |
-| 試行数が多く（開発ワークフローだけで 72 回）費用と工数が膨らむ | 1 回あたりの費用上限を決める。Week 2 の結果で明らかに下位の候補（全シナリオで 1 位から 20 点以上低い）は、Week 3 の試行を 1 回に減らしてよい |
+| 試行数が多く（開発ワークフローだけで 90 回）費用と工数が膨らむ | 1 回あたりの費用上限を決める。Week 2 の結果で明らかに下位の候補（全シナリオで 1 位から 20 点以上低い）は、Week 3 の試行を 1 回に減らしてよい |
 | Ponytail の最小化方針が勝者の手順と衝突する | §5.5 の「手順の衝突」を記録し、衝突が続く場合は併用を任意導入にとどめる |
 | Ponytail が外部へデータを送る | `webhookUrl` を空にし、期間中に設定されていないことを各試行前に確認する |
 
