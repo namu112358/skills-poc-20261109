@@ -1,0 +1,71 @@
+{
+  "scenario": "W9",
+  "trial": "W9-baseline-1",
+  "candidate": "baseline",
+  "run": 1,
+  "elapsed_seconds": 60,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "    type: 'test'\n      ...\n    1..4\nok 16 - validateTaskInput\n  ---\n  duration_ms: 713.913363\n  type: 'suite'\n  ...\n# Subtest: createTask / updateTask\n    # Subtest: creates a task and updates only the given fields\n    ok 1 - creates a task and updates only the given fields\n      ---\n      duration_ms: 91.379283\n      type: 'test'\n      ...\n    1..1\nok 17 - createTask / updateTask\n  ---\n  duration_ms: 91.65786\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.215979\n      type: 'test'\n      ...\n    1..1\nok 18 - isTaskStatus\n  ---\n  duration_ms: 0.292894\n  type: 'suite'\n  ...\n1..18\n# tests 26\n# suites 18\n# pass 26\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1725.606292\n"
+    },
+    "build": {
+      "pass": true,
+      "log": " 238ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /api/tasks/bulk-status\n├ ƒ /api/tasks/overdue\n├ ƒ /api/tasks/search\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:2711) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:2723) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:2717) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [],
+  "diff": {
+    "files": [
+      {
+        "path": "REVIEW.md",
+        "added": 49,
+        "deleted": 0,
+        "kind": "doc"
+      }
+    ],
+    "new_files": [
+      "REVIEW.md"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "116daa5 PR のコードレビュー指摘を REVIEW.md に追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.1755,
+    "tokens": {
+      "input": 8,
+      "output": 5006,
+      "cache_read": 167154,
+      "cache_creation": 27167
+    },
+    "turns": 4,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 51,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "レビューの指摘を `REVIEW.md` にまとめ、コミットしました（116daa5）。コードは直していません。コードは読んだだけで、検索・一括変更・期限切れなどの不具合は実際に動かして確かめたわけではありません。\n\nマージ前に直すべき問題が、重要度「高」で 7 件、「中」で 2 件、「低」で 1 件ありました。各指摘に、場所、起きること、直し方を書いています。\n\n**高**\n1. **SQL インジェクション**: 検索（`searchTasks`）が検索語を SQL に文字列連結で埋め込んでいます。規約 8 に違反し、ほかのテーブルを読み出せます。\n2. **ページ送りのずれ**: `OFFSET` が `page*limit` になっています。1 ページ目が常に飛ばされます。\n3. **`limit` の検証漏れ**: 範囲外でも 400 になりません。さらに `try/catch` が全エラーを「0 件」の 200 にして隠しています。\n4. **一括変更が全部成功か全部失敗になっていない**: 存在しない ID が混ざっていても、ほかのタスクは更新された状態で 404 が返ります。\n5. **削除の権限チェックの穴**: 作成者が `null` の既存タスクは、誰でも削除できます。\n6. **マイグレーションの書き換え**: 既存のマイグレーション 1 を書き換えています。規約 7 に違反し、すでに作られた DB には列が追加されず、API が壊れます。\n7. **期限切れの日付が UTC**: 仕様は日本時間です。\n\n**中**\n8. **同時編集の検知に穴がある**: 版番号の確認と更新が別の操作で、競合を見逃すことがあります。`version` の型検証もありません。\n9. **テストが不具合を検出できない**: 削除のテストは常に通る内容で、ページ送り・日本時間の境目・一括変更の巻き戻しをテストしていません。\n\n**低**\n10. **`createTask` の引数の並びが不自然**: 呼び出しで `undefined` を渡す形になっています。"
+  },
+  "w9": {
+    "review_md": "# コードレビュー: タスクの検索・削除・一括変更・期限切れ一覧・同時編集検知\n\n対象: `git diff master...HEAD`（1 コミット）。マージ前に直すべき指摘を重要度順に並べる。コードは修正していない。\n\n## 高\n\n### 1. 検索が SQL インジェクションになる — `src/lib/tasks.ts` `searchTasks`（`const where = `title LIKE '%${query}%'``）\n- 問題: `q` を文字列連結で SQL に埋め込んでいる（CLAUDE.md 規約 8 違反）。`q=' OR 1=0 UNION SELECT ...` のような入力で、ほかのテーブル（`users` のパスワードハッシュ、`sessions` のトークン）を読み出せる。`'` を 1 つ含むだけでも SQL エラーになる。\n- 直し方: `WHERE title LIKE ? ESCAPE '\\'` とし、`%` `_` `` をエスケープした `%${escaped}%` をプレースホルダで渡す（COUNT とページ取得の両方）。`%` や `_` を入力すると全件にマッチする問題も同時に解消する。\n\n### 2. 検索のページ送りがずれる — `searchTasks` の `OFFSET`\n- 問題: `.all(limit, page * limit)` は `page` が 1 始まりなのに `page * limit` を使っている。`page=1` で先頭 `limit` 件が飛ばされ、1 ページ目が常に欠ける。\n- 直し方: `(page - 1) * limit`。複数ページになるデータで `page=1,2` の結果を確かめるテストを足す。\n\n### 3. `limit` が検証されていない／エラーを握りつぶしている — `src/app/api/tasks/search/route.ts`\n- 問題: `Number(params.get(\"limit\") ?? 20)` を検証せずに使っている。仕様は「1〜50、範囲外は 400」。`limit=1000` は通り、`limit=-1` は SQLite で「無制限」、`limit=abc`（NaN）や `limit=0` も通る。さらに `try { ... } catch { return 空の結果 }` が、SQL エラー（上記 1 の `'` 入力）を含むあらゆる例外を「0 件」として 200 で返し、障害を隠す。\n- 直し方: `parsePageParam` と同様に `parseLimitParam`（`/^[0-9]+$/` かつ 1〜`SEARCH_LIMIT_MAX`、未指定は既定 20）を `src/lib/tasks.ts` に置き、不正なら 400。`try/catch` は削除する。`SEARCH_LIMIT_MAX` は定義されているが未使用。\n\n### 4. 一括変更が「全部成功か全部失敗」になっていない — `bulkUpdateStatus`（`src/lib/tasks.ts`）と `bulk-status/route.ts`\n- 問題: 仕様は「1 件でも存在しない ID があれば 404 で、どのタスクも変えない」。実装は ID を 1 件ずつ UPDATE し、存在しない ID は後から `missing` に入れるだけ。`ids: [1, 999]` では ID 1 が更新された状態で 404 が返る。トランザクションもない。\n- 直し方: 先に全 ID の存在を確認し、欠けがあれば何も更新せず返す。更新は `BEGIN`/`COMMIT`（失敗時 `ROLLBACK`）で囲む。重複 ID の扱い（`new Set` で畳んでいる）を仕様に合わせて明確にし、`updated` の件数も確認する。\n\n### 5. 削除の権限チェックが古いタスクで素通りする — `src/app/api/tasks/[id]/route.ts` `DELETE`\n- 問題: `if (task.createdBy && task.createdBy !== user.id && task.assignee !== user.id)` のため、作成者が `null`（この PR より前のタスク＝シードデータすべて）だと誰でも削除できる。仕様は「作成者か担当者だけ」。\n- 直し方: `createdBy !== user.id && assignee !== user.id` なら 403（`null` は作成者に一致しないので担当者だけが削除可）。権限の判定は `src/lib/tasks.ts` の関数（例: `canDeleteTask(task, userId)`）に出してテストする。\n\n### 6. 既存のマイグレーションを書き換えている — `src/lib/db/migrations.ts`\n- 問題: version 1 の `CREATE TABLE tasks` に `created_by` / `version` を追加している（CLAUDE.md 規約 7 違反）。`user_version` が 2 になっている既存の DB（`DATABASE_PATH` で永続化している環境）には列が追加されず、`SELECT ... created_by, version` が全 API で \"no such column\" になる。\n- 直し方: version 1 を元に戻し、末尾に `version: 3` として `ALTER TABLE tasks ADD COLUMN created_by TEXT REFERENCES users(id);` と `ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1;` を追加する。既存 DB を version 2 から上げるテストも足す。\n\n### 7. 期限切れの「今日」が UTC になっている — `listOverdueTasks`\n- 問題: `now.toISOString().slice(0, 10)` は UTC の日付。日本時間 0:00〜9:00 の間は UTC がまだ前日なので、「今日が期限」のタスクが期限切れ扱いにならない一方、前日期限のタスクが 1 日遅れて出る（例: JST 11/16 08:00 = UTC 11/15 23:00 で `today` が 11/15）。仕様は日本時間。\n- 直し方: `now` に 9 時間足して日付を取る、または `Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" })` で `YYYY-MM-DD` を得る。\n\n## 中\n\n### 8. 同時編集の検知に競合の穴がある — `[id]/route.ts` `PATCH` と `updateTask`\n- 問題: (a) `current` を読んだ後に `await readJson(request)` を挟み、そのあと `current.version` と比べている。待っている間に他のリクエストが更新すると、古い `current` と比べるので衝突を見逃し、上書きしてしまう。(b) 確認と UPDATE が別の操作で、UPDATE に `WHERE version = ?` が無い。(c) `version` の型検証がなく、`\"1\"` や `1.5` など不正な値は 400 でなく 409 になる。(d) 検証エラー（400）より先に `version` を見ていない順序の仕様も揃っていない。\n- 直し方: `updateTask(id, changes, db, expectedVersion?)` で `UPDATE ... WHERE id = ? AND (? IS NULL OR version = ?)` とし、`changes === 0` かつタスクが存在すれば衝突として 409 を返す（確認と更新を 1 文で行う）。`version` は正の整数かを `src/lib/` の検証関数で確認し、不正なら 400。\n\n### 9. テストが仕様を検証できていない — `tests/tasks-search.test.ts`\n- 問題: 上記の不具合がすべてテストをすり抜ける。`deleteTask` のテストは `deleteTask(1) !== undefined`（常に真）と、削除前に取った配列の長さを見ているだけで、削除されたことを確認していない。`searchTasks` は 1 ページ目・ヒット件数のみで、ページ送り・`%`・`'` を含む入力がない。期限切れのテストは UTC 03:00（JST 12:00）で、日付がずれる時間帯を含まない。一括変更は「存在しない ID が混ざったとき何も変わらない」を確認していない。API Route（403・404・409・400・401）のテストがない。\n- 直し方: 各不具合を再現するテストを追加する（`page=2` の内容、`q=\"'\"` や `q=\"%\"`、JST 0〜9 時、`[既存, 999]` で既存が不変、削除後に `getTask` が `undefined`、権限判定、版番号の衝突）。\n\n## 低\n\n### 10. `createTask` の引数の並びが不自然 — `src/lib/tasks.ts` / `tasks/route.ts`\n- 問題: `createTask(input, db, createdBy)` のため、呼び出しで `createTask(result.value, undefined, user.id)` と `undefined` を渡している。ほかの関数は `db` が最後の引数という規約と合わない。\n- 直し方: `createTask(input, createdBy, db)` にするか、`createdBy` を `input` に含める。\n",
+    "review_committed": true,
+    "review_chars": 4295,
+    "code_changed": [],
+    "artifacts": []
+  }
+}
