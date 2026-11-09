@@ -46,6 +46,8 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 | セキュリティ監査 | Claude Security | Cloudflare Security Audit |
 | PR レビュー | Code Review | PR Review Toolkit |
 
+ワークフローは勝者を決めた後、Ponytail を併用した場合の効果も検証します（計画書 §5.5）。
+
 候補の切り替えは `scripts/poc-profile.sh <profile>` で行います（`.claude/settings.local.json` に書き込むため、チーム共有の設定は変わりません）。
 
 ## 運用上の注意

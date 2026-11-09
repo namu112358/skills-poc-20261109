@@ -14,6 +14,8 @@
 | セキュリティ監査 | Claude Security（`claude-security@claude-plugins-official`） | Cloudflare Security Audit（`cloudflare/security-audit-skill`） | 検出率・誤検知率・修正提案の質 |
 | PR レビュー | Code Review（`code-review@claude-plugins-official`） | PR Review Toolkit（`pr-review-toolkit@claude-plugins-official`） | 有効指摘率・ノイズ・GitHub 連携 |
 
+**追加検証（開発ワークフロー）**: Superpowers / Feature Dev の比較で勝者を決めた後、**Ponytail（`ponytail@ponytail`、[DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)）を併用したときの効果**を検証する（§5.5）。Ponytail は候補の置き換えではなく、勝者に足すアドオンとして扱う。
+
 ### 既定の判断ルール
 
 1. 第一候補（A）を採用するのを既定とする。
@@ -70,6 +72,8 @@
 | `wf-superpowers` / `wf-feature-dev` | 開発ワークフロー候補 |
 | `sec-claude-security` / `sec-cloudflare` | セキュリティ監査候補（Cloudflare は Skill を固定コミットから配置） |
 | `rv-code-review` / `rv-pr-review-toolkit` | PR レビュー候補 |
+| `wf-superpowers-ponytail` / `wf-feature-dev-ponytail` | ワークフロー勝者 + Ponytail（§5.5。勝者側のみ使用） |
+| `baseline-ponytail` | Ponytail のみ（Ponytail 単体の効果を切り分ける参照用） |
 
 ```bash
 scripts/poc-profile.sh wf-superpowers
@@ -173,21 +177,62 @@ scripts/poc-profile.sh wf-superpowers
 - 各 Skill の起動（frontend-design / web-design-guidelines / webapp-testing / skill-creator）
 - GitHub MCP / Playwright MCP のツール呼び出し
 
-特に Superpowers（SessionStart フックで Skill 利用を強く促す）と Claude Security（独自フック）が、既存フックやほかの Skill の発火を妨げないかを確認する。
+特に Superpowers（SessionStart フックで Skill 利用を強く促す）と Claude Security（独自フック）が、既存フックやほかの Skill の発火を妨げないかを確認する。Ponytail 併用時は、SessionStart / SubagentStart / UserPromptSubmit で注入される指示が勝者の手順（計画・テスト作成など）を止めていないかも確認する。
+
+### 5.5 Ponytail 併用効果の検証（Week 3、ワークフロー勝者の確定後）
+
+**背景**: Ponytail は「動く範囲で最も小さい解」を強制するプラグイン（YAGNI、標準ライブラリ優先、頼まれていない抽象化をしない）。公開ベンチマークではコード量 −53%、時間 −41%、費用 −26%、トークン −45%、リスクのあるロジックへのテスト付与率 98%（なし: 68%）とされている。これが当プロジェクトの条件でも再現するか、勝者のワークフローと**打ち消し合わないか**（Superpowers の計画・TDD・ドキュメント作成、Feature Dev の設計フェーズと、Ponytail の最小化方針がぶつかる可能性）を確かめる。
+
+**事前ゲート（Week 1 に実施）**
+
+- G1・G2 を Ponytail にも適用する。MIT ライセンス、フックは `node` で実行される JavaScript（`hooks/`）であることを確認済み。PoC 開始時のコミット（`96608e0`、v5.3.3）で固定し、フックのコードを読む。
+- Ponytail のタスクボード機能は、ターンごとに `~/.config/ponytail/band/<project>.csv` へ費用・トークン等を書き出す（ローカルのみ）。**`webhookUrl` は空のまま**にし、外部送信が無いことを確認する。CSV は計測の補助データとして使ってよいが、正式な値は `/cost` とする。
+
+**比較条件**（3 課題 × 各 2 回。勝者単体の結果は §5.1 のものを再利用し、同じ Claude Code バージョンで行う）
+
+| 条件 | プロファイル | 目的 |
+|---|---|---|
+| ① 勝者のみ | `wf-<勝者>` | 比較の基準（§5.1 の結果） |
+| ② 勝者 + Ponytail | `wf-<勝者>-ponytail` | 併用の効果（本検証の主眼） |
+| ③ Ponytail のみ | `baseline-ponytail` | Ponytail 単体の効果を切り分け、②の差が相乗か単純加算かを見る |
+| ④ 何もなし | `baseline` | 基準線（§5.1 の結果） |
+
+試行数: 新規は ②③ の 2 条件 × 3 課題 × 2 回 = 12 回
+
+**評価指標**
+
+| 指標 | 内容 | 採用の目安 |
+|---|---|---|
+| 受け入れテスト合格率 | §4.3 と同じ非公開テスト | ① 以上（**下がったら不採用**） |
+| セキュリティ | security-guidance が出した高深刻度の指摘数、L 課題の権限モデルの正しさ | ① より悪化しない（**悪化したら不採用**） |
+| リスクのあるロジックへのテスト付与 | 認可・入力検証・DB 更新など、採点者が事前に決めた箇所にテストがあるか | ① 以上 |
+| 仕込みバグの検出 | 実装後に採点者がバグを 3 件注入し、エージェント自身のテストで何件落ちるか | ① 以上 |
+| コード量 | 追加・変更行数（テスト・生成物を除く） | ① 比 −15% 以上で加点 |
+| 費用・時間・トークン | `/cost` と所要時間 | ① 比 −15% 以上で加点 |
+| 可読性・保守性 | 2 名のブラインドレビュー（5 段階）。削りすぎで読みにくくなっていないか | ① 比 −0.5 以内 |
+| 手順の衝突 | 勝者の計画・TDD・設計フェーズが省略・形骸化した回数、指示同士が矛盾した回数 | 0 回が望ましい |
+
+**判断**
+
+- **併用を標準化**: 品質系（合格率・セキュリティ・テスト付与・バグ検出）がすべて ① 以上で、かつコード量または費用が ① 比 15% 以上減った場合。
+- **任意導入（推奨）にとどめる**: 品質は維持したが削減幅が 15% 未満、または手順の衝突が見られた場合。
+- **不採用**: 品質系のいずれかが ① を下回った場合。
+- ③ が ② と同等以上なら、勝者ワークフローの付加価値を改めて確認し、判定記録に残す。
 
 ## 6. スケジュールと体制
 
 | 週 | 期間 | 内容 | 成果物 |
 |---|---|---|---|
-| Week 1 | 11/16〜11/20 | `poc-app` 作成、正解データ・PR・課題文の作成、プロファイル動作確認、ゲート G1・G2 の確認 | `poc-app/`、`docs/poc/tasks/`、正解ブランチ |
+| Week 1 | 11/16〜11/20 | `poc-app` 作成、正解データ・PR・課題文の作成、プロファイル動作確認、ゲート G1・G2 の確認（Ponytail を含む） | `poc-app/`、`docs/poc/tasks/`、正解ブランチ |
 | Week 2 | 11/23〜11/27 | 開発ワークフロー比較（12 + 3 回） | `results/workflow/` |
-| Week 3 | 11/30〜12/04 | セキュリティ監査比較（8 回）、PR レビュー比較（28 回） | `results/security/`、`results/review/` |
+| Week 2 末 | 11/27 | ワークフロー比較の暫定判定（勝者を決め、§5.5 の条件を確定） | 暫定判定メモ |
+| Week 3 | 11/30〜12/04 | セキュリティ監査比較（8 回）、PR レビュー比較（28 回）、Ponytail 併用検証（12 回、別の実行者が並行実施） | `results/security/`、`results/review/`、`results/workflow-ponytail/` |
 | Week 4 | 12/07〜12/11 | 採点、集計、判定会、標準ドキュメントへの反映 | 判定記録（ADR）、推奨一覧の更新 PR |
 
 | 役割 | 人数 | 担当 |
 |---|---|---|
 | PoC オーナー | 1 | 計画・進行・最終判定の取りまとめ |
-| 実行者 | 2 | 試行の実施と記録（正解リストは見ない） |
+| 実行者 | 2 | 試行の実施と記録（正解リストは見ない）。Week 3 は 1 名がセキュリティ・レビュー、1 名が Ponytail 併用検証を担当 |
 | 採点者 | 2 | 正解リストを使った採点、ブラインドレビュー |
 | セキュリティ担当 | 1 | 脆弱性の仕込み、G2 のコードリーディング、セキュリティ監査の採点 |
 
@@ -208,11 +253,13 @@ scripts/poc-profile.sh wf-superpowers
 | 脆弱性入りコードの誤用・流出 | `poc-app` は PoC 専用。デプロイ・公開をしない。リポジトリは private |
 | GitHub MCP の権限過多 | PoC 用リポジトリに限定した Fine-grained PAT を使い、期間終了後に失効させる |
 | コスト超過 | 試行あたりの上限を事前に決め、超えたら打ち切って記録する（上限は Week 1 に決定） |
+| Ponytail の最小化方針が勝者の手順と衝突する | §5.5 の「手順の衝突」を記録し、衝突が続く場合は併用を任意導入にとどめる |
+| Ponytail が外部へデータを送る | `webhookUrl` を空にし、期間中に設定されていないことを各試行前に確認する |
 
 ## 9. 判定後の対応
 
 1. カテゴリごとに判定記録（ADR）を `docs/adr/` に残す（スコア、ゲート結果、判断理由、不採用側の扱い）。
 2. 採用ツールを `.claude/settings.json` の `enabledPlugins`（または `.claude/skills/`）に追加し、PR でチームレビューを受ける。
-3. 推奨一覧の「比較検討中」を更新し、採用ツールを「⭐ 必須」または「推奨」へ移す。
+3. 推奨一覧の「比較検討中」を更新し、採用ツールを「⭐ 必須」または「推奨」へ移す。Ponytail は §5.5 の判断に従い、「勝者との併用を標準」「推奨（任意）」「不採用」のいずれかで記載する。
 4. 不採用ツールのプロファイルとスクリプト内の参照を削除する。
 5. 3〜6 か月後に再評価する（候補の大幅更新、新モデル登場時）。
