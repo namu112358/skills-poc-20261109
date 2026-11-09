@@ -4,7 +4,11 @@ import html
 import re
 import json
 import statistics
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import two_axis  # noqa: E402  2 本立ての点数（PLAN.md §4.4）を主表示にする
 
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "docs" / "poc" / "results" / "workflow" / "W4"
@@ -51,6 +55,25 @@ def cell(s):
 def bar(value, maximum, cls=""):
     pct = 0 if maximum == 0 else max(0, min(100, value / maximum * 100))
     return f'<div class="bar {cls}"><span style="width:{pct:.0f}%"></span></div>'
+
+
+def budget_compare(by_cand):
+    """1 回目（打ち切り額が見える flag）と 2 回目（見えない watch）の比較の行。"""
+    rows = []
+    for c, runs in by_cand.items():
+        r = {s["budget_mode"]: s for s in runs}
+        if "flag" in r and "watch" in r:
+            f, w = r["flag"], r["watch"]
+            rows.append({
+                "candidate": c,
+                "cost": (f["facts"]["cost_usd"], w["facts"]["cost_usd"]),
+                "minutes": (f["facts"]["elapsed_seconds"] / 60, w["facts"]["elapsed_seconds"] / 60),
+                "turns": (f["facts"]["turns"], w["facts"]["turns"]),
+                "subagents": (f["facts"]["subagents"], w["facts"]["subagents"]),
+                "total": (f["total"], w["total"]),
+                "mentions": (len(f["facts"]["budget_mentions"]), len(w["facts"]["budget_mentions"])),
+            })
+    return rows
 
 
 def main():
@@ -184,6 +207,12 @@ def main():
     decisions = "".join(f"<li>{x}</li>" for x in NOTES["decisions"])
     nexts = "".join(f"<li>{x}</li>" for x in NOTES["next"])
 
+    bc = budget_compare(by_cand)
+    bc_rows = "".join(
+        f"<tr><th scope=\"row\">{e(LABEL[r['candidate']])}</th><td>${r['cost'][0]:.2f} → ${r['cost'][1]:.2f}</td>"
+        f"<td>{r['minutes'][0]:.1f} → {r['minutes'][1]:.1f}</td><td>{r['turns'][0]} → {r['turns'][1]}</td>"
+        f"<td>{r['subagents'][0]} → {r['subagents'][1]}</td><td>{r['total'][0]} → {r['total'][1]}</td>"
+        f"<td>{r['mentions'][0]} → {r['mentions'][1]}</td></tr>" for r in bc)
     doc = f"""<!doctype html>
 <html lang="ja">
 <head>
@@ -261,6 +290,18 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
     {''.join(f'<p>{x}</p>' for x in NOTES['summary'])}
   </section>
 
+  {two_axis.html_section("W4")}
+
+  <h2>1 回目（打ち切り額が見える）と 2 回目（見えない）の比較</h2>
+  <p class="sub">{e(NOTES.get("budget_compare_note", ""))}</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>候補</th><th>費用（1 回目 → 2 回目）</th><th>時間（分）</th><th>ターン</th><th>サブエージェント</th><th>点数</th><th>打ち切り額・予算への言及</th></tr></thead>
+      <tbody>{bc_rows}</tbody>
+    </table>
+  </div>
+  <p>{e(NOTES.get("isolation", ""))}</p>
+
   <h2>課題</h2>
   <p>{NOTES['task_html']}</p>
 
@@ -328,6 +369,15 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
         "> HTML 版: [report.html](report.html)（同じデータから `scripts/poc/report_w4.py` で生成）", "",
     ]
     out += [md(x) + "\n" for x in NOTES["summary"]]
+    out += two_axis.md_section("W4")
+    out += ["## 1 回目（打ち切り額が見える）と 2 回目（見えない）の比較", "", md(NOTES.get("budget_compare_note", "")), "",
+            "| 候補 | 費用（1 回目 → 2 回目） | 時間（分） | ターン | サブエージェント | 点数 | 打ち切り額・予算への言及 |",
+            "|---|---|---|---|---|---|---|"]
+    for r in bc:
+        out.append(f"| {LABEL[r['candidate']]} | ${r['cost'][0]:.2f} → ${r['cost'][1]:.2f} | {r['minutes'][0]:.1f} → {r['minutes'][1]:.1f} | "
+                   f"{r['turns'][0]} → {r['turns'][1]} | {r['subagents'][0]} → {r['subagents'][1]} | {r['total'][0]} → {r['total'][1]} | "
+                   f"{r['mentions'][0]} → {r['mentions'][1]} |")
+    out += ["", md(NOTES.get("isolation", "")), ""]
     out += ["## 課題", "", md(NOTES["task_html"]), ""]
     out += ["## 結果の概要（平均点）", "",
             "| 候補 | 回数 | 合計 / 100 | 影響箇所 / 30 | 受け入れ / 30 | 認可 / 20 | 設計案の比較 / 20 | 平均費用 | 平均時間（分） |",

@@ -61,6 +61,28 @@ def security_guidance_findings(trial):
     return hits
 
 
+BUDGET_MARK = re.compile(r"予算|budget|remaining|残額|費用の上限|コスト.{0,6}(節約|抑え)", re.I)
+
+
+def budget_mentions(trial):
+    """親セッションの文章のうち、打ち切り額・予算に触れたもの（1 回目の flag と 2 回目の watch の比較用）"""
+    hits = []
+    for step in sorted((RAW / trial).glob("step*.jsonl")):
+        for line in step.open():
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if d.get("type") != "assistant" or d.get("parent_tool_use_id"):
+                continue
+            for c in (d.get("message") or {}).get("content") or []:
+                text = c.get("text", "") if c.get("type") == "text" else ""
+                m = BUDGET_MARK.search(text)
+                if m:
+                    hits.append(text[max(0, m.start() - 80):m.end() + 80].replace("\n", " "))
+    return hits
+
+
 def score(t, code_reviews, design_reviews):
     e2e_pass = sum(1 for c in t["e2e"] if c["pass"])
     authz_pass = sum(1 for c in t.get("authz", []) if c["pass"])
@@ -116,6 +138,8 @@ def score(t, code_reviews, design_reviews):
             "denials": len(tr["permission_denials"]), "commits": len(t["diff"]["commits"]),
             "package_json_changed": t["diff"]["package_json_changed"],
             "security_guidance": security_guidance_findings(t["trial"]),
+            "budget_mentions": budget_mentions(t["trial"]),
+            "isolation_suspects": len(tr.get("isolation_suspects") or []),
             "errors": t.get("errors", ""),
         },
     }
