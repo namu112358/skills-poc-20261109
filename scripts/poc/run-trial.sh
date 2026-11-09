@@ -92,21 +92,44 @@ if [[ "$CAND" == gstack ]]; then
 fi
 
 # 4) 手順（docs/poc/tasks/wf-procedures.md）
-TASK="$(cat "$ROOT/docs/poc/tasks/wf-$SCENARIO.md")
+if [[ "$SCENARIO" == W3 ]]; then
+  # W3 は質問に定型回答シートで答える（docs/poc/tasks/wf-answers.md の「W3」）。末尾の定型文もそれに合わせる。
+  TASK="$(cat "$ROOT/docs/poc/tasks/wf-$SCENARIO.md")
+
+この作業は無人で実行しています。質問には、依頼者の代わりに定型の回答シートから答えます（シートに無いことは「お任せします」と答えます）。"
+else
+  TASK="$(cat "$ROOT/docs/poc/tasks/wf-$SCENARIO.md")
 
 この作業は無人で実行しています。確認の質問には答えられないので、課題文に書かれていないことはお任せします。作業が終わったら、変更内容を git にコミットしてください。"
-case "$CAND" in
-  baseline|superpowers) STEPS=("$TASK") ;;
-  feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
-  compound-engineering) STEPS=("/ce-plan $TASK" "/ce-work" "/ce-code-review") ;;
-  gstack) STEPS=("$TASK" "/review") ;;
-esac
+fi
+EXTRA=()
+if [[ "$SCENARIO" == W3 ]]; then
+  # 質問はメッセージ本文で受け、回答役（answer_w3.py）が次のステップで返す。質問ツールは無人では答えられないので外す。
+  EXTRA=(--disallowedTools AskUserQuestion)
+  case "$CAND" in
+    baseline|superpowers) STEPS=("$TASK") ;;
+    feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
+    compound-engineering) STEPS=("/ce-brainstorm $TASK") ;;
+    gstack) STEPS=("/office-hours $TASK" "/plan-ceo-review") ;;
+  esac
+else
+  case "$CAND" in
+    baseline|superpowers) STEPS=("$TASK") ;;
+    feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
+    compound-engineering) STEPS=("/ce-plan $TASK" "/ce-work" "/ce-code-review") ;;
+    gstack) STEPS=("$TASK" "/review") ;;
+  esac
+fi
 
 # 1 試行の費用の上限（米ドル。空なら上限なし）。各ステップには、それまでの累計を引いた残りを --max-budget-usd で渡す。
 MAX_USD="${POC_MAX_TRIAL_USD:-}"
 # 介入（定型の「お任せします」で続けさせる）の上限回数。0 なら介入しない（W1 の手順）。
 MAX_NUDGES="${POC_MAX_NUDGES:-0}"
 NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、変更を git にコミットしてください。"
+# W3: 回答のやり取りの上限（試行全体の回数）と、締め切り・完了の定型文
+MAX_QA="${POC_MAX_QA_ROUNDS:-10}"
+QA_CLOSE="質問はここまでで締め切ります。残りはお任せします。ここまでの回答をもとに要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
+[[ "$SCENARIO" == W3 ]] && NUDGE="お任せします。確認は不要なので、要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
 
 session_cost() {  # これまでの全ステップの最後の result の total_cost_usd（--resume では累計）
   python3 -c '
@@ -159,7 +182,7 @@ run_step() {  # run_step <番号> <プロンプト>
       --model "$MODEL" --permission-mode acceptEdits --allowedTools "${ALLOWED[@]}" \
       --mcp-config "$APP/.mcp.json" --strict-mcp-config --add-dir "$PLUG" "${PLUG_EXTRA[@]}" \
       "${PLUGINS[@]}" "${RESUME[@]}" "${BUDGET[@]}" \
-      --output-format stream-json --verbose < /dev/null ) > "$OUT/step$n.jsonl" 2> "$OUT/step$n.stderr" &
+      "${EXTRA[@]}" --output-format stream-json --verbose < /dev/null ) > "$OUT/step$n.jsonl" 2> "$OUT/step$n.stderr" &
   local pid=$! waited=0
   # 子セッションがバックグラウンドで起動した開発サーバー（npx next dev など）が残ると、結果を出した後も
   # claude -p が終了待ちになる。結果が出てから 30 秒たっても終わらなければ、作業用コピーで動く next のプロセスを止める。
@@ -175,11 +198,35 @@ run_step() {  # run_step <番号> <プロンプト>
   return 0
 }
 
-START=$(date +%s); SESSION=""; i=0
+qa_loop() {  # W3: 直前のステップの最後のメッセージに質問があれば、回答役の回答で続ける（上限 MAX_QA 回）
+  [[ "$SCENARIO" == W3 ]] || return 0
+  local reply
+  while :; do
+    if [[ "$QA" -ge "$MAX_QA" ]]; then
+      # 上限に達した後も質問が続くときは、締め切りの定型文を 1 回だけ送る（qa-closed.log に記録）
+      if [[ ! -s "$OUT/qa-closed.log" ]] && ! over_budget; then
+        reply="$(POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_w3.py" "$OUT" "$i" "$((QA+1))")"
+        mv "$OUT/qa-$((QA+1)).json" "$OUT/qa-unanswered.json"
+        if [[ -n "$reply" ]]; then
+          i=$((i+1)); echo "step$i" > "$OUT/qa-closed.log"; run_step "$i" "$QA_CLOSE"
+        fi
+      fi
+      return 0
+    fi
+    over_budget && { echo "qa skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; return 0; }
+    QA=$((QA+1))
+    reply="$(POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_w3.py" "$OUT" "$i" "$QA")"
+    [[ -z "$reply" ]] && return 0
+    i=$((i+1)); run_step "$i" "$reply"
+  done
+}
+
+START=$(date +%s); SESSION=""; i=0; QA=0
 for step in "${STEPS[@]}"; do
   i=$((i+1))
   if over_budget; then echo "step$i skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
   run_step "$i" "$step"
+  qa_loop
 done
 
 # 介入: 手順を終えてもコミットが無い、または未コミットの変更が残る（確認待ちで止まった）ときは、
@@ -189,11 +236,14 @@ for _ in $(seq 1 "$MAX_NUDGES"); do
   commits="$(git -C "$APP" rev-list --count "$(cat "$OUT/baseline-commit")"..HEAD)"
   # AGENTS.md は next dev が自動で書き出すファイルなので、未コミットの変更に数えない
   dirty="$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' | head -1)"
+  # W3 は要件文書（REQUIREMENTS.md）がコミットされていることも完了の条件にする
+  if [[ "$SCENARIO" == W3 ]] && ! git -C "$APP" cat-file -e HEAD:REQUIREMENTS.md 2>/dev/null; then commits=0; fi
   [[ "$commits" -gt 0 && -z "$dirty" ]] && break
   if over_budget; then echo "nudge skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
   i=$((i+1))
   echo "step$i commits=$commits dirty=${dirty:+yes}" >> "$OUT/interventions.log"
   run_step "$i" "$NUDGE"
+  qa_loop
 done
 echo $(( $(date +%s) - START )) > "$OUT/elapsed-seconds"
 

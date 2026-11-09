@@ -298,7 +298,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 > |---|---|---|
 > | W1 小さな変更 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W1/report.md)・[report.html](results/workflow/W1/report.html) |
 > | W2 仕様が明確な機能追加 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W2/report.md)・[report.html](results/workflow/W2/report.html) |
-> | W3 曖昧な要望から要件を固める | 未着手 | — |
+> | W3 曖昧な要望から要件を固める | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W3/report.md)・[report.html](results/workflow/W3/report.html) |
 > | W4 既存コードを横断する大きな変更 | 未着手 | — |
 > | W5 バグ修正 | 未着手 | — |
 > | W6 UI 実装からブラウザ検証・PR 作成まで | 未着手 | — |
