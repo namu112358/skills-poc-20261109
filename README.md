@@ -72,7 +72,7 @@ AI 駆動開発の標準基盤・設計原則: [docs/standards/ai-software-facto
 
 ## Issue・PR テンプレート
 
-各プロジェクト共通の Issue Forms（機能要望 / 不具合報告 / 技術的負債）・PR テンプレートと、AI エージェント向けの Issue・PR 記述ルールを `templates/github/` に置いています。調査結果・設計方針・記入済みサンプルは [docs/github-templates/README.md](docs/github-templates/README.md) を参照してください。
+各プロジェクト共通の Issue Forms（機能要望 / 不具合報告 / 技術的負債）・PR テンプレートと、AI エージェント向けの Issue・PR 記述ルールを `templates/github/` に置いています。決めたこと・導入手順（ラベル作成を含む）・記入済みサンプルは [docs/github-templates/README.md](docs/github-templates/README.md)、調査結果と出典は [docs/github-templates/research.md](docs/github-templates/research.md) を参照してください。
 
 ```bash
 scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
