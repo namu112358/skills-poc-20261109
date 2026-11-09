@@ -3,7 +3,9 @@
 # 使い方: scripts/poc/run-trial.sh <シナリオ> <候補> <回>
 #   候補: baseline | superpowers | feature-dev | compound-engineering | gstack
 #   （gstack の setup 実行は 2026-11-09 にユーザーの許可を得た。専用 HOME の中だけで実行する）
-# 作業用コピー（.poc-work/trials/...）で、専用の HOME を使って Claude Code をヘッドレスで起動する。
+# 作業用コピー（既定は /tmp/poc-trials/<ID>。POC_TRIAL_ROOT で変更可）で、専用の HOME を使って Claude Code をヘッドレスで起動する。
+# 作業用コピーをリポジトリの外に置くのは、正解データ（docs/poc/answer-key/）や他の試行の結果へ相対パスで辿れないようにするため。
+# 置き場所は raw/<ID>/workdir に記録し、grade.py はそこを読む（記録がなければ旧来の .poc-work/trials/<ID>）。
 # 子セッションの権限は docs/poc/tasks/wf-procedures.md の「権限」のとおり（全許可にはしない）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -11,12 +13,14 @@ SCENARIO="$1"; CAND="$2"; RUN="$3"
 CACHE="${POC_CACHE:-$ROOT/.poc-cache}"
 MODEL="${POC_MODEL:-claude-sonnet-5-5}"
 ID="$SCENARIO-$CAND-$RUN"
-WORK="$ROOT/.poc-work/trials/$ID"
+TRIALS="${POC_TRIAL_ROOT:-/tmp/poc-trials}"
+WORK="$TRIALS/$ID"
 APP="$WORK/app"
 HOME_DIR="$WORK/home"
 OUT="$ROOT/docs/poc/results/workflow/raw/$ID"
 
 rm -rf "$WORK" "$OUT"; mkdir -p "$APP" "$HOME_DIR" "$OUT"
+echo "$WORK" > "$OUT/workdir"
 
 # 1) 評価用アプリのコピー（node_modules を含む）と、常時有効な Skills・MCP
 cp -a "$ROOT/poc-app/." "$APP/"
