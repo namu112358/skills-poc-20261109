@@ -1,0 +1,104 @@
+{
+  "scenario": "W1",
+  "trial": "W1-feature-dev-1",
+  "candidate": "feature-dev",
+  "run": 1,
+  "elapsed_seconds": 42,
+  "errors": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "\n    ok 1 - returns unique assignees\n      ---\n      duration_ms: 0.11998\n      type: 'test'\n      ...\n    1..1\nok 3 - listAssignees\n  ---\n  duration_ms: 0.243584\n  type: 'suite'\n  ...\n# Subtest: isAssignee\n    # Subtest: accepts existing assignees only\n    ok 1 - accepts existing assignees only\n      ---\n      duration_ms: 0.164835\n      type: 'test'\n      ...\n    1..1\nok 4 - isAssignee\n  ---\n  duration_ms: 0.404907\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.094574\n      type: 'test'\n      ...\n    1..1\nok 5 - isTaskStatus\n  ---\n  duration_ms: 0.211126\n  type: 'suite'\n  ...\n1..5\n# tests 7\n# suites 5\n# pass 7\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 94.527093\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 build\n> next build\n\n▲ Next.js 16.4.3 (Turbopack)\n✓ Running next.config.ts took 23ms\n\n  Creating an optimized production build ...\n✓ Compiled successfully in 2.3s\n  Running TypeScript ...\n  Finished TypeScript in 394ms ...\n  Collecting page data using 3 workers ...\n  Generating static pages using 3 workers (0/4) ...\n  Generating static pages using 3 workers (1/4) \n  Generating static pages using 3 workers (2/4) \n  Generating static pages using 3 workers (3/4) \n✓ Generating static pages using 3 workers (4/4) in 123ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ○ /\n├ ○ /_not-found\n└ ƒ /tasks\n\n\n○  (Static)   prerendered as static content\nƒ  (Dynamic)  server-rendered on demand\n\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "担当者で絞り込める（?assignee=sato → 3 件、全件 sato）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ステータスと担当者を同時に指定できる（sato + todo → 1 件）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "存在しない担当者は指定なしとして扱う（→ 7 件）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "選択欄 select[name=assignee] に「すべて」と担当者 3 名（重複なし）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "画面から担当者を選んで送信すると URL と一覧が変わる（tanaka → 2 件）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "既存の動作が壊れていない（指定なし 7 件、status=done 2 件、担当者の選択状態が保持される）",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/tasks/page.tsx",
+        "added": 22,
+        "deleted": 3,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/tasks.ts",
+        "added": 15,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "tests/tasks.test.ts",
+        "added": 31,
+        "deleted": 1,
+        "kind": "test"
+      }
+    ],
+    "new_files": [],
+    "package_json_changed": false,
+    "commits": [
+      "ce809d9 タスク一覧に担当者での絞り込みフィルタを追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.1713,
+    "tokens": {
+      "input": 14,
+      "output": 4767,
+      "cache_read": 304454,
+      "cache_creation": 23278
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/tasks.ts'\\ns=open(p).read()\\ns=s.replace('''export type TaskFilter = {\\n  status?: TaskStatus;\\n};\\n\\nexport function listTasks(filter: TaskFilter = {}): Tas"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5,
+      "Edit": 6
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "final_message": "`/tasks` に担当者フィルタを追加し、git にコミットしました（`ce809d9`）。`npm run typecheck` と `npm test`（7 件）は通っています。`npm run build` は実行していません。ブラウザでの表示確認もしていません。\n\n無人実行のため、`/feature-dev` の確認・承認フェーズは省略しました。コードを読んだうえで、最小変更の方針で実装しています。\n\n**変更内容**\n- **`src/lib/tasks.ts`**:\n  - `TaskFilter` に `assignee` を追加し、`listTasks` でステータスとの AND 条件にしました。\n  - 担当者の一覧を返す `listAssignees()`（重複なし、出現順）を追加しました。\n  - 担当者 ID が実在するか判定する `isAssignee()` を追加しました。\n- **`src/app/tasks/page.tsx`**: 既存フォームに `<select name=\"assignee\">` を追加しました。選択肢は「すべて」と各担当者です。`?assignee=` は `isAssignee` で検証し、存在しない値は「指定なし」にします。\n- **`tests/tasks.test.ts`**: 担当者での絞り込み、ステータスとの併用、重複排除、不正値の判定のテストを追加しました。\n\n**判断した点（課題文にない部分）**\n- 担当者データには ID（`sato` など）しかありません。そのため選択肢の表示名も、既存のテーブル表示に合わせて ID のままにしました。\n- 新しい外部ライブラリは追加していません。"
+  }
+}

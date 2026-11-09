@@ -58,7 +58,11 @@ ALLOWED=(
   "Bash(npm run typecheck)" "Bash(npm test)" "Bash(npm run test)" "Bash(npm run build)"
   "Bash(git status:*)" "Bash(git diff:*)" "Bash(git log:*)" "Bash(git show:*)"
   "Bash(git add:*)" "Bash(git commit:*)" "Bash(git branch:*)" "Bash(git rev-parse:*)"
+  "Bash(git switch:*)" "Bash(git checkout:*)" "Bash(git -C:*)" "Bash(git check-ignore:*)"
   "Bash(ls:*)" "Bash(cat:*)" "Bash(grep:*)" "Bash(find:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(wc:*)"
+  "Bash(cd:*)" "Bash(mkdir:*)" "Bash(sleep:*)" "Bash(curl -s:*)" "Bash(npx next:*)"
+  # 候補プラグイン自身のスクリプト（試行ごとのコピー）
+  "Bash(python3 $PLUG/:*)" "Bash(bash $PLUG/:*)" "Bash(node $PLUG/:*)"
 )
 
 # 4) 手順（docs/poc/tasks/wf-procedures.md）
