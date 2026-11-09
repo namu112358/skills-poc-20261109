@@ -1,3 +1,4 @@
+import { requireUser } from "@/lib/session";
 import { STATUS_LABELS, TASK_STATUSES, isTaskStatus, listTasks } from "@/lib/tasks";
 
 type Props = {
@@ -5,6 +6,7 @@ type Props = {
 };
 
 export default async function TasksPage({ searchParams }: Props) {
+  await requireUser();
   const params = await searchParams;
   const status = isTaskStatus(params.status) ? params.status : undefined;
   const tasks = listTasks({ status });
@@ -38,7 +40,9 @@ export default async function TasksPage({ searchParams }: Props) {
         <tbody>
           {tasks.map((task) => (
             <tr key={task.id} data-testid="task-row">
-              <td>{task.title}</td>
+              <td>
+                <a href={`/tasks/${task.id}`}>{task.title}</a>
+              </td>
               <td>{STATUS_LABELS[task.status]}</td>
               <td>{task.assignee}</td>
               <td>{task.dueDate}</td>

@@ -14,6 +14,12 @@
 - スキーマは `src/lib/db/migrations.ts`（`PRAGMA user_version` で管理）。
 - テストでは `openDb()` で独立したインメモリ DB を作り、`src/lib/` の関数の引数 `db` に渡す。
 
+## ログインと API
+
+- 初期ユーザーは `sato` / `suzuki` / `tanaka`（パスワードは共通で `password`。PoC の検証用）。`/login` からログインする。
+- セッションは DB の `sessions` テーブルと Cookie `poc_session`（`src/lib/auth.ts`）。ページでは `requireUser()`、API Route では `requireApiUser()`（`src/lib/session.ts`・`src/lib/api.ts`）でログインを確認する。
+- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/tasks`、`GET/PATCH /api/tasks/:id`。エラーは `{ error, details? }` の JSON で返す。
+
 ## コーディング規約
 
 1. データの取得・絞り込みは `src/lib/` の関数に置き、ページコンポーネントには表示の処理だけを書く。
@@ -24,3 +30,4 @@
 6. 変更は依頼された範囲にとどめる。
 7. スキーマを変えるときは `src/lib/db/migrations.ts` の末尾に新しい番号のマイグレーションを追加する。既存のマイグレーションは書き換えない。
 8. SQL に値を埋め込むときは必ずプレースホルダ（`?` / `:name`）を使い、文字列連結で組み立てない。
+9. API Route は最初にログインを確認し、リクエスト本文は `src/lib/` の検証関数（例: `validateTaskInput`）を通してから使う。入力誤りは 400、未ログインは 401、対象が無いときは 404 を返す。
