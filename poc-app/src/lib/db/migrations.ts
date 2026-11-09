@@ -25,4 +25,17 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX tasks_assignee ON tasks(assignee);
     `,
   },
+  {
+    version: 2,
+    name: "auth",
+    sql: `
+      ALTER TABLE users ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';
+      CREATE TABLE sessions (
+        token      TEXT PRIMARY KEY,
+        user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expires_at TEXT NOT NULL -- ISO 8601（UTC）
+      );
+      CREATE INDEX sessions_user ON sessions(user_id);
+    `,
+  },
 ];

@@ -4,7 +4,8 @@
 // - テストでは openDb(":memory:") で独立した DB を作り、各関数の引数 db に渡す。
 import { DatabaseSync } from "node:sqlite";
 import { MIGRATIONS, type Migration } from "./migrations.ts";
-import { SEED_TASKS, SEED_USERS } from "./seed.ts";
+import { hashPassword } from "../password.ts";
+import { SEED_PASSWORD, SEED_TASKS, SEED_USERS } from "./seed.ts";
 
 export type Db = DatabaseSync;
 
@@ -23,8 +24,8 @@ export function seed(db: Db): void {
   const { n } = db.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number };
   if (n > 0) return;
   transaction(db, () => {
-    const insertUser = db.prepare("INSERT INTO users (id, name) VALUES (?, ?)");
-    for (const u of SEED_USERS) insertUser.run(u.id, u.name);
+    const insertUser = db.prepare("INSERT INTO users (id, name, password_hash) VALUES (?, ?, ?)");
+    for (const u of SEED_USERS) insertUser.run(u.id, u.name, hashPassword(SEED_PASSWORD));
     const insertTask = db.prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES (?, ?, ?, ?)");
     for (const t of SEED_TASKS) insertTask.run(t.title, t.status, t.assignee, t.dueDate);
   });

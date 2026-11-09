@@ -1,4 +1,7 @@
 // 初期データ。空の DB を開いたときに 1 回だけ投入する。
+
+/** 初期ユーザー共通のパスワード（PoC の検証用。本番では使わない）。 */
+export const SEED_PASSWORD = "password";
 export const SEED_USERS = [
   { id: "sato", name: "佐藤" },
   { id: "suzuki", name: "鈴木" },
