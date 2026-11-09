@@ -14,6 +14,23 @@
 | Skill | Skill Creator（Anthropic） | 固定コミットから vendoring | `.claude/skills/skill-creator` |
 | Plugin | Impeccable | marketplace `pbakaus/impeccable` | `.claude/settings.json` |
 | Plugin | Security Guidance（Anthropic） | marketplace `claude-plugins-official` | `.claude/settings.json` |
+| Plugin | UI/UX Pro Max | marketplace `nextlevelbuilder/ui-ux-pro-max-skill` | `.claude/settings.json` |
+
+### 採用技術・利用サービスに応じて追加するもの
+
+`scripts/add-stack.sh <stack>...` で、該当するプロジェクトにだけ追加します（`.mcp.json` と `.claude/skills/` を更新し、`.claude/settings.json` の `enabledMcpjsonServers` に登録）。
+
+| stack | 対象 | 追加されるもの | 認証 |
+|---|---|---|---|
+| `react-nextjs` | React / Next.js を使う場合 | Skills: React Best Practices、Composition Patterns、React View Transitions（Vercel）<br>MCP: Next.js DevTools（`next-devtools-mcp@0.4.0`。Next.js 16 以上の `next dev` 起動中に使う） | 不要 |
+| `sentry` | Sentry を使う場合 | MCP: Sentry（`https://mcp.sentry.dev/mcp`） | 初回接続時に OAuth（`/mcp` から） |
+| `cloudflare` | Cloudflare を使う場合 | MCP: Cloudflare API（`https://mcp.cloudflare.com/mcp`）、Cloudflare Docs（`https://docs.mcp.cloudflare.com/mcp`） | API は OAuth、Docs は不要 |
+
+```bash
+scripts/add-stack.sh react-nextjs sentry
+```
+
+**このリポジトリでは `react-nextjs` を適用済み**です（PoC 用アプリが Next.js のため）。
 
 Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.claude/skills/SOURCES.md) を参照してください。
 
@@ -54,5 +71,6 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 
 - MCP の認証情報やトークンを Git にコミットしない（`.env*` と `.claude/settings.local.json` は `.gitignore` 済み）。
 - GitHub MCP には業務上必要な最小限の権限だけを付与する。マージ・ファイル削除・リポジトリ作成は `.claude/settings.json` で毎回確認する設定にしている。
+- Sentry MCP / Cloudflare MCP はトークンをファイルに書かず OAuth で認証する。Cloudflare API MCP は Cloudflare の API をほぼすべて操作できるため、開発用アカウントで、必要な権限だけを許可する。
 - Supabase MCP / Vercel MCP（推奨）を追加する場合は、開発環境のみに接続し、本番への書き込み権限を付けない。
 - Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施する。

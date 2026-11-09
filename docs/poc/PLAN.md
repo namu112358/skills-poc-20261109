@@ -39,6 +39,7 @@
 | Claude Code | PoC 開始時点の最新版で固定し、期間中は更新しない（バージョンを結果に記録） |
 | モデル | 全試行で同一モデル・同一 effort。`/model` の設定を結果に記録 |
 | プラグイン | `scripts/poc-profile.sh <profile>` で **同時に有効な候補を 1 つだけ** にする（§3.3） |
+| 常時有効なもの | 必須ツール一式（UI/UX Pro Max を含む）と、`react-nextjs` stack（Vercel の React 系 Skills、Next.js DevTools MCP）。全条件で同じなので比較には影響しない前提だが、候補との干渉は §5.4 で確認する |
 | セッション | 試行ごとに新規セッション。前試行の会話・メモリを持ち込まない |
 | 入力 | 試行ごとのプロンプトは `docs/poc/tasks/` に固定した文面を使い、両候補で同一 |
 | 試行回数 | 出力のぶれを吸収するため、各シナリオ × 各候補を **2 回** 実行し平均を取る |
@@ -49,7 +50,7 @@
 
 本リポジトリ内 `poc-app/` に、評価専用の小規模アプリを用意する。
 
-- 構成: Next.js（App Router）+ TypeScript + SQLite（Prisma など）、認証付きのタスク管理アプリ（3〜5 画面、API Route 6〜10 本）
+- 構成: Next.js 16 以上（App Router。Next.js DevTools MCP の要件）+ TypeScript + SQLite（Prisma など）、認証付きのタスク管理アプリ（3〜5 画面、API Route 6〜10 本）
 - CI: Lint、型チェック、単体テスト、Playwright E2E（GitHub Actions）
 - `CLAUDE.md`: コーディング規約を 8〜10 項目記載（Code Review の「CLAUDE.md 準拠チェック」を公平に評価するため）
 
@@ -166,6 +167,8 @@ scripts/poc-profile.sh wf-superpowers
    - PR Review Toolkit: `/review-pr`（全観点）と、観点を絞った実行を 1 回ずつ
 3. 指摘を正解リストと突き合わせ、有効指摘・誤指摘・見落としを判定する。
 
+> 単体の Code Simplifier プラグイン（`code-simplifier@claude-plugins-official`）は、PR Review Toolkit にほぼ同じエージェントが含まれるため導入しない。Code Review を採用した場合はこのエージェントが手元に無くなるため、判定記録にその扱い（不要とするか、PR Review Toolkit を任意導入にするか）を残す。
+
 試行数: 7 PR × 2 候補 × 2 回 = 28 回
 
 ### 5.4 共存テスト（各週の初日に 30 分）
@@ -174,8 +177,8 @@ scripts/poc-profile.sh wf-superpowers
 
 - security-guidance のフック: `Edit` 時のパターン警告、ターン終了時の差分レビュー、`git commit` 時のレビュー
 - Impeccable のフック・コマンド（`/impeccable audit` など）
-- 各 Skill の起動（frontend-design / web-design-guidelines / webapp-testing / skill-creator）
-- GitHub MCP / Playwright MCP のツール呼び出し
+- 各 Skill の起動（frontend-design / web-design-guidelines / webapp-testing / skill-creator / UI/UX Pro Max / Vercel の React 系 Skills）
+- GitHub MCP / Playwright MCP / Next.js DevTools MCP のツール呼び出し
 
 特に Superpowers（SessionStart フックで Skill 利用を強く促す）と Claude Security（独自フック）が、既存フックやほかの Skill の発火を妨げないかを確認する。Ponytail 併用時は、SessionStart / SubagentStart / UserPromptSubmit で注入される指示が勝者の手順（計画・テスト作成など）を止めていないかも確認する。
 

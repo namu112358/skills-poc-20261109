@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# 採用技術・利用サービスに応じた Skills / MCP をプロジェクトに追加する（何度実行しても同じ結果になる）。
+# 使い方: scripts/add-stack.sh <stack>...
+#   react-nextjs : Vercel の React / Next.js 向け Skills + Next.js DevTools MCP
+#   sentry       : Sentry MCP（リモート、OAuth）
+#   cloudflare   : Cloudflare API MCP + Cloudflare Docs MCP（リモート、OAuth / 認証なし）
+# 実行後は Claude Code を再起動し、/mcp で接続・認証を確認すること。
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VERCEL_SKILLS_REF="1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62" # vercel-labs/agent-skills
+NEXT_DEVTOOLS_MCP_VERSION="0.4.0"                         # vercel/next-devtools-mcp
+
+[[ $# -gt 0 ]] || { sed -n '2,8p' "$0"; exit 1; }
+
+# .mcp.json にサーバーを追加し、.claude/settings.json の enabledMcpjsonServers に登録する
+add_mcp() { # name json
+  python3 - "$ROOT" "$1" "$2" <<'PY'
+import json, sys, pathlib
+root, name, server = pathlib.Path(sys.argv[1]), sys.argv[2], json.loads(sys.argv[3])
+mcp = root / ".mcp.json"
+d = json.loads(mcp.read_text()) if mcp.exists() else {"mcpServers": {}}
+d.setdefault("mcpServers", {})[name] = server
+mcp.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n")
+st = root / ".claude" / "settings.json"
+s = json.loads(st.read_text())
+enabled = s.setdefault("enabledMcpjsonServers", [])
+if name not in enabled:
+    enabled.append(name)
+st.write_text(json.dumps(s, indent=2, ensure_ascii=False) + "\n")
+print(f"MCP: {name} を追加")
+PY
+}
+
+vendor_vercel_skills() { # skill...
+  local work; work="$(mktemp -d)"
+  git init -q "$work/repo"
+  git -C "$work/repo" remote add origin https://github.com/vercel-labs/agent-skills.git
+  git -C "$work/repo" fetch -q --depth 1 origin "$VERCEL_SKILLS_REF"
+  git -C "$work/repo" checkout -q FETCH_HEAD
+  for s in "$@"; do
+    rm -rf "${ROOT:?}/.claude/skills/$s"
+    cp -R "$work/repo/skills/$s" "$ROOT/.claude/skills/$s"
+    echo "Skill: $s を配置 (vercel-labs/agent-skills@$VERCEL_SKILLS_REF)"
+  done
+  rm -rf "$work"
+}
+
+for stack in "$@"; do
+  case "$stack" in
+    react-nextjs)
+      vendor_vercel_skills react-best-practices composition-patterns react-view-transitions
+      # Next.js 16 以上の dev server（next dev）が起動している必要がある
+      add_mcp next-devtools "{\"type\":\"stdio\",\"command\":\"npx\",\"args\":[\"-y\",\"next-devtools-mcp@$NEXT_DEVTOOLS_MCP_VERSION\"]}"
+      ;;
+    sentry)
+      # 認証は初回接続時の OAuth（/mcp から実行）。トークンをファイルに書かない
+      add_mcp sentry '{"type":"http","url":"https://mcp.sentry.dev/mcp"}'
+      ;;
+    cloudflare)
+      # API サーバーは OAuth。開発用アカウントで、必要最小限の権限だけを許可すること
+      add_mcp cloudflare '{"type":"http","url":"https://mcp.cloudflare.com/mcp"}'
+      add_mcp cloudflare-docs '{"type":"http","url":"https://docs.mcp.cloudflare.com/mcp"}'
+      ;;
+    *) echo "unknown stack: $stack" >&2; exit 1 ;;
+  esac
+done
+echo "完了。Claude Code を再起動し、/mcp で接続と認証を確認してください。"
