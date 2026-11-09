@@ -11,6 +11,9 @@
 | W4 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `/autoplan <課題>` → 「計画に沿って実装し、変更を git にコミットしてください。」→ `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W5 | `<課題>` | `<課題>`（`systematic-debugging` の自動発火） | `<課題>`（通常の指示） | `/qa <課題>` | `/ce-debug <課題>` |
 | W6 | `<課題>` | `<課題>` → `/superpowers:finishing-a-development-branch` | `/feature-dev:feature-dev <課題>` → PR 作成の指示 | `<課題>` → `/qa` → `/ship` | `/ce-work <課題>` → `/ce-test-browser` → `/ce-commit-push-pr` |
+| W7a | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` →（落とし穴の指摘の後）`/ce-compound` |
+| W7b | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
+| W9 | `<課題>` | `/superpowers:requesting-code-review <課題>` | 「Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。」+ `<課題>` | `/review <課題>` | `/ce-code-review <課題>` |
 | W10 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 
 ### W2 以降の共通の決まり
@@ -44,6 +47,28 @@
 - 介入の定型文は「お任せします。確認は不要なので、課題を最後まで実装し、PR.md を含めて変更を git にコミットしてください。」（最大 2 回）。`PR.md` がコミットされていなければ未完了とみなす。
 - 費用の上限は `POC_BUDGET_MODE=watch`（下の「費用の上限の守り方」）。
 - 採点は `scripts/poc/grade_w6.py`（`docs/poc/answer-key/W6/grading.md`）。
+
+### W9 の決まり（レビューで不具合を見つける。2026-11-09 追加）
+
+- レビュー対象の差分（正解データ `docs/poc/answer-key/W9/review.patch`。不具合 10 件とおとり 5 件を含む PR 相当の変更）を、`run-trial.sh` が作業用コピーの作業ブランチにだけ当て、PR の説明（課題文の「# PR:」以降）をメッセージにしたコミットを 1 つ作る。候補は `master` との差分をレビューする。パッチファイルは作業用コピーに置かない（ハッシュを `raw/<試行ID>/review-patch` に記録する）。`baseline-commit` はこのレビュー対象のコミットにする（候補の成果は `REVIEW.md` などの差分だけになる）。W9 以外では当てない。
+- 入口は各候補のレビュー機能: gstack は `/review`、Compound Engineering は `/ce-code-review`、Superpowers は `requesting-code-review`（コードレビューを依頼する Skill。`/superpowers:requesting-code-review` で起動）、Feature Dev はレビュー用のコマンドが無いため code-reviewer エージェントを使うよう指示する。baseline は課題文だけ（「この変更をコードレビューし…」）。
+- 課題文で、指摘を `REVIEW.md` に書いてコミットし、コードは直さないよう指示する（全候補に同じ文面）。採点は `REVIEW.md` だけで行う。
+- 介入の定型文は「お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。」（最大 2 回）。`REVIEW.md` がコミットされていなければ未完了とみなす。
+- 費用の上限は `POC_BUDGET_MODE=watch`、課題文の末尾は新文言（どちらもシナリオ名で決まる既定）。子セッションの許可リストは W6 以降と同じ（開発サーバーの起動・ブラウザを含む。レビューで動作を確かめる場合に使える）。
+- 採点は `scripts/poc/grade_w9.py`・`blind_w9.py`・`score_w9.py`（`docs/poc/answer-key/W9/grading.md`）。
+### W7 の決まり（続けて行う作業での学習効果。2026-11-09 追加）
+
+- W7a（完了報告）と W7b（作業記録）を、同じ候補・同じ回で続けて行う（`run-trial.sh W7a <候補> <回>` → 採点 → `run-trial.sh W7b <候補> <回>`）。W7b は新しいセッション（`--resume` しない）で始める。
+- W7a は、落とし穴の決まり（日時は UTC で保存し JST で表示する、独自のエラー型を使う）への移行の途中の初期状態（正解データ `docs/poc/answer-key/W7/base.patch`）を、W5 と同じように作業用コピーにだけ当ててから始める。
+- 段階は W7c 以降に増やせる（2 段階目以降は 1 つ前の段階を引き継ぐ。足し方は `grading.md` の「段階を増やすとき」）。
+- 対照（`POC_W7_CONTROL=1`、回の番号 11）: W7b を、W7a を引き継がずに新しい作業用コピー（`base.patch` + `reference-W7a.patch`）と新しい HOME で行う。候補の記憶が無いときとの差を見る。
+- W7b は新しい作業用コピーを作らず、W7a の作業用コピー（W7a の変更を含む app）と専用 HOME をそのまま使う（既定は同じ候補・同じ回の W7a。`POC_CONTINUE_FROM=<W7a の試行 ID>` で指定できる。`raw/<W7b の試行 ID>/continued-from` に記録）。W7a の終了時点を W7b の baseline コミットにし、作業ブランチ `poc/wf/<候補>/W7b/<回>` を切る。
+  - 候補が残したもの（Compound Engineering の `docs/solutions/`、gstack の学習データ、候補が自分で書いた `CLAUDE.md`・メモなど）はそのまま W7b に残る。人・ハーネスは `CLAUDE.md` に追記しない。記憶の仕組みを持たない候補は、何も足されない状態で W7b を行う。
+  - Claude Code 自身の自動メモリ（`~/.claude/projects/<作業用コピー>/memory/`）は候補の記憶の仕組みではないため、W7a・W7b とも全候補で止める（`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`。W7 以外は既定のまま。`POC_DISABLE_AUTO_MEMORY=1|0` で明示できる）。
+  - W7b が W7a の作業用コピー・HOME・試行 ID を参照するのは自分の試行の一部として扱う（`grade.py` は `continued-from` の ID を他の試行に数えない）。
+- 手順のステップ（と「お任せします」の介入）を終えた後、`run-trial.sh` が `scripts/poc/check_w7.py` で落とし穴 2 件を判定し、避けられなかったものがあれば、レビューの定型の指摘を同じセッションに送って直させる（最大 2 回、`POC_MAX_FEEDBACK=2`。`feedback.log`）。1 回目の判定（`pitfalls-1.json`）が採点に使う「指摘を受ける前」の状態。判定にかかった時間は所要時間から除く（`check-seconds`）。
+- Compound Engineering の `/ce-compound` は、W7a の指摘のやり取りが終わった後に行う（手順の一部で、介入に数えない）。
+- 課題文の末尾は新文言（既定）。介入の定型文は W2 と同じ。採点は `scripts/poc/grade_w7.py`（`docs/poc/answer-key/W7/grading.md`）。W7a は W7b を始める前に採点し、作業用コピーは W7b の採点が済んでから `grade.py W7a <W7a の試行 ID> --cleanup-only` で片付ける。
 
 ### W10 の決まり（仕様に書かれていない落とし穴がある機能追加。2026-11-09 追加）
 

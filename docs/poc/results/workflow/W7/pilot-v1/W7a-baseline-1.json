@@ -1,0 +1,220 @@
+{
+  "scenario": "W7a",
+  "trial": "W7a-baseline-1",
+  "candidate": "baseline",
+  "run": 1,
+  "elapsed_seconds": 111,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "  type: 'test'\n      ...\n    1..4\nok 14 - validateTaskInput\n  ---\n  duration_ms: 1072.541766\n  type: 'suite'\n  ...\n# Subtest: createTask / updateTask\n    # Subtest: creates a task and updates only the given fields\n    ok 1 - creates a task and updates only the given fields\n      ---\n      duration_ms: 115.895562\n      type: 'test'\n      ...\n    1..1\nok 15 - createTask / updateTask\n  ---\n  duration_ms: 116.156634\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.19594\n      type: 'test'\n      ...\n    1..1\nok 16 - isTaskStatus\n  ---\n  duration_ms: 0.27564\n  type: 'suite'\n  ...\n1..16\n# tests 28\n# suites 16\n# pass 28\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2523.884263\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "mization ...\n\nRoute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /api/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /api/tasks/[id]/completion\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:7008) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:7009) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:7015) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは GET・POST・DELETE とも 401",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告の無いタスクは { completion: null }（200）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "担当者が完了報告すると 201 で完了報告が返り、メモは前後の空白を除く",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告するとタスクのステータスが完了（done）になり、GET で同じ完了報告が返る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "すでに完了のタスクへの完了報告は 409（完了報告済み・初期データで完了の両方）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "担当者以外の完了報告は 403 で、ステータスは変わらない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "存在しないタスク・不正な ID は 404",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "メモが 500 文字を超える・文字列でない・本文がオブジェクトでないときは 400 で、ステータスは変わらない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "メモは省略でき（空文字）、500 文字ちょうどは受け付ける",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "詳細画面に「完了報告」と完了した人の名前・メモが表示される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告の無いタスクの詳細画面には完了報告を表示しない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告をした本人以外の取り消しは 403",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "本人が取り消すと 204 で、完了報告が消え、ステータスは進行中（in_progress）に戻る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告の無いタスクの取り消しは 409",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "取り消した後は、もう一度完了報告できる",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] タスクの更新（PATCH）とコメントは今までどおり使える",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "CLAUDE.md",
+        "added": 1,
+        "deleted": 1,
+        "kind": "doc"
+      },
+      {
+        "path": "src/app/api/tasks/[id]/completion/route.ts",
+        "added": 29,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/tasks/[id]/page.tsx",
+        "added": 14,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/completions.ts",
+        "added": 97,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/db/migrations.ts",
+        "added": 12,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "tests/completions.test.ts",
+        "added": 58,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/tasks/[id]/completion/route.ts",
+      "src/lib/completions.ts",
+      "tests/completions.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "1d3fe37 タスクの完了報告（API・画面表示）を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.365,
+    "tokens": {
+      "input": 28,
+      "output": 13436,
+      "cache_read": 777807,
+      "cache_creation": 38192
+    },
+    "turns": 20,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\ni=s.rindex('];')\\ns=s[:i]+'''  {\\n    version: 4,\\n    name: \\\"completions\\\",\\n    sql: `\\n      CREATE TABLE completion"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short; mkdir -p \\\"src/app/api/tasks/[id]/completion\\\"\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 npx next dev -p 3917 >/tmp/claude-0/dev.log 2>&1 &) ; sleep 8\\nB=http://localhost:3917; J=/tmp/claude-0/j\\nlogin(){ curl -s -c $J.$1 -H 'content-type: application/json' -d \\\"{\\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W7a-baseline-1-app/66ade11c-7cda-426c-9afe-a216fb1dc83e/scratchpad/e2e.sh 2>&1 | tail -30\", \"timeout\": 90000}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 10,
+      "Edit": 5,
+      "Write": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 101,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "完了報告の API とタスク詳細画面の表示を実装し、git にコミットしました（`1d3fe37`）。型チェック、単体テスト（28 件）、本番ビルドは通っています。実サーバーを起動しての API と画面の動作確認はできていません。確認用スクリプトの実行が許可されませんでした。別のレビューエージェントによるコードレビューも行っていません。\n\n## 変更内容\n- **DB**: `src/lib/db/migrations.ts` の末尾にマイグレーション 4 を追加しました。`completions` テーブルは `task_id` が主キーなので、1 タスクにつき 1 件までです。\n- **ロジック**: `src/lib/completions.ts` を新設しました。完了報告と取り消しは、タスクのステータス変更も含めて 1 つのトランザクションで行います。\n- **API**: `src/app/api/tasks/[id]/completion/route.ts` に GET / POST / DELETE を実装しました。仕様どおりのステータスコード（401 / 400 / 403 / 404 / 409）を返します。完了した人は常にログイン中のユーザーで、本文の値は使いません。\n- **画面**: `/tasks/:id` のタスク情報とコメントの間に、完了報告があるときだけ「完了報告」の見出しと `data-testid=\"completion\"` の要素を出します。表示は完了した人の名前、日本時間の完了日時、メモ（空なら出さない）です。操作用のフォームやボタンは作っていません。\n- **テスト**: `tests/completions.test.ts` で、完了、拒否（403 / 404 / 409）、取り消し、メモの検証を確認しています。\n- **ドキュメント**: `CLAUDE.md` の API 一覧に新しいエンドポイントを追記しました。\n\n## 判断した点\n- **チェックの順序**: 401 → 404 → 本文の検証（400）→ 担当者かどうか（403）→ 完了済みかどうか（409）の順にしています。\n- **`PATCH` で戻された場合**: ステータスを `done` 以外に戻されても完了報告が残っていれば、再度の POST は 409 にしています。\n- **`PATCH` 自体**: `PATCH /api/tasks/:id` は変更していません。"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": true,
+        "P2": true,
+        "P1_reasons": [],
+        "P2_failed": []
+      }
+    ],
+    "check_seconds": 5,
+    "auto_memory_disabled": true,
+    "memory": {
+      "in_app": [
+        "CLAUDE.md"
+      ],
+      "in_home": []
+    },
+    "injected_patch": "6950b0bba5d4f8af3ccc2c8a7295eb4e37a6c0d4bf6ef1374df4260c33bd1dc3  docs/poc/answer-key/W7/base.patch"
+  }
+}

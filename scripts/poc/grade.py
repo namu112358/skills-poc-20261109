@@ -26,6 +26,9 @@ LEGACY_WORK = ROOT / ".poc-work" / "trials" / TRIAL
 # run-trial.sh が作業用コピーの場所を workdir に記録する（記録がない古い試行は .poc-work/trials/<ID>）
 WORK = Path((RAW / "workdir").read_text().strip()) if (RAW / "workdir").exists() else LEGACY_WORK
 APP = WORK / "app"
+# W7b は W7a の作業用コピーと HOME を引き継ぐ（run-trial.sh が continued-from に W7a の試行 ID を記録する）。
+# W7a の作業用コピー・試行 ID への参照は自分の試行の一部として扱い、他の試行への参照とは分けて数える。
+CONTINUED_FROM = (RAW / "continued-from").read_text().strip() if (RAW / "continued-from").exists() else ""
 TRIAL_ID = re.compile(r"\bW\d+[a-z]?-(?:baseline|superpowers|feature-dev|compound-engineering|gstack)-\d+\b")
 OUT = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO / ("supplement" if "--supplement" in FLAGS else "") / f"{TRIAL}.json"
 
@@ -61,7 +64,7 @@ def isolation_reasons(text):
         if root in t:
             reasons.append("他の試行の作業用コピー")
             break
-    others = sorted({m for m in TRIAL_ID.findall(t) if m != TRIAL})
+    others = sorted({m for m in TRIAL_ID.findall(t) if m not in (TRIAL, CONTINUED_FROM)})
     if others:
         reasons.append("他の試行 ID: " + ", ".join(others[:5]))
     if re.search(r"(?:\.\./){2,}", t):
@@ -190,12 +193,22 @@ def acceptance():
         code, log = run(cmd)
         checks[name] = {"pass": code == 0, "log": log[-800:]}
     e2e, authz = [], []
-    if checks["build"]["pass"]:
+    # 隠しの E2E が無い W（W9 のレビューなど）は E2E を実行しない（W1〜W8 は従来どおり）
+    if checks["build"]["pass"] and key_path("acceptance.cjs").exists():
         e2e = run_key("acceptance.cjs")
         # 認可プローブ（W4 以降。正解データに authz.cjs があるシナリオだけ、別に起動したサーバーで実行する）
-        if (ROOT / "docs" / "poc" / "answer-key" / SCENARIO / "authz.cjs").exists():
+        if key_path("authz.cjs").exists():
             authz = run_key("authz.cjs")
     return checks, e2e, authz
+
+
+def key_path(name):
+    """正解データの検査スクリプトの場所。W7a・W7b などは answer-key/W7/<名前>-<シナリオ>.cjs（例: acceptance-W7a.cjs）、
+    それ以外は answer-key/<シナリオ>/<名前>。"""
+    if SCENARIO.startswith("W7"):
+        stem, ext = name.rsplit(".", 1)
+        return ROOT / "docs" / "poc" / "answer-key" / "W7" / f"{stem}-{SCENARIO}.{ext}"
+    return ROOT / "docs" / "poc" / "answer-key" / SCENARIO / name
 
 
 def run_key(name):
@@ -212,7 +225,7 @@ def run_key(name):
             except OSError:
                 time.sleep(1)
         env = dict(os.environ, NODE_PATH=subprocess.run("npm root -g", shell=True, capture_output=True, text=True).stdout.strip())
-        key = ROOT / "docs" / "poc" / "answer-key" / SCENARIO / name
+        key = key_path(name)
         # run() は出力の末尾 3000 字だけを返すため、不合格が多いと結果の JSON が途中で切れる。ここでは標準出力を丸ごと読む
         p = subprocess.run(f"node {key} http://127.0.0.1:{port}", cwd=APP, shell=True, capture_output=True, text=True,
                            timeout=600, env=env)
@@ -229,6 +242,9 @@ def run_key(name):
 
 def cleanup():
     """作業用コピーを片付ける。片付けてよい場所（試行の置き場所の直下にある、この試行の ID のディレクトリ）だけを消す。"""
+    if CONTINUED_FROM:
+        print(f"{TRIAL}: 作業用コピーは {CONTINUED_FROM} のもの。片付けは grade.py W7a {CONTINUED_FROM} --cleanup-only で行う")
+        return
     if WORK.name != TRIAL or not WORK.exists():
         print(f"{TRIAL}: 作業用コピーなし（{WORK}）")
         return
@@ -254,6 +270,9 @@ def main():
         # run-trial.sh の watch モードで費用の見積もりが上限に達して止めたとき（無ければ空）。止めたステップの費用は result に含まれない
         "budget_stopped": (RAW / "budget-stopped").read_text().strip() if (RAW / "budget-stopped").exists() else "",
         "interventions": len((RAW / "interventions.log").read_text().splitlines()) if (RAW / "interventions.log").exists() else 0,
+        # W7: 落とし穴を避けられなかったときに送ったレビューの定型の指摘の回数（W7 以外は 0）と、引き継いだ W7a の試行 ID
+        "feedback_rounds": len((RAW / "feedback.log").read_text().splitlines()) if (RAW / "feedback.log").exists() else 0,
+        "continued_from": CONTINUED_FROM,
         "checks": checks,
         "e2e": e2e,
         **({"authz": authz} if authz else {}),

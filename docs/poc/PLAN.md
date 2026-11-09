@@ -339,12 +339,12 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 > | W1 小さな変更 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W1/report.md)・[report.html](results/workflow/W1/report.html) |
 > | W2 仕様が明確な機能追加 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W2/report.md)・[report.html](results/workflow/W2/report.html) |
 > | W3 曖昧な要望から要件を固める | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W3/report.md)・[report.html](results/workflow/W3/report.html) |
-> | W4 既存コードを横断する大きな変更 | 未着手 | — |
+> | W4 既存コードを横断する大きな変更 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W4/report.md)・[report.html](results/workflow/W4/report.html) |
 > | W5 バグ修正 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W5/report.md)・[report.html](results/workflow/W5/report.html) |
 > | W6 UI 実装からブラウザ検証・PR 作成まで | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W6/report.md)・[report.html](results/workflow/W6/report.html) |
-> | W7 続けて行う作業での学習効果 | 未着手 | — |
+> | W7 続けて行う作業での学習効果 | 完了（2026-11-09。4 候補 × 2 回 + baseline、W7a → W7b の 2 段階。対照 4 本） | [report.md](results/workflow/W7/report.md)・[report.html](results/workflow/W7/report.html) |
 > | W8 人の介入なしでの自律実行 | 未着手 | — |
-> | W9 レビューで不具合を見つける | 実施中 | — |
+> | W9 レビューで不具合を見つける | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W9/report.md)・[report.html](results/workflow/W9/report.html) |
 > | W10 仕様に書かれていない落とし穴がある機能追加 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W10/report.md)・[report.html](results/workflow/W10/report.html) |
 >
 > 状態は「未着手」「実施中」「完了」のいずれか。「完了」は結果レポート（report.md と report.html）と採点を含む PR が main にマージされた状態を指す。
