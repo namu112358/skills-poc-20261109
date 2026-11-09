@@ -190,7 +190,9 @@ def acceptance():
         code, log = run(cmd)
         checks[name] = {"pass": code == 0, "log": log[-800:]}
     e2e = []
-    if checks["build"]["pass"]:
+    key = ROOT / "docs" / "poc" / "answer-key" / SCENARIO / "acceptance.cjs"
+    # 隠しの E2E が無い W（W9 のレビューなど）は E2E を実行しない（W1〜W8 は従来どおり）
+    if checks["build"]["pass"] and key.exists():
         port = free_port()
         server = subprocess.Popen(f"npx next start -p {port}", cwd=APP, shell=True,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -202,7 +204,6 @@ def acceptance():
                 except OSError:
                     time.sleep(1)
             env = dict(os.environ, NODE_PATH=subprocess.run("npm root -g", shell=True, capture_output=True, text=True).stdout.strip())
-            key = ROOT / "docs" / "poc" / "answer-key" / SCENARIO / "acceptance.cjs"
             code, log = run(f"node {key} http://127.0.0.1:{port}", timeout=180, env=env)
             try:
                 e2e = json.loads(log.strip().splitlines()[-1])

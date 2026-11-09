@@ -1,0 +1,412 @@
+diff --git a/src/app/api/tasks/[id]/route.ts b/src/app/api/tasks/[id]/route.ts
+index 275c08d..bb339f5 100644
+--- a/src/app/api/tasks/[id]/route.ts
++++ b/src/app/api/tasks/[id]/route.ts
+@@ -1,7 +1,8 @@
+-// GET /api/tasks/:id — タスクを 1 件取得 / PATCH /api/tasks/:id — 送った項目だけを更新する。ログインが必要。
++// GET /api/tasks/:id — タスクを 1 件取得 / PATCH /api/tasks/:id — 送った項目だけを更新する /
++// DELETE /api/tasks/:id — タスクを削除する（作成者または担当者のみ）。いずれもログインが必要。
+ import { NextResponse } from "next/server";
+ import { jsonError, readJson, requireApiUser } from "@/lib/api";
+-import { getTask, parseTaskId, updateTask, validateTaskInput } from "@/lib/tasks";
++import { deleteTask, getTask, parseTaskId, updateTask, validateTaskInput } from "@/lib/tasks";
+ 
+ type Context = { params: Promise<{ id: string }> };
+ 
+@@ -13,12 +14,32 @@ export async function GET(_request: Request, { params }: Context) {
+   return task ? NextResponse.json({ task }) : jsonError(404, "タスクが見つかりません");
+ }
+ 
++/** 本文に version を含めると、その版から変わっていないときだけ更新する（変わっていれば 409）。 */
+ export async function PATCH(request: Request, { params }: Context) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
+   const id = parseTaskId((await params).id);
+-  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
+-  const result = validateTaskInput(await readJson(request), { partial: true });
++  const current = id === undefined ? undefined : getTask(id);
++  if (id === undefined || !current) return jsonError(404, "タスクが見つかりません");
++  const body = await readJson(request);
++  const result = validateTaskInput(body, { partial: true });
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
++  const expected = (body as { version?: unknown }).version;
++  if (expected !== undefined && expected !== current.version) {
++    return jsonError(409, "ほかの人が先に更新しました。画面を読み込み直してください");
++  }
+   return NextResponse.json({ task: updateTask(id, result.value) });
+ }
++
++export async function DELETE(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  const task = id === undefined ? undefined : getTask(id);
++  if (id === undefined || !task) return jsonError(404, "タスクが見つかりません");
++  if (task.createdBy && task.createdBy !== user.id && task.assignee !== user.id) {
++    return jsonError(403, "このタスクを削除する権限がありません");
++  }
++  deleteTask(id);
++  return new NextResponse(null, { status: 204 });
++}
+diff --git a/src/app/api/tasks/bulk-status/route.ts b/src/app/api/tasks/bulk-status/route.ts
+new file mode 100644
+index 0000000..ffd73e0
+--- /dev/null
++++ b/src/app/api/tasks/bulk-status/route.ts
+@@ -0,0 +1,31 @@
++// POST /api/tasks/bulk-status — 複数のタスクのステータスをまとめて変える。ログインが必要。
++// 本文: { "ids": [1, 2, 3], "status": "done" }。存在しない ID が含まれていれば 404 を返す。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { bulkUpdateStatus, isTaskStatus } from "@/lib/tasks";
++
++const MAX_IDS = 100;
++
++export async function POST(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const body = await readJson(request);
++  const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
++  const errors: string[] = [];
++  if (
++    !Array.isArray(b.ids) ||
++    b.ids.length === 0 ||
++    b.ids.length > MAX_IDS ||
++    !b.ids.every((id) => Number.isInteger(id) && (id as number) > 0)
++  ) {
++    errors.push(`ids は 1〜${MAX_IDS} 件の正の整数の配列で指定してください`);
++  }
++  if (!isTaskStatus(b.status)) errors.push("ステータスが正しくありません");
++  if (errors.length > 0) return jsonError(400, "入力内容に誤りがあります", errors);
++
++  const result = bulkUpdateStatus(b.ids as number[], b.status as "todo" | "in_progress" | "done");
++  if (result.missing.length > 0) {
++    return jsonError(404, "タスクが見つかりません", result.missing.map((id) => `ID ${id}`));
++  }
++  return NextResponse.json({ updated: result.updated });
++}
+diff --git a/src/app/api/tasks/overdue/route.ts b/src/app/api/tasks/overdue/route.ts
+new file mode 100644
+index 0000000..7c6f68b
+--- /dev/null
++++ b/src/app/api/tasks/overdue/route.ts
+@@ -0,0 +1,10 @@
++// GET /api/tasks/overdue — 期限切れのタスク（期限日が今日（日本時間）より前で、未完了のもの）。ログインが必要。
++import { NextResponse } from "next/server";
++import { requireApiUser } from "@/lib/api";
++import { listOverdueTasks } from "@/lib/tasks";
++
++export async function GET() {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  return NextResponse.json({ tasks: listOverdueTasks() });
++}
+diff --git a/src/app/api/tasks/route.ts b/src/app/api/tasks/route.ts
+index 687d509..db6ec19 100644
+--- a/src/app/api/tasks/route.ts
++++ b/src/app/api/tasks/route.ts
+@@ -15,5 +15,5 @@ export async function POST(request: Request) {
+   if (user instanceof NextResponse) return user;
+   const result = validateTaskInput(await readJson(request));
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+-  return NextResponse.json({ task: createTask(result.value as TaskInput) }, { status: 201 });
++  return NextResponse.json({ task: createTask(result.value as TaskInput, undefined, user.id) }, { status: 201 });
+ }
+diff --git a/src/app/api/tasks/search/route.ts b/src/app/api/tasks/search/route.ts
+new file mode 100644
+index 0000000..a019b5d
+--- /dev/null
++++ b/src/app/api/tasks/search/route.ts
+@@ -0,0 +1,20 @@
++// GET /api/tasks/search?q=…&page=…&limit=… — タイトルの部分一致でタスクを検索する。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { SEARCH_LIMIT_DEFAULT, parsePageParam, searchTasks } from "@/lib/tasks";
++
++export async function GET(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const params = new URL(request.url).searchParams;
++  const q = (params.get("q") ?? "").trim();
++  if (q === "") return jsonError(400, "検索語を入力してください");
++  const page = parsePageParam(params.get("page"));
++  if (page === undefined) return jsonError(400, "ページ番号が正しくありません");
++  const limit = Number(params.get("limit") ?? SEARCH_LIMIT_DEFAULT);
++  try {
++    return NextResponse.json({ ...searchTasks(q, page, limit), page, limit });
++  } catch {
++    return NextResponse.json({ tasks: [], total: 0, page, limit });
++  }
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 4e1b0a4..89dd7cb 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -20,7 +20,9 @@ export const MIGRATIONS: readonly Migration[] = [
+         title    TEXT NOT NULL,
+         status   TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'done')),
+         assignee TEXT NOT NULL REFERENCES users(id),
+-        due_date TEXT NOT NULL
++        due_date TEXT NOT NULL,
++        created_by TEXT REFERENCES users(id),
++        version  INTEGER NOT NULL DEFAULT 1
+       );
+       CREATE INDEX tasks_assignee ON tasks(assignee);
+     `,
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+index b533ce9..c4b8554 100644
+--- a/src/lib/tasks.ts
++++ b/src/lib/tasks.ts
+@@ -8,6 +8,10 @@ export type Task = {
+   status: TaskStatus;
+   assignee: string;
+   dueDate: string; // YYYY-MM-DD
++  /** 作成者のユーザー ID（この機能より前に作られたタスクは null） */
++  createdBy: string | null;
++  /** 版番号。更新のたびに 1 増える（同時編集の検知に使う） */
++  version: number;
+ };
+ 
+ export const TASK_STATUSES: readonly TaskStatus[] = ["todo", "in_progress", "done"];
+@@ -26,33 +30,83 @@ export type TaskFilter = {
+   status?: TaskStatus;
+ };
+ 
+-type TaskRow = { id: number; title: string; status: TaskStatus; assignee: string; due_date: string };
++type TaskRow = {
++  id: number;
++  title: string;
++  status: TaskStatus;
++  assignee: string;
++  due_date: string;
++  created_by: string | null;
++  version: number;
++};
++
++const COLUMNS = "id, title, status, assignee, due_date, created_by, version";
+ 
+ function toTask(row: TaskRow): Task {
+-  return { id: row.id, title: row.title, status: row.status, assignee: row.assignee, dueDate: row.due_date };
++  return {
++    id: row.id,
++    title: row.title,
++    status: row.status,
++    assignee: row.assignee,
++    dueDate: row.due_date,
++    createdBy: row.created_by,
++    version: row.version,
++  };
+ }
+ 
+ export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
+   const rows = db
+-    .prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id")
++    .prepare(`SELECT ${COLUMNS} FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id`)
+     .all({ status: filter.status ?? null }) as TaskRow[];
+   return rows.map(toTask);
+ }
+ 
+ export function getTask(id: number, db: Db = getDb()): Task | undefined {
+-  const row = db.prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE id = ?").get(id) as
+-    | TaskRow
+-    | undefined;
++  const row = db.prepare(`SELECT ${COLUMNS} FROM tasks WHERE id = ?`).get(id) as TaskRow | undefined;
+   return row && toTask(row);
+ }
+ 
++export const SEARCH_LIMIT_DEFAULT = 20;
++export const SEARCH_LIMIT_MAX = 50;
++
++/** 検索のページ番号（1 始まり）を検証する。未指定は 1。正の整数でなければ undefined。 */
++export function parsePageParam(value: string | null): number | undefined {
++  if (value === null) return 1;
++  if (!/^[1-9][0-9]{0,5}$/.test(value)) return undefined;
++  return Number(value);
++}
++
++/** タイトルの部分一致で検索する。page は 1 始まり。total は条件に合う全件数。 */
++export function searchTasks(
++  query: string,
++  page: number = 1,
++  limit: number = SEARCH_LIMIT_DEFAULT,
++  db: Db = getDb(),
++): { tasks: Task[]; total: number } {
++  const where = `title LIKE '%${query}%'`;
++  const { n } = db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE ${where}`).get() as { n: number };
++  const rows = db
++    .prepare(`SELECT ${COLUMNS} FROM tasks WHERE ${where} ORDER BY id LIMIT ? OFFSET ?`)
++    .all(limit, page * limit) as TaskRow[];
++  return { tasks: rows.map(toTask), total: n };
++}
++
++/** 期限切れのタスク（期限日が今日（日本時間）より前で、完了していないもの）を期限の古い順に返す。 */
++export function listOverdueTasks(now: Date = new Date(), db: Db = getDb()): Task[] {
++  const today = now.toISOString().slice(0, 10);
++  const rows = db
++    .prepare(`SELECT ${COLUMNS} FROM tasks WHERE due_date < ? AND status != 'done' ORDER BY due_date, id`)
++    .all(today) as TaskRow[];
++  return rows.map(toTask);
++}
++
+ /** URL のパス・クエリの ID を検証する。正の整数でなければ undefined。 */
+ export function parseTaskId(value: unknown): number | undefined {
+   if (typeof value !== "string" || !/^[1-9][0-9]{0,9}$/.test(value)) return undefined;
+   return Number(value);
+ }
+ 
+-export type TaskInput = Omit<Task, "id">;
++export type TaskInput = Omit<Task, "id" | "createdBy" | "version">;
+ 
+ export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
+ 
+@@ -98,10 +152,10 @@ export function validateTaskInput(
+   return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
+ }
+ 
+-export function createTask(input: TaskInput, db: Db = getDb()): Task {
++export function createTask(input: TaskInput, db: Db = getDb(), createdBy: string | null = null): Task {
+   const { lastInsertRowid } = db
+-    .prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES (?, ?, ?, ?)")
+-    .run(input.title, input.status, input.assignee, input.dueDate);
++    .prepare("INSERT INTO tasks (title, status, assignee, due_date, created_by) VALUES (?, ?, ?, ?, ?)")
++    .run(input.title, input.status, input.assignee, input.dueDate, createdBy);
+   return getTask(Number(lastInsertRowid), db)!;
+ }
+ 
+@@ -110,7 +164,7 @@ export function updateTask(id: number, changes: Partial<TaskInput>, db: Db = get
+   const current = getTask(id, db);
+   if (!current) return undefined;
+   const next = { ...current, ...changes };
+-  db.prepare("UPDATE tasks SET title = ?, status = ?, assignee = ?, due_date = ? WHERE id = ?").run(
++  db.prepare("UPDATE tasks SET title = ?, status = ?, assignee = ?, due_date = ?, version = version + 1 WHERE id = ?").run(
+     next.title,
+     next.status,
+     next.assignee,
+@@ -119,3 +173,27 @@ export function updateTask(id: number, changes: Partial<TaskInput>, db: Db = get
+   );
+   return getTask(id, db);
+ }
++
++/** タスクを削除する。削除できたら true、タスクが無ければ false。 */
++export function deleteTask(id: number, db: Db = getDb()): boolean {
++  return db.prepare("DELETE FROM tasks WHERE id = ?").run(id).changes > 0;
++}
++
++/**
++ * 複数のタスクのステータスをまとめて変える。存在しない ID は missing に入れて返す。
++ * 呼び出し側は missing が空でなければ 404 を返す。
++ */
++export function bulkUpdateStatus(
++  ids: readonly number[],
++  status: TaskStatus,
++  db: Db = getDb(),
++): { updated: number; missing: number[] } {
++  const update = db.prepare("UPDATE tasks SET status = ?, version = version + 1 WHERE id = ?");
++  const missing: number[] = [];
++  let updated = 0;
++  for (const id of new Set(ids)) {
++    if (update.run(status, id).changes === 0) missing.push(id);
++    else updated++;
++  }
++  return { updated, missing };
++}
+diff --git a/tests/tasks-search.test.ts b/tests/tasks-search.test.ts
+new file mode 100644
+index 0000000..1a2cfcb
+--- /dev/null
++++ b/tests/tasks-search.test.ts
+@@ -0,0 +1,72 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import {
++  bulkUpdateStatus,
++  createTask,
++  deleteTask,
++  getTask,
++  listOverdueTasks,
++  listTasks,
++  parsePageParam,
++  searchTasks,
++} from "../src/lib/tasks.ts";
++
++describe("createTask", () => {
++  it("records the creator", () => {
++    const db = openDb();
++    const task = createTask({ title: "新規", status: "todo", assignee: "tanaka", dueDate: "2026-12-01" }, db, "sato");
++    assert.equal(task.createdBy, "sato");
++    assert.equal(task.version, 1);
++  });
++});
++
++describe("searchTasks", () => {
++  it("finds tasks by a part of the title", () => {
++    const db = openDb();
++    assert.equal(searchTasks("API", 1, 20, db).total, 1);
++    assert.equal(searchTasks("存在しない", 1, 20, db).total, 0);
++  });
++});
++
++describe("parsePageParam", () => {
++  it("defaults to 1 and accepts positive integers only", () => {
++    assert.equal(parsePageParam(null), 1);
++    assert.equal(parsePageParam("3"), 3);
++    for (const bad of ["0", "-1", "1.5", "abc", ""]) assert.equal(parsePageParam(bad), undefined, bad);
++  });
++});
++
++describe("listOverdueTasks", () => {
++  it("returns unfinished tasks whose due date has passed", () => {
++    const db = openDb();
++    const overdue = listOverdueTasks(new Date("2026-11-15T03:00:00Z"), db);
++    assert.deepEqual(
++      overdue.map((t) => t.id),
++      [2, 3],
++    );
++  });
++});
++
++describe("deleteTask", () => {
++  it("deletes a task", () => {
++    const db = openDb();
++    const tasks = listTasks({}, db);
++    assert.ok(deleteTask(1, db) !== undefined);
++    assert.equal(tasks.length, 7);
++  });
++});
++
++describe("bulkUpdateStatus", () => {
++  it("updates every given task", () => {
++    const db = openDb();
++    assert.deepEqual(bulkUpdateStatus([4, 5, 5], "done", db), { updated: 2, missing: [] });
++    assert.equal(getTask(4, db)?.status, "done");
++    assert.equal(getTask(5, db)?.version, 2);
++  });
++
++  it("reports missing ids", () => {
++    const db = openDb();
++    assert.deepEqual(bulkUpdateStatus([999], "done", db).missing, [999]);
++  });
++});
+diff --git a/tests/tasks.test.ts b/tests/tasks.test.ts
+index 66029e6..9823f55 100644
+--- a/tests/tasks.test.ts
++++ b/tests/tasks.test.ts
+@@ -32,6 +32,8 @@ describe("getTask", () => {
+       status: "done",
+       assignee: "sato",
+       dueDate: "2026-11-02",
++      createdBy: null,
++      version: 1,
+     });
+     assert.equal(getTask(999, db), undefined);
+   });
+@@ -78,7 +80,7 @@ describe("createTask / updateTask", () => {
+     assert.equal(created.id, 8);
+     assert.equal(listTasks({}, db).length, 8);
+     const updated = updateTask(created.id, { status: "done" }, db);
+-    assert.deepEqual(updated, { ...created, status: "done" });
++    assert.deepEqual(updated, { ...created, status: "done", version: 2 });
+     assert.equal(updateTask(999, { status: "done" }, db), undefined);
+   });
+ });
