@@ -1,0 +1,214 @@
+{
+  "scenario": "W7d",
+  "trial": "W7d-superpowers-21",
+  "candidate": "superpowers",
+  "run": 21,
+  "elapsed_seconds": 177,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "W7c-superpowers-21",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "tion_ms: 124.3705\n      type: 'test'\n      ...\n    # Subtest: rejects a missing task and a done task\n    ok 3 - rejects a missing task and a done task\n      ---\n      duration_ms: 140.05967\n      type: 'test'\n      ...\n    # Subtest: lets only the author delete, scoped to the task\n    ok 4 - lets only the author delete, scoped to the task\n      ---\n      duration_ms: 117.898479\n      type: 'test'\n      ...\n    # Subtest: allows deleting a worklog after its task became done\n    ok 5 - allows deleting a worklog after its task became done\n      ---\n      duration_ms: 111.395108\n      type: 'test'\n      ...\n    1..5\nok 26 - worklogs\n  ---\n  duration_ms: 633.196484\n  type: 'suite'\n  ...\n1..26\n# tests 60\n# suites 26\n# pass 60\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2504.596513\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "pi/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /api/tasks/[id]/completion\n├ ƒ /api/tasks/[id]/schedules\n├ ƒ /api/tasks/[id]/worklogs\n├ ƒ /api/tasks/[id]/worklogs/[worklogId]\n├ ƒ /login\n├ ƒ /my/worklogs\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:31491) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:31490) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:31484) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは GET・POST とも 401",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "予定の無いタスクは空配列（200）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "担当者が登録すると 201 で返り、登録した人はログイン中のユーザー・件名は前後の空白を除く",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "一覧は開始日時の早い順",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "担当者以外は 403、完了（done）のタスクは 409",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "件名・開始日時が正しくない・本文がオブジェクトでないときは 400",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "境界値（件名 100 文字・23:59）は受け付ける",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "存在しないタスク・不正な ID は 404",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "詳細画面に予定が早い順に並び、件名と登録した人が表示される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "予定の無いタスクの詳細画面には「予定はありません。」と表示する",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] 作業記録とコメントは今までどおり使える",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/api/tasks/[id]/schedules/route.ts",
+        "added": 28,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/tasks/[id]/page.tsx",
+        "added": 16,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/datetime.ts",
+        "added": 15,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/db/migrations.ts",
+        "added": 15,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/schedules.ts",
+        "added": 92,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "tests/schedules.test.ts",
+        "added": 100,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/tasks/[id]/schedules/route.ts",
+      "src/lib/schedules.ts",
+      "tests/schedules.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "6dca50e 予定の開始日時: UTC 換算後も 4 桁の年なら受け付ける",
+      "51111b8 タスクの予定（API と詳細画面の表示）を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.6413,
+    "tokens": {
+      "input": 54,
+      "output": 22557,
+      "cache_read": 1458041,
+      "cache_creation": 74811
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > tests/schedules.test.ts <<'EOF'\\nimport { describe, it } from \\\"node:test\\\";\\nimport assert from \\\"node:assert/strict\\\";\\nimport { parseJstLocalDateTime } from \\\"../src/lib/datetime"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 npm start >/tmp/claude-0/srv.log 2>&1 &) ; sleep 4\\nB=http://localhost:3917; J=/tmp/claude-0/cj; \\ncurl -s -o /dev/null -w \\\"unauth %{http_code}\\\\n\\\" $B/api/tasks/3/schedules\\n"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 npm start >/tmp/claude-0/srv.log 2>&1 &) ; sleep 5; bash /tmp/claude-0/-tmp-poc-trials-W7a-superpowers-21-app/ae73b0a7-4160-455f-b3e8-dfea344566e7/scratchpad/e2e.sh; pkill -f \\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"nohup env PORT=3917 npm start > /tmp/claude-0/srv.log 2>&1 &\\nsleep 5; tail -3 /tmp/claude-0/srv.log\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"PORT=3917 npm start\", \"run_in_background\": true}"
+      }
+    ],
+    "tool_calls": {
+      "Skill": 2,
+      "Bash": 15,
+      "Write": 4,
+      "Edit": 7,
+      "Agent": 1,
+      "ReadNotifications": 1
+    },
+    "skills_used": [
+      "superpowers:brainstorming",
+      "superpowers:requesting-code-review"
+    ],
+    "subagents": 1,
+    "subagent_types": {
+      "general-purpose": 1
+    },
+    "questions": 0,
+    "active_seconds": 23,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "タスクの「予定」機能を追加し、2 コミットで git に入れました。型チェック、単体テスト 60 件、ビルドは通っています。ただし、アプリを起動しての API・画面の確認はできていません。サーバー起動が許可されず、`curl` による動作確認は実行できませんでした。\n\n## 変更内容\n- **DB**: マイグレーション 6 で `schedules` テーブルを追加しました。\n- **日時の扱い**: `startsAt` は日本時間の入力として読み、UTC の ISO 形式で保存します（`parseJstLocalDateTime`）。形式違いと存在しない日時（2026-02-30、24:00 など）は 400 です。\n- **ロジック**（`src/lib/schedules.ts`）: 件名の検証（前後の空白を除いて 1〜100 文字）、登録、開始日時の早い順（同じなら ID 順）の一覧。登録した人は常にログイン中のユーザーです。\n- **API**（`/api/tasks/:id/schedules`）: `GET` は 200、`POST` は 201 を返します。担当者以外は 403、完了タスクは 409、タスクなしは 404、未ログインは 401 です。\n- **画面**: 詳細画面の「完了報告」の下（作業記録とコメントの上）に「予定」セクションを追加しました。`data-testid=\"schedule\"` に件名・日本時間の開始日時・登録者名を表示し、無いときは「予定はありません。」です。フォームは作っていません。\n- **テスト**: `tests/schedules.test.ts` を追加しました。\n\n## 私の判断\n- 判定順は、404 → 400（本文）→ 403 → 409 としました。仕様に順序の指定がなく、既存の作業記録 API と揃えたものです。そのため、担当者でない人が不正な本文を送ると 403 ではなく 400 になります。\n- 件名の文字数は JavaScript の `.length` で数えるので、絵文字は 2 文字扱いです。\n\nレビュー担当のサブエージェントの指摘は重大・重要なし、軽微 4 件でした。そのうち、日本時間 1000-01-01 の早朝を誤って弾く境界の誤りは 2 つ目のコミットで直しました。残りの 3 件（判定順、文字数の数え方、ゼロ幅スペースだけの件名）は上のとおりそのままにしています。"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": true,
+        "P2": true,
+        "P1_reasons": [],
+        "P2_failed": []
+      }
+    ],
+    "check_seconds": 5,
+    "auto_memory_disabled": true,
+    "control": false,
+    "memory": {
+      "in_app": [],
+      "in_home": []
+    },
+    "memory_reads": [
+      {
+        "step": "step1.jsonl",
+        "tool": "Agent",
+        "match": "CLAUDE.md",
+        "input": "{\"description\": \"Review schedules feature\", \"subagent_type\": \"general-purpose\", \"prompt\": \"You are a Senior Code Reviewer. Review commit 51111b8 against base 7a6255d in /tmp/poc-trials/W7a-superpowers"
+      }
+    ]
+  }
+}
