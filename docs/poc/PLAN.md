@@ -297,6 +297,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 > | 検証 | 状態 | 結果 |
 > |---|---|---|
 > | W1 小さな変更 | 実施済み（2026-11-09。4 候補 × 2 回 + baseline） | [report.html](results/workflow/W1/report.html) |
+> | W2 仕様が明確な機能追加 | 実施済み（2026-11-09。4 候補 × 2 回 + baseline） | [report.html](results/workflow/W2/report.html) |
 
 
 | 週 | 期間 | 内容 | 成果物 |

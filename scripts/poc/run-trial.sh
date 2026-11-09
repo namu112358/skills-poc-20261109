@@ -131,6 +131,19 @@ for line in open(sys.argv[1]):
     if d.get("session_id"):
         print(d["session_id"]); break' "$1"
 }
+reap_servers() {  # 作業用コピーを cwd にして動く next のプロセス（子セッションが起動したサーバー）を止める
+  local p pid cwd cmd
+  for p in /proc/[0-9]*; do
+    pid="${p#/proc/}"
+    cwd="$(readlink "$p/cwd" 2>/dev/null)" || continue
+    [[ "$cwd" == "$APP"* ]] || continue
+    cmd="$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)" || continue
+    case "$cmd" in claude*|timeout*|*run-trial.sh*|*playwright-mcp*|*next-devtools-mcp*) continue ;; esac
+    if [[ "$cmd" == *next* ]]; then
+      kill "$pid" 2>/dev/null && echo "step$1 killed leftover: ${cmd:0:120}" >> "$OUT/errors.log"
+    fi
+  done
+}
 run_step() {  # run_step <番号> <プロンプト>
   local n="$1" prompt="$2" RESUME=() BUDGET=()
   [[ -n "$SESSION" ]] && RESUME=(--resume "$SESSION")
@@ -141,8 +154,18 @@ run_step() {  # run_step <番号> <プロンプト>
       --model "$MODEL" --permission-mode acceptEdits --allowedTools "${ALLOWED[@]}" \
       --mcp-config "$APP/.mcp.json" --strict-mcp-config --add-dir "$PLUG" "${PLUG_EXTRA[@]}" \
       "${PLUGINS[@]}" "${RESUME[@]}" "${BUDGET[@]}" \
-      --output-format stream-json --verbose < /dev/null ) > "$OUT/step$n.jsonl" 2> "$OUT/step$n.stderr" \
-    || echo "step$n exit=$?" >> "$OUT/errors.log"
+      --output-format stream-json --verbose < /dev/null ) > "$OUT/step$n.jsonl" 2> "$OUT/step$n.stderr" &
+  local pid=$! waited=0
+  # 子セッションがバックグラウンドで起動した開発サーバー（npx next dev など）が残ると、結果を出した後も
+  # claude -p が終了待ちになる。結果が出てから 30 秒たっても終わらなければ、作業用コピーで動く next のプロセスを止める。
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 5
+    if grep -q '"type":"result"' "$OUT/step$n.jsonl" 2>/dev/null; then
+      waited=$((waited + 5))
+      if [[ "$waited" -ge 30 ]]; then reap_servers "$n"; waited=-60; fi
+    fi
+  done
+  wait "$pid" || echo "step$n exit=$?" >> "$OUT/errors.log"
   [[ -z "$SESSION" ]] && SESSION="$(first_session_id "$OUT/step$n.jsonl")"
   return 0
 }
@@ -159,7 +182,8 @@ done
 : > "$OUT/interventions.log"
 for _ in $(seq 1 "$MAX_NUDGES"); do
   commits="$(git -C "$APP" rev-list --count "$(cat "$OUT/baseline-commit")"..HEAD)"
-  dirty="$(git -C "$APP" status --porcelain | head -1)"
+  # AGENTS.md は next dev が自動で書き出すファイルなので、未コミットの変更に数えない
+  dirty="$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' | head -1)"
   [[ "$commits" -gt 0 && -z "$dirty" ]] && break
   if over_budget; then echo "nudge skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
   i=$((i+1))

@@ -1,0 +1,488 @@
+{
+  "scores": [
+    {
+      "trial": "W2-baseline-1",
+      "candidate": "baseline",
+      "run": 1,
+      "total": 97.1,
+      "acceptance": 40.0,
+      "acceptance_detail": {
+        "e2e": 30.0,
+        "checks": 10.0
+      },
+      "intervention": 20,
+      "quality": 22.5,
+      "quality_detail": {
+        "conventions": 5,
+        "design": 3.5,
+        "security": 5,
+        "tests": 4,
+        "scope": 5
+      },
+      "quality_comments": [
+        "comments.ts の parseCommentId が parseTaskId の正規表現をそのままコピーしており、comments.tsx でも CommentView 型を重複して定義している。page.tsx では相対 import を @/lib の import の間に挟んでいる。軽微な一貫性の問題が重なっている。テストに 1 文字の境界と前後空白の確認が無い。",
+        "comments.tsx で Comment 型を CommentView として再定義し、src/lib/comments.ts の parseCommentId は parseTaskId と同じ正規表現を複製している。page.tsx の import 順も崩れている。テストは要点を押さえるが、ケースがまとめて書かれている。"
+      ],
+      "cost": 14.6,
+      "facts": {
+        "e2e_pass": 16,
+        "e2e_total": 16,
+        "e2e_failed": [],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "interventions": 0,
+        "questions": 0,
+        "completed": true,
+        "answer_key_access": [],
+        "code_added": 258,
+        "test_added": 60,
+        "artifacts": [],
+        "cost_usd": 0.3421,
+        "elapsed_seconds": 95,
+        "active_seconds": 87,
+        "turns": 18,
+        "subagents": 0,
+        "skills_used": [],
+        "denials": 3,
+        "commits": 1,
+        "package_json_changed": false,
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W2-compound-engineering-1",
+      "candidate": "compound-engineering",
+      "run": 1,
+      "total": 86.5,
+      "acceptance": 40.0,
+      "acceptance_detail": {
+        "e2e": 30.0,
+        "checks": 10.0
+      },
+      "intervention": 20,
+      "quality": 25,
+      "quality_detail": {
+        "conventions": 5,
+        "design": 5,
+        "security": 5,
+        "tests": 5,
+        "scope": 5
+      },
+      "quality_comments": [
+        "lib に parseCommentId・formatCommentTime を置き、ページ側は表示と小さなクライアント部品（router.refresh）だけにしていて既存の構成と揃っている。テストは境界値（1/1000/1001・コードポイント・前後空白）、権限、別タスク、同時刻の並び順、カスケード削除まで網羅している。migration テスト名の「idempotent」は実際には検証していない（ごく軽微）。",
+        "一覧をサーバーコンポーネントで描き、投稿・削除だけをクライアント部品に分けて router.refresh で更新しており、規約 1 に最も忠実。parseCommentId は parseTaskId を再利用。テストは境界値（1/1000/1001・絵文字・trim 後の長さ）、権限、別タスク、削除済み、同時刻の並び順まで網羅している（migration のテスト名の「idempotent」は内容と合わないが軽微）。"
+      ],
+      "cost": 1.5,
+      "facts": {
+        "e2e_pass": 16,
+        "e2e_total": 16,
+        "e2e_failed": [],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "interventions": 0,
+        "questions": 0,
+        "completed": true,
+        "answer_key_access": [],
+        "code_added": 273,
+        "test_added": 180,
+        "artifacts": [
+          "docs/plans/2026-11-09-0331-feat-task-comments-plan.md"
+        ],
+        "cost_usd": 3.3544,
+        "elapsed_seconds": 415,
+        "active_seconds": 238,
+        "turns": 66,
+        "subagents": 5,
+        "skills_used": [
+          "compound-engineering:ce-code-review",
+          "compound-engineering:ce-doc-review",
+          "compound-engineering:ce-simplify-code",
+          "compound-engineering:ce-work"
+        ],
+        "denials": 13,
+        "commits": 2,
+        "package_json_changed": false,
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W2-compound-engineering-2",
+      "candidate": "compound-engineering",
+      "run": 2,
+      "total": 88.0,
+      "acceptance": 40.0,
+      "acceptance_detail": {
+        "e2e": 30.0,
+        "checks": 10.0
+      },
+      "intervention": 20,
+      "quality": 24,
+      "quality_detail": {
+        "conventions": 5,
+        "design": 4,
+        "security": 5,
+        "tests": 5,
+        "scope": 5
+      },
+      "quality_comments": [
+        "comments.ts の parseCommentId が parseTaskId の正規表現を重複して持っている（軽微）。comment-time.ts への分離はクライアントから使うためで理由がある。テストは境界値・権限・別タスク（403 で存在を漏らさない）・同時刻の並び順・外部キーまで網羅している。",
+        "src/lib/comments.ts の parseCommentId が parseTaskId の正規表現を複製しており、再利用すれば済む。権限・別タスク（403 で存在を漏らさない）・境界値・絵文字・SQL/HTML 風の本文・外部キーまで、テストが最も丁寧。"
+      ],
+      "cost": 4.0,
+      "facts": {
+        "e2e_pass": 16,
+        "e2e_total": 16,
+        "e2e_failed": [],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "interventions": 0,
+        "questions": 0,
+        "completed": true,
+        "answer_key_access": [],
+        "code_added": 284,
+        "test_added": 131,
+        "artifacts": [
+          "docs/plans/2026-11-09-0338-feat-task-comments-plan.md"
+        ],
+        "cost_usd": 1.2528,
+        "elapsed_seconds": 245,
+        "active_seconds": 225,
+        "turns": 57,
+        "subagents": 0,
+        "skills_used": [
+          "compound-engineering:ce-code-review"
+        ],
+        "denials": 12,
+        "commits": 1,
+        "package_json_changed": false,
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W2-feature-dev-1",
+      "candidate": "feature-dev",
+      "run": 1,
+      "total": 96.6,
+      "acceptance": 40.0,
+      "acceptance_detail": {
+        "e2e": 30.0,
+        "checks": 10.0
+      },
+      "intervention": 20,
+      "quality": 23,
+      "quality_detail": {
+        "conventions": 5,
+        "design": 4,
+        "security": 5,
+        "tests": 4,
+        "scope": 5
+      },
+      "quality_comments": [
+        "comments.tsx で Comment と同じ形の CommentView 型を重複して定義しており、コメント ID の検証には parseTaskId を流用している。テストは並び順・権限・別タスクを押さえているが、1001 文字の拒否が他の不正値とまとめて 1 つのループに入っていて、境界の意図が読み取りにくい。",
+        "comments.tsx で lib の Comment と同じ型を CommentView として再定義している。並び順を created_at, id とし、テストで投稿日時の逆順投入まで確認しているのは良い。ケースが少数の it にまとめられ、1001 文字は不正入力の列挙に埋もれている。"
+      ],
+      "cost": 13.6,
+      "facts": {
+        "e2e_pass": 16,
+        "e2e_total": 16,
+        "e2e_failed": [],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "interventions": 0,
+        "questions": 0,
+        "completed": true,
+        "answer_key_access": [],
+        "code_added": 255,
+        "test_added": 46,
+        "artifacts": [],
+        "cost_usd": 0.3675,
+        "elapsed_seconds": 101,
+        "active_seconds": 92,
+        "turns": 20,
+        "subagents": 0,
+        "skills_used": [],
+        "denials": 2,
+        "commits": 1,
+        "package_json_changed": false,
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W2-feature-dev-2",
+      "candidate": "feature-dev",
+      "run": 2,
+      "total": 95.8,
+      "acceptance": 40.0,
+      "acceptance_detail": {
+        "e2e": 30.0,
+        "checks": 10.0
+      },
+      "intervention": 20,
+      "quality": 23,
+      "quality_detail": {
+        "conventions": 5,
+        "design": 4,
+        "security": 5,
+        "tests": 4,
+        "scope": 5
+      },
+      "quality_comments": [
+        "comments.ts と comment-section.tsx で SQL 断片や URL を + で連結しており、既存コードのテンプレートリテラルと書き方が揃っていない。また 0 件のときも空の <ul> を描画する。テストに 1 文字の境界と、前後の空白を除いた後の長さ判定の確認が無い。",
+        "comment-section.tsx・comments.ts で URL やメッセージを文字列連結で組み立てており、他の箇所のテンプレートリテラルと揃っていない。コメントが無いときも空の <ul> を描画する。テストは権限・別タスク・境界値を押さえているが、下限 1 文字の確認が無い。"
+      ],
+      "cost": 12.8,
+      "facts": {
+        "e2e_pass": 16,
+        "e2e_total": 16,
+        "e2e_failed": [],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "interventions": 0,
+        "questions": 0,
+        "completed": true,
+        "answer_key_access": [],
+        "code_added": 243,
+        "test_added": 54,
+        "artifacts": [],
+        "cost_usd": 0.3888,
+        "elapsed_seconds": 105,
+        "active_seconds": 97,
+        "turns": 21,
+        "subagents": 0,
+        "skills_used": [],
+        "denials": 4,
+        "commits": 1,
+        "package_json_changed": false,
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W2-gstack-1",
+      "candidate": "gstack",
+      "run": 1,
+      "total": 83.4,
+      "acceptance": 40.0,
+      "acceptance_detail": {
+        "e2e": 30.0,
+        "checks": 10.0
+      },
+      "intervention": 15,
+      "quality": 23.5,
+      "quality_detail": {
+        "conventions": 5,
+        "design": 4.5,
+        "security": 5,
+        "tests": 4,
+        "scope": 5
+      },
+      "quality_comments": [
+        "[commentId]/route.ts でコメント ID の検証に parseTaskId を流用している（軽微）。テストは authorName を length>0 でしか確かめておらず、1 文字の受理と、他人による削除が拒否された後もコメントが残ることの確認が無い。",
+        "削除の権限判定を src/lib/comments.ts の deleteComment に置いて結果型で返す、整った構成。tests/comments.test.ts は authorName を長さ > 0 でしか確認しておらず、境界値・不正入力が 1 つの it にまとめて書かれている。"
+      ],
+      "cost": 4.9,
+      "facts": {
+        "e2e_pass": 16,
+        "e2e_total": 16,
+        "e2e_failed": [],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "interventions": 1,
+        "questions": 0,
+        "completed": true,
+        "answer_key_access": [],
+        "code_added": 235,
+        "test_added": 44,
+        "artifacts": [
+          "CLAUDE.md"
+        ],
+        "cost_usd": 1.0095,
+        "elapsed_seconds": 191,
+        "active_seconds": 166,
+        "turns": 28,
+        "subagents": 2,
+        "skills_used": [],
+        "denials": 3,
+        "commits": 2,
+        "package_json_changed": false,
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W2-gstack-2",
+      "candidate": "gstack",
+      "run": 2,
+      "total": 85.7,
+      "acceptance": 40.0,
+      "acceptance_detail": {
+        "e2e": 30.0,
+        "checks": 10.0
+      },
+      "intervention": 15,
+      "quality": 23,
+      "quality_detail": {
+        "conventions": 5,
+        "design": 4,
+        "security": 5,
+        "tests": 4,
+        "scope": 5
+      },
+      "quality_comments": [
+        "comments.ts の createComment/deleteComment がユーザー ID の文字列ではなく Pick<User,'id'> を受け取り、既存の関数より引数が回りくどい。コメント ID には parseTaskId を流用している。テストに 1 文字の境界と、拒否された削除の後にコメントが残ることの確認が無い。",
+        "src/lib/comments.ts の createComment / deleteComment がユーザーを Pick<User, \"id\"> で受け取り、ID 文字列を受ける既存の lib 関数と流儀が違う。コードポイントで数える点は良い。テストは要点を押さえているが、下限の 1 文字の確認が無く、ケースがまとめて書かれている。"
+      ],
+      "cost": 7.7,
+      "facts": {
+        "e2e_pass": 16,
+        "e2e_total": 16,
+        "e2e_failed": [],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "interventions": 1,
+        "questions": 0,
+        "completed": true,
+        "answer_key_access": [],
+        "code_added": 248,
+        "test_added": 54,
+        "artifacts": [],
+        "cost_usd": 0.6476,
+        "elapsed_seconds": 156,
+        "active_seconds": 133,
+        "turns": 29,
+        "subagents": 0,
+        "skills_used": [],
+        "denials": 4,
+        "commits": 2,
+        "package_json_changed": false,
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W2-superpowers-1",
+      "candidate": "superpowers",
+      "run": 1,
+      "total": 96.1,
+      "acceptance": 40.0,
+      "acceptance_detail": {
+        "e2e": 30.0,
+        "checks": 10.0
+      },
+      "intervention": 20,
+      "quality": 23,
+      "quality_detail": {
+        "conventions": 5,
+        "design": 4,
+        "security": 5,
+        "tests": 4,
+        "scope": 5
+      },
+      "quality_comments": [
+        "comments.tsx で Comment 型と同じ形の CommentView を別に定義しており、コメント ID の検証にも parseTaskId を流用している（軽微）。tests/comments.test.ts は権限・別タスク・境界値を押さえているが、1 文字の受理を確かめていない。",
+        "src/lib/comments.ts の validateCommentInput が ValidationResult<string> を返し、既存の validateTaskInput（オブジェクトを返す）と形が揃っていない。comments.tsx で Comment 型を再定義（CommentView）している。テストは権限・別タスク・並び順を押さえているが、1 文字の下限や各ケースが 1 つの it に詰め込まれている。"
+      ],
+      "cost": 13.1,
+      "facts": {
+        "e2e_pass": 16,
+        "e2e_total": 16,
+        "e2e_failed": [],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "interventions": 0,
+        "questions": 0,
+        "completed": true,
+        "answer_key_access": [],
+        "code_added": 234,
+        "test_added": 59,
+        "artifacts": [],
+        "cost_usd": 0.3815,
+        "elapsed_seconds": 99,
+        "active_seconds": 90,
+        "turns": 22,
+        "subagents": 0,
+        "skills_used": [
+          "superpowers:test-driven-development"
+        ],
+        "denials": 3,
+        "commits": 1,
+        "package_json_changed": false,
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W2-superpowers-2",
+      "candidate": "superpowers",
+      "run": 2,
+      "total": 94.5,
+      "acceptance": 40.0,
+      "acceptance_detail": {
+        "e2e": 30.0,
+        "checks": 10.0
+      },
+      "intervention": 20,
+      "quality": 19.5,
+      "quality_detail": {
+        "conventions": 4,
+        "design": 3.5,
+        "security": 5,
+        "tests": 2.5,
+        "scope": 4.5
+      },
+      "quality_comments": [
+        "本人確認とタスクの一致の判定を [commentId]/route.ts に直接書き、lib/comments.ts の deleteComment(id) は無条件に削除するため、認可のロジックが lib に無く単体テストもできない（規約 1・5）。そのため tests に削除権限・別タスク・存在しないコメントのテストが無い。users の LEFT JOIN と author へのフォールバックは外部キーがあるので不要。",
+        "本人確認と別タスク判定を API Route（[commentId]/route.ts）に直接書いており、src/lib/ に置かれていないため単体テストされていない。tests/comments.test.ts には他人のコメント削除（403）・別タスク・存在しないコメントのテストが無い。users を LEFT JOIN してフォールバックするなど、必要の薄い分岐もある。"
+      ],
+      "cost": 15.0,
+      "facts": {
+        "e2e_pass": 16,
+        "e2e_total": 16,
+        "e2e_failed": [],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "interventions": 0,
+        "questions": 0,
+        "completed": true,
+        "answer_key_access": [],
+        "code_added": 243,
+        "test_added": 45,
+        "artifacts": [],
+        "cost_usd": 0.3322,
+        "elapsed_seconds": 95,
+        "active_seconds": 87,
+        "turns": 19,
+        "subagents": 0,
+        "skills_used": [],
+        "denials": 2,
+        "commits": 1,
+        "package_json_changed": false,
+        "errors": ""
+      }
+    }
+  ],
+  "review_gaps": []
+}

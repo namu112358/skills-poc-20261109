@@ -48,6 +48,7 @@ def transcript_stats():
     # そのため費用・トークンは全 result の最後（累計）を使い、ターン数はステップごとの最後の result を足す。
     last_result = None
     questions = 0
+    active_ms = 0
     answer_key_access = []
     for step in sorted(RAW.glob("step*.jsonl"), key=lambda p: int(re.search(r"step(\d+)", p.name).group(1))):
         step_last = None
@@ -78,6 +79,7 @@ def transcript_stats():
                             answer_key_access.append(f"{name}: {json.dumps(c.get('input'), ensure_ascii=False)[:200]}")
         if step_last:
             turns += step_last.get("num_turns") or 0
+            active_ms += step_last.get("duration_ms") or 0
             if step_last.get("result"):
                 final_text.append(step_last["result"][-1500:])
             last_result = step_last
@@ -97,6 +99,8 @@ def transcript_stats():
         "skills_used": sorted(skills),
         "subagents": subagents,
         "questions": questions,
+        # 子セッションが実際に動いていた時間（ステップごとの result の duration_ms の合計。終了待ちで固まった時間を含まない）
+        "active_seconds": round(active_ms / 1000),
         "answer_key_access": answer_key_access,
         "final_message": final_text[-1] if final_text else "",
     }

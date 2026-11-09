@@ -77,7 +77,7 @@ def score(t, min_cost, reviews):
             "code_added": sum(f["added"] for f in files if f["kind"] == "code"),
             "test_added": sum(f["added"] for f in files if f["kind"] == "test"),
             "artifacts": [f["path"] for f in files if f["kind"] in ("doc", "tool-artifact")],
-            "cost_usd": tr["cost_usd"], "elapsed_seconds": t["elapsed_seconds"],
+            "cost_usd": tr["cost_usd"], "elapsed_seconds": t["elapsed_seconds"], "active_seconds": tr.get("active_seconds"),
             "turns": tr["turns"], "subagents": tr["subagents"], "skills_used": tr["skills_used"],
             "denials": len(tr["permission_denials"]), "commits": len(t["diff"]["commits"]),
             "package_json_changed": t["diff"]["package_json_changed"],
