@@ -37,7 +37,17 @@ cat > "$APP/.mcp.json" <<'JSON'
   "playwright":{"type":"stdio","command":"npx","args":["-y","@playwright/mcp@0.0.84"]},
   "next-devtools":{"type":"stdio","command":"npx","args":["-y","next-devtools-mcp@0.4.0"]}}}
 JSON
-( cd "$APP" && git init -q && git add -A && git -c user.name=poc -c user.email=poc@example.invalid commit -qm baseline )
+# W5（バグ修正）: 仕込みバグのパッチ（正解データ）を作業用コピーにだけ当ててから baseline コミットを作る。
+# バグは baseline の一部になるので、候補からは差分として見えない。パッチファイル自体は作業用コピーに置かない。
+# W5 以外は既定で当てない（POC_INJECT_PATCH で明示したときだけ当てる）。
+INJECT="${POC_INJECT_PATCH:-}"
+[[ -z "$INJECT" && "$SCENARIO" == W5 ]] && INJECT="$ROOT/docs/poc/answer-key/W5/bugs.patch"
+( cd "$APP" && git init -q )
+if [[ -n "$INJECT" ]]; then
+  git -C "$APP" apply "$INJECT"
+  sha256sum "$INJECT" | sed "s#$ROOT/##" > "$OUT/injected-patch"
+fi
+( cd "$APP" && git add -A && git -c user.name=poc -c user.email=poc@example.invalid commit -qm baseline )
 git -C "$APP" config user.name poc
 git -C "$APP" config user.email poc@example.invalid
 git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
@@ -137,6 +147,14 @@ else
     gstack) STEPS=("$TASK" "/review") ;;
   esac
 fi
+if [[ "$SCENARIO" == W5 ]]; then
+  # W5 の手順（docs/poc/tasks/wf-procedures.md）。gstack は /qa、Compound Engineering は /ce-debug に課題を渡す。
+  case "$CAND" in
+    baseline|superpowers|feature-dev) STEPS=("$TASK") ;;
+    compound-engineering) STEPS=("/ce-debug $TASK") ;;
+    gstack) STEPS=("/qa $TASK") ;;
+  esac
+fi
 
 # 1 試行の費用の上限（米ドル。空なら上限なし）。各ステップには、それまでの累計を引いた残りを --max-budget-usd で渡す。
 MAX_USD="${POC_MAX_TRIAL_USD:-}"
@@ -147,6 +165,7 @@ NUDGE="お任せします。確認は不要なので、課題を最後まで実�
 MAX_QA="${POC_MAX_QA_ROUNDS:-10}"
 QA_CLOSE="質問はここまでで締め切ります。残りはお任せします。ここまでの回答をもとに要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
 [[ "$SCENARIO" == W3 ]] && NUDGE="お任せします。確認は不要なので、要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
+[[ "$SCENARIO" == W5 ]] && NUDGE="お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。"
 
 session_cost() {  # これまでの全ステップの最後の result の total_cost_usd（--resume では累計）
   python3 -c '

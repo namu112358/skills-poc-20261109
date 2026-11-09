@@ -1,0 +1,174 @@
+{
+  "scenario": "W5",
+  "trial": "W5-gstack-1",
+  "candidate": "gstack",
+  "run": 1,
+  "elapsed_seconds": 50,
+  "errors": "",
+  "interventions": 0,
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "  type: 'test'\n      ...\n    1..4\nok 13 - validateTaskInput\n  ---\n  duration_ms: 962.692538\n  type: 'suite'\n  ...\n# Subtest: createTask / updateTask\n    # Subtest: creates a task and updates only the given fields\n    ok 1 - creates a task and updates only the given fields\n      ---\n      duration_ms: 119.573854\n      type: 'test'\n      ...\n    1..1\nok 14 - createTask / updateTask\n  ---\n  duration_ms: 119.88492\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.294086\n      type: 'test'\n      ...\n    1..1\nok 15 - isTaskStatus\n  ---\n  duration_ms: 0.390974\n  type: 'suite'\n  ...\n1..15\n# tests 22\n# suites 15\n# pass 22\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2265.410334\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "g 3 workers (6/8) \n✓ Generating static pages using 3 workers (8/8) in 133ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:20402) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:20395) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:20389) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "[B1] 200 文字ちょうどのタイトルでタスクを作成できる（201）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B1] 200 文字ちょうどのタイトルに更新できる（PATCH 200）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B1] 201 文字のタイトルは今までどおり 400",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B2] ログインの Cookie の有効期限は 7 日（Max-Age=604800）のまま",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B3] ステータスを変更すると API の一覧（絞り込み・すべて）に反映される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B3] ステータスを変更すると一覧画面（/tasks?status=…）に反映される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[B3] タイトル・担当者の変更も一覧に反映される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] 作成したタスクが一覧に出る・詳細画面が開ける・未ログインは 401",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": ".gstack/qa-reports/qa-report-poc-app-2026-11-09.md",
+        "added": 11,
+        "deleted": 0,
+        "kind": "doc"
+      },
+      {
+        "path": "src/lib/auth.ts",
+        "added": 1,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/tasks.ts",
+        "added": 3,
+        "deleted": 2,
+        "kind": "code"
+      },
+      {
+        "path": "tests/qa.regression-1.test.ts",
+        "added": 43,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      ".gstack/qa-reports/qa-report-poc-app-2026-11-09.md",
+      "tests/qa.regression-1.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "9f845cd fix(qa): 3 件の不具合を修正（タイトル 200 文字・セッション期限・一覧キャッシュ）"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.3093,
+    "tokens": {
+      "input": 14,
+      "output": 4085,
+      "cache_read": 487747,
+      "cache_creation": 54918
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 6,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "questions": 0,
+    "active_seconds": 41,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "3 件とも原因を特定して直し、1 つのコミットにまとめました（`9f845cd`）。`npm test`（22 件）と `npm run typecheck` は通っています。確認は単体テストだけで、ブラウザや実サーバーで報告どおりの手順をなぞる再現はしていません。\n\n| 報告 | 原因 | 修正 |\n|---|---|---|\n| 1. 200 文字のタイトルが登録できない | `src/lib/tasks.ts` の `validateTaskInput` が `length >= 200` で判定していた（登録・変更どちらにも同じ判定が効く） | `> 200` に変更。200 文字は通り、201 文字以上は今までどおり 400 |\n| 2. 10 分でログインが切れる | `src/lib/auth.ts` の `createSession` が、秒数（604800）をミリ秒として足していた。DB に入る期限が約 10 分後になり、Cookie の 7 日とずれていた | `SESSION_TTL_MS` を使うように変更し、7 日間有効になった |\n| 3. ステータスを変えても一覧に反映されない | `listTasks` が絞り込み条件ごとに結果をキャッシュしていて、`updateTask` ではそのキャッシュを破棄していなかった（登録時だけ破棄していた） | `updateTask` でもキャッシュを破棄するようにした |\n\n- **回帰テスト:** `tests/qa.regression-1.test.ts` に 3 件分を追加しました。修正前は 3 件とも失敗し、修正後は全部通ります。\n- **変更ファイル:** `src/lib/tasks.ts`、`src/lib/auth.ts`、上記テスト、レポート `.gstack/qa-reports/qa-report-poc-app-2026-11-09.md`。\n\nテストは最初にタスクの一覧キャッシュを温めてから `updateTask` を呼び、キャッシュ破棄を確認する形にしています。"
+  },
+  "w5": {
+    "hidden": {
+      "by_bug": {
+        "B1": true,
+        "B2": true,
+        "B3": true
+      },
+      "rows": [
+        {
+          "name": "[B1] validateTaskInput は 200 文字ちょうどのタイトルを受け付け、201 文字は拒否する",
+          "pass": true
+        },
+        {
+          "name": "[B2] セッションは 7 日間有効（1 時間後・7 日後の直前も有効、7 日を過ぎたら無効）",
+          "pass": true
+        },
+        {
+          "name": "[B3] updateTask の後の listTasks は、更新後の内容を返す（先に一覧を読んでいても）",
+          "pass": true
+        }
+      ]
+    },
+    "original_tests": {
+      "pass": 19,
+      "total": 19,
+      "failed": []
+    },
+    "regression": {
+      "files": [
+        "tests/qa.regression-1.test.ts"
+      ],
+      "by_bug": {
+        "B1": true,
+        "B2": true,
+        "B3": true
+      },
+      "evidence": {
+        "B1": [
+          "tests/qa.regression-1.test.ts: accepts exactly 200 chars and rejects 201 (create and partial update)"
+        ],
+        "B2": [
+          "tests/qa.regression-1.test.ts: session is still valid just under 7 days and expires after"
+        ],
+        "B3": [
+          "tests/qa.regression-1.test.ts: reflects status/title changes in filtered and unfiltered lists"
+        ]
+      },
+      "ref_failures": []
+    },
+    "injected_patch": "a336c47908fb67f6a019eb5f565cfe0bfeab5ebe3233501bb6be6a64fa88de80  docs/poc/answer-key/W5/bugs.patch"
+  }
+}

@@ -1,0 +1,94 @@
+diff --git a/src/app/api/login/route.ts b/src/app/api/login/route.ts
+index d5f0988..31789fe 100644
+--- a/src/app/api/login/route.ts
++++ b/src/app/api/login/route.ts
+@@ -2,7 +2,7 @@
+ // フォーム送信のときは画面遷移（303）、JSON のときは JSON で応答する。
+ import { NextResponse } from "next/server";
+ import { jsonError, readJson } from "@/lib/api";
+-import { SESSION_COOKIE, SESSION_TTL_MS, authenticate, createSession } from "@/lib/auth";
++import { SESSION_COOKIE, SESSION_TTL_SECONDS, authenticate, createSession } from "@/lib/auth";
+ 
+ export async function POST(request: Request) {
+   const isJson = (request.headers.get("content-type") ?? "").includes("application/json");
+@@ -33,7 +33,7 @@ export async function POST(request: Request) {
+     httpOnly: true,
+     sameSite: "lax",
+     path: "/",
+-    maxAge: SESSION_TTL_MS / 1000,
++    maxAge: SESSION_TTL_SECONDS,
+   });
+   return response;
+ }
+diff --git a/src/lib/auth.ts b/src/lib/auth.ts
+index 7ce3c64..90c143f 100644
+--- a/src/lib/auth.ts
++++ b/src/lib/auth.ts
+@@ -6,6 +6,8 @@ import type { User } from "./users.ts";
+ 
+ export const SESSION_COOKIE = "poc_session";
+ export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
++/** Cookie の Max-Age に使う（秒）。 */
++export const SESSION_TTL_SECONDS = SESSION_TTL_MS / 1000;
+ 
+ // 存在しないユーザーでも同じ計算量でパスワードを照合し、応答時間からユーザーの有無を推測されないようにする。
+ // ダミーのパスワードは起動ごとにランダムにし、推測で一致させられないようにする。
+@@ -24,7 +26,7 @@ export function authenticate(userId: string, password: string, db: Db = getDb())
+ 
+ export function createSession(userId: string, db: Db = getDb(), now: Date = new Date()): string {
+   const token = randomBytes(32).toString("hex");
+-  const expiresAt = new Date(now.getTime() + SESSION_TTL_MS).toISOString();
++  const expiresAt = new Date(now.getTime() + SESSION_TTL_SECONDS).toISOString();
+   db.prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)").run(token, userId, expiresAt);
+   return token;
+ }
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+index b533ce9..5ae32cc 100644
+--- a/src/lib/tasks.ts
++++ b/src/lib/tasks.ts
+@@ -32,11 +32,27 @@ function toTask(row: TaskRow): Task {
+   return { id: row.id, title: row.title, status: row.status, assignee: row.assignee, dueDate: row.due_date };
+ }
+ 
++// 一覧は表示のたびに呼ばれるので、DB ごと・絞り込み条件ごとに結果を覚えておく。タスクを追加したら破棄する。
++// 画面と API Route で同じものを使うよう、DB の接続と同じく globalThis に保持する。
++const globalForCache = globalThis as unknown as { __pocListCache?: WeakMap<Db, Map<string, Task[]>> };
++const listCache = (globalForCache.__pocListCache ??= new WeakMap());
++
++function clearListCache(db: Db): void {
++  listCache.delete(db);
++}
++
+ export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
++  const key = filter.status ?? "*";
++  let cache = listCache.get(db);
++  if (!cache) listCache.set(db, (cache = new Map()));
++  const cached = cache.get(key);
++  if (cached) return cached.map((t) => ({ ...t }));
+   const rows = db
+     .prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id")
+     .all({ status: filter.status ?? null }) as TaskRow[];
+-  return rows.map(toTask);
++  const tasks = rows.map(toTask);
++  cache.set(key, tasks);
++  return tasks.map((t) => ({ ...t }));
+ }
+ 
+ export function getTask(id: number, db: Db = getDb()): Task | undefined {
+@@ -76,7 +92,7 @@ export function validateTaskInput(
+   const need = (key: string) => !options.partial || key in b;
+ 
+   if (need("title")) {
+-    if (typeof b.title !== "string" || b.title.trim() === "" || b.title.length > 200) {
++    if (typeof b.title !== "string" || b.title.trim() === "" || b.title.length >= 200) {
+       errors.push("タイトルは 1〜200 文字で入力してください");
+     } else value.title = b.title.trim();
+   }
+@@ -102,6 +118,7 @@ export function createTask(input: TaskInput, db: Db = getDb()): Task {
+   const { lastInsertRowid } = db
+     .prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES (?, ?, ?, ?)")
+     .run(input.title, input.status, input.assignee, input.dueDate);
++  clearListCache(db);
+   return getTask(Number(lastInsertRowid), db)!;
+ }
+ 

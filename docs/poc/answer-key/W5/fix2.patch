@@ -1,0 +1,13 @@
+diff --git a/src/lib/auth.ts b/src/lib/auth.ts
+index 90c143f..cfb0d1f 100644
+--- a/src/lib/auth.ts
++++ b/src/lib/auth.ts
+@@ -26,7 +26,7 @@ export function authenticate(userId: string, password: string, db: Db = getDb())
+ 
+ export function createSession(userId: string, db: Db = getDb(), now: Date = new Date()): string {
+   const token = randomBytes(32).toString("hex");
+-  const expiresAt = new Date(now.getTime() + SESSION_TTL_SECONDS).toISOString();
++  const expiresAt = new Date(now.getTime() + SESSION_TTL_MS).toISOString();
+   db.prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)").run(token, userId, expiresAt);
+   return token;
+ }
