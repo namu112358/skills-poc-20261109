@@ -8,6 +8,7 @@
 | W1 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W2 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W3 | `<課題>` | `<課題>`（`brainstorming` の自動発火） | `/feature-dev:feature-dev <課題>`（確認質問のフェーズまで） | `/office-hours <課題>` → `/plan-ceo-review` | `/ce-brainstorm <課題>` |
+| W5 | `<課題>` | `<課題>`（`systematic-debugging` の自動発火） | `<課題>`（通常の指示） | `/qa <課題>` | `/ce-debug <課題>` |
 
 ### W2 以降の共通の決まり
 
@@ -24,6 +25,13 @@
 - 質問用のツール（`AskUserQuestion`）は外す（`--disallowedTools AskUserQuestion`）。質問はメッセージ本文で受ける。
 - 手順を終えて `REQUIREMENTS.md` がコミットされていなければ、定型の「お任せします。確認は不要なので、要件を REQUIREMENTS.md にまとめ、git にコミットしてください。」で続けさせる（最大 2 回）。
 - gstack は `/office-hours` の質問がやり取りで終わってから `/plan-ceo-review` に進む（そのステップの質問にも同じように答える）。
+
+### W5 の決まり（バグ修正）
+
+- 仕込みバグのパッチ（正解データ `docs/poc/answer-key/W5/bugs.patch`）を、`run-trial.sh` が作業用コピーにだけ当ててから baseline コミットを作る。バグは初期状態の一部になるので、候補からは差分として見えない。パッチファイル自体は作業用コピーに置かない（当てたパッチのハッシュを `raw/<試行ID>/injected-patch` に記録する）。W5 以外では当てない。
+- 課題文は利用者からの報告 3 件（再現手順と期待する動作）だけで、原因の場所やテストの追加は指示しない（テストについては `poc-app/CLAUDE.md` の規約 5 のとおり）。
+- 介入の定型文は「お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。」（最大 2 回）。
+- 採点は `scripts/poc/grade_w5.py`（`docs/poc/answer-key/W5/grading.md`）。
 
 ## 権限
 
