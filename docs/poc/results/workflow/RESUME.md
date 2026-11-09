@@ -7,7 +7,7 @@
 | W | 状態 | 担当セッション | ブランチ | 次にやること |
 |---|---|---|---|---|
 | W1〜W7、W9 | 完了（main にマージ済み。W4 #30、W6 #29、W7 #25・#33、W9 #31） | — | — | なし（W7 の 5 段階への延長はユーザーの判断待ち。`W7/report.md` の「次の対応」） |
-| W8 | 試行中（採点済み: baseline-1・superpowers-1・gstack-1・CE-1（上限 $10 で途中停止）。Feature Dev #1 は `W8/reference/` に移動（理由を担当に確認中）。実行中: CE-2 → gstack-2） | session_019av74gE6n8bVet8JqQ3wCU | agent/poc-w8 | `W8/RESUME.md`（W8 のブランチ）。残りの試行 → 採点 → report → draft PR |
+| W8 | 試行中（採点済み: baseline-1・superpowers-1・gstack-1・CE-1（上限 $10 で途中停止）。W8 の対象は PLAN §5.1 のシナリオ表どおり 3 候補（Superpowers・CE・gstack）+ baseline。Feature Dev #1 は参考値として `W8/reference/` に置き、#2 は行わない。実行中: CE-2 → gstack-2 → superpowers-2） | session_019av74gE6n8bVet8JqQ3wCU | agent/poc-w8 | `W8/RESUME.md`（W8 のブランチ）。残りの試行 → 採点 → report → draft PR |
 | W10 | 試行中（採点済み: baseline-1・superpowers-1・feature-dev-1・gstack-1・CE-1。実行中: CE-2 → gstack-2 → feature-dev-2 → superpowers-2） | session_019av74gC8xeeLG4NtmcmNsP | agent/poc-w10 | `W10/RESUME.md`（W10 のブランチ）。残りの試行 → ブラインドレビュー → 採点 → report → draft PR |
 | W11 | 設計案のみ（実在する OSS の解決済み課題。`docs/poc/tasks/wf-W11-design.md`） | session_01QR8ZDNZtzSVekzVB1b1Dux | claude/beautiful-davinci-yorkf8 | PLAN.md に加えるかはユーザーの判断待ち |
 
@@ -16,6 +16,7 @@ PoC 以外: README のツール一覧の分類（PR #34、session_019av74iw5vC2m
 ### コーディネーターが決めたこと（2026-11-09 15:35 UTC）
 
 - W8 の gstack の手順は PLAN §5.1 のまま（`/autoplan` → `/ship`）。#1・#2 をそろえるため。実装に届かなかったことは結果として書く。実装を挟む補足試行は本試行の後にユーザーが判断する。
+- W8 の対象が 3 候補であることに合わせ、PLAN.md の手順の表（W8 の Feature Dev の列）と試行数（全シナリオ 4 候補で数えている）の食い違いを、W8 の PR で注記する。
 - W8・W10 の PR は draft で作り、report と PLAN.md §6 の更新がそろったら Ready にする（`docs/github-writing.md` §4、#32）。
 
 ### ユーザーの判断待ち
