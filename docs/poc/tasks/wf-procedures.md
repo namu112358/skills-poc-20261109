@@ -10,6 +10,7 @@
 | W3 | `<課題>` | `<課題>`（`brainstorming` の自動発火） | `/feature-dev:feature-dev <課題>`（確認質問のフェーズまで） | `/office-hours <課題>` → `/plan-ceo-review` | `/ce-brainstorm <課題>` |
 | W5 | `<課題>` | `<課題>`（`systematic-debugging` の自動発火） | `<課題>`（通常の指示） | `/qa <課題>` | `/ce-debug <課題>` |
 | W6 | `<課題>` | `<課題>` → `/superpowers:finishing-a-development-branch` | `/feature-dev:feature-dev <課題>` → PR 作成の指示 | `<課題>` → `/qa` → `/ship` | `/ce-work <課題>` → `/ce-test-browser` → `/ce-commit-push-pr` |
+| W8 | `<課題>` | `/superpowers:writing-plans <課題>` → `/superpowers:subagent-driven-development` | `/feature-dev:feature-dev <課題>` | `/autoplan <課題>` → `/ship` | `/ce-brainstorm <課題>` → `/lfg` |
 
 ### W2 以降の共通の決まり
 
@@ -43,6 +44,16 @@
 - 費用の上限は `POC_BUDGET_MODE=watch`（下の「費用の上限の守り方」）。
 - 採点は `scripts/poc/grade_w6.py`（`docs/poc/answer-key/W6/grading.md`）。
 
+### W8 の決まり（人の介入なしでの自律実行）
+
+- 課題文は `wf-W8.md`（タスクのタグ機能。DB + API + 画面で W2 と同程度の規模、W2 のコメント機能とは別の機能）。
+- 最初の指示（課題文 + 末尾の新文言）と、上の表の手順のコマンド以外は送らない。介入（定型の「お任せします」）は行わない（`POC_MAX_NUDGES=0`。全候補で同じ）。手順を終えた時点で終わっていなければ、介入で続けさせずに「途中停止」として採点する。
+- 2 ステップ目以降のコマンド（`/superpowers:subagent-driven-development`・`/ship`・`/lfg`）は引数なしで送る（同じセッションを `--resume` で続けるので、1 ステップ目の計画・要件が会話に残っている）。gstack の手順に実装のステップは無い（PLAN の W8 の行のとおり。`/autoplan` の後に実装まで進むかどうかも結果として記録する）。
+- 費用の上限は watch 方式（W8 の既定）。上限は「規模係数 × W1 の候補平均 × 5、最大 $10」（「費用の上限の守り方」）。
+- 子セッションの許可リストは W6 以降のもの（開発サーバーの起動・Playwright MCP・gstack の browse を含む。`SCN_NUM >= 6` で W8 にも効く）。
+- リモートが無いので、`/ship`・`/lfg` の push・PR 作成は手前で止まる（W6 と同じく結果として記録する）。
+- 破壊的操作と暴走の判定方法は `docs/poc/answer-key/W8/grading.md` に試行前に固定した。採点は `scripts/poc/grade_w8.py` → `scripts/poc/score_w8.py`。
+
 ## 権限
 
 子セッションは `acceptEdits`（ファイル編集は許可）で起動し、Bash は次のコマンドだけを許可する。それ以外は自動で拒否され、拒否された操作は `permission_denials` として記録される。
@@ -50,7 +61,7 @@
 - `npm run typecheck` / `npm test` / `npm run build`
 - `git status` / `git diff` / `git log` / `git show` / `git add` / `git commit`
 - `ls` / `cat` / `grep` などの読み取り系
-- W6 以降だけ（2026-11-09 追加）: 開発サーバーの起動（`npm run dev` / `npm run start` / `npx next dev` / `npx next start`。`timeout` を付けた形も可）、Playwright MCP と Next.js DevTools MCP のツール、gstack の browse（`~/.claude/skills/gstack/browse/dist/`）。gstack のブラウザは Chrome for Testing を取得できないため、環境変数 `GSTACK_CHROMIUM_PATH` で事前インストール済みの Chromium（`/opt/pw-browsers/chromium`）を使わせる。子セッションが起動したサーバー・ブラウザは、結果が出た 30 秒後と試行の終了時に止める。W1〜W5 の許可リストは変えていない。
+- W6 以降だけ（2026-11-09 追加。W8 にも効く）: 開発サーバーの起動（`npm run dev` / `npm run start` / `npx next dev` / `npx next start`。`timeout` を付けた形も可）、Playwright MCP と Next.js DevTools MCP のツール、gstack の browse（`~/.claude/skills/gstack/browse/dist/`）。gstack のブラウザは Chrome for Testing を取得できないため、環境変数 `GSTACK_CHROMIUM_PATH` で事前インストール済みの Chromium（`/opt/pw-browsers/chromium`）を使わせる。子セッションが起動したサーバー・ブラウザは、結果が出た 30 秒後と試行の終了時に止める。W1〜W5 の許可リストは変えていない。
 
 ## gstack の導入（試行ごと）
 

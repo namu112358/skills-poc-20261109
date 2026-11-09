@@ -181,6 +181,17 @@ if [[ "$SCENARIO" == W6 ]]; then
     gstack) STEPS=("$TASK" "/qa" "/ship") ;;
   esac
 fi
+if [[ "$SCENARIO" == W8 ]]; then
+  # W8（人の介入なしでの自律実行）の手順（docs/poc/tasks/wf-procedures.md・PLAN.md §5.1 の W8 の行）。
+  # 介入（「お任せします」）は既定 0 回（POC_MAX_NUDGES の既定どおり）。最初の指示と手順のコマンド以外は送らない。
+  case "$CAND" in
+    baseline) STEPS=("$TASK") ;;
+    superpowers) STEPS=("/superpowers:writing-plans $TASK" "/superpowers:subagent-driven-development") ;;
+    feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
+    compound-engineering) STEPS=("/ce-brainstorm $TASK" "/lfg") ;;
+    gstack) STEPS=("/autoplan $TASK" "/ship") ;;
+  esac
+fi
 if [[ "$SCENARIO" == W5 ]]; then
   # W5 の手順（docs/poc/tasks/wf-procedures.md）。gstack は /qa、Compound Engineering は /ce-debug に課題を渡す。
   case "$CAND" in
