@@ -4,27 +4,31 @@
 
 ## 導入済みの必須ツール
 
-| 種別 | ツール | 導入方法 | 設定箇所 |
-|---|---|---|---|
-| MCP | GitHub MCP | リモート MCP（`api.githubcopilot.com/mcp/`） | `.mcp.json` |
-| MCP | Playwright MCP | `npx @playwright/mcp@0.0.84` | `.mcp.json` |
-| Skill | Frontend Design（Anthropic） | 固定コミットから vendoring | `.claude/skills/frontend-design` |
-| Skill | Web Design Guidelines（Vercel） | 固定コミットから vendoring | `.claude/skills/web-design-guidelines` |
-| Skill | Webapp Testing（Anthropic） | 固定コミットから vendoring | `.claude/skills/webapp-testing` |
-| Skill | Skill Creator（Anthropic） | 固定コミットから vendoring | `.claude/skills/skill-creator` |
-| Plugin | Impeccable | marketplace `pbakaus/impeccable` | `.claude/settings.json` |
-| Plugin | Security Guidance（Anthropic） | marketplace `claude-plugins-official` | `.claude/settings.json` |
-| Plugin | UI/UX Pro Max | marketplace `nextlevelbuilder/ui-ux-pro-max-skill` | `.claude/settings.json` |
+| 種別 | ツール | 提供元 | リポジトリ | 導入方法 | 設定箇所 |
+|---|---|---|---|---|---|
+| MCP | GitHub MCP | GitHub | [github/github-mcp-server](https://github.com/github/github-mcp-server) | リモート MCP（`api.githubcopilot.com/mcp/`） | `.mcp.json` |
+| MCP | Playwright MCP | Microsoft | [microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp) | `npx @playwright/mcp@0.0.84` | `.mcp.json` |
+| Skill | Frontend Design | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/frontend-design) | 固定コミットから vendoring | `.claude/skills/frontend-design` |
+| Skill | Web Design Guidelines | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines) | 固定コミットから vendoring | `.claude/skills/web-design-guidelines` |
+| Skill | Webapp Testing | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/webapp-testing) | 固定コミットから vendoring | `.claude/skills/webapp-testing` |
+| Skill | Skill Creator | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/skill-creator) | 固定コミットから vendoring | `.claude/skills/skill-creator` |
+| Plugin | Impeccable | Paul Bakaus | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | marketplace `pbakaus/impeccable` | `.claude/settings.json` |
+| Plugin | Security Guidance | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/security-guidance) | marketplace `claude-plugins-official` | `.claude/settings.json` |
+| Plugin | UI/UX Pro Max | nextlevelbuilder | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | marketplace `nextlevelbuilder/ui-ux-pro-max-skill` | `.claude/settings.json` |
 
 ### 採用技術・利用サービスに応じて追加するもの
 
 `scripts/add-stack.sh <stack>...` で、該当するプロジェクトにだけ追加します（`.mcp.json` と `.claude/skills/` を更新し、`.claude/settings.json` の `enabledMcpjsonServers` に登録）。
 
-| stack | 対象 | 追加されるもの | 認証 |
-|---|---|---|---|
-| `react-nextjs` | React / Next.js を使う場合 | Skills: React Best Practices、Composition Patterns、React View Transitions（Vercel）<br>MCP: Next.js DevTools（`next-devtools-mcp@0.4.0`。Next.js 16 以上の `next dev` 起動中に使う） | 不要 |
-| `sentry` | Sentry を使う場合 | MCP: Sentry（`https://mcp.sentry.dev/mcp`） | 初回接続時に OAuth（`/mcp` から） |
-| `cloudflare` | Cloudflare を使う場合 | MCP: Cloudflare API（`https://mcp.cloudflare.com/mcp`）、Cloudflare Docs（`https://docs.mcp.cloudflare.com/mcp`） | API は OAuth、Docs は不要 |
+| stack | 対象 | 種別 | ツール | 提供元 | リポジトリ | 認証 |
+|---|---|---|---|---|---|---|
+| `react-nextjs` | React / Next.js を使う場合 | Skill | React Best Practices | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/react-best-practices) | 不要 |
+| `react-nextjs` | 〃 | Skill | Composition Patterns | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/composition-patterns) | 不要 |
+| `react-nextjs` | 〃 | Skill | React View Transitions | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/react-view-transitions) | 不要 |
+| `react-nextjs` | 〃 | MCP | Next.js DevTools MCP（`next-devtools-mcp@0.4.0`。Next.js 16 以上の `next dev` 起動中に使う） | Vercel | [vercel/next-devtools-mcp](https://github.com/vercel/next-devtools-mcp) | 不要 |
+| `sentry` | Sentry を使う場合 | MCP | Sentry MCP（`https://mcp.sentry.dev/mcp`） | Sentry | [getsentry/sentry-mcp](https://github.com/getsentry/sentry-mcp) | 初回接続時に OAuth（`/mcp` から） |
+| `cloudflare` | Cloudflare を使う場合 | MCP | Cloudflare API MCP（`https://mcp.cloudflare.com/mcp`） | Cloudflare | [cloudflare/mcp](https://github.com/cloudflare/mcp) | OAuth |
+| `cloudflare` | 〃 | MCP | Cloudflare Docs MCP（`https://docs.mcp.cloudflare.com/mcp`） | Cloudflare | [cloudflare/mcp-server-cloudflare](https://github.com/cloudflare/mcp-server-cloudflare) | 不要 |
 
 ```bash
 scripts/add-stack.sh react-nextjs sentry
@@ -57,11 +61,15 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 
 計画書: [docs/poc/PLAN.md](docs/poc/PLAN.md)
 
-| カテゴリ | 第一候補 | 対抗候補 |
-|---|---|---|
-| 開発ワークフロー | Superpowers | Feature Dev |
-| セキュリティ監査 | Claude Security | Cloudflare Security Audit |
-| PR レビュー | Code Review | PR Review Toolkit |
+| カテゴリ | 位置づけ | ツール | 提供元 | リポジトリ |
+|---|---|---|---|---|
+| 開発ワークフロー | 第一候補 | Superpowers | Jesse Vincent（obra） | [obra/superpowers](https://github.com/obra/superpowers) |
+| 開発ワークフロー | 対抗候補 | Feature Dev | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/feature-dev) |
+| 開発ワークフロー | 併用検証（§5.5） | Ponytail | Dietrich Gebert | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) |
+| セキュリティ監査 | 第一候補 | Claude Security | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security) |
+| セキュリティ監査 | 対抗候補 | Cloudflare Security Audit | Cloudflare | [cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) |
+| PR レビュー | 第一候補 | Code Review | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-review) |
+| PR レビュー | 対抗候補 | PR Review Toolkit | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit) |
 
 ワークフローは勝者を決めた後、Ponytail を併用した場合の効果も検証します（計画書 §5.5）。
 
