@@ -1,0 +1,217 @@
+{
+  "scenario": "W7e",
+  "trial": "W7e-feature-dev-21",
+  "candidate": "feature-dev",
+  "run": 21,
+  "elapsed_seconds": 192,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "W7d-feature-dev-21",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "task title\n    ok 2 - lists oldest first (ties by smaller id), only the user's own, with the task title\n      ---\n      duration_ms: 111.235788\n      type: 'test'\n      ...\n    # Subtest: returns an empty list and 0 for a day without worklogs, and undefined for a bad date\n    ok 3 - returns an empty list and 0 for a day without worklogs, and undefined for a bad date\n      ---\n      duration_ms: 115.956623\n      type: 'test'\n      ...\n    # Subtest: does not change the per-task list\n    ok 4 - does not change the per-task list\n      ---\n      duration_ms: 121.741978\n      type: 'test'\n      ...\n    1..4\nok 30 - listWorklogsOnDate\n  ---\n  duration_ms: 464.609132\n  type: 'suite'\n  ...\n1..30\n# tests 74\n# suites 30\n# pass 74\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2966.935837\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "pi/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /api/tasks/[id]/completion\n├ ƒ /api/tasks/[id]/schedules\n├ ƒ /api/tasks/[id]/worklogs\n├ ƒ /api/tasks/[id]/worklogs/[worklogId]\n├ ƒ /login\n├ ƒ /my/worklogs\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:12020) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:12032) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:12026) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは 401",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "記録の無い期間は見出しの行だけ（200、CSV の Content-Type と添付のファイル名）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "自分の作業記録だけが古い順に 1 行ずつ出る（タスクの名前・作業時間・メモ）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "改行は CRLF",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ほかの人の CSV には自分の記録だけが出る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "from・to が無い・形式が違う・存在しない日付・from が to より後・31 日を超えるときは 400（CSV を返さない）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "期間の境界（ちょうど 31 日、from と to が同じ日）は受け付ける",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] タスクの作業記録の API は今までどおり使える",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "CLAUDE.md",
+        "added": 1,
+        "deleted": 1,
+        "kind": "doc"
+      },
+      {
+        "path": "src/app/api/me/worklogs/export/route.ts",
+        "added": 19,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/datetime.ts",
+        "added": 1,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/worklogs-csv.ts",
+        "added": 56,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/worklogs.ts",
+        "added": 11,
+        "deleted": 3,
+        "kind": "code"
+      },
+      {
+        "path": "tests/worklogs-csv.test.ts",
+        "added": 126,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/me/worklogs/export/route.ts",
+      "src/lib/worklogs-csv.ts",
+      "tests/worklogs-csv.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "600c428 作業記録を期間指定で CSV 出力する API を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 1.0663,
+    "tokens": {
+      "input": 116,
+      "output": 37963,
+      "cache_read": 2173534,
+      "cache_creation": 151478
+    },
+    "turns": 11,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i 's/validateExportRange(\\\"2026-01-31\\\", \\\"2026-03-02\\\").ok, false/validateExportRange(\\\"2026-01-31\\\", \\\"2026-03-02\\\").ok, true);\\\\n    assert.equal(validateExportRange(\\\"2026-01-31\\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run typecheck 2>&1 | tail -2; npm test 2>&1 | grep -E \\\"^# (pass|fail)\\\"; npm run build >/dev/null 2>&1; (PORT=3917 npm start >/tmp/claude-0/srv.log 2>&1 &); sleep 5\\nB=http://localho"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"PORT=3917 npm start\", \"run_in_background\": true}"
+      }
+    ],
+    "tool_calls": {
+      "Agent": 7,
+      "Grep": 13,
+      "ReadNotifications": 6,
+      "Read": 44,
+      "Glob": 6,
+      "Edit": 6,
+      "Write": 3,
+      "Bash": 10
+    },
+    "skills_used": [],
+    "subagents": 7,
+    "subagent_types": {
+      "feature-dev:code-explorer": 2,
+      "feature-dev:code-architect": 2,
+      "feature-dev:code-reviewer": 3
+    },
+    "questions": 0,
+    "active_seconds": 38,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`GET /api/me/worklogs/export?from=…&to=…` を追加し、コミットしました（`600c428`）。テスト 74 件・型チェック・ビルドは通っています。実際のサーバーを起動しての 401/400/200 の確認は、起動に承認が必要で無人実行では行えず、できていません。ルートのテストも既存の慣習どおり書いていないので、ルート自体（ヘッダーや 401/400 の返り方）は未確認です。\n\n## 作ったもの\n- **API:** ログイン中のユーザー自身の作業記録を、日本時間の `from`〜`to`（両端を含む）で、記録日時の古い順（同じなら ID の小さい順）に CSV で返します。\n- **エラー:**\n  - 未ログインは 401 です。\n  - `from` と `to` の欠落・形式違い・存在しない日付、`from` が `to` より後、31 日超は 400 で、CSV は返しません。\n- **CSV:** 見出しは `記録日時,タスク,作業時間（分）,メモ` で、改行は `\\r\\n` です。見出し行と各行の末尾にも `\\r\\n` が付きます。記録日時は画面と同じ `formatJst` の形、値の囲み方は仕様どおりです。記録が無いときは見出し行だけを返します。\n- **ヘッダー:** `Content-Type: text/csv; charset=utf-8` と、`Content-Disposition: attachment; filename=\"worklogs-<from>-<to>.csv\"` を付けます。\n\n## 実装\n- `src/lib/worklogs-csv.ts`（新規）に、期間の検証と CSV の組み立てを置きました。\n- ルートは `src/app/api/me/worklogs/export/route.ts` で、ログイン確認と呼び出しだけの薄い作りです。\n- 既存の `listWorklogsOnDate` のクエリを `listWorklogsBetween` に切り出して共用しました。動作は変えていません。\n- `DAY_MS` を `datetime.ts` から export しました。\n- 単体テストは `tests/worklogs-csv.test.ts` に追加しました（日本時間の日付境界、31/32 日の境界、他人の記録の除外、並び順、引用符の処理など）。\n- レビューは 3 観点で行い、指摘 2 件を反映しました。`DAY_MS` の重複解消と、`CLAUDE.md` の API 一覧への追記です。\n\n## 仕様にないので、判断した点\n- **UTF-8 の BOM は付けていません。** Windows の Excel は BOM が無いと、日本語が文字化けすることがあります。直接開く運用なら、ルートの先頭に `\\uFEFF` を足すのが手軽です。\n- **メモやタスク名の先頭が `=` `+` `-` `@` のとき、そのまま出力しています。** 表計算ソフトで数式として解釈される可能性があります。先頭に `'` を付ける対策は値を変えるので、入れていません。\n- **画面（リンクやボタン）は、指示どおり作っていません。**\n\nBOM と数式の扱いは、どちらも対応するか決めてください。"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": true,
+        "P2": true,
+        "P1_reasons": [],
+        "P2_failed": []
+      }
+    ],
+    "check_seconds": 5,
+    "auto_memory_disabled": true,
+    "control": false,
+    "memory": {
+      "in_app": [
+        "CLAUDE.md"
+      ],
+      "in_home": []
+    },
+    "memory_reads": [
+      {
+        "step": "step1.jsonl",
+        "tool": "Agent",
+        "match": "CLAUDE.md",
+        "input": "{\"subagent_type\": \"feature-dev:code-architect\", \"description\": \"Design CSV export (minimal)\", \"prompt\": \"Repo /tmp/poc-trials/W7a-feature-dev-21/app (read CLAUDE.md first). Design GET /api/me/worklogs"
+      },
+      {
+        "step": "step1.jsonl",
+        "tool": "Agent",
+        "match": "CLAUDE.md",
+        "input": "{\"subagent_type\": \"feature-dev:code-architect\", \"description\": \"Design CSV export (clean)\", \"prompt\": \"Repo /tmp/poc-trials/W7a-feature-dev-21/app (read CLAUDE.md first). Same feature: GET /api/me/wor"
+      },
+      {
+        "step": "step1.jsonl",
+        "tool": "Agent",
+        "match": "CLAUDE.md",
+        "input": "{\"subagent_type\": \"feature-dev:code-reviewer\", \"description\": \"Review: project conventions\", \"prompt\": \"In /tmp/poc-trials/W7a-feature-dev-21/app review the uncommitted changes (git diff plus new file"
+      },
+      {
+        "step": "step1.jsonl",
+        "tool": "Grep",
+        "match": "CLAUDE.md",
+        "input": "{\"pattern\": \"export\", \"path\": \"/tmp/poc-trials/W7a-feature-dev-21/app/CLAUDE.md\", \"output_mode\": \"content\"}"
+      },
+      {
+        "step": "step1.jsonl",
+        "tool": "Bash",
+        "match": "CLAUDE.md",
+        "input": "{\"command\": \"git add CLAUDE.md src tests && git commit -q -F - <<'EOF'\\n作業記録を期間指定で CSV 出力する API を追加\\n\\nGET /api/me/worklogs/export?from=YYYY-MM-DD&to=YYYY-MM-DD で、ログイン中の\\nユーザー自身の作業記録を、日本時間の from〜to（両端"
+      }
+    ]
+  }
+}
