@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """開発ワークフローの試行を採点し、results/workflow/<シナリオ>/<試行ID>.json に書き出す。
 
-使い方: python3 scripts/poc/grade.py <シナリオ> <試行ID>
+使い方: python3 scripts/poc/grade.py <シナリオ> <試行ID> [--cleanup | --cleanup-only]
   例:   python3 scripts/poc/grade.py W1 W1-superpowers-1
+  --cleanup:      採点して結果を書いた後、その試行の作業用コピーを片付ける
+  --cleanup-only: 採点せずに作業用コピーだけを片付ける（ブラインドレビューなどが済んだ後に使う）
+  どちらも付けなければ作業用コピーは残す（従来どおり）。
 """
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -15,8 +19,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIO, TRIAL = sys.argv[1], sys.argv[2]
-APP = ROOT / ".poc-work" / "trials" / TRIAL / "app"
+FLAGS = set(sys.argv[3:])
 RAW = ROOT / "docs" / "poc" / "results" / "workflow" / "raw" / TRIAL
+LEGACY_WORK = ROOT / ".poc-work" / "trials" / TRIAL
+# run-trial.sh が作業用コピーの場所を workdir に記録する（記録がない古い試行は .poc-work/trials/<ID>）
+WORK = Path((RAW / "workdir").read_text().strip()) if (RAW / "workdir").exists() else LEGACY_WORK
+APP = WORK / "app"
+TRIAL_ID = re.compile(r"\bW\d+[a-z]?-(?:baseline|superpowers|feature-dev|compound-engineering|gstack)-\d+\b")
 OUT = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO / f"{TRIAL}.json"
 
 # 候補が作る管理用ファイル（コード量の集計から除く。過剰さの判定では別に数える）
@@ -35,6 +44,36 @@ def free_port():
         return s.getsockname()[1]
 
 
+def isolation_reasons(text):
+    """ツール入力（切り詰める前の全文）から、自分の試行の外を参照している形跡を返す。
+
+    検出であって防止ではない（Bash の cat/ls/find/grep などはパスを制限できない）。
+    """
+    own = [str(WORK), str(WORK.resolve()) if WORK.exists() else str(WORK)]
+    t = text
+    for o in own:
+        t = t.replace(o, "<own>")
+    reasons = []
+    if str(ROOT) in t:
+        reasons.append("リポジトリ本体の絶対パス")
+    for root in ("/poc-trials/", ".poc-work/trials/"):
+        if root in t:
+            reasons.append("他の試行の作業用コピー")
+            break
+    others = sorted({m for m in TRIAL_ID.findall(t) if m != TRIAL})
+    if others:
+        reasons.append("他の試行 ID: " + ", ".join(others[:5]))
+    if re.search(r"(?:\.\./){2,}", t):
+        reasons.append("../ で作業用コピーの外に出る相対パス")
+    if "answer-key" in t:
+        reasons.append("answer-key")
+    if "docs/poc" in t:
+        reasons.append("docs/poc/")
+    if re.search(r"(?<![\w.-])results/", t):
+        reasons.append("results/")
+    return reasons
+
+
 def transcript_stats():
     cost = 0.0
     tokens = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
@@ -50,6 +89,7 @@ def transcript_stats():
     questions = 0
     active_ms = 0
     answer_key_access = []
+    isolation = []
     for step in sorted(RAW.glob("step*.jsonl"), key=lambda p: int(re.search(r"step(\d+)", p.name).group(1))):
         step_last = None
         for line in step.open():
@@ -74,9 +114,14 @@ def transcript_stats():
                             subagents += 1
                         if name == "AskUserQuestion":
                             questions += 1
+                        full = json.dumps(c.get("input"), ensure_ascii=False)
                         # 正解データ（docs/poc/answer-key/）を覗いていないか
-                        if "answer-key" in json.dumps(c.get("input"), ensure_ascii=False):
-                            answer_key_access.append(f"{name}: {json.dumps(c.get('input'), ensure_ascii=False)[:200]}")
+                        if "answer-key" in full:
+                            answer_key_access.append(f"{name}: {full[:200]}")
+                        # 試行間の独立性: 自分の作業用コピーの外を参照していないか（切り詰める前の全文で判定）
+                        reasons = isolation_reasons(full)
+                        if reasons:
+                            isolation.append({"step": step.name, "tool": name, "reasons": reasons, "input": full[:300]})
         if step_last:
             turns += step_last.get("num_turns") or 0
             active_ms += step_last.get("duration_ms") or 0
@@ -102,6 +147,8 @@ def transcript_stats():
         # 子セッションが実際に動いていた時間（ステップごとの result の duration_ms の合計。終了待ちで固まった時間を含まない）
         "active_seconds": round(active_ms / 1000),
         "answer_key_access": answer_key_access,
+        # 自分の試行の外（リポジトリ本体・他の試行・docs/poc/・results/・answer-key）を参照した形跡。空なら形跡なし
+        "isolation_suspects": isolation,
         "final_message": final_text[-1] if final_text else "",
     }
 
@@ -171,7 +218,21 @@ def run_key(name):
     return results
 
 
+def cleanup():
+    """作業用コピーを片付ける。片付けてよい場所（試行の置き場所の直下にある、この試行の ID のディレクトリ）だけを消す。"""
+    if WORK.name != TRIAL or not WORK.exists():
+        print(f"{TRIAL}: 作業用コピーなし（{WORK}）")
+        return
+    if (RAW / "diff.patch").exists() is False:
+        sys.exit(f"{TRIAL}: raw/{TRIAL}/diff.patch が無いため片付けない（成果が保存されていない）")
+    shutil.rmtree(WORK)
+    print(f"{TRIAL}: 作業用コピーを片付けた（{WORK}）")
+
+
 def main():
+    if "--cleanup-only" in FLAGS:
+        cleanup()
+        return
     checks, e2e, authz = acceptance()
     result = {
         "scenario": SCENARIO,
@@ -192,7 +253,10 @@ def main():
     OUT.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     passed = sum(1 for t in e2e if t["pass"])
     print(f"{TRIAL}: e2e {passed}/{len(e2e)} typecheck={checks['typecheck']['pass']} test={checks['test']['pass']} "
-          f"build={checks['build']['pass']} cost=${result['transcript']['cost_usd']} time={result['elapsed_seconds']}s")
+          f"build={checks['build']['pass']} cost=${result['transcript']['cost_usd']} time={result['elapsed_seconds']}s "
+          f"isolation_suspects={len(result['transcript']['isolation_suspects'])}")
+    if "--cleanup" in FLAGS:
+        cleanup()
 
 
 if __name__ == "__main__":
