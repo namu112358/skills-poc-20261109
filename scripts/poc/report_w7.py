@@ -7,7 +7,11 @@ import html
 import json
 import re
 import statistics
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import two_axis  # noqa: E402  2 本立ての点数（品質・効率。PLAN.md §4.4）の共通部品
 
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "docs" / "poc" / "results" / "workflow" / "W7"
@@ -218,6 +222,8 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
 
   <section class="summary">{''.join(f'<p>{x}</p>' for x in NOTES['summary'])}</section>
 
+  {two_axis.html_section("W7")}
+
   <h2>課題</h2>
   <div class="box">{NOTES['task_html']}</div>
 
@@ -286,6 +292,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
         "> HTML 版: [report.html](report.html)（同じデータから `scripts/poc/report_w7.py` で生成）", "",
     ]
     out += [md(x) + "\n" for x in NOTES["summary"]]
+    out += two_axis.md_section("W7") + [""]
     out += ["## 課題", "", md(NOTES["task_html"]), ""]
     out += ["## 結果の概要（平均点。W7a → W7b の 1 組ごとに採点）", "",
             "| 候補 | 組 | 合計 / 100 | 落とし穴（W7b）/ 50 | 所要時間の比 / 15 | 介入回数の比 / 15 | 受け入れテスト（W7b）/ 20 | 指摘前に避けた落とし穴 W7a → W7b | 平均費用 W7a → W7b | 平均時間（分）W7a → W7b |",

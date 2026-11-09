@@ -92,8 +92,13 @@ def score(a, b):
     int_pts = 15.0 if ib == 0 else round(15 * max(0, 1 - ib / (ia + 1)), 1)
     p, n = e2e(b)
     acc_pts = round(20 * p / n, 1) if n else 0
+    hb = half_facts(b)
     return {
         "pair": f"{b['candidate']}-{b['run']}", "trial_a": a["trial"], "trial_b": b["trial"],
+        # 2 本立ての共通部品（scripts/poc/two_axis.py）が読む形: 試行 ID と W7b の費用・時間・介入（「お任せします」+ 落とし穴の指摘）・質問
+        "trial": b["trial"],
+        "facts": {"cost_usd": hb["cost_usd"], "elapsed_seconds": hb["elapsed_seconds"],
+                  "interventions": interventions(b), "questions": hb["questions"]},
         "candidate": b["candidate"], "run": b["run"],
         "total": round(pit_pts + time_pts + int_pts + acc_pts, 1),
         "pitfalls": pit_pts, "time": time_pts, "interventions": int_pts, "acceptance": acc_pts,
