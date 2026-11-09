@@ -20,7 +20,7 @@ jobs:
         with:
           script: |
             // 必須の見出し。pull_request_template.md の見出しを変えたらここも合わせる
-            const required = ['概要', '変更内容', '検証結果', '関連 Issue'];
+            const required = ['概要', '背景・目的', '変更内容', '検証結果', '関連 Issue'];
             const body = (context.payload.pull_request.body ?? '').replace(/<!--[\s\S]*?-->/g, '');
             const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const problems = [];
@@ -28,8 +28,8 @@ jobs:
               const re = new RegExp(`^##\\s+${escape(h)}\\s*$([\\s\\S]*?)(?=^##\\s|(?![\\s\\S]))`, 'm');
               const m = body.match(re);
               if (!m) { problems.push(`見出し「${h}」がありません`); continue; }
-              // 未記入のチェックリスト行（例: "- [ ] 自動テスト:"）だけなら空とみなす
-              const content = m[1].replace(/^\s*-\s*\[ \]\s*[^\n]*:\s*$/gm, '').trim();
+              // 「:」で終わる未記入の項目行（例: "- [ ] 自動テスト:" / "- 変更前:"）だけなら空とみなす
+              const content = m[1].replace(/^\s*-\s*(\[ \]\s*)?[^\n]*:\s*$/gm, '').trim();
               if (!content) problems.push(`「${h}」が空です`);
             }
             if (problems.length) {
