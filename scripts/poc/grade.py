@@ -29,6 +29,13 @@ APP = WORK / "app"
 # W7b は W7a の作業用コピーと HOME を引き継ぐ（run-trial.sh が continued-from に W7a の試行 ID を記録する）。
 # W7a の作業用コピー・試行 ID への参照は自分の試行の一部として扱い、他の試行への参照とは分けて数える。
 CONTINUED_FROM = (RAW / "continued-from").read_text().strip() if (RAW / "continued-from").exists() else ""
+# 引き継ぎの連鎖（W7c → W7b → W7a など）の試行 ID と、実際に使った作業用コピーの名前は、他の試行に数えない
+SAME_CHAIN = {TRIAL, WORK.name}
+_prev = CONTINUED_FROM
+while _prev and _prev not in SAME_CHAIN:
+    SAME_CHAIN.add(_prev)
+    _cf = ROOT / "docs" / "poc" / "results" / "workflow" / "raw" / _prev / "continued-from"
+    _prev = _cf.read_text().strip() if _cf.exists() else ""
 TRIAL_ID = re.compile(r"\bW\d+[a-z]?-(?:baseline|superpowers|feature-dev|compound-engineering|gstack)-\d+\b")
 OUT = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO / ("supplement" if "--supplement" in FLAGS else "") / f"{TRIAL}.json"
 
@@ -64,7 +71,7 @@ def isolation_reasons(text):
         if root in t:
             reasons.append("他の試行の作業用コピー")
             break
-    others = sorted({m for m in TRIAL_ID.findall(t) if m not in (TRIAL, CONTINUED_FROM)})
+    others = sorted({m for m in TRIAL_ID.findall(t) if m not in SAME_CHAIN})
     if others:
         reasons.append("他の試行 ID: " + ", ".join(others[:5]))
     if re.search(r"(?:\.\./){2,}", t):

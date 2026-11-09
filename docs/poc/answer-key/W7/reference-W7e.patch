@@ -1,0 +1,91 @@
+diff --git a/src/app/api/me/worklogs/export/route.ts b/src/app/api/me/worklogs/export/route.ts
+new file mode 100644
+index 0000000..6f5aeae
+--- /dev/null
++++ b/src/app/api/me/worklogs/export/route.ts
+@@ -0,0 +1,18 @@
++// GET /api/me/worklogs/export?from=YYYY-MM-DD&to=YYYY-MM-DD — 自分の作業記録の CSV。ログインが必要。エラーは JSON で返す。
++import { currentApiUser, withApi } from "@/lib/api";
++import { ValidationError } from "@/lib/errors";
++import { exportMyWorklogs, validateExportRange } from "@/lib/worklog-export";
++
++export const GET = withApi(async (request) => {
++  const user = await currentApiUser();
++  const params = new URL(request.url).searchParams;
++  const range = validateExportRange(params.get("from"), params.get("to"));
++  if (!range.ok) throw new ValidationError(range.errors);
++  const { from, to } = range.value;
++  return new Response(exportMyWorklogs(user.id, from, to), {
++    headers: {
++      "Content-Type": "text/csv; charset=utf-8",
++      "Content-Disposition": `attachment; filename="worklogs-${from}-${to}.csv"`,
++    },
++  });
++});
+diff --git a/src/lib/worklog-export.ts b/src/lib/worklog-export.ts
+new file mode 100644
+index 0000000..c7e72d7
+--- /dev/null
++++ b/src/lib/worklog-export.ts
+@@ -0,0 +1,32 @@
++import { formatJst, isValidDate, jstDayRange } from "./datetime.ts";
++import { getDb, type Db } from "./db/index.ts";
++import type { ValidationResult } from "./tasks.ts";
++import { listMyWorklogs, type MyWorklog } from "./worklogs.ts";
++
++export const EXPORT_MAX_DAYS = 31;
++
++/** 出力する期間（日本時間の日付 from〜to、両端を含む）を検証する。 */
++export function validateExportRange(from: unknown, to: unknown): ValidationResult<{ from: string; to: string }> {
++  if (!isValidDate(from) || !isValidDate(to)) return { ok: false, errors: ["from・to は YYYY-MM-DD 形式で指定してください"] };
++  const start = Date.parse(jstDayRange(from).start);
++  const end = Date.parse(jstDayRange(to).end);
++  if (start >= end) return { ok: false, errors: ["from は to 以前の日付にしてください"] };
++  if ((end - start) / 86_400_000 > EXPORT_MAX_DAYS) return { ok: false, errors: [`期間は ${EXPORT_MAX_DAYS} 日以内にしてください`] };
++  return { ok: true, value: { from, to } };
++}
++
++function csvValue(v: string | number): string {
++  const s = String(v);
++  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
++}
++
++/** 作業記録の CSV（見出し + 1 件 1 行、改行は CRLF）。記録日時は画面と同じ日本時間の表示にする。 */
++export function worklogsCsv(worklogs: MyWorklog[]): string {
++  const lines = [["記録日時", "タスク", "作業時間（分）", "メモ"].join(",")];
++  for (const w of worklogs) lines.push([formatJst(w.recordedAt), w.taskTitle, w.minutes, w.note].map(csvValue).join(","));
++  return lines.join("\r\n") + "\r\n";
++}
++
++export function exportMyWorklogs(userId: string, from: string, to: string, db: Db = getDb()): string {
++  return worklogsCsv(listMyWorklogs(userId, from, to, db));
++}
+diff --git a/tests/worklog-export.test.ts b/tests/worklog-export.test.ts
+new file mode 100644
+index 0000000..8c57fd2
+--- /dev/null
++++ b/tests/worklog-export.test.ts
+@@ -0,0 +1,23 @@
++import assert from "node:assert/strict";
++import { test } from "node:test";
++import { openDb } from "../src/lib/db/index.ts";
++import { exportMyWorklogs, validateExportRange } from "../src/lib/worklog-export.ts";
++import { createWorklog } from "../src/lib/worklogs.ts";
++
++test("validateExportRange は形式・順序・31 日を検証する", () => {
++  assert.equal(validateExportRange("2026-11-01", "2026-11-30").ok, true);
++  assert.equal(validateExportRange("2026-11-01", "2026-12-01").ok, true);
++  assert.equal(validateExportRange("2026-11-01", "2026-12-02").ok, false);
++  assert.equal(validateExportRange("2026-11-02", "2026-11-01").ok, false);
++  assert.equal(validateExportRange("2026-11-01", null).ok, false);
++});
++
++test("exportMyWorklogs は日本時間の期間で絞り、記録日時を日本時間で出し、値を CSV の規則で囲む", () => {
++  const db = openDb();
++  createWorklog({ taskId: 3, author: "sato", minutes: 10, note: "" }, db, new Date("2026-11-09T14:59:00Z"));
++  createWorklog({ taskId: 3, author: "sato", minutes: 20, note: 'a,"b"' }, db, new Date("2026-11-09T15:00:00Z"));
++  assert.equal(
++    exportMyWorklogs("sato", "2026-11-10", "2026-11-10", db),
++    '記録日時,タスク,作業時間（分）,メモ\r\n2026/11/10 00:00,API 設計,20,"a,""b"""\r\n',
++  );
++});

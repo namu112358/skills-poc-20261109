@@ -13,6 +13,7 @@
 | W6 | `<課題>` | `<課題>` → `/superpowers:finishing-a-development-branch` | `/feature-dev:feature-dev <課題>` → PR 作成の指示 | `<課題>` → `/qa` → `/ship` | `/ce-work <課題>` → `/ce-test-browser` → `/ce-commit-push-pr` |
 | W7a | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` →（落とし穴の指摘の後）`/ce-compound` |
 | W7b | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
+| W7c〜W7e | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` →（落とし穴の指摘の後、最後の段階を除き）`/ce-compound` |
 | W9 | `<課題>` | `/superpowers:requesting-code-review <課題>` | 「Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。」+ `<課題>` | `/review <課題>` | `/ce-code-review <課題>` |
 
 ### W2 以降の共通の決まり
@@ -60,6 +61,7 @@
 - W7a（完了報告）と W7b（作業記録）を、同じ候補・同じ回で続けて行う（`run-trial.sh W7a <候補> <回>` → 採点 → `run-trial.sh W7b <候補> <回>`）。W7b は新しいセッション（`--resume` しない）で始める。
 - W7a は、落とし穴の決まり（日時は UTC で保存し JST で表示する、独自のエラー型を使う）への移行の途中の初期状態（正解データ `docs/poc/answer-key/W7/base.patch`）を、W5 と同じように作業用コピーにだけ当ててから始める。
 - 段階は W7c 以降に増やせる（2 段階目以降は 1 つ前の段階を引き継ぐ。足し方は `grading.md` の「段階を増やすとき」）。
+- 5 段階（W7a〜W7e、回 21・22。2026-11-09 追加）: `scripts/poc/w7_chain.sh <候補> <回> 7.67 W7e` で続けて行う（`POC_W7_LAST_STAGE=W7e`。Compound Engineering の `/ce-compound` は W7a〜W7d の後）。W7c〜W7e の手順は W7b と同じ。対照は W7e だけ（`POC_W7_CONTROL=1`、回 31）。課題と採点は `grading.md` の「5 段階への延長」。
 - 対照（`POC_W7_CONTROL=1`、回の番号 11）: W7b を、W7a を引き継がずに新しい作業用コピー（`base.patch` + `reference-W7a.patch`）と新しい HOME で行う。候補の記憶が無いときとの差を見る。
 - W7b は新しい作業用コピーを作らず、W7a の作業用コピー（W7a の変更を含む app）と専用 HOME をそのまま使う（既定は同じ候補・同じ回の W7a。`POC_CONTINUE_FROM=<W7a の試行 ID>` で指定できる。`raw/<W7b の試行 ID>/continued-from` に記録）。W7a の終了時点を W7b の baseline コミットにし、作業ブランチ `poc/wf/<候補>/W7b/<回>` を切る。
   - 候補が残したもの（Compound Engineering の `docs/solutions/`、gstack の学習データ、候補が自分で書いた `CLAUDE.md`・メモなど）はそのまま W7b に残る。人・ハーネスは `CLAUDE.md` に追記しない。記憶の仕組みを持たない候補は、何も足されない状態で W7b を行う。

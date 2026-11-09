@@ -147,7 +147,8 @@ def quality_efficiency(s, base):
 
 
 def main():
-    trials = {p.stem: json.loads(p.read_text()) for p in sorted(DIR.glob("W7[ab]-*.json"))}
+    # 2 段階の組（回 1〜19）と、その対照だけ。5 段階の組（回 21・22）と対照（回 31）は score_w7_chain.py で集計する
+    trials = {p.stem: json.loads(p.read_text()) for p in sorted(DIR.glob("W7[ab]-*.json")) if int(p.stem.rsplit("-", 1)[1]) < 20}
     scores, controls = [], []
     for tid, b in sorted(trials.items()):
         if not tid.startswith("W7b-"):

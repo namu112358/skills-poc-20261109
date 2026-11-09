@@ -29,6 +29,9 @@ if [[ "$SCENARIO" =~ ^W7([b-z])$ ]]; then
     PREV_STAGE="W7$(printf "\\$(printf '%03o' $(( $(printf '%d' "'${BASH_REMATCH[1]}") - 1 )))")"
     CONTINUE_FROM="${POC_CONTINUE_FROM:-$PREV_STAGE-$CAND-$RUN}"
     WORK="$TRIALS/$CONTINUE_FROM"
+    # 前の段階も引き継いでいた（W7c 以降）ときは、その段階が実際に使った作業用コピー（raw/<前の段階>/workdir）をたどる
+    PREV_WORKDIR="$ROOT/docs/poc/results/workflow/raw/$CONTINUE_FROM/workdir"
+    [[ -f "$PREV_WORKDIR" ]] && WORK="$(cat "$PREV_WORKDIR")"
     [[ -d "$WORK/app/.git" && -d "$WORK/home" ]] || { echo "$SCENARIO: 引き継ぐ前の段階の作業用コピーがない: $WORK" >&2; exit 1; }
   fi
 fi

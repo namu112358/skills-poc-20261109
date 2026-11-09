@@ -1,0 +1,224 @@
+diff --git a/src/app/api/tasks/[id]/schedules/route.ts b/src/app/api/tasks/[id]/schedules/route.ts
+new file mode 100644
+index 0000000..2ade782
+--- /dev/null
++++ b/src/app/api/tasks/[id]/schedules/route.ts
+@@ -0,0 +1,24 @@
++// GET /api/tasks/:id/schedules — 予定（開始日時の早い順） / POST — 予定を登録する（担当者だけ）。ログインが必要。
++import { NextResponse } from "next/server";
++import { currentApiUser, readJson, withApi } from "@/lib/api";
++import { NotFoundError, ValidationError } from "@/lib/errors";
++import { createSchedule, listSchedules, validateScheduleInput } from "@/lib/schedules";
++import { getTask, parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string }> };
++
++export const GET = withApi(async (_request, { params }: Context) => {
++  await currentApiUser();
++  const taskId = parseTaskId((await params).id);
++  if (taskId === undefined || !getTask(taskId)) throw new NotFoundError("タスクが見つかりません");
++  return NextResponse.json({ schedules: listSchedules(taskId) });
++});
++
++export const POST = withApi(async (request, { params }: Context) => {
++  const user = await currentApiUser();
++  const taskId = parseTaskId((await params).id);
++  if (taskId === undefined || !getTask(taskId)) throw new NotFoundError("タスクが見つかりません");
++  const result = validateScheduleInput(await readJson(request));
++  if (!result.ok) throw new ValidationError(result.errors);
++  return NextResponse.json({ schedule: createSchedule({ taskId, userId: user.id, ...result.value }) }, { status: 201 });
++});
+diff --git a/src/app/tasks/[id]/page.tsx b/src/app/tasks/[id]/page.tsx
+index 94dc1b7..20e8245 100644
+--- a/src/app/tasks/[id]/page.tsx
++++ b/src/app/tasks/[id]/page.tsx
+@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
+ import { listComments } from "@/lib/comments";
+ import { getCompletion } from "@/lib/completions";
+ import { formatJst } from "@/lib/datetime";
++import { listSchedules } from "@/lib/schedules";
+ import { requireUser } from "@/lib/session";
+ import { STATUS_LABELS, getTask, parseTaskId } from "@/lib/tasks";
+ import { getUser } from "@/lib/users";
+@@ -20,6 +21,7 @@ export default async function TaskDetailPage({ params }: Props) {
+   const assignee = getUser(task.assignee);
+   const completion = getCompletion(task.id);
+   const worklogs = listWorklogs(task.id);
++  const schedules = listSchedules(task.id);
+ 
+   return (
+     <main>
+@@ -69,6 +71,20 @@ export default async function TaskDetailPage({ params }: Props) {
+           </>
+         )}
+       </section>
++      <section>
++        <h2>予定</h2>
++        {schedules.length === 0 ? (
++          <p>予定はありません。</p>
++        ) : (
++          <ul>
++            {schedules.map((s) => (
++              <li key={s.id} data-testid="schedule">
++                <strong>{s.title}</strong> <time dateTime={s.startsAt}>{formatJst(s.startsAt)}</time>（{s.createdByName}）
++              </li>
++            ))}
++          </ul>
++        )}
++      </section>
+       <Comments taskId={task.id} currentUserId={user.id} comments={listComments(task.id)} />
+     </main>
+   );
+diff --git a/src/lib/datetime.ts b/src/lib/datetime.ts
+index 8badee6..94cd9c8 100644
+--- a/src/lib/datetime.ts
++++ b/src/lib/datetime.ts
+@@ -39,3 +39,15 @@ export function jstDayRange(date: string, days = 1): { start: string; end: strin
+   const start = Date.UTC(y, m - 1, d) - JST_OFFSET_MS;
+   return { start: new Date(start).toISOString(), end: new Date(start + days * 24 * 60 * 60 * 1000).toISOString() };
+ }
++
++const LOCAL_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
++
++/** 日時入力欄の値（日本時間の YYYY-MM-DDTHH:mm）を、保存用の日時（ISO 8601 形式の UTC）にする。正しくなければ undefined。 */
++export function jstLocalToUtcIso(value: unknown): string | undefined {
++  if (typeof value !== "string") return undefined;
++  const m = LOCAL_RE.exec(value);
++  if (!m) return undefined;
++  const [y, mo, d, h, mi] = m.slice(1).map(Number);
++  if (h > 23 || mi > 59 || !isValidDate(`${m[1]}-${m[2]}-${m[3]}`)) return undefined;
++  return new Date(Date.UTC(y, mo - 1, d, h, mi) - JST_OFFSET_MS).toISOString();
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 098d670..4ec2f02 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -79,4 +79,19 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX worklogs_task ON worklogs(task_id, recorded_at);
+     `,
+   },
++  {
++    version: 6,
++    name: "schedules",
++    sql: `
++      CREATE TABLE schedules (
++        id         INTEGER PRIMARY KEY AUTOINCREMENT,
++        task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
++        created_by TEXT NOT NULL REFERENCES users(id),
++        title      TEXT NOT NULL,
++        starts_at  TEXT NOT NULL, -- ISO 8601（UTC）
++        created_at TEXT NOT NULL  -- ISO 8601（UTC）
++      );
++      CREATE INDEX schedules_task ON schedules(task_id, starts_at);
++    `,
++  },
+ ];
+diff --git a/src/lib/schedules.ts b/src/lib/schedules.ts
+new file mode 100644
+index 0000000..e1632f9
+--- /dev/null
++++ b/src/lib/schedules.ts
+@@ -0,0 +1,67 @@
++import { jstLocalToUtcIso, toUtcIso } from "./datetime.ts";
++import { getDb, type Db } from "./db/index.ts";
++import { ConflictError, ForbiddenError, NotFoundError } from "./errors.ts";
++import { getTask, type ValidationResult } from "./tasks.ts";
++
++export type Schedule = {
++  id: number;
++  taskId: number;
++  createdBy: string;
++  createdByName: string;
++  title: string;
++  startsAt: string; // ISO 8601（UTC）
++  createdAt: string; // ISO 8601（UTC）
++};
++
++export const SCHEDULE_TITLE_MAX_LENGTH = 100;
++
++type Row = { id: number; task_id: number; created_by: string; created_by_name: string; title: string; starts_at: string; created_at: string };
++
++const SELECT =
++  "SELECT s.id, s.task_id, s.created_by, u.name AS created_by_name, s.title, s.starts_at, s.created_at FROM schedules s JOIN users u ON u.id = s.created_by";
++
++function toSchedule(r: Row): Schedule {
++  return { id: r.id, taskId: r.task_id, createdBy: r.created_by, createdByName: r.created_by_name, title: r.title, startsAt: r.starts_at, createdAt: r.created_at };
++}
++
++/** 開始日時の早い順（同じなら ID の小さい順）。 */
++export function listSchedules(taskId: number, db: Db = getDb()): Schedule[] {
++  return (db.prepare(`${SELECT} WHERE s.task_id = ? ORDER BY s.starts_at, s.id`).all(taskId) as Row[]).map(toSchedule);
++}
++
++export function getSchedule(id: number, db: Db = getDb()): Schedule | undefined {
++  const r = db.prepare(`${SELECT} WHERE s.id = ?`).get(id) as Row | undefined;
++  return r && toSchedule(r);
++}
++
++/** startsAt は日時入力欄の値（日本時間の YYYY-MM-DDTHH:mm）。保存用の UTC に変換して返す。 */
++export function validateScheduleInput(body: unknown): ValidationResult<{ title: string; startsAt: string }> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  const title = typeof b.title === "string" ? b.title.trim() : "";
++  if (title.length < 1 || title.length > SCHEDULE_TITLE_MAX_LENGTH) {
++    errors.push(`件名は 1〜${SCHEDULE_TITLE_MAX_LENGTH} 文字で入力してください`);
++  }
++  const startsAt = jstLocalToUtcIso(b.startsAt);
++  if (!startsAt) errors.push("開始日時は YYYY-MM-DDTHH:mm 形式で入力してください");
++  if (errors.length > 0) return { ok: false, errors };
++  return { ok: true, value: { title, startsAt: startsAt! } };
++}
++
++export function createSchedule(
++  input: { taskId: number; userId: string; title: string; startsAt: string },
++  db: Db = getDb(),
++  now: Date = new Date(),
++): Schedule {
++  const task = getTask(input.taskId, db);
++  if (!task) throw new NotFoundError("タスクが見つかりません");
++  if (task.assignee !== input.userId) throw new ForbiddenError("予定を登録できるのはタスクの担当者だけです");
++  if (task.status === "done") throw new ConflictError("完了したタスクには予定を登録できません");
++  const { lastInsertRowid } = db
++    .prepare("INSERT INTO schedules (task_id, created_by, title, starts_at, created_at) VALUES (?, ?, ?, ?, ?)")
++    .run(input.taskId, input.userId, input.title, input.startsAt, toUtcIso(now));
++  return getSchedule(Number(lastInsertRowid), db)!;
++}
+diff --git a/tests/schedules.test.ts b/tests/schedules.test.ts
+new file mode 100644
+index 0000000..98bb719
+--- /dev/null
++++ b/tests/schedules.test.ts
+@@ -0,0 +1,30 @@
++import assert from "node:assert/strict";
++import { test } from "node:test";
++import { jstLocalToUtcIso } from "../src/lib/datetime.ts";
++import { openDb } from "../src/lib/db/index.ts";
++import { createSchedule, listSchedules, validateScheduleInput } from "../src/lib/schedules.ts";
++
++test("jstLocalToUtcIso は日本時間の入力を UTC にする", () => {
++  assert.equal(jstLocalToUtcIso("2026-11-20T10:00"), "2026-11-20T01:00:00.000Z");
++  assert.equal(jstLocalToUtcIso("2026-11-20T08:30"), "2026-11-19T23:30:00.000Z");
++  assert.equal(jstLocalToUtcIso("2026-02-30T10:00"), undefined);
++  assert.equal(jstLocalToUtcIso("2026-11-20T24:00"), undefined);
++  assert.equal(jstLocalToUtcIso("2026-11-20 10:00"), undefined);
++});
++
++test("validateScheduleInput は件名と開始日時を検証する", () => {
++  assert.equal(validateScheduleInput({ title: " ", startsAt: "2026-11-20T10:00" }).ok, false);
++  assert.deepEqual(validateScheduleInput({ title: " レビュー ", startsAt: "2026-11-20T10:00" }), {
++    ok: true,
++    value: { title: "レビュー", startsAt: "2026-11-20T01:00:00.000Z" },
++  });
++});
++
++test("createSchedule は担当者だけが登録でき、開始日時の早い順に並ぶ", () => {
++  const db = openDb();
++  const late = createSchedule({ taskId: 3, userId: "sato", title: "B", startsAt: "2026-11-20T05:00:00.000Z" }, db);
++  const early = createSchedule({ taskId: 3, userId: "sato", title: "A", startsAt: "2026-11-20T01:00:00.000Z" }, db);
++  assert.deepEqual(listSchedules(3, db).map((s) => s.id), [early.id, late.id]);
++  assert.throws(() => createSchedule({ taskId: 3, userId: "suzuki", title: "X", startsAt: early.startsAt }, db), /担当者/);
++  assert.throws(() => createSchedule({ taskId: 1, userId: "sato", title: "X", startsAt: early.startsAt }, db), /完了/);
++});
