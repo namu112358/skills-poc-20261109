@@ -158,13 +158,15 @@ def main():
         a = trials.get("W7a-" + tid[4:])
         if a:
             scores.append(score(a, b))
-    base = next((s["b"] for s in scores if s["candidate"] == "baseline"), None)
+    # 効率の基準は baseline の W7b の平均（two_axis.py と同じ。baseline が 1 組だけのときはその値）
+    bs = [s["b"] for s in scores if s["candidate"] == "baseline"]
+    base = bs and {"cost_usd": sum(x["cost_usd"] for x in bs) / len(bs), "elapsed_seconds": sum(x["elapsed_seconds"] for x in bs) / len(bs)}
     if base:
         for s in scores + controls:
             s.setdefault("pitfalls", 0)
             quality_efficiency(s, base)
     (DIR / "scores.json").write_text(json.dumps({"scores": scores, "controls": controls,
-                                                 "efficiency_base": base and {"cost_usd": base["cost_usd"], "elapsed_seconds": base["elapsed_seconds"]}},
+                                                 "efficiency_base": base and {"cost_usd": round(base["cost_usd"], 4), "elapsed_seconds": round(base["elapsed_seconds"], 1)}},
                                                 ensure_ascii=False, indent=2) + "\n")
     for c in controls:
         print(f"control {c['trial']:24} pit={c['pitfalls']} acc={c['acceptance']} time={c['b']['elapsed_seconds']}s first={c['b']['pitfalls_first']}")
