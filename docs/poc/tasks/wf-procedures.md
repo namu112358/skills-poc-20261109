@@ -93,6 +93,6 @@
 
 - 1 試行の上限は「規模係数（その W の baseline の実額 ÷ W1 baseline $0.15）× W1 の候補平均 × 5、最大 $10」（ユーザー承認済み。$10 を超える上限が要るときだけユーザーに確認する）。規模係数と上限は各 W の report.md の判断の記録に残す。
 - W5 までは上限を `--max-budget-usd` で子セッションに渡していた（`POC_BUDGET_MODE=flag`、既定）。この値は子セッションのモデルに「USD budget: $0/$0.9; $0.9 remaining」のように見え、予算を意識して工程を減らした例があった（W1 の Feature Dev 再試行）。
-- W6 からは `POC_BUDGET_MODE=watch` にする。`--max-budget-usd` を渡さず、`run-trial.sh` が実行中のトークン使用量から費用を見積もり、上限に達したら子セッションを止める（`raw/<試行ID>/budget-stopped` に見積額を記録し、`grade.py` は `budget_stopped` に転記する）。
+- W6 からは `POC_BUDGET_MODE=watch` にする（`run-trial.sh` の既定はシナリオで決まり、W1〜W5 は `flag`、W6 以降（W7a・W7b・W8 を含む）は `watch`。環境変数で上書きでき、使った方式は `raw/<試行ID>/budget-mode` に記録する）。W4 は 2 回目を `watch` で行い、1 回目（`flag`）と比べる。`--max-budget-usd` を渡さず、`run-trial.sh` が実行中のトークン使用量から費用を見積もり、上限に達したら子セッションを止める（`raw/<試行ID>/budget-stopped` に見積額を記録し、`grade.py` は `budget_stopped` に転記する）。
   - 見積もりの単価（米ドル / 100 万トークン。`POC_RATE_IN`・`POC_RATE_OUT`・`POC_RATE_CACHE_READ`・`POC_RATE_CACHE_5M`・`POC_RATE_CACHE_1H`）は、2026-11-09 に claude-sonnet-5-5 の実測（result の costUSD）から求めた値を既定にしている。較正用の 2 回では、見積もりは実額の −13%〜+7% だった。
   - 見積もりは応答が 1 つ終わるごとに更新されるため、1 回の長い応答の途中では止まらない。安全のための打ち切りであり、正式な費用は従来どおり result の `total_cost_usd`。
