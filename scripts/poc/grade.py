@@ -26,6 +26,9 @@ LEGACY_WORK = ROOT / ".poc-work" / "trials" / TRIAL
 # run-trial.sh が作業用コピーの場所を workdir に記録する（記録がない古い試行は .poc-work/trials/<ID>）
 WORK = Path((RAW / "workdir").read_text().strip()) if (RAW / "workdir").exists() else LEGACY_WORK
 APP = WORK / "app"
+# W7b は W7a の作業用コピーと HOME を引き継ぐ（run-trial.sh が continued-from に W7a の試行 ID を記録する）。
+# W7a の作業用コピー・試行 ID への参照は自分の試行の一部として扱い、他の試行への参照とは分けて数える。
+CONTINUED_FROM = (RAW / "continued-from").read_text().strip() if (RAW / "continued-from").exists() else ""
 TRIAL_ID = re.compile(r"\bW\d+[a-z]?-(?:baseline|superpowers|feature-dev|compound-engineering|gstack)-\d+\b")
 OUT = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO / ("supplement" if "--supplement" in FLAGS else "") / f"{TRIAL}.json"
 
@@ -61,7 +64,7 @@ def isolation_reasons(text):
         if root in t:
             reasons.append("他の試行の作業用コピー")
             break
-    others = sorted({m for m in TRIAL_ID.findall(t) if m != TRIAL})
+    others = sorted({m for m in TRIAL_ID.findall(t) if m not in (TRIAL, CONTINUED_FROM)})
     if others:
         reasons.append("他の試行 ID: " + ", ".join(others[:5]))
     if re.search(r"(?:\.\./){2,}", t):
@@ -202,7 +205,11 @@ def acceptance():
                 except OSError:
                     time.sleep(1)
             env = dict(os.environ, NODE_PATH=subprocess.run("npm root -g", shell=True, capture_output=True, text=True).stdout.strip())
-            key = ROOT / "docs" / "poc" / "answer-key" / SCENARIO / "acceptance.cjs"
+            # W7a・W7b の受け入れテストは answer-key/W7/acceptance-<シナリオ>.cjs（それ以外は answer-key/<シナリオ>/acceptance.cjs）
+            if SCENARIO.startswith("W7"):
+                key = ROOT / "docs" / "poc" / "answer-key" / "W7" / f"acceptance-{SCENARIO}.cjs"
+            else:
+                key = ROOT / "docs" / "poc" / "answer-key" / SCENARIO / "acceptance.cjs"
             code, log = run(f"node {key} http://127.0.0.1:{port}", timeout=180, env=env)
             try:
                 e2e = json.loads(log.strip().splitlines()[-1])
@@ -215,6 +222,9 @@ def acceptance():
 
 def cleanup():
     """作業用コピーを片付ける。片付けてよい場所（試行の置き場所の直下にある、この試行の ID のディレクトリ）だけを消す。"""
+    if CONTINUED_FROM:
+        print(f"{TRIAL}: 作業用コピーは {CONTINUED_FROM} のもの。片付けは grade.py W7a {CONTINUED_FROM} --cleanup-only で行う")
+        return
     if WORK.name != TRIAL or not WORK.exists():
         print(f"{TRIAL}: 作業用コピーなし（{WORK}）")
         return
@@ -240,6 +250,9 @@ def main():
         # run-trial.sh の watch モードで費用の見積もりが上限に達して止めたとき（無ければ空）。止めたステップの費用は result に含まれない
         "budget_stopped": (RAW / "budget-stopped").read_text().strip() if (RAW / "budget-stopped").exists() else "",
         "interventions": len((RAW / "interventions.log").read_text().splitlines()) if (RAW / "interventions.log").exists() else 0,
+        # W7: 落とし穴を避けられなかったときに送ったレビューの定型の指摘の回数（W7 以外は 0）と、引き継いだ W7a の試行 ID
+        "feedback_rounds": len((RAW / "feedback.log").read_text().splitlines()) if (RAW / "feedback.log").exists() else 0,
+        "continued_from": CONTINUED_FROM,
         "checks": checks,
         "e2e": e2e,
         "diff": diff_stats(),

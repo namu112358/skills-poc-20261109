@@ -6,6 +6,8 @@
 # 作業用コピー（既定は /tmp/poc-trials/<ID>。POC_TRIAL_ROOT で変更可）で、専用の HOME を使って Claude Code をヘッドレスで起動する。
 # 作業用コピーをリポジトリの外に置くのは、正解データ（docs/poc/answer-key/）や他の試行の結果へ相対パスで辿れないようにするため。
 # 置き場所は raw/<ID>/workdir に記録し、grade.py はそこを読む（記録がなければ旧来の .poc-work/trials/<ID>）。
+# W7b（W7 の後半）は新しい作業用コピーを作らず、W7a の作業用コピー（W7a の変更を含む app）と専用 HOME をそのまま使う
+#（既定は同じ候補・同じ回の W7a。POC_CONTINUE_FROM=<W7a の試行 ID> で指定できる）。docs/poc/tasks/wf-procedures.md の「W7 の決まり」。
 # 子セッションの権限は docs/poc/tasks/wf-procedures.md の「権限」のとおり（全許可にはしない）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -15,11 +17,22 @@ MODEL="${POC_MODEL:-claude-sonnet-5-5}"
 ID="$SCENARIO-$CAND-$RUN"
 TRIALS="${POC_TRIAL_ROOT:-/tmp/poc-trials}"
 WORK="$TRIALS/$ID"
+CONTINUE_FROM=""
+if [[ "$SCENARIO" == W7b ]]; then
+  CONTINUE_FROM="${POC_CONTINUE_FROM:-W7a-$CAND-$RUN}"
+  WORK="$TRIALS/$CONTINUE_FROM"
+  [[ -d "$WORK/app/.git" && -d "$WORK/home" ]] || { echo "W7b: 引き継ぐ W7a の作業用コピーがない: $WORK" >&2; exit 1; }
+fi
 APP="$WORK/app"
 HOME_DIR="$WORK/home"
 OUT="$ROOT/docs/poc/results/workflow/raw/$ID"
 
-rm -rf "$WORK" "$OUT"; mkdir -p "$APP" "$HOME_DIR" "$OUT"
+if [[ -n "$CONTINUE_FROM" ]]; then
+  rm -rf "$OUT"; mkdir -p "$OUT"
+  echo "$CONTINUE_FROM" > "$OUT/continued-from"
+else
+  rm -rf "$WORK" "$OUT"; mkdir -p "$APP" "$HOME_DIR" "$OUT"
+fi
 echo "$WORK" > "$OUT/workdir"
 
 # 1) 評価用アプリのコピー（node_modules を含む）と、常時有効な Skills・MCP
@@ -27,6 +40,11 @@ echo "$WORK" > "$OUT/workdir"
 # 再試行するときなどに、その版を取り出したディレクトリを指定する。使ったコピー元は raw/<ID>/app-src に記録する。
 APP_SRC="${POC_APP_SRC:-$ROOT/poc-app}"
 [[ -n "${POC_APP_SRC:-}" ]] && echo "$APP_SRC" > "$OUT/app-src"
+if [[ -n "$CONTINUE_FROM" ]]; then
+  # W7b: W7a の終了時点（コミット済み）を baseline にし、W7b の作業ブランチを切る。アプリのコピー・パッチ・Skills の配置はしない
+  git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
+  git -C "$APP" switch -q -c "poc/wf/$CAND/$SCENARIO/$RUN"
+else
 cp -a "$APP_SRC/." "$APP/"
 rm -rf "$APP/.next" "$APP"/*.tsbuildinfo
 mkdir -p "$APP/.claude"
@@ -39,9 +57,11 @@ cat > "$APP/.mcp.json" <<'JSON'
 JSON
 # W5（バグ修正）: 仕込みバグのパッチ（正解データ）を作業用コピーにだけ当ててから baseline コミットを作る。
 # バグは baseline の一部になるので、候補からは差分として見えない。パッチファイル自体は作業用コピーに置かない。
-# W5 以外は既定で当てない（POC_INJECT_PATCH で明示したときだけ当てる）。
+# W7a: 落とし穴の決まり（日時・エラー型）を含む既存機能の初期状態（answer-key/W7/base.patch）を同じように当てる。
+# W5・W7a 以外は既定で当てない（POC_INJECT_PATCH で明示したときだけ当てる）。
 INJECT="${POC_INJECT_PATCH:-}"
 [[ -z "$INJECT" && "$SCENARIO" == W5 ]] && INJECT="$ROOT/docs/poc/answer-key/W5/bugs.patch"
+[[ -z "$INJECT" && "$SCENARIO" == W7a ]] && INJECT="$ROOT/docs/poc/answer-key/W7/base.patch"
 ( cd "$APP" && git init -q )
 if [[ -n "$INJECT" ]]; then
   git -C "$APP" apply "$INJECT"
@@ -54,6 +74,7 @@ git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
 # 試行は作業ブランチの上で始める（W2 以降。W1 で gstack の /review が master 直コミットのため差分なしで止まったため）
 #（W1 は master のまま。W1 の手順を同じ条件で再実行できるようにするため）
 [[ "$SCENARIO" != W1 ]] && git -C "$APP" switch -q -c "poc/wf/$CAND/$SCENARIO/$RUN"
+fi
 
 # 2) 必須プラグイン + 候補プラグイン（すべて固定コミット。scripts/poc/fetch-plugins.sh で取得）
 #    Skill が自分の参照ファイル（references/*.md など）を読めるよう、試行ごとの作業領域にコピーして
@@ -61,7 +82,10 @@ git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
 PLUG="$WORK/plugins"; mkdir -p "$PLUG"
 PLUG_EXTRA=()
 CPO="$CACHE/claude-plugins-official/plugins"
-copy_plugin() { cp -a "$1" "$PLUG/$2"; rm -rf "$PLUG/$2/.git"; PLUGINS+=(--plugin-dir "$PLUG/$2"); }
+copy_plugin() {  # W7b は W7a でコピーしたものをそのまま使う
+  [[ -n "$CONTINUE_FROM" && -d "$PLUG/$2" ]] || { cp -a "$1" "$PLUG/$2"; rm -rf "$PLUG/$2/.git"; }
+  PLUGINS+=(--plugin-dir "$PLUG/$2")
+}
 PLUGINS=()
 copy_plugin "$CPO/security-guidance" security-guidance
 copy_plugin "$CPO/typescript-lsp" typescript-lsp
@@ -77,6 +101,11 @@ case "$CAND" in
     # setup を実行する（チーム用の自動更新フックなし・plan-tune フックなし）。
     # ブラウザ（Chrome for Testing）は環境のネットワーク制限で取得できないため --no-browser。
     GSTACK="$HOME_DIR/.claude/skills/gstack"
+    if [[ -n "$CONTINUE_FROM" ]]; then
+      # W7b: W7a で入れた gstack と、その状態・学習データ（専用 HOME）をそのまま使う
+      [[ -x "$GSTACK/bin/gstack-config" ]] || { echo "W7b: W7a の gstack がない: $GSTACK" >&2; exit 1; }
+      PLUG_EXTRA=(--add-dir "$GSTACK")
+    else
     mkdir -p "$HOME_DIR/.claude/skills"
     cp -a "$CACHE/gstack" "$GSTACK"
     ( cd "$GSTACK" && HOME="$HOME_DIR" ./setup --host claude --no-team --no-plan-tune-hooks --no-browser --quiet ) > "$OUT/gstack-setup.log" 2>&1
@@ -85,6 +114,7 @@ case "$CAND" in
     HOME="$HOME_DIR" "$GSTACK/bin/gstack-config" set codex_reviews disabled >> "$OUT/gstack-setup.log" 2>&1
     HOME="$HOME_DIR" "$GSTACK/bin/gstack-config" get telemetry >> "$OUT/gstack-setup.log" 2>&1
     PLUG_EXTRA=(--add-dir "$GSTACK")
+    fi
     ;;
   *) echo "unknown candidate: $CAND" >&2; exit 1 ;;
 esac
@@ -147,6 +177,9 @@ else
     gstack) STEPS=("$TASK" "/review") ;;
   esac
 fi
+# W7a の後の手順（Compound Engineering は学んだことを残す /ce-compound。落とし穴の指摘のやり取りが終わってから行う）
+POST_STEPS=()
+[[ "$SCENARIO" == W7a && "$CAND" == compound-engineering ]] && POST_STEPS=("/ce-compound")
 if [[ "$SCENARIO" == W5 ]]; then
   # W5 の手順（docs/poc/tasks/wf-procedures.md）。gstack は /qa、Compound Engineering は /ce-debug に課題を渡す。
   case "$CAND" in
@@ -175,6 +208,17 @@ MAX_QA="${POC_MAX_QA_ROUNDS:-10}"
 QA_CLOSE="質問はここまでで締め切ります。残りはお任せします。ここまでの回答をもとに要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
 [[ "$SCENARIO" == W3 ]] && NUDGE="お任せします。確認は不要なので、要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
 [[ "$SCENARIO" == W5 ]] && NUDGE="お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。"
+# W7: 手順を終えた後、落とし穴 2 件を判定し（scripts/poc/check_w7.py）、避けられなかったものをレビューの定型の指摘で直させる回数の上限。
+# 判定にかかった時間は所要時間から除く（check-seconds）。W7 以外は 0（判定しない）。
+MAX_FEEDBACK="${POC_MAX_FEEDBACK:-0}"
+[[ "$SCENARIO" == W7a || "$SCENARIO" == W7b ]] && MAX_FEEDBACK="${POC_MAX_FEEDBACK:-2}"
+# Claude Code 自身の自動メモリ（~/.claude/projects/<作業用コピー>/memory/）は候補の記憶の仕組みではないため、
+# W7 では W7a・W7b とも全候補で止める（W7b は W7a の HOME を引き継ぐので、止めないと全候補に同じ記憶が残る）。W7 以外は既定のまま。
+AUTO_MEMORY_ENV=()
+if [[ "${POC_DISABLE_AUTO_MEMORY:-}" == 1 ]] || [[ -z "${POC_DISABLE_AUTO_MEMORY:-}" && ( "$SCENARIO" == W7a || "$SCENARIO" == W7b ) ]]; then
+  AUTO_MEMORY_ENV=(CLAUDE_CODE_DISABLE_AUTO_MEMORY=1)
+  echo 1 > "$OUT/auto-memory-disabled"
+fi
 
 session_cost() {  # これまでの全ステップの最後の result の total_cost_usd（--resume では累計）
   python3 -c '
@@ -252,7 +296,7 @@ run_step() {  # run_step <番号> <プロンプト>
   if [[ -n "$MAX_USD" && "$BUDGET_MODE" == flag ]]; then
     BUDGET=(--max-budget-usd "$(python3 -c "print(max(0.01, round($MAX_USD - $(session_cost), 2)))")")
   fi
-  ( cd "$APP" && HOME="$HOME_DIR" timeout "${POC_STEP_TIMEOUT:-2400}" claude -p "$prompt" \
+  ( cd "$APP" && env HOME="$HOME_DIR" "${AUTO_MEMORY_ENV[@]}" timeout "${POC_STEP_TIMEOUT:-2400}" claude -p "$prompt" \
       --model "$MODEL" --permission-mode acceptEdits --allowedTools "${ALLOWED[@]}" \
       --mcp-config "$APP/.mcp.json" --strict-mcp-config --add-dir "$PLUG" "${PLUG_EXTRA[@]}" \
       "${PLUGINS[@]}" "${RESUME[@]}" "${BUDGET[@]}" \
@@ -328,7 +372,29 @@ for _ in $(seq 1 "$MAX_NUDGES"); do
   run_step "$i" "$NUDGE"
   qa_loop
 done
-echo $(( $(date +%s) - START )) > "$OUT/elapsed-seconds"
+
+# W7: 落とし穴の判定と、避けられなかったときのレビューの定型の指摘（最大 MAX_FEEDBACK 回）。
+# 判定の結果は pitfalls-<回>.json（1 回目が「指摘を受ける前」の状態）。指摘した回は feedback.log に記録する。
+CHECK_SECONDS=0
+if [[ "$MAX_FEEDBACK" -gt 0 ]]; then
+  : > "$OUT/feedback.log"
+  for r in $(seq 1 $((MAX_FEEDBACK + 1))); do
+    c0=$(date +%s)
+    fb="$(python3 "$ROOT/scripts/poc/check_w7.py" "$SCENARIO" "$APP" "$OUT/pitfalls-$r.json" --feedback 2>> "$OUT/errors.log")" || true
+    CHECK_SECONDS=$((CHECK_SECONDS + $(date +%s) - c0))
+    [[ -z "$fb" || "$r" -gt "$MAX_FEEDBACK" ]] && break
+    if over_budget; then echo "feedback skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
+    i=$((i+1))
+    echo "step$i round=$r" >> "$OUT/feedback.log"
+    run_step "$i" "$fb"
+  done
+fi
+echo "$CHECK_SECONDS" > "$OUT/check-seconds"
+for step in "${POST_STEPS[@]}"; do
+  if over_budget; then echo "post step skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
+  i=$((i+1)); run_step "$i" "$step"
+done
+echo $(( $(date +%s) - START - CHECK_SECONDS )) > "$OUT/elapsed-seconds"
 
 # 5) 成果物の保存（コミット済み・未コミットの両方を含む差分）
 ( cd "$APP" && git add -A && git commit -qm "poc: uncommitted leftovers" ) || true
