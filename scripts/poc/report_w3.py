@@ -60,7 +60,7 @@ def main():
     cands = [c for c in ORDER if c in by_cand]
 
     def mean(c, key):
-        return round(statistics.mean(s[key] for s in by_cand[c]), 1)
+        return float(round(statistics.mean(s[key] for s in by_cand[c]), 1))
 
     def mean_fact(c, key):
         return statistics.mean(s["facts"][key] for s in by_cand[c])
@@ -107,8 +107,8 @@ def main():
         rows.append(f"""
         <tr>
           <th scope="row">{e(LABEL[c])} #{s['run']}</th>
-          <td class="num">{s['total']}</td><td class="num">{s['hidden']}</td><td class="num">{s['quality']}</td>
-          <td class="num">{s['scope']}</td><td class="num">{s['burden']}</td>
+          <td class="num">{s['total']:.1f}</td><td class="num">{s['hidden']:.1f}</td><td class="num">{s['quality']:.1f}</td>
+          <td class="num">{s['scope']:.1f}</td><td class="num">{s['burden']}</td>
           <td class="num">{f['questions']}</td><td class="num">{f['duplicates']}</td><td class="num">{f['rounds']}</td>
           <td>{e(f['doc_source'])}（{f['doc_lines']} 行）</td>
           <td class="num">{f['interventions']}</td>
@@ -293,7 +293,7 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|"]
     for c, s in runs_sorted:
         f = s["facts"]
-        out.append(f"| {LABEL[c]} #{s['run']} | {s['total']} | {s['hidden']} | {s['quality']} | {s['scope']} | {s['burden']} | "
+        out.append(f"| {LABEL[c]} #{s['run']} | {s['total']:.1f} | {s['hidden']:.1f} | {s['quality']:.1f} | {s['scope']:.1f} | {s['burden']} | "
                    f"{f['questions']} | {f['duplicates']} | {f['rounds']} | {cell(f['doc_source'])}（{f['doc_lines']} 行） | {f['interventions']} | "
                    f"${f['cost_usd']:.2f} | {f['elapsed_seconds'] / 60:.1f} | {f['turns']} | {f['subagents']} | {cell(', '.join(f['skills_used']) or '—')} |")
     out += ["", "## 隠れ要件ごとの反映（平均。各 4 点）", "",
