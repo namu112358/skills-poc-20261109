@@ -8,6 +8,11 @@ W7/scores.json に書き出す。
   W7b の介入回数の W7a 比 15         = W7b が 0 回なら 15、それ以外は 15 × max(0, 1 − W7b /（W7a + 1））。介入 = 「お任せします」+ 落とし穴の指摘
   W7b の受け入れテスト 20            = 20 × 合格数 / 総数
   正解データを読んだ形跡があれば、落とし穴の 50 点は 0
+
+学習の効き目を直接見る記録（点数には入れない）:
+  memory_used: W7a が残したもの（作業用コピーの変更ファイル・専用 HOME のファイル）を W7b で読んだ形跡
+  repeated:    W7a で指摘を受けた落とし穴を、W7b でも指摘の前に避けられなかったもの（同じ間違いの繰り返し）
+  control:     前の段階を引き継がない対照（W7b を新しい作業用コピー + W7a の参照実装で実行。run-trial.sh の POC_W7_CONTROL=1）
 """
 import json
 from pathlib import Path
@@ -57,6 +62,20 @@ def half_facts(t):
     }
 
 
+def memory_used(a, b):
+    """W7a が残したもの（変更ファイル・HOME のファイル）を、W7b のツール入力が名指しした件数。"""
+    mem = a["w7"].get("memory", {})
+    names = set(mem.get("in_app", []))
+    names |= {Path(x).name for x in mem.get("in_home", []) if Path(x).suffix in (".md", ".jsonl", ".json", ".yaml", ".yml")}
+    hits = []
+    for r in b["w7"].get("memory_reads", []):
+        for n in names:
+            if n and n in r["input"]:
+                hits.append({"file": n, "tool": r["tool"], "step": r["step"]})
+                break
+    return hits
+
+
 def score(a, b):
     peeked = bool(a["transcript"].get("answer_key_access") or b["transcript"].get("answer_key_access"))
     pit = first_pitfalls(b)
@@ -75,19 +94,34 @@ def score(a, b):
         "time_ratio": round(r, 2), "interventions_a": ia, "interventions_b": ib,
         "a": half_facts(a), "b": half_facts(b),
         "memory": a["w7"].get("memory", {}), "memory_reads": b["w7"].get("memory_reads", []),
+        "memory_used": memory_used(a, b),
+        "repeated": [p for p in ("P1", "P2") if not first_pitfalls(a)[p] and not first_pitfalls(b)[p]],
+        "learned": [p for p in ("P1", "P2") if not first_pitfalls(a)[p] and first_pitfalls(b)[p]],
     }
+
+
+def control(b):
+    p, n = e2e(b)
+    return {"trial": b["trial"], "candidate": b["candidate"], "run": b["run"], "b": half_facts(b),
+            "pitfalls": 25 * first_pitfalls(b)["P1"] + 25 * first_pitfalls(b)["P2"],
+            "acceptance": round(20 * p / n, 1) if n else 0, "interventions_b": interventions(b)}
 
 
 def main():
     trials = {p.stem: json.loads(p.read_text()) for p in sorted(DIR.glob("W7[ab]-*.json"))}
-    scores = []
+    scores, controls = [], []
     for tid, b in sorted(trials.items()):
         if not tid.startswith("W7b-"):
+            continue
+        if b["w7"].get("control"):
+            controls.append(control(b))
             continue
         a = trials.get("W7a-" + tid[4:])
         if a:
             scores.append(score(a, b))
-    (DIR / "scores.json").write_text(json.dumps({"scores": scores}, ensure_ascii=False, indent=2) + "\n")
+    (DIR / "scores.json").write_text(json.dumps({"scores": scores, "controls": controls}, ensure_ascii=False, indent=2) + "\n")
+    for c in controls:
+        print(f"control {c['trial']:24} pit={c['pitfalls']} acc={c['acceptance']} time={c['b']['elapsed_seconds']}s first={c['b']['pitfalls_first']}")
     for s in scores:
         print(f"{s['pair']:26} total={s['total']:5} pit={s['pitfalls']:2} time={s['time']:4} (r={s['time_ratio']}) "
               f"int={s['interventions']:4} ({s['interventions_a']}→{s['interventions_b']}) acc={s['acceptance']:4} "

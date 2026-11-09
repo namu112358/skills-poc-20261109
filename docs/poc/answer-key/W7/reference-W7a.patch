@@ -1,26 +1,32 @@
 diff --git a/src/app/api/tasks/[id]/completion/route.ts b/src/app/api/tasks/[id]/completion/route.ts
 new file mode 100644
-index 0000000..1b85589
+index 0000000..05ffb4b
 --- /dev/null
 +++ b/src/app/api/tasks/[id]/completion/route.ts
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,35 @@
 +// GET/POST/DELETE /api/tasks/:id/completion — 完了報告の取得・報告・取り消し。ログインが必要。
 +import { NextResponse } from "next/server";
-+import { readJson, requireApiUser, withApi } from "@/lib/api";
++import { currentApiUser, readJson, withApi } from "@/lib/api";
 +import { cancelCompletion, completeTask, getCompletion, validateCompletionInput } from "@/lib/completions";
-+import { ValidationError } from "@/lib/errors";
-+import { requireTaskId } from "@/lib/tasks";
++import { NotFoundError, ValidationError } from "@/lib/errors";
++import { getTask, parseTaskId } from "@/lib/tasks";
++
++function requireTaskId(value: string): number {
++  const id = parseTaskId(value);
++  if (id === undefined || !getTask(id)) throw new NotFoundError("タスクが見つかりません");
++  return id;
++}
 +
 +type Context = { params: Promise<{ id: string }> };
 +
 +export const GET = withApi(async (_request, { params }: Context) => {
-+  await requireApiUser();
++  await currentApiUser();
 +  const taskId = requireTaskId((await params).id);
 +  return NextResponse.json({ completion: getCompletion(taskId) });
 +});
 +
 +export const POST = withApi(async (request, { params }: Context) => {
-+  const user = await requireApiUser();
++  const user = await currentApiUser();
 +  const taskId = requireTaskId((await params).id);
 +  const result = validateCompletionInput(await readJson(request));
 +  if (!result.ok) throw new ValidationError(result.errors);
@@ -28,7 +34,7 @@ index 0000000..1b85589
 +});
 +
 +export const DELETE = withApi(async (_request, { params }: Context) => {
-+  const user = await requireApiUser();
++  const user = await currentApiUser();
 +  const taskId = requireTaskId((await params).id);
 +  cancelCompletion(taskId, user.id);
 +  return new NextResponse(null, { status: 204 });

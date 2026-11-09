@@ -18,7 +18,7 @@ from pathlib import Path
 
 TRIAL = sys.argv[1]
 SCENARIO = TRIAL.split("-", 1)[0]
-assert SCENARIO in ("W7a", "W7b"), TRIAL
+assert re.fullmatch(r"W7[a-z]", SCENARIO), TRIAL
 # grade.py はモジュールの読み込み時に sys.argv からシナリオと試行 ID を読む。結果はどちらも results/workflow/W7/ に置く
 sys.argv = [sys.argv[0], "W7", TRIAL]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -94,9 +94,11 @@ def main():
     w7 = {"pitfalls": pitfalls(),
           "check_seconds": int((RAW / "check-seconds").read_text()) if (RAW / "check-seconds").exists() else 0,
           "auto_memory_disabled": (RAW / "auto-memory-disabled").exists()}
-    if SCENARIO == "W7a":
-        w7["memory"] = memory()
-    else:
+    # 対照（前の段階を引き継がない W7b など。run-trial.sh の POC_W7_CONTROL=1）
+    w7["control"] = (RAW / "control").exists()
+    # 次の段階に残すもの（最後の段階でも記録する）と、前の段階が残したものを読んだ形跡（2 段階目以降）
+    w7["memory"] = memory()
+    if SCENARIO != "W7a":
         w7["memory_reads"] = memory_reads()[:50]
     if (RAW / "injected-patch").exists():
         w7["injected_patch"] = (RAW / "injected-patch").read_text().strip()

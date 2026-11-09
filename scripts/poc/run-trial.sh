@@ -6,8 +6,11 @@
 # 作業用コピー（既定は /tmp/poc-trials/<ID>。POC_TRIAL_ROOT で変更可）で、専用の HOME を使って Claude Code をヘッドレスで起動する。
 # 作業用コピーをリポジトリの外に置くのは、正解データ（docs/poc/answer-key/）や他の試行の結果へ相対パスで辿れないようにするため。
 # 置き場所は raw/<ID>/workdir に記録し、grade.py はそこを読む（記録がなければ旧来の .poc-work/trials/<ID>）。
-# W7b（W7 の後半）は新しい作業用コピーを作らず、W7a の作業用コピー（W7a の変更を含む app）と専用 HOME をそのまま使う
-#（既定は同じ候補・同じ回の W7a。POC_CONTINUE_FROM=<W7a の試行 ID> で指定できる）。docs/poc/tasks/wf-procedures.md の「W7 の決まり」。
+# W7 の 2 段階目以降（W7b、後から足す W7c〜W7e など）は新しい作業用コピーを作らず、1 つ前の段階の作業用コピー
+#（それまでの変更を含む app）と専用 HOME をそのまま使う（既定は同じ候補・同じ回の 1 つ前の段階。W7b なら W7a。
+# POC_CONTINUE_FROM=<試行 ID> で指定できる）。docs/poc/tasks/wf-procedures.md の「W7 の決まり」。
+# 対照（POC_W7_CONTROL=1）: 前の段階を引き継がず、新しい作業用コピーに、前の段階までの参照実装を当てた状態から始める
+#（候補の記憶が無いときとの差を見るため）。
 # 子セッションの権限は docs/poc/tasks/wf-procedures.md の「権限」のとおり（全許可にはしない）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -18,10 +21,16 @@ ID="$SCENARIO-$CAND-$RUN"
 TRIALS="${POC_TRIAL_ROOT:-/tmp/poc-trials}"
 WORK="$TRIALS/$ID"
 CONTINUE_FROM=""
-if [[ "$SCENARIO" == W7b ]]; then
-  CONTINUE_FROM="${POC_CONTINUE_FROM:-W7a-$CAND-$RUN}"
-  WORK="$TRIALS/$CONTINUE_FROM"
-  [[ -d "$WORK/app/.git" && -d "$WORK/home" ]] || { echo "W7b: 引き継ぐ W7a の作業用コピーがない: $WORK" >&2; exit 1; }
+W7_CONTROL=""
+if [[ "$SCENARIO" =~ ^W7([b-z])$ ]]; then
+  if [[ "${POC_W7_CONTROL:-}" == 1 ]]; then
+    W7_CONTROL=1
+  else
+    PREV_STAGE="W7$(printf "\\$(printf '%03o' $(( $(printf '%d' "'${BASH_REMATCH[1]}") - 1 )))")"
+    CONTINUE_FROM="${POC_CONTINUE_FROM:-$PREV_STAGE-$CAND-$RUN}"
+    WORK="$TRIALS/$CONTINUE_FROM"
+    [[ -d "$WORK/app/.git" && -d "$WORK/home" ]] || { echo "$SCENARIO: 引き継ぐ前の段階の作業用コピーがない: $WORK" >&2; exit 1; }
+  fi
 fi
 APP="$WORK/app"
 HOME_DIR="$WORK/home"
@@ -34,6 +43,7 @@ else
   rm -rf "$WORK" "$OUT"; mkdir -p "$APP" "$HOME_DIR" "$OUT"
 fi
 echo "$WORK" > "$OUT/workdir"
+[[ -n "$W7_CONTROL" ]] && echo 1 > "$OUT/control"
 
 # 1) 評価用アプリのコピー（node_modules を含む）と、常時有効な Skills・MCP
 # POC_APP_SRC: コピー元の評価用アプリ（既定は $ROOT/poc-app）。W1 を当時の poc-app（ログイン・SQLite の追加前）で
@@ -62,10 +72,22 @@ JSON
 INJECT="${POC_INJECT_PATCH:-}"
 [[ -z "$INJECT" && "$SCENARIO" == W5 ]] && INJECT="$ROOT/docs/poc/answer-key/W5/bugs.patch"
 [[ -z "$INJECT" && "$SCENARIO" == W7a ]] && INJECT="$ROOT/docs/poc/answer-key/W7/base.patch"
+# W7 の対照: 初期状態 + 前の段階までの参照実装（例: W7b なら base.patch:reference-W7a.patch）。POC_INJECT_PATCH は : 区切りで複数書ける
+if [[ -z "$INJECT" && -n "$W7_CONTROL" ]]; then
+  INJECT="$ROOT/docs/poc/answer-key/W7/base.patch"
+  for s in a b c d e f g h; do
+    [[ "W7$s" == "$SCENARIO" ]] && break
+    INJECT="$INJECT:$ROOT/docs/poc/answer-key/W7/reference-W7$s.patch"
+  done
+fi
 ( cd "$APP" && git init -q )
 if [[ -n "$INJECT" ]]; then
-  git -C "$APP" apply "$INJECT"
-  sha256sum "$INJECT" | sed "s#$ROOT/##" > "$OUT/injected-patch"
+  IFS=: read -r -a INJECTS <<< "$INJECT"
+  : > "$OUT/injected-patch"
+  for pf in "${INJECTS[@]}"; do
+    git -C "$APP" apply "$pf"
+    sha256sum "$pf" | sed "s#$ROOT/##" >> "$OUT/injected-patch"
+  done
 fi
 ( cd "$APP" && git add -A && git -c user.name=poc -c user.email=poc@example.invalid commit -qm baseline )
 git -C "$APP" config user.name poc
@@ -179,7 +201,8 @@ else
 fi
 # W7a の後の手順（Compound Engineering は学んだことを残す /ce-compound。落とし穴の指摘のやり取りが終わってから行う）
 POST_STEPS=()
-[[ "$SCENARIO" == W7a && "$CAND" == compound-engineering ]] && POST_STEPS=("/ce-compound")
+# 後から段階を足すときは、最後の段階を除く各段階の後に行う（POC_W7_LAST_STAGE。既定は W7b）
+[[ "$SCENARIO" =~ ^W7[a-z]$ && "$SCENARIO" < "${POC_W7_LAST_STAGE:-W7b}" && "$CAND" == compound-engineering ]] && POST_STEPS=("/ce-compound")
 if [[ "$SCENARIO" == W5 ]]; then
   # W5 の手順（docs/poc/tasks/wf-procedures.md）。gstack は /qa、Compound Engineering は /ce-debug に課題を渡す。
   case "$CAND" in
@@ -211,11 +234,11 @@ QA_CLOSE="質問はここまでで締め切ります。残りはお任せしま�
 # W7: 手順を終えた後、落とし穴 2 件を判定し（scripts/poc/check_w7.py）、避けられなかったものをレビューの定型の指摘で直させる回数の上限。
 # 判定にかかった時間は所要時間から除く（check-seconds）。W7 以外は 0（判定しない）。
 MAX_FEEDBACK="${POC_MAX_FEEDBACK:-0}"
-[[ "$SCENARIO" == W7a || "$SCENARIO" == W7b ]] && MAX_FEEDBACK="${POC_MAX_FEEDBACK:-2}"
+[[ "$SCENARIO" =~ ^W7[a-z]$ ]] && MAX_FEEDBACK="${POC_MAX_FEEDBACK:-2}"
 # Claude Code 自身の自動メモリ（~/.claude/projects/<作業用コピー>/memory/）は候補の記憶の仕組みではないため、
 # W7 では W7a・W7b とも全候補で止める（W7b は W7a の HOME を引き継ぐので、止めないと全候補に同じ記憶が残る）。W7 以外は既定のまま。
 AUTO_MEMORY_ENV=()
-if [[ "${POC_DISABLE_AUTO_MEMORY:-}" == 1 ]] || [[ -z "${POC_DISABLE_AUTO_MEMORY:-}" && ( "$SCENARIO" == W7a || "$SCENARIO" == W7b ) ]]; then
+if [[ "${POC_DISABLE_AUTO_MEMORY:-}" == 1 ]] || [[ -z "${POC_DISABLE_AUTO_MEMORY:-}" && "$SCENARIO" =~ ^W7[a-z]$ ]]; then
   AUTO_MEMORY_ENV=(CLAUDE_CODE_DISABLE_AUTO_MEMORY=1)
   echo 1 > "$OUT/auto-memory-disabled"
 fi

@@ -1,12 +1,12 @@
 diff --git a/src/app/api/tasks/[id]/worklogs/[worklogId]/route.ts b/src/app/api/tasks/[id]/worklogs/[worklogId]/route.ts
 new file mode 100644
-index 0000000..81ac3b8
+index 0000000..ff47694
 --- /dev/null
 +++ b/src/app/api/tasks/[id]/worklogs/[worklogId]/route.ts
 @@ -0,0 +1,18 @@
 +// DELETE /api/tasks/:id/worklogs/:worklogId — 自分の作業記録を削除する。ログインが必要。
 +import { NextResponse } from "next/server";
-+import { requireApiUser, withApi } from "@/lib/api";
++import { currentApiUser, withApi } from "@/lib/api";
 +import { NotFoundError } from "@/lib/errors";
 +import { parseTaskId } from "@/lib/tasks";
 +import { deleteWorklog } from "@/lib/worklogs";
@@ -14,7 +14,7 @@ index 0000000..81ac3b8
 +type Context = { params: Promise<{ id: string; worklogId: string }> };
 +
 +export const DELETE = withApi(async (_request, { params }: Context) => {
-+  const user = await requireApiUser();
++  const user = await currentApiUser();
 +  const p = await params;
 +  const taskId = parseTaskId(p.id);
 +  const worklogId = parseTaskId(p.worklogId);
@@ -24,29 +24,31 @@ index 0000000..81ac3b8
 +});
 diff --git a/src/app/api/tasks/[id]/worklogs/route.ts b/src/app/api/tasks/[id]/worklogs/route.ts
 new file mode 100644
-index 0000000..7bd8413
+index 0000000..fccbaea
 --- /dev/null
 +++ b/src/app/api/tasks/[id]/worklogs/route.ts
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,25 @@
 +// GET /api/tasks/:id/worklogs — 作業記録（新しい順）と合計 / POST — 作業記録を追加する。ログインが必要。
 +import { NextResponse } from "next/server";
-+import { readJson, requireApiUser, withApi } from "@/lib/api";
-+import { ValidationError } from "@/lib/errors";
-+import { requireTaskId } from "@/lib/tasks";
++import { currentApiUser, readJson, withApi } from "@/lib/api";
++import { NotFoundError, ValidationError } from "@/lib/errors";
++import { getTask, parseTaskId } from "@/lib/tasks";
 +import { createWorklog, listWorklogs, totalMinutes, validateWorklogInput } from "@/lib/worklogs";
 +
 +type Context = { params: Promise<{ id: string }> };
 +
 +export const GET = withApi(async (_request, { params }: Context) => {
-+  await requireApiUser();
-+  const taskId = requireTaskId((await params).id);
++  await currentApiUser();
++  const taskId = parseTaskId((await params).id);
++  if (taskId === undefined || !getTask(taskId)) throw new NotFoundError("タスクが見つかりません");
 +  const worklogs = listWorklogs(taskId);
 +  return NextResponse.json({ worklogs, totalMinutes: totalMinutes(worklogs) });
 +});
 +
 +export const POST = withApi(async (request, { params }: Context) => {
-+  const user = await requireApiUser();
-+  const taskId = requireTaskId((await params).id);
++  const user = await currentApiUser();
++  const taskId = parseTaskId((await params).id);
++  if (taskId === undefined || !getTask(taskId)) throw new NotFoundError("タスクが見つかりません");
 +  const result = validateWorklogInput(await readJson(request));
 +  if (!result.ok) throw new ValidationError(result.errors);
 +  return NextResponse.json({ worklog: createWorklog({ taskId, author: user.id, ...result.value }) }, { status: 201 });

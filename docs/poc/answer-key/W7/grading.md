@@ -4,14 +4,16 @@
 
 ## 初期状態と落とし穴（正解データ。試行中は候補に見せない）
 
-`base.patch` を `run-trial.sh` が W7a の作業用コピーにだけ当て、そのうえで baseline コミットを作る（候補からは差分として見えない。main の `poc-app/` は変えない）。`base.patch` は W2 の参照実装と同じ「コメント機能」を、次の 2 つの決まりに沿って書いた既存機能として入れる。
+`base.patch` を `run-trial.sh` が W7a の作業用コピーにだけ当て、そのうえで baseline コミットを作る（候補からは差分として見えない。main の `poc-app/` は変えない）。`base.patch` は「決まりへの移行の途中」の状態を作る。W2 の参照実装と同じ「コメント機能」を移行前の古い書き方のまま入れ、新しい決まりは補助の関数と、新しく作られた API 1 本（`GET /api/me`）とテストにだけ現れるようにする。
 
-| 番号 | 落とし穴（プロジェクト固有の決まり） | 既存コードで気づける場所 | はまった例 |
+| 番号 | 落とし穴（プロジェクト固有の決まり） | 既存コードで気づける場所 | はまった例（古い書き方を真似ると、こうなる） |
 |---|---|---|---|
-| P1 | 日時は ISO 8601 形式の UTC（`…Z`）で DB に保存し、画面では日本時間（JST）で表示する | `src/lib/datetime.ts`（`toUtcIso`・`formatJst`）、コメントの `created_at` と画面の表示、マイグレーションのコメント「ISO 8601（UTC）」、`tests/datetime.test.ts` | SQLite の `datetime('now')`（`2026-11-09 03:04:05`）で保存する。`toLocaleString()`（サーバー・ブラウザの時刻設定に依存）や ISO の文字列のまま表示する |
-| P2 | API のエラーは独自のエラー型（`src/lib/errors.ts` の `AppError` と派生クラス）を投げ、`withApi`（`src/lib/api.ts`）で `{ error, code, details? }` の形にする | `src/lib/errors.ts`・`src/lib/api.ts`、既存の API Route（すべて `withApi` で包み、エラーを投げている）、`tests/errors.test.ts` | `NextResponse.json({ error }, { status })` で直接返す（`code` が付かない）。`requireApiUser()` を `withApi` の外で呼ぶ（未ログインが 500 になる） |
+| P1 | 日時は ISO 8601 形式の UTC（`…Z`）で DB に保存し、画面では日本時間（JST）で表示する（サーバーやブラウザの時刻設定に頼らない） | `src/lib/datetime.ts`（`toUtcIso`・`formatJst`）と `tests/datetime.test.ts`、セッションの期限（`toUtcIso` で保存）、マイグレーションのコメント「ISO 8601（UTC）」 | コメントの画面と同じ `new Date(…).toLocaleString("ja-JP")` で表示する（見る人の環境の時刻設定で変わる）。SQLite の `datetime('now')`（`2026-11-09 03:04:05`）で保存する |
+| P2 | 新しく作る API は、エラーを独自のエラー型（`src/lib/errors.ts` の `AppError` と派生クラス）で投げ、`withApi`（`src/lib/api.ts`）で `{ error, code, details? }` の形にする（ログインの確認は `currentApiUser`） | `src/lib/errors.ts`・`src/lib/api.ts` の `withApi`・`currentApiUser`、`GET /api/me`、`tests/errors.test.ts` | タスク・コメントの API と同じ `jsonError` / `requireApiUser` で返す（`code` が付かない） |
 
-- `poc-app/CLAUDE.md` には 2 つの決まりを書かない（`base.patch` は、API の一覧にコメントを足し、「エラーは `{ error, details? }` の JSON で返す」を「エラーは JSON で返す」に変える。古い形式の記述が残ると、決まりと食い違うため）。
+- `poc-app/CLAUDE.md` には 2 つの決まりを書かない（`base.patch` は、API の一覧にコメントと `/api/me` を足し、「エラーは `{ error, details? }` の JSON で返す」を「エラーは JSON で返す」に変える。古い形式の記述が残ると、決まりと食い違うため）。
+- 補助の関数のコメントも、使い方を説明するだけで「必ず使う」とは書かない。決まりであることは、W7a で避けられなかったときのレビューの指摘で初めて伝わる（これが W7a での学習の機会になる）。
+- 初版（v1）では、コメント機能を含む既存の API をすべて新しい決まりで書いていた。baseline の試行（パイロット）で、W7a・W7b とも既存のコメント機能を真似るだけで 2 件とも避けられ、学習の効果を測れないと分かったため、試行を始める前にこの形（v2）に改めた（`results/workflow/W7/pilot-v1/`、report.md の判断の記録）。
 - 課題文（W7a・W7b とも）にも日時の形式・エラーの形式を書かない。W7b の課題文に W7a の落とし穴を書かない。
 - W7b は別の機能（作業記録）だが、日時（記録日時）の保存・表示と、API のエラー（400・401・403・404・409）を同じように含む。
 
@@ -47,9 +49,20 @@
 - W7a の落とし穴の結果（指摘を受ける前に避けられたか）・受け入れテスト・費用・W7a から W7b に残したもの（`grade_w7.py` の `memory`）・W7b でそれを読んだ形跡（`memory_reads`）はレポートに記録する（点数には入れない）。
 - 費用は点数に入れない（PLAN.md §5.1 の W7 の配点に無いため）。上限で打ち切った試行は、その状態で採点する。
 
+## 学習の効き目を直接見る記録（点数には入れない）
+
+- **前の段階が残したものを読んだか**（`memory_used`）: W7a が残したもの（作業用コピーで変わったファイル、専用 HOME のファイル）を、W7b のツール入力が名指しした件数。候補の仕組みが自動で読み込むもの（`CLAUDE.md` など）は名指しされないことがあるため、トランスクリプトも読んで判断し、report.md に書く。
+- **同じ間違いを繰り返したか**（`repeated` / `learned`）: W7a で指摘を受けた落とし穴を、W7b で指摘の前に避けられなかった（繰り返した）か、避けられた（学んだ）か。
+- **前の段階の知見が無い対照との差**（`controls`）: 同じ候補の W7b を、W7a を引き継がずに新しい作業用コピー（`base.patch` + `reference-W7a.patch`）で実行する（`POC_W7_CONTROL=1`。回の番号は 11）。W7a のコード（参照実装は決まりに沿っている）は同じように手本として見えるが、候補の記憶は無い。費用が許す範囲で候補ごとに 1 回。
+
+## 段階を増やすとき（W7c 以降）
+
+`run-trial.sh` は W7b 以降の段階（W7c〜W7e など）を、1 つ前の段階の作業用コピーと HOME から続けられる（既定は同じ候補・同じ回の 1 つ前の段階）。足すときは、同じ落とし穴（日時の保存と表示、API のエラー）を別の機能で含む課題文 `wf-W7<段階>.md`、受け入れテスト `acceptance-W7<段階>.cjs`、参照実装 `reference-W7<段階>.patch` を用意し、`pitfalls.cjs` にその段階の操作（記録する操作・エラーの 5 件）を足す。Compound Engineering の `/ce-compound` は最後の段階（`POC_W7_LAST_STAGE`、既定 W7b）を除く各段階の後に行う。
+
 ## 確認したこと（試行前）
 
 - `poc-app` + `base.patch`: 型チェック・単体テスト（24 件）・ビルドが通る。W7b の受け入れテストは 2/14（未ログインと既存のみ）、落とし穴の判定は P1・P2 とも不合格（機能が無いため）。
 - 参照実装（`reference-W7a.patch`、その上に `reference-W7b.patch`）: 受け入れテスト W7a 16/16・W7b 14/14、落とし穴は W7a・W7b とも P1・P2 合格。
-- 落とし穴にはまった実装（参照実装の W7a を、日時を `YYYY-MM-DD HH:MM:SS` で保存・`toLocaleString("ja-JP")` で表示し、エラーを `code` なしで返すように変えたもの）: 受け入れテストは 16/16 のまま、落とし穴は P1・P2 とも不合格になり、定型の指摘が出る。
+- 落とし穴にはまった実装（参照実装の W7a を、日時を `toLocaleString("ja-JP")` で表示し、エラーを `code` なしで返すように変えたもの）: 落とし穴は P1・P2 とも不合格になり、定型の指摘が出る（v2 で確認）。v1 では、さらに日時を `YYYY-MM-DD HH:MM:SS` で保存する形も確認し、受け入れテストは 16/16 のままだった。
+- v2: `poc-app` + `base.patch` で型チェック・単体テスト（24 件）が通り、参照実装（W7a・W7b）で受け入れテスト 16/16・14/14、落とし穴は 2 件とも合格。
 - `run-trial.sh` の W7a → W7b の引き継ぎ（同じ作業用コピー・HOME、W7b の作業ブランチ、指摘のやり取り、Compound Engineering の `/ce-compound`）と、W1・W5 の既定の動作（ブランチ・パッチ・介入・自動メモリの設定が変わらない）を、API を呼ばない偽の `claude` で確かめた。

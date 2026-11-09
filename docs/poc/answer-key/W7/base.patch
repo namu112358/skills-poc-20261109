@@ -1,5 +1,5 @@
 diff --git a/CLAUDE.md b/CLAUDE.md
-index acfc6a0..b74bfb9 100644
+index acfc6a0..5483537 100644
 --- a/CLAUDE.md
 +++ b/CLAUDE.md
 @@ -1,6 +1,6 @@
@@ -15,183 +15,102 @@ index acfc6a0..b74bfb9 100644
  - 初期ユーザーは `sato` / `suzuki` / `tanaka`（パスワードは共通で `password`。PoC の検証用）。`/login` からログインする。
  - セッションは DB の `sessions` テーブルと Cookie `poc_session`（`src/lib/auth.ts`）。ページでは `requireUser()`、API Route では `requireApiUser()`（`src/lib/session.ts`・`src/lib/api.ts`）でログインを確認する。
 -- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/tasks`、`GET/PATCH /api/tasks/:id`。エラーは `{ error, details? }` の JSON で返す。
-+- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/tasks`、`GET/PATCH /api/tasks/:id`、`GET/POST /api/tasks/:id/comments`、`DELETE /api/tasks/:id/comments/:commentId`。エラーは JSON で返す。
++- API: `POST /api/login`、`POST /api/logout`、`GET /api/me`、`GET/POST /api/tasks`、`GET/PATCH /api/tasks/:id`、`GET/POST /api/tasks/:id/comments`、`DELETE /api/tasks/:id/comments/:commentId`。エラーは JSON で返す。
  
  ## コーディング規約
  
-diff --git a/src/app/api/login/route.ts b/src/app/api/login/route.ts
-index d5f0988..69f8f2e 100644
---- a/src/app/api/login/route.ts
-+++ b/src/app/api/login/route.ts
-@@ -1,10 +1,11 @@
- // POST /api/login — JSON（{ userId, password }）またはフォーム送信でログインする。
- // フォーム送信のときは画面遷移（303）、JSON のときは JSON で応答する。
- import { NextResponse } from "next/server";
--import { jsonError, readJson } from "@/lib/api";
-+import { readJson, withApi } from "@/lib/api";
- import { SESSION_COOKIE, SESSION_TTL_MS, authenticate, createSession } from "@/lib/auth";
-+import { UnauthorizedError } from "@/lib/errors";
- 
--export async function POST(request: Request) {
-+export const POST = withApi(async (request) => {
-   const isJson = (request.headers.get("content-type") ?? "").includes("application/json");
-   let userId: unknown;
-   let password: unknown;
-@@ -21,9 +22,8 @@ export async function POST(request: Request) {
-   const user =
-     typeof userId === "string" && typeof password === "string" ? authenticate(userId, password) : undefined;
-   if (!user) {
--    return isJson
--      ? jsonError(401, "ID またはパスワードが正しくありません")
--      : NextResponse.redirect(new URL("/login?error=1", request.url), 303);
-+    if (isJson) throw new UnauthorizedError("ID またはパスワードが正しくありません");
-+    return NextResponse.redirect(new URL("/login?error=1", request.url), 303);
-   }
- 
-   const response = isJson
-@@ -36,4 +36,4 @@ export async function POST(request: Request) {
-     maxAge: SESSION_TTL_MS / 1000,
-   });
-   return response;
--}
+diff --git a/src/app/api/me/route.ts b/src/app/api/me/route.ts
+new file mode 100644
+index 0000000..2c260f1
+--- /dev/null
++++ b/src/app/api/me/route.ts
+@@ -0,0 +1,14 @@
++// GET /api/me — ログイン中のユーザーと、今のセッションの有効期限を返す。ログインが必要。
++import { cookies } from "next/headers";
++import { NextResponse } from "next/server";
++import { currentApiUser, withApi } from "@/lib/api";
++import { SESSION_COOKIE, getSessionExpiry } from "@/lib/auth";
++import { NotFoundError } from "@/lib/errors";
++
++export const GET = withApi(async () => {
++  const user = await currentApiUser();
++  const token = (await cookies()).get(SESSION_COOKIE)?.value;
++  const expiresAt = token ? getSessionExpiry(token) : undefined;
++  if (!expiresAt) throw new NotFoundError("セッションが見つかりません");
++  return NextResponse.json({ user, sessionExpiresAt: expiresAt });
 +});
 diff --git a/src/app/api/tasks/[id]/comments/[commentId]/route.ts b/src/app/api/tasks/[id]/comments/[commentId]/route.ts
 new file mode 100644
-index 0000000..0bed99d
+index 0000000..31983b4
 --- /dev/null
 +++ b/src/app/api/tasks/[id]/comments/[commentId]/route.ts
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,20 @@
 +// DELETE /api/tasks/:id/comments/:commentId — 自分のコメントを削除する。ログインが必要。
 +import { NextResponse } from "next/server";
-+import { requireApiUser, withApi } from "@/lib/api";
++import { jsonError, requireApiUser } from "@/lib/api";
 +import { deleteComment } from "@/lib/comments";
-+import { NotFoundError } from "@/lib/errors";
 +import { parseTaskId } from "@/lib/tasks";
 +
 +type Context = { params: Promise<{ id: string; commentId: string }> };
 +
-+export const DELETE = withApi(async (_request, { params }: Context) => {
++export async function DELETE(_request: Request, { params }: Context) {
 +  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
 +  const p = await params;
 +  const taskId = parseTaskId(p.id);
 +  const commentId = parseTaskId(p.commentId);
-+  if (taskId === undefined || commentId === undefined) throw new NotFoundError("コメントが見つかりません");
-+  deleteComment(taskId, commentId, user.id);
++  if (taskId === undefined || commentId === undefined) return jsonError(404, "コメントが見つかりません");
++  const result = deleteComment(taskId, commentId, user.id);
++  if (result === "not_found") return jsonError(404, "コメントが見つかりません");
++  if (result === "forbidden") return jsonError(403, "自分のコメントだけを削除できます");
 +  return new NextResponse(null, { status: 204 });
-+});
++}
 diff --git a/src/app/api/tasks/[id]/comments/route.ts b/src/app/api/tasks/[id]/comments/route.ts
 new file mode 100644
-index 0000000..2a1bbc8
+index 0000000..3e5ea17
 --- /dev/null
 +++ b/src/app/api/tasks/[id]/comments/route.ts
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,30 @@
 +// GET /api/tasks/:id/comments — コメント一覧（古い順） / POST — コメントを投稿する。ログインが必要。
 +import { NextResponse } from "next/server";
-+import { readJson, requireApiUser, withApi } from "@/lib/api";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
 +import { createComment, listComments, validateCommentInput } from "@/lib/comments";
-+import { ValidationError } from "@/lib/errors";
-+import { requireTaskId } from "@/lib/tasks";
++import { getTask, parseTaskId } from "@/lib/tasks";
 +
 +type Context = { params: Promise<{ id: string }> };
 +
-+export const GET = withApi(async (_request, { params }: Context) => {
-+  await requireApiUser();
-+  const taskId = requireTaskId((await params).id);
-+  return NextResponse.json({ comments: listComments(taskId) });
-+});
++async function findTaskId(params: Context["params"]): Promise<number | undefined> {
++  const id = parseTaskId((await params).id);
++  return id !== undefined && getTask(id) ? id : undefined;
++}
 +
-+export const POST = withApi(async (request, { params }: Context) => {
++export async function GET(_request: Request, { params }: Context) {
 +  const user = await requireApiUser();
-+  const taskId = requireTaskId((await params).id);
++  if (user instanceof NextResponse) return user;
++  const taskId = await findTaskId(params);
++  if (taskId === undefined) return jsonError(404, "タスクが見つかりません");
++  return NextResponse.json({ comments: listComments(taskId) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const taskId = await findTaskId(params);
++  if (taskId === undefined) return jsonError(404, "タスクが見つかりません");
 +  const result = validateCommentInput(await readJson(request));
-+  if (!result.ok) throw new ValidationError(result.errors);
++  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
 +  return NextResponse.json({ comment: createComment({ taskId, author: user.id, body: result.value.body }) }, { status: 201 });
-+});
-diff --git a/src/app/api/tasks/[id]/route.ts b/src/app/api/tasks/[id]/route.ts
-index 275c08d..3456761 100644
---- a/src/app/api/tasks/[id]/route.ts
-+++ b/src/app/api/tasks/[id]/route.ts
-@@ -1,24 +1,24 @@
- // GET /api/tasks/:id — タスクを 1 件取得 / PATCH /api/tasks/:id — 送った項目だけを更新する。ログインが必要。
- import { NextResponse } from "next/server";
--import { jsonError, readJson, requireApiUser } from "@/lib/api";
-+import { readJson, requireApiUser, withApi } from "@/lib/api";
-+import { NotFoundError, ValidationError } from "@/lib/errors";
- import { getTask, parseTaskId, updateTask, validateTaskInput } from "@/lib/tasks";
- 
- type Context = { params: Promise<{ id: string }> };
- 
--export async function GET(_request: Request, { params }: Context) {
--  const user = await requireApiUser();
--  if (user instanceof NextResponse) return user;
-+export const GET = withApi(async (_request, { params }: Context) => {
-+  await requireApiUser();
-   const id = parseTaskId((await params).id);
-   const task = id === undefined ? undefined : getTask(id);
--  return task ? NextResponse.json({ task }) : jsonError(404, "タスクが見つかりません");
--}
-+  if (!task) throw new NotFoundError("タスクが見つかりません");
-+  return NextResponse.json({ task });
-+});
- 
--export async function PATCH(request: Request, { params }: Context) {
--  const user = await requireApiUser();
--  if (user instanceof NextResponse) return user;
-+export const PATCH = withApi(async (request, { params }: Context) => {
-+  await requireApiUser();
-   const id = parseTaskId((await params).id);
--  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
-+  if (id === undefined || !getTask(id)) throw new NotFoundError("タスクが見つかりません");
-   const result = validateTaskInput(await readJson(request), { partial: true });
--  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
-+  if (!result.ok) throw new ValidationError(result.errors);
-   return NextResponse.json({ task: updateTask(id, result.value) });
--}
-+});
-diff --git a/src/app/api/tasks/route.ts b/src/app/api/tasks/route.ts
-index 687d509..480767b 100644
---- a/src/app/api/tasks/route.ts
-+++ b/src/app/api/tasks/route.ts
-@@ -1,19 +1,18 @@
- // GET /api/tasks?status=… — タスク一覧 / POST /api/tasks — タスクを作成する。いずれもログインが必要。
- import { NextResponse } from "next/server";
--import { jsonError, readJson, requireApiUser } from "@/lib/api";
-+import { readJson, requireApiUser, withApi } from "@/lib/api";
-+import { ValidationError } from "@/lib/errors";
- import { createTask, isTaskStatus, listTasks, validateTaskInput, type TaskInput } from "@/lib/tasks";
- 
--export async function GET(request: Request) {
--  const user = await requireApiUser();
--  if (user instanceof NextResponse) return user;
-+export const GET = withApi(async (request) => {
-+  await requireApiUser();
-   const status = new URL(request.url).searchParams.get("status");
-   return NextResponse.json({ tasks: listTasks({ status: isTaskStatus(status) ? status : undefined }) });
--}
-+});
- 
--export async function POST(request: Request) {
--  const user = await requireApiUser();
--  if (user instanceof NextResponse) return user;
-+export const POST = withApi(async (request) => {
-+  await requireApiUser();
-   const result = validateTaskInput(await readJson(request));
--  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
-+  if (!result.ok) throw new ValidationError(result.errors);
-   return NextResponse.json({ task: createTask(result.value as TaskInput) }, { status: 201 });
--}
-+});
++}
 diff --git a/src/app/tasks/[id]/comments.tsx b/src/app/tasks/[id]/comments.tsx
 new file mode 100644
-index 0000000..5efd8d4
+index 0000000..0b3e2e0
 --- /dev/null
 +++ b/src/app/tasks/[id]/comments.tsx
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,68 @@
 +"use client";
 +import { useRouter } from "next/navigation";
 +import { useState } from "react";
 +import type { Comment } from "@/lib/comments";
-+import { formatJst } from "@/lib/datetime";
 +
 +type Props = { taskId: number; currentUserId: string; comments: Comment[] };
 +
@@ -235,7 +154,7 @@ index 0000000..5efd8d4
 +        <ul>
 +          {comments.map((c) => (
 +            <li key={c.id} data-testid="comment">
-+              <strong>{c.authorName}</strong> <time dateTime={c.createdAt}>{formatJst(c.createdAt)}</time>
++              <strong>{c.authorName}</strong> <time dateTime={c.createdAt}>{new Date(c.createdAt).toLocaleString("ja-JP")}</time>
 +              <p style={{ whiteSpace: "pre-wrap" }}>{c.body}</p>
 +              {c.author === currentUserId && (
 +                <button type="button" onClick={() => remove(c.id)}>
@@ -287,20 +206,22 @@ index 6325e66..5b449ba 100644
    );
  }
 diff --git a/src/lib/api.ts b/src/lib/api.ts
-index 67d6604..b8f3ae7 100644
+index 67d6604..d3e83ca 100644
 --- a/src/lib/api.ts
 +++ b/src/lib/api.ts
-@@ -1,16 +1,40 @@
+@@ -1,5 +1,6 @@
  // API Route 共通の処理（認証の確認とエラー応答）。
-+// API Route のハンドラーは withApi で包み、エラーは src/lib/errors.ts のエラー型を投げる。
  import { NextResponse } from "next/server";
 +import { AppError, UnauthorizedError } from "./errors.ts";
  import { getCurrentUser } from "./session.ts";
  import type { User } from "./users.ts";
  
--export function jsonError(status: number, message: string, details?: string[]): NextResponse {
--  return NextResponse.json({ error: message, ...(details ? { details } : {}) }, { status });
-+/** 投げられたエラーを { error, code, details? } の JSON 応答にする。想定外のエラーは 500。 */
+@@ -21,3 +22,35 @@ export async function readJson(request: Request): Promise<unknown> {
+     return undefined;
+   }
+ }
++
++/** 投げられたエラーを応答にする。AppError は { error, code, details? }、想定外のエラーは 500。 */
 +export function errorResponse(e: unknown): NextResponse {
 +  if (e instanceof AppError) {
 +    return NextResponse.json(
@@ -312,7 +233,7 @@ index 67d6604..b8f3ae7 100644
 +  return NextResponse.json({ error: "サーバーでエラーが発生しました", code: "INTERNAL_ERROR" }, { status: 500 });
 +}
 +
-+/** API Route のハンドラーを包み、投げられたエラーを errorResponse で応答に変換する。 */
++/** API Route のハンドラーを包み、投げられたエラーを errorResponse で応答にする。 */
 +export function withApi<C = unknown>(
 +  handler: (request: Request, context: C) => Promise<Response>,
 +): (request: Request, context: C) => Promise<Response> {
@@ -323,28 +244,58 @@ index 67d6604..b8f3ae7 100644
 +      return errorResponse(e);
 +    }
 +  };
- }
- 
--/** ログイン中のユーザーを返す。未ログインなら 401 の応答を返す。 */
--export async function requireApiUser(): Promise<User | NextResponse> {
-+/** ログイン中のユーザーを返す。未ログインなら UnauthorizedError を投げる。 */
-+export async function requireApiUser(): Promise<User> {
-   const user = await getCurrentUser();
--  return user ?? jsonError(401, "ログインしてください");
++}
++
++/** ログイン中のユーザーを返す。未ログインなら UnauthorizedError を投げる（withApi の中で使う）。 */
++export async function currentApiUser(): Promise<User> {
++  const user = await getCurrentUser();
 +  if (!user) throw new UnauthorizedError();
 +  return user;
++}
+diff --git a/src/lib/auth.ts b/src/lib/auth.ts
+index 7ce3c64..6c268da 100644
+--- a/src/lib/auth.ts
++++ b/src/lib/auth.ts
+@@ -1,5 +1,6 @@
+ // ログインとセッション。Next.js に依存しない部分（単体テストの対象）。Cookie の読み書きは session.ts。
+ import { randomBytes } from "node:crypto";
++import { toUtcIso } from "./datetime.ts";
+ import { getDb, type Db } from "./db/index.ts";
+ import { hashPassword, verifyPassword } from "./password.ts";
+ import type { User } from "./users.ts";
+@@ -24,7 +25,7 @@ export function authenticate(userId: string, password: string, db: Db = getDb())
+ 
+ export function createSession(userId: string, db: Db = getDb(), now: Date = new Date()): string {
+   const token = randomBytes(32).toString("hex");
+-  const expiresAt = new Date(now.getTime() + SESSION_TTL_MS).toISOString();
++  const expiresAt = toUtcIso(new Date(now.getTime() + SESSION_TTL_MS));
+   db.prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)").run(token, userId, expiresAt);
+   return token;
+ }
+@@ -34,9 +35,15 @@ export function getSessionUser(token: string | undefined, db: Db = getDb(), now:
+   if (!token) return undefined;
+   return db
+     .prepare("SELECT u.id, u.name FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > ?")
+-    .get(token, now.toISOString()) as User | undefined;
++    .get(token, toUtcIso(now)) as User | undefined;
  }
  
- /** リクエスト本文を JSON として読む。読めなければ undefined。 */
+ export function deleteSession(token: string, db: Db = getDb()): void {
+   db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+ }
++
++/** セッションの有効期限（ISO 8601 形式の UTC）。不明なトークンは undefined。 */
++export function getSessionExpiry(token: string, db: Db = getDb()): string | undefined {
++  const row = db.prepare("SELECT expires_at FROM sessions WHERE token = ?").get(token) as { expires_at: string } | undefined;
++  return row?.expires_at;
++}
 diff --git a/src/lib/comments.ts b/src/lib/comments.ts
 new file mode 100644
-index 0000000..fe593ed
+index 0000000..e1e1180
 --- /dev/null
 +++ b/src/lib/comments.ts
-@@ -0,0 +1,66 @@
-+import { toUtcIso } from "./datetime.ts";
+@@ -0,0 +1,67 @@
 +import { getDb, type Db } from "./db/index.ts";
-+import { ForbiddenError, NotFoundError } from "./errors.ts";
 +import type { ValidationResult } from "./tasks.ts";
 +
 +export type Comment = {
@@ -397,25 +348,27 @@ index 0000000..fe593ed
 +): Comment {
 +  const { lastInsertRowid } = db
 +    .prepare("INSERT INTO comments (task_id, author, body, created_at) VALUES (?, ?, ?, ?)")
-+    .run(input.taskId, input.author, input.body, toUtcIso(now));
++    .run(input.taskId, input.author, input.body, now.toISOString());
 +  return getComment(Number(lastInsertRowid), db)!;
 +}
 +
-+/** taskId のコメント commentId を削除する。投稿者本人（userId）でなければ ForbiddenError。 */
-+export function deleteComment(taskId: number, commentId: number, userId: string, db: Db = getDb()): void {
++export type DeleteResult = "deleted" | "not_found" | "forbidden";
++
++/** taskId のコメント commentId を、投稿者本人（userId）のときだけ削除する。 */
++export function deleteComment(taskId: number, commentId: number, userId: string, db: Db = getDb()): DeleteResult {
 +  const c = getComment(commentId, db);
-+  if (!c || c.taskId !== taskId) throw new NotFoundError("コメントが見つかりません");
-+  if (c.author !== userId) throw new ForbiddenError("自分のコメントだけを削除できます");
++  if (!c || c.taskId !== taskId) return "not_found";
++  if (c.author !== userId) return "forbidden";
 +  db.prepare("DELETE FROM comments WHERE id = ?").run(commentId);
++  return "deleted";
 +}
 diff --git a/src/lib/datetime.ts b/src/lib/datetime.ts
 new file mode 100644
-index 0000000..5d8443e
+index 0000000..f7497d4
 --- /dev/null
 +++ b/src/lib/datetime.ts
-@@ -0,0 +1,23 @@
-+// 日時の扱い。DB への保存と API の応答では ISO 8601 形式の UTC（例: 2026-11-09T03:04:05.000Z）を使い、
-+// 画面に出すときは formatJst で日本時間（JST）の「YYYY/MM/DD HH:mm」にする。
+@@ -0,0 +1,22 @@
++// 日時の変換。
 +
 +/** 保存用の日時（ISO 8601 形式の UTC）。 */
 +export function toUtcIso(date: Date = new Date()): string {
@@ -462,12 +415,11 @@ index 4e1b0a4..b491630 100644
  ];
 diff --git a/src/lib/errors.ts b/src/lib/errors.ts
 new file mode 100644
-index 0000000..caf2b0d
+index 0000000..b20fda7
 --- /dev/null
 +++ b/src/lib/errors.ts
-@@ -0,0 +1,50 @@
-+// アプリ共通のエラー型。src/lib の関数や API Route はこれらを投げ、API Route を包む withApi（src/lib/api.ts）が
-+// { error, code, details? } の JSON 応答に変換する（status と code はエラー型ごとに決まっている）。
+@@ -0,0 +1,49 @@
++// API 用のエラー型。投げると withApi（src/lib/api.ts）が { error, code, details? } の JSON 応答に変える。
 +export class AppError extends Error {
 +  readonly status: number;
 +  readonly code: string;
@@ -516,47 +468,21 @@ index 0000000..caf2b0d
 +    super(409, "CONFLICT", message);
 +  }
 +}
-diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
-index b533ce9..9b0413e 100644
---- a/src/lib/tasks.ts
-+++ b/src/lib/tasks.ts
-@@ -1,4 +1,5 @@
- import { getDb, type Db } from "./db/index.ts";
-+import { NotFoundError } from "./errors.ts";
- 
- export type TaskStatus = "todo" | "in_progress" | "done";
- 
-@@ -52,6 +53,13 @@ export function parseTaskId(value: unknown): number | undefined {
-   return Number(value);
- }
- 
-+/** URL のタスク ID を検証し、タスクが存在すればその ID を返す。無ければ NotFoundError。 */
-+export function requireTaskId(value: unknown, db: Db = getDb()): number {
-+  const id = parseTaskId(value);
-+  if (id === undefined || !getTask(id, db)) throw new NotFoundError("タスクが見つかりません");
-+  return id;
-+}
-+
- export type TaskInput = Omit<Task, "id">;
- 
- export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
 diff --git a/tests/comments.test.ts b/tests/comments.test.ts
 new file mode 100644
-index 0000000..89cd796
+index 0000000..aa201f9
 --- /dev/null
 +++ b/tests/comments.test.ts
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,32 @@
 +import { describe, it } from "node:test";
 +import assert from "node:assert/strict";
 +import { createComment, deleteComment, listComments, validateCommentInput } from "../src/lib/comments.ts";
 +import { openDb } from "../src/lib/db/index.ts";
-+import { ForbiddenError, NotFoundError } from "../src/lib/errors.ts";
 +
 +describe("comments", () => {
-+  it("stores the creation time in UTC and lists comments oldest first", () => {
++  it("lists comments oldest first", () => {
 +    const db = openDb();
-+    const now = new Date("2026-11-09T03:04:05.000Z");
-+    const a = createComment({ taskId: 1, author: "sato", body: "最初" }, db, now);
++    const a = createComment({ taskId: 1, author: "sato", body: "最初" }, db, new Date("2026-11-09T03:04:05.000Z"));
 +    createComment({ taskId: 1, author: "suzuki", body: "次" }, db);
 +    assert.equal(a.createdAt, "2026-11-09T03:04:05.000Z");
 +    assert.equal(a.authorName, "佐藤");
@@ -574,10 +500,9 @@ index 0000000..89cd796
 +  it("lets only the author delete a comment", () => {
 +    const db = openDb();
 +    const c = createComment({ taskId: 1, author: "sato", body: "本文" }, db);
-+    assert.throws(() => deleteComment(1, c.id, "suzuki", db), ForbiddenError);
-+    assert.throws(() => deleteComment(2, c.id, "sato", db), NotFoundError);
-+    assert.throws(() => deleteComment(1, 999, "sato", db), NotFoundError);
-+    deleteComment(1, c.id, "sato", db);
++    assert.equal(deleteComment(1, c.id, "suzuki", db), "forbidden");
++    assert.equal(deleteComment(2, c.id, "sato", db), "not_found");
++    assert.equal(deleteComment(1, c.id, "sato", db), "deleted");
 +    assert.deepEqual(listComments(1, db), []);
 +  });
 +});

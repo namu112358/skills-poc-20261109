@@ -22,9 +22,9 @@ KEY = ROOT / "docs" / "poc" / "answer-key" / "W7"
 
 FEEDBACK = {
     "P1": "このプロジェクトでは、日時は ISO 8601 形式の UTC（例: 2026-11-09T03:04:05.000Z）で DB に保存し、画面では日本時間（JST）で表示する決まりです"
-          "（src/lib/datetime.ts の toUtcIso・formatJst。既存のコメント機能を参照）。今回追加した部分の日時の保存または表示が、この決まりに沿っていません。",
-    "P2": "このプロジェクトでは、API のエラーは独自のエラー型（src/lib/errors.ts の AppError とその派生クラス）を投げ、API Route を withApi（src/lib/api.ts）で包んで"
-          " { error, code, details? } の形で返す決まりです。今回追加した API のエラー応答が、この決まりに沿っていません。",
+          "（保存は src/lib/datetime.ts の toUtcIso、表示は formatJst を使う。サーバーやブラウザの時刻設定に頼らない）。今回追加した部分の日時の保存または表示が、この決まりに沿っていません。",
+    "P2": "このプロジェクトでは、新しく作る API は、エラーを独自のエラー型（src/lib/errors.ts の AppError とその派生クラス）で投げ、API Route を withApi（src/lib/api.ts）で包んで"
+          " { error, code, details? } の形で返す決まりです（ログインの確認は currentApiUser。jsonError・requireApiUser は移行前の古い書き方）。今回追加した API のエラー応答が、この決まりに沿っていません。",
 }
 FEEDBACK_HEAD = "レビューで次の指摘がありました。"
 FEEDBACK_TAIL = "直して、変更を git にコミットしてください。"
