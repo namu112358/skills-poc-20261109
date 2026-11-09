@@ -4,7 +4,8 @@
 # 試行 ID ごとに run-trial.sh → grade_w11.py の順で行い、結果を 1 行ずつ出す。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-export POC_MAX_NUDGES="${POC_MAX_NUDGES:-2}" POC_MAX_TRIAL_USD="${POC_MAX_TRIAL_USD:-10}"
+# 費用の上限は既定で付けない（2026-11-09 15:40 UTC ユーザー指示。付けるときは POC_MAX_TRIAL_USD を渡す）
+export POC_MAX_NUDGES="${POC_MAX_NUDGES:-2}"
 one() {
   local id="$1" re='^(W11-[BF][0-9]+)-(.+)-([0-9]+)$'
   [[ "$id" =~ $re ]] || { echo "bad id $id"; return; }

@@ -74,7 +74,7 @@
 - 設計・課題の一覧は [wf-W11-design.md](wf-W11-design.md)。課題の定義は `scripts/poc/oss/tasks.json`、課題文は `wf-W11-<課題ID>.md`（シナリオ名は `W11-<課題ID>`、試行 ID は `W11-<課題ID>-<候補>-<回>`）。
 - 準備: `python3 scripts/poc/oss/oss.py prepare <課題ID>` が、本家の修正の 1 つ前のソースを履歴なしで `/tmp/poc-oss/<課題ID>/template` に取り出し（node の課題は依存も入れる）、隠しテストの F2P・P2P を `docs/poc/answer-key/W11/<課題ID>.json` に書く。
 - `run-trial.sh` は初期状態を作業用コピーへ写し（node_modules はハードリンク）、python の課題は作業領域の `venv` に環境を作って子セッションの `PATH` に入れる。本家の履歴・修正後のコード・隠しテストは作業用コピーに置かない。
-- 手順: 不具合（`B*`）は W5、機能（`F*`）は W2 と同じ入口。課題文の末尾は新文言、費用の上限は watch（1 試行 $10）、介入は最大 2 回。
+- 手順: 不具合（`B*`）は W5、機能（`F*`）は W2 と同じ入口。課題文の末尾は新文言、費用の上限は付けない（2026-11-09 15:40 UTC ユーザー指示。歯止めは 1 ステップ 40 分のタイムアウトだけ。詳しくは wf-W11-design.md）、介入は最大 2 回。
 - 子セッションの許可リスト: `curl` と `npx next` を外し、課題のテストと再現用のスクリプトの実行（`python`・`pytest`・`node`・`npx vitest`・`npx tsx`・`npx tsc`・`pnpm test` など）を足す（2026-11-09 ユーザー承認）。依存のインストールは許可しない。開発サーバー・ブラウザの許可は足さない。
 - 採点: `python3 scripts/poc/grade_w11.py <試行ID>`（隠しテストを作業後のコードに上書きして実行し、終わったら取り除く）。外部サイト・依存のインストール・公開版のパッケージのソースへの参照は `isolation_suspects` として記録する。集計は `scripts/poc/report_w11.py`。まとめて流すときは `scripts/poc/oss/run_all.sh <試行ID>...`。
 
