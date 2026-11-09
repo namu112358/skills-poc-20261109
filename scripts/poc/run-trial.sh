@@ -104,6 +104,29 @@ if [[ "$CAND" == gstack ]]; then
   # gstack 自身のコマンド（~/.claude/skills/gstack/bin/*）
   ALLOWED+=("Bash($GSTACK/bin/:*)" "Bash(~/.claude/skills/gstack/bin/:*)" "Bash(bun $GSTACK/:*)")
 fi
+# W6 以降（UI 実装からブラウザ検証まで）: 開発サーバーの起動とブラウザ操作を許可する（2026-11-09 追加）。
+# W1〜W5 は比較の条件を揃えるため従来の許可リストのまま。サーバーは試行後に reap_servers が止める。
+SCN_NUM="${SCENARIO#W}"; SCN_NUM="${SCN_NUM%%[a-z]*}"
+CHILD_ENV=()
+if [[ "$SCN_NUM" -ge 6 ]]; then
+  ALLOWED+=(
+    "Bash(npm run dev)" "Bash(npm run dev:*)" "Bash(npm run start)" "Bash(npm run start:*)"
+    "Bash(timeout * npm run dev*)" "Bash(timeout * npm run start*)" "Bash(timeout * npx next *)"
+    # npm start（npm run start の別名）と、ポートを環境変数で渡す形（PORT=3100 npm run start など）。
+    # 2026-11-09 の最初の試行でこの形が漏れていて、2 試行がサーバーを起動できなかったため追加した
+    "Bash(npm start)" "Bash(npm start:*)" "Bash(PORT=* npm start*)" "Bash(PORT=* npm run start*)"
+    "Bash(PORT=* npm run dev*)" "Bash(PORT=* npx next *)"
+    # ブラウザ: Playwright MCP（全候補共通。事前インストール済みの Chromium を使う）と Next.js DevTools MCP
+    "mcp__playwright" "mcp__next-devtools"
+  )
+  if [[ "$CAND" == gstack ]]; then
+    # gstack のブラウザ（browse）。Chrome for Testing は取得できないので、事前インストール済みの Chromium を使わせる
+    ALLOWED+=("Bash($GSTACK/browse/dist/:*)" "Bash(~/.claude/skills/gstack/browse/dist/:*)")
+  fi
+  CHILD_ENV=(GSTACK_CHROMIUM_PATH=/opt/pw-browsers/chromium)
+  # 子セッションが起動したサーバー・ブラウザが試行後に残らないよう、終了時にも止める（reap_servers は下で定義）
+  trap 'declare -F reap_servers >/dev/null && reap_servers end' EXIT
+fi
 
 # 4) 手順（docs/poc/tasks/wf-procedures.md）
 if [[ "$SCENARIO" == W3 ]]; then
@@ -151,6 +174,17 @@ fi
 if [[ "$SCENARIO" == W4 && "$CAND" == gstack ]]; then
   STEPS=("/autoplan $TASK" "計画に沿って実装し、変更を git にコミットしてください。" "/review")
 fi
+if [[ "$SCENARIO" == W6 ]]; then
+  # W6 の手順（docs/poc/tasks/wf-procedures.md）。PR はリモートが無いので PR.md に書かせる（課題文に明記）。
+  PR_STEP="PR を作成してください（課題文の「確認と PR」のとおり、PR のタイトルと本文を PR.md に書いてコミットします）。"
+  case "$CAND" in
+    baseline) STEPS=("$TASK") ;;
+    superpowers) STEPS=("$TASK" "/superpowers:finishing-a-development-branch") ;;
+    feature-dev) STEPS=("/feature-dev:feature-dev $TASK" "$PR_STEP") ;;
+    compound-engineering) STEPS=("/ce-work $TASK" "/ce-test-browser" "/ce-commit-push-pr") ;;
+    gstack) STEPS=("$TASK" "/qa" "/ship") ;;
+  esac
+fi
 if [[ "$SCENARIO" == W5 ]]; then
   # W5 の手順（docs/poc/tasks/wf-procedures.md）。gstack は /qa、Compound Engineering は /ce-debug に課題を渡す。
   case "$CAND" in
@@ -184,6 +218,7 @@ MAX_QA="${POC_MAX_QA_ROUNDS:-10}"
 QA_CLOSE="質問はここまでで締め切ります。残りはお任せします。ここまでの回答をもとに要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
 [[ "$SCENARIO" == W3 ]] && NUDGE="お任せします。確認は不要なので、要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
 [[ "$SCENARIO" == W5 ]] && NUDGE="お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。"
+[[ "$SCENARIO" == W6 ]] && NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、PR.md を含めて変更を git にコミットしてください。"
 
 session_cost() {  # これまでの全ステップの最後の result の total_cost_usd（--resume では累計）
   python3 -c '
@@ -249,7 +284,8 @@ reap_servers() {  # 作業用コピーを cwd にして動く next のプロセ�
     [[ "$cwd" == "$APP"* ]] || continue
     cmd="$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)" || continue
     case "$cmd" in claude*|timeout*|*run-trial.sh*|*playwright-mcp*|*next-devtools-mcp*) continue ;; esac
-    if [[ "$cmd" == *next* ]]; then
+    # next（開発サーバー）に加え、W6 以降の gstack の browse デーモンと、そのブラウザ（chrome）も止める
+    if [[ "$cmd" == *next* || "$cmd" == *browse/dist/* || "$cmd" == *chrom* ]]; then
       kill "$pid" 2>/dev/null && echo "step$1 killed leftover: ${cmd:0:120}" >> "$OUT/errors.log"
     fi
   done
@@ -261,7 +297,7 @@ run_step() {  # run_step <番号> <プロンプト>
   if [[ -n "$MAX_USD" && "$BUDGET_MODE" == flag ]]; then
     BUDGET=(--max-budget-usd "$(python3 -c "print(max(0.01, round($MAX_USD - $(session_cost), 2)))")")
   fi
-  ( cd "$APP" && HOME="$HOME_DIR" timeout "${POC_STEP_TIMEOUT:-2400}" claude -p "$prompt" \
+  ( cd "$APP" && env HOME="$HOME_DIR" "${CHILD_ENV[@]}" timeout "${POC_STEP_TIMEOUT:-2400}" claude -p "$prompt" \
       --model "$MODEL" --permission-mode acceptEdits --allowedTools "${ALLOWED[@]}" \
       --mcp-config "$APP/.mcp.json" --strict-mcp-config --add-dir "$PLUG" "${PLUG_EXTRA[@]}" \
       "${PLUGINS[@]}" "${RESUME[@]}" "${BUDGET[@]}" \
@@ -327,9 +363,12 @@ done
 for _ in $(seq 1 "$MAX_NUDGES"); do
   commits="$(git -C "$APP" rev-list --count "$(cat "$OUT/baseline-commit")"..HEAD)"
   # AGENTS.md は next dev が自動で書き出すファイルなので、未コミットの変更に数えない
-  dirty="$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' | head -1)"
+  # W6 以降の Playwright MCP が自動で書き出すページの記録（.playwright-mcp/）も数えない（W5 までは出ない）
+  dirty="$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' ':!.playwright-mcp' | head -1)"
   # W3 は要件文書（REQUIREMENTS.md）がコミットされていることも完了の条件にする
   if [[ "$SCENARIO" == W3 ]] && ! git -C "$APP" cat-file -e HEAD:REQUIREMENTS.md 2>/dev/null; then commits=0; fi
+  # W6 は PR の本文（PR.md）がコミットされていることも完了の条件にする
+  if [[ "$SCENARIO" == W6 ]] && ! git -C "$APP" cat-file -e HEAD:PR.md 2>/dev/null; then commits=0; fi
   [[ "$commits" -gt 0 && -z "$dirty" ]] && break
   if over_budget; then echo "nudge skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
   i=$((i+1))
