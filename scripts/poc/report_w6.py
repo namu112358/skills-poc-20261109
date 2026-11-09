@@ -10,6 +10,10 @@ import re
 import statistics
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import two_axis  # noqa: E402  2 本立ての点数（PLAN.md §4.4）
+
 ROOT = Path(__file__).resolve().parents[2]
 DIR = ROOT / "docs" / "poc" / "results" / "workflow" / "W6"
 NOTES = json.loads((DIR / "notes.json").read_text())
@@ -235,7 +239,9 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
   <h2>課題</h2>
   <div class="box">{NOTES['task_html']}</div>
 
-  <h2>結果の概要（平均点）</h2>
+{two_axis.html_section("W6", DIR)}
+
+  <h2>従来の総合点（平均点）</h2>
   <div class="cards">{''.join(cards)}</div>
 
   <h2>配点ごとの内訳</h2>
@@ -297,7 +303,8 @@ code {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
     ]
     out += [md(x) + "\n" for x in NOTES["summary"]]
     out += ["## 課題", "", md(NOTES["task_html"]), ""]
-    out += ["## 結果の概要（平均点）", "",
+    out += two_axis.md_section("W6", DIR)  # 主表示: 2 本立ての点数（品質・効率）
+    out += ["## 従来の総合点（平均点）", "",
             "| 候補 | 回数 | 合計 / 100 | UI チェックリスト / 40 | 証跡 / 15 | PR / 30 | 費用 / 15 | 不具合なしの項目 | 平均費用 | 平均時間（分） |",
             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for c in cands:
