@@ -34,16 +34,16 @@ AI に任せる範囲を広げる前に、検証できる仕組み・権限・�
 
 | § | 資料 | 結果 |
 |---|---|---|
-| 7.1 | OpenAI — Harness engineering | **未確認**（この環境から openai.com に到達できない） |
+| 7.1 | OpenAI — Harness engineering | **未確認**（openai.com が Cloudflare の bot チャレンジで自動取得を拒否する。HTTP 403、`cf-mitigated: challenge`） |
 | 7.2 | Anthropic — Effective harnesses for long-running agents | 確認済み。URL・題・公開日（2025-11-26）が一致 |
 | 7.3 | Anthropic — Harness design for long-running application development | 確認済み。URL・題・公開日（2026-03-24）が一致。Planner / Generator / Evaluator 構成と Playwright MCP による評価を扱う |
 | 7.4 | OpenAI — Symphony | **未確認**（同上） |
 | 7.5 | Anthropic — Effective context engineering for AI agents | 確認済み。URL・題・公開日（2025-09-29）が一致 |
 | 7.6 | Claude Code Best practices | リダイレクトを確認し、URL を修正（上表） |
-| 7.7 | GitHub Rulesets / Code Security | **未確認**（docs.github.com に到達できない） |
-| 7.8 | Playwright Test | **未確認**（playwright.dev に到達できない） |
+| 7.7 | GitHub Rulesets / Code Security | 確認済み。2 件とも HTTP 200。ページ題は「Available rules for rulesets」と「Security and code quality documentation」（Code Security の入口ページの現行の題） |
+| 7.8 | Playwright Test | 確認済み。HTTP 200。ページ題は「Installation」（Playwright Test の導入ページ） |
 
-未確認の 4 件は、ネットワークが通る環境で URL・題・公開日を確かめてから Draft を外してください。
+未確認の 2 件（OpenAI）は自動取得できないため、ブラウザで URL・題・公開日を確かめてから Draft を外してください。
 
 ## 3. 指摘事項
 
