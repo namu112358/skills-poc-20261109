@@ -1,0 +1,172 @@
+{
+  "scenario": "W7e",
+  "trial": "W7e-feature-dev-31",
+  "candidate": "feature-dev",
+  "run": 31,
+  "elapsed_seconds": 257,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "teExportRange は期間の端を正しく扱う\nok 22 - validateExportRange は期間の端を正しく扱う\n  ---\n  duration_ms: 2.081824\n  type: 'test'\n  ...\n# Subtest: validateExportRange は欠落・形式違い・存在しない日付を弾く\nok 23 - validateExportRange は欠落・形式違い・存在しない日付を弾く\n  ---\n  duration_ms: 0.205232\n  type: 'test'\n  ...\n# Subtest: csvCell はカンマ・ダブルクォート・改行を含む値だけを囲む\nok 24 - csvCell はカンマ・ダブルクォート・改行を含む値だけを囲む\n  ---\n  duration_ms: 0.463206\n  type: 'test'\n  ...\n# Subtest: worklogsToCsv は記録が無ければ見出しだけを返す\nok 25 - worklogsToCsv は記録が無ければ見出しだけを返す\n  ---\n  duration_ms: 0.227572\n  type: 'test'\n  ...\n# Subtest: exportMyWorklogsCsv は自分の記録だけを日本時間で古い順に出力する\nok 26 - exportMyWorklogsCsv は自分の記録だけを日本時間で古い順に出力する\n  ---\n  duration_ms: 163.60317\n  type: 'test'\n  ...\n1..26\n# tests 35\n# suites 15\n# pass 35\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2462.34419\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "pi/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /api/tasks/[id]/completion\n├ ƒ /api/tasks/[id]/schedules\n├ ƒ /api/tasks/[id]/worklogs\n├ ƒ /api/tasks/[id]/worklogs/[worklogId]\n├ ƒ /login\n├ ƒ /my/worklogs\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:18839) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:18838) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:18832) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは 401",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "記録の無い期間は見出しの行だけ（200、CSV の Content-Type と添付のファイル名）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "自分の作業記録だけが古い順に 1 行ずつ出る（タスクの名前・作業時間・メモ）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "改行は CRLF",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ほかの人の CSV には自分の記録だけが出る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "from・to が無い・形式が違う・存在しない日付・from が to より後・31 日を超えるときは 400（CSV を返さない）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "期間の境界（ちょうど 31 日、from と to が同じ日）は受け付ける",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] タスクの作業記録の API は今までどおり使える",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/api/me/worklogs/export/route.ts",
+        "added": 15,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/worklogs.ts",
+        "added": 38,
+        "deleted": 2,
+        "kind": "code"
+      },
+      {
+        "path": "tests/worklogs-export.test.ts",
+        "added": 50,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/me/worklogs/export/route.ts",
+      "tests/worklogs-export.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "36c67f6 作業記録を期間指定で CSV 出力する API を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 1.0625,
+    "tokens": {
+      "input": 122,
+      "output": 36889,
+      "cache_read": 2302861,
+      "cache_creation": 147895
+    },
+    "turns": 2,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/worklogs.ts'\\ns=open(p).read()\\ns=s.replace('import { jstDayRange, toUtcIso } from \\\"./datetime.ts\\\";','import { formatJst, isValidDate, jstDayRange, toUtcIs"
+      }
+    ],
+    "tool_calls": {
+      "Agent": 6,
+      "Grep": 11,
+      "Glob": 6,
+      "Read": 44,
+      "Bash": 10,
+      "ReadNotifications": 4,
+      "ScheduleWakeup": 5,
+      "Edit": 3,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 6,
+    "subagent_types": {
+      "feature-dev:code-explorer": 2,
+      "feature-dev:code-architect": 1,
+      "feature-dev:code-reviewer": 3
+    },
+    "questions": 0,
+    "active_seconds": 7,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しい通知はありません。3 件のレビュアー（単純さ・DRY、バグ・正確性、規約適合）は、すべて完了済みで結果も反映しています。\n\n- **単純さ・DRY:** 重大な指摘なし。任意の改善が 3 点ありました（`DAY_MS` の重複、薄いラッパー関数、テストのシード依存）。依頼範囲を保つため見送りました。\n- **バグ・正確性:** 重大な指摘なし。日付境界、31 日の端、引用、認証順序は仕様どおりと確認されました。\n- **規約適合:** 違反なし。数式インジェクションの指摘が 1 件ありました。仕様が値そのままの出力を求めているため対応していません。必要なら `'` の前置を追加できます。\n\nコミット `36c67f6` 以降、追加の変更はありません。"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": true,
+        "P2": true,
+        "P1_reasons": [],
+        "P2_failed": []
+      }
+    ],
+    "check_seconds": 5,
+    "auto_memory_disabled": true,
+    "control": true,
+    "memory": {
+      "in_app": [],
+      "in_home": []
+    },
+    "memory_reads": [
+      {
+        "step": "step1.jsonl",
+        "tool": "Agent",
+        "match": "CLAUDE.md",
+        "input": "{\"description\": \"CSV 出力の設計\", \"subagent_type\": \"feature-dev:code-architect\", \"prompt\": \"/tmp/poc-trials/W7e-feature-dev-31/app（Next.js + node:sqlite。CLAUDE.md の規約に従う）に GET /api/me/worklogs/export?from&"
+      },
+      {
+        "step": "step1.jsonl",
+        "tool": "Agent",
+        "match": "CLAUDE.md",
+        "input": "{\"description\": \"レビュー: 規約適合\", \"subagent_type\": \"feature-dev:code-reviewer\", \"prompt\": \"/tmp/poc-trials/W7e-feature-dev-31/app で git diff と未追跡ファイル（src/lib/worklogs.ts の末尾追加、src/app/api/me/worklogs/expo"
+      }
+    ],
+    "injected_patch": "a5dd7b7a25fd46b9f24dd3a076d8ea7127d68b9c42535e2b0a0e9bf3e03df28e  docs/poc/answer-key/W7/base.patch\nc489a3a66f3cc9004c5c1a19650a519fdd31d1dbae6de5eaab83761451cb8d1e  docs/poc/answer-key/W7/reference-W7a.patch\ndbf1d69535b9e7069d1bdc87ca675b4a8aea2455a9d0f64aa2f7410e98e746b6  docs/poc/answer-key/W7/reference-W7b.patch\n1c8b1e78d16e59c70f10913666f49ebc65f2c7633e780e5c3f05cf10d8803f39  docs/poc/answer-key/W7/reference-W7c.patch\nf74ce069589c5e64b1e19eff88f63eb7ec4a5105c3524a3bc2b06fc23a03df89  docs/poc/answer-key/W7/reference-W7d.patch"
+  }
+}
