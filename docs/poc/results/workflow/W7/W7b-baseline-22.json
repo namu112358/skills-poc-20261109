@@ -1,0 +1,283 @@
+{
+  "scenario": "W7b",
+  "trial": "W7b-baseline-22",
+  "candidate": "baseline",
+  "run": 22,
+  "elapsed_seconds": 25,
+  "errors": "step1 exit=1\nstep2 exit=1\nstep3 exit=1\nstep4 exit=1\nstep5 exit=1\n",
+  "budget_stopped": "",
+  "interventions": 2,
+  "feedback_rounds": 2,
+  "continued_from": "W7a-baseline-22",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": " type: 'test'\n      ...\n    1..4\nok 13 - validateTaskInput\n  ---\n  duration_ms: 940.959703\n  type: 'suite'\n  ...\n# Subtest: createTask / updateTask\n    # Subtest: creates a task and updates only the given fields\n    ok 1 - creates a task and updates only the given fields\n      ---\n      duration_ms: 115.538671\n      type: 'test'\n      ...\n    1..1\nok 14 - createTask / updateTask\n  ---\n  duration_ms: 115.775639\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.200688\n      type: 'test'\n      ...\n    1..1\nok 15 - isTaskStatus\n  ---\n  duration_ms: 0.293397\n  type: 'suite'\n  ...\n1..15\n# tests 24\n# suites 15\n# pass 24\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2043.862062\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "lizing page optimization ...\n\nRoute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/me\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /api/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:27366) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:27372) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:27373) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは GET・POST・DELETE とも 401",
+      "pass": false,
+      "detail": "got 404,404,404"
+    },
+    {
+      "name": "作業記録の無いタスクは空配列と合計 0（200）",
+      "pass": false,
+      "detail": "got 404 undefined"
+    },
+    {
+      "name": "作業記録を追加すると 201 で返り、記録した人はログイン中のユーザー・メモは前後の空白を除く",
+      "pass": false,
+      "detail": "got 404 undefined"
+    },
+    {
+      "name": "メモは省略でき（空文字）、ほかの人も記録できる",
+      "pass": false,
+      "detail": "got 404 undefined"
+    },
+    {
+      "name": "一覧は新しい順で、合計が返る",
+      "pass": false,
+      "detail": "ids= total=undefined"
+    },
+    {
+      "name": "作業時間が 1〜1440 の整数でない・メモが 200 文字を超える・文字列でない・本文がオブジェクトでないときは 400",
+      "pass": false,
+      "detail": "got 404,404,404,404,404,404,404,404,404 count=undefined"
+    },
+    {
+      "name": "境界値（1 分・1440 分・メモ 200 文字）は受け付ける",
+      "pass": false,
+      "detail": "got 404,404 total=undefined"
+    },
+    {
+      "name": "完了（done）のタスクには追加できず 409",
+      "pass": false,
+      "detail": "got 404 count=undefined"
+    },
+    {
+      "name": "存在しないタスク・不正な ID は 404",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "詳細画面に作業記録が新しい順に並び、名前・作業時間・メモと合計が表示される",
+      "pass": false,
+      "detail": "見出し「作業記録」がない"
+    },
+    {
+      "name": "作業記録の無いタスクの詳細画面には「作業記録はまだありません。」と表示する",
+      "pass": false,
+      "detail": "worklog=0"
+    },
+    {
+      "name": "記録した本人以外の削除は 403、URL のタスクの記録でないときは 404",
+      "pass": false,
+      "detail": "other=404 wrongTask=404 missing=404 bad=404"
+    },
+    {
+      "name": "本人が削除すると 204 で、一覧と合計から消える",
+      "pass": false,
+      "detail": "got 404 undefined"
+    },
+    {
+      "name": "[既存] タスクの更新（PATCH）とコメントは今までどおり使える",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [],
+    "new_files": [],
+    "package_json_changed": false,
+    "commits": []
+  },
+  "transcript": {
+    "cost_usd": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0,
+      "cache_creation": 0
+    },
+    "turns": 5,
+    "permission_denials": [],
+    "tool_calls": {},
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 2,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "You've hit your 5-hour limit · resets 7:10pm (UTC)"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": false,
+        "P2": false,
+        "P1_reasons": [
+          "記録の操作が失敗した（404）",
+          "新しく保存された日時が DB に見つからない",
+          "画面の判定に使える UTC の日時が無い"
+        ],
+        "P2_failed": [
+          {
+            "label": "未ログイン",
+            "expected": 401,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "存在しないタスク",
+            "expected": 404,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "作業時間が不正",
+            "expected": 400,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "完了済みのタスク",
+            "expected": 409,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "本人以外の削除",
+            "expected": 403,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          }
+        ]
+      },
+      {
+        "round": 2,
+        "build": true,
+        "error": "",
+        "P1": false,
+        "P2": false,
+        "P1_reasons": [
+          "記録の操作が失敗した（404）",
+          "新しく保存された日時が DB に見つからない",
+          "画面の判定に使える UTC の日時が無い"
+        ],
+        "P2_failed": [
+          {
+            "label": "未ログイン",
+            "expected": 401,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "存在しないタスク",
+            "expected": 404,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "作業時間が不正",
+            "expected": 400,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "完了済みのタスク",
+            "expected": 409,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "本人以外の削除",
+            "expected": 403,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          }
+        ]
+      },
+      {
+        "round": 3,
+        "build": true,
+        "error": "",
+        "P1": false,
+        "P2": false,
+        "P1_reasons": [
+          "記録の操作が失敗した（404）",
+          "新しく保存された日時が DB に見つからない",
+          "画面の判定に使える UTC の日時が無い"
+        ],
+        "P2_failed": [
+          {
+            "label": "未ログイン",
+            "expected": 401,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "存在しないタスク",
+            "expected": 404,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "作業時間が不正",
+            "expected": 400,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "完了済みのタスク",
+            "expected": 409,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          },
+          {
+            "label": "本人以外の削除",
+            "expected": 403,
+            "status": 404,
+            "body": "(JSON でない)",
+            "pass": false
+          }
+        ]
+      }
+    ],
+    "check_seconds": 14,
+    "auto_memory_disabled": true,
+    "control": false,
+    "memory": {
+      "in_app": [],
+      "in_home": []
+    },
+    "memory_reads": []
+  }
+}
