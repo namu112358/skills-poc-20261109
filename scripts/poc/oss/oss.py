@@ -235,6 +235,44 @@ def copy_app(tid, src, app, work):
         sh(["cp", "-al", str(nm), str(app / rel)])
     if t["lang"] == "python":
         make_venv(t, app, work / "venv")
+    if t.get("nub_shim"):
+        # zod の CLAUDE.md が指示する nub の代替を、作業領域の bin に置く（app の外。run-trial.sh が PATH に入れる）
+        (work / "bin").mkdir(parents=True, exist_ok=True)
+        shutil.copy(Path(__file__).parent / "nub-shim", work / "bin" / "nub")
+        (work / "bin" / "nub").chmod(0o755)
+
+
+def verify_nub(tid):
+    """nub の代替経由で、隠しテストが修正前に失敗し、本家の修正で通ることを確かめる"""
+    t = task(tid)
+    repo = clone(t)
+    key = json.loads((KEY_DIR / f"{tid}.json").read_text())
+    work = Path(tempfile.mkdtemp(prefix=f"w11-nub-{tid}-"))
+    copy_app(tid, OSS_ROOT / tid / "template", work / "app", work)
+    app = work / "app"
+    env = {"PATH": f"{work / 'bin'}:{os.environ['PATH']}", "CI": "1"}
+
+    def run():
+        out = work / "r.json"
+        sh(["nub", "exec", "--node", "vitest", "run", *key["run_files"], "--reporter=json", f"--outputFile={out}"],
+           cwd=app, env=env, check=False, timeout=1800)
+        res = {}
+        for f in json.loads(out.read_text()).get("testResults", []):
+            for a in f.get("assertionResults", []):
+                res[f"{os.path.relpath(f['name'], app)} > {a.get('fullName')}"] = a.get("status")
+        return res
+    apply_files(app, hidden_tests(repo, t))
+    before = run()
+    diff = sh(["git", "-C", str(repo), "diff", "--binary", key["base"], t["fix"], "--", *key["src_files"]]).stdout
+    subprocess.run(["git", "apply", "-"], cwd=app, input=diff, text=True, check=True)
+    after = run()
+    deny = sh(["nub", "install"], cwd=app, env=env, check=False)
+    ok_before = sum(1 for k in key["f2p"] if before.get(k) != "passed")
+    ok_after = sum(1 for k in key["f2p"] if after.get(k) == "passed")
+    p2p_after = sum(1 for k in key["p2p"] if after.get(k) == "passed")
+    shutil.rmtree(work, ignore_errors=True)
+    print(f"{tid} via nub shim: F2P failing before {ok_before}/{len(key['f2p'])}, passing after {ok_after}/{len(key['f2p'])}, "
+          f"P2P after {p2p_after}/{len(key['p2p'])}, 'nub install' exit={deny.returncode}")
 
 
 if __name__ == "__main__":
@@ -242,6 +280,9 @@ if __name__ == "__main__":
     if cmd == "prepare":
         for tid in sys.argv[2:]:
             prepare(tid)
+    elif cmd == "verify-nub":
+        for tid in sys.argv[2:]:
+            verify_nub(tid)
     elif cmd == "copy-app":
         copy_app(sys.argv[2], OSS_ROOT / sys.argv[2] / "template" if len(sys.argv) < 6 else sys.argv[5],
                  sys.argv[3], sys.argv[4])

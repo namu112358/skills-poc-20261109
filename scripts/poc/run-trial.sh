@@ -188,6 +188,12 @@ if [[ "$SCENARIO" == W11-* ]]; then
   )
   # python の課題: 試行ごとの環境（$WORK/venv）の python・pytest を使わせる
   [[ -x "$WORK/venv/bin/python" ]] && CHILD_ENV=(PATH="$WORK/venv/bin:$PATH" VIRTUAL_ENV="$WORK/venv")
+  # zod の課題（B3・F1）: CLAUDE.md が指示する nub の代替（scripts/poc/oss/nub-shim）を PATH に入れ、nub の実行を許可する。
+  # 代替は事前に入れた依存だけで動き、依存の変更と知らないサブコマンドは拒否する（2026-11-09 コーディネーター承認）
+  if [[ -x "$WORK/bin/nub" ]]; then
+    CHILD_ENV=(PATH="$WORK/bin:$PATH")
+    ALLOWED+=("Bash(nub:*)" "Bash(timeout * nub*)")
+  fi
 fi
 if [[ "$CAND" == gstack ]]; then
   # gstack 自身のコマンド（~/.claude/skills/gstack/bin/*）
