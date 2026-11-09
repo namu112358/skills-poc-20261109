@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PoC W6 結果</title>
+<style>
+:root {
+  --bg:#f7f7f5; --surface:#ffffff; --text:#1d1d1f; --muted:#5f6368; --line:#e3e3df;
+  --accent:#2f5bd3; --a:#2f5bd3; --b:#1f8a70; --c:#b7791f; --d:#8e44ad; --ok:#1f8a70; --ng:#c0392b; --warn:#b7791f; --top:#eef3ff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#121314; --surface:#1c1d1f; --text:#ececec; --muted:#a0a4a8; --line:#2e3033;
+    --accent:#7c9cff; --a:#7c9cff; --b:#4cc39f; --c:#e0a84a; --d:#c39bd3; --ok:#4cc39f; --ng:#ff7b6b; --warn:#e0a84a; --top:#1f2738;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#121314; --surface:#1c1d1f; --text:#ececec; --muted:#a0a4a8; --line:#2e3033;
+  --accent:#7c9cff; --a:#7c9cff; --b:#4cc39f; --c:#e0a84a; --d:#c39bd3; --ok:#4cc39f; --ng:#ff7b6b; --warn:#e0a84a; --top:#1f2738;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.7 "Hiragino Sans","Noto Sans JP",system-ui,sans-serif; }
+main { max-width:1080px; margin:0 auto; padding:32px 16px 64px; }
+h1 { font-size:26px; margin:0 0 4px; }
+h2 { font-size:19px; margin:40px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+.lead { color:var(--muted); margin:0 0 20px; }
+.summary { background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--accent);
+  border-radius:8px; padding:14px 18px; }
+.summary p { margin:4px 0; }
+.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+.card.top { background:var(--top); border-color:var(--accent); }
+.card header { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+.card h3 { font-size:15px; margin:0; }
+.runs, .meta { color:var(--muted); font-size:12px; }
+.score { margin:6px 0; } .score strong { font-size:30px; }
+dl { margin:0; display:grid; gap:2px; font-size:13px; }
+dl div { display:flex; justify-content:space-between; } dt { color:var(--muted); } dd { margin:0; }
+.table-wrap { overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:10px; }
+table { border-collapse:collapse; width:100%; font-size:13px; }
+table.wide { min-width:1000px; }
+th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+thead th { color:var(--muted); font-weight:600; white-space:nowrap; }
+td.num { text-align:right; font-variant-numeric:tabular-nums; }
+.pill { display:inline-block; font-size:11px; padding:0 6px; border-radius:999px; margin-right:2px; white-space:nowrap; }
+.pill.ok { color:var(--ok); border:1px solid var(--ok); } .pill.ng { color:var(--ng); border:1px solid var(--ng); }
+.pill.warn { color:var(--warn); border:1px solid var(--warn); }
+.bd-row { display:grid; grid-template-columns:180px 1fr; gap:12px; padding:8px 0; border-bottom:1px solid var(--line); }
+.bd-bars { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+.bd-name { font-weight:600; font-size:14px; }
+.bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin-top:2px; }
+.bar span { display:block; height:100%; background:var(--a); }
+.bar.b span { background:var(--b); } .bar.c span { background:var(--c); } .bar.d span { background:var(--d); }
+small { color:var(--muted); font-size:12px; }
+details { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin:8px 0; }
+summary { cursor:pointer; }
+.sub { color:var(--muted); font-size:12px; margin:10px 0 2px; }
+.warn { color:var(--ng); font-size:13px; margin:10px 0 2px; }
+ul { padding-left:20px; } .files { font-size:13px; margin:0; }
+.kind { color:var(--muted); font-size:11px; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; overflow-wrap:anywhere; }
+.box { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:4px 18px; }
+@media (max-width:640px) {
+  .bd-row { grid-template-columns:1fr; } .bd-bars { grid-template-columns:1fr 1fr; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>開発ワークフロー PoC — W6 UI 実装からブラウザ検証・PR 作成まで</h1>
+  <p class="lead">実施日 2026-11-09 ・ モデル claude-sonnet-5-5 ・ Claude Code 2.1.319 ・ 計画書 docs/poc/PLAN.md §5.1</p>
+
+  <section class="summary"><p><strong>W6（UI 実装からブラウザ検証・PR 作成まで）では、画面の出来に差は出ませんでした。</strong>4 候補と baseline の全 9 試行が、UI チェックリスト 8 項目（空状態・入力エラー・通信エラー・二重送信の防止・ステータス変更の失敗時・幅 375px など）を隠しの E2E 16 件ですべて満たし、9 試行とも実際のブラウザで画面を操作して、幅 375px での確認とスクリーンショットのコミットまで行いました。型チェック・単体テスト・ビルドも全試行で通っています。</p><p>品質（UI・証跡・PR の完成度）の差は PR の説明の書き方だけ（12 点中 10〜12 点）で、最大でも 1.8 点です。2 本立ての判定規則では Superpowers・Feature Dev・gstack が「差あり」になりますが、内容は「注意点の書き漏れ」「変更内容がファイル単位」といった説明文の軽微な差です。<strong>同じ品質での効率は、Superpowers（baseline 比 費用 1.3 倍・時間 1.0 倍、効率 100 点）が最も良く</strong>、Feature Dev（2.2 倍・1.1 倍）と Compound Engineering（2.5 倍・1.3 倍）が 95 点、gstack は #2 が $7.34・23 分かかり 71.5 点でした。baseline（$0.88・7 分）は品質も効率も満点です。</p><p>候補ごとの手順では、gstack の <code>/qa</code> が事前インストール済みの Chromium（<code>GSTACK_CHROMIUM_PATH</code>）で動き、ブラウザでの QA まで進みました。Compound Engineering の <code>/ce-test-browser</code> は「Playwright MCP は使わない」という自身の規則で 2 回ともテストを始めず、<code>/ce-commit-push-pr</code>・gstack の <code>/ship</code>・Superpowers の <code>finishing-a-development-branch</code> は、リモートが無いため push と PR 作成の手前で止まりました（PR は全候補とも課題文の指示どおり <code>PR.md</code> に書いています）。</p></section>
+
+  <h2>課題</h2>
+  <div class="box"><p>「マイタスク」画面（<code>/my-tasks</code>）を追加させた。自分の担当タスクを期限順に並べ、空状態の文言、タスクの追加（入力エラー・通信エラー・サーバーエラーの表示、二重送信の防止）、その場でのステータス変更（失敗したら知らせて元に戻す）、幅 375px での表示を含む。実装後にブラウザで確認し（スマートフォンの幅を含む）、証跡をリポジトリに保存して PR から参照させた。リモートが無いため、PR はタイトルと本文を <code>PR.md</code> に書いてコミットする形にした（全候補に同じ文面）。課題文は <code>docs/poc/tasks/wf-W6.md</code>。</p></div>
+
+
+  <h2>2 本立ての点数（品質・効率）</h2>
+  <div class="box"><ul><li>品質: 最高は baseline（候補なし）（100.0 点）。これと差なし（差がばらつき以下）: Compound Engineering（99.7）、baseline（候補なし）（100.0）。差あり: Superpowers（98.2、−1.8）、Feature Dev（98.2、−1.8）、gstack（99.1、−0.9）。</li><li>効率（最高品質と差がない候補の中。倍率は baseline 比）: 最も安く速いのは baseline（候補なし）（費用 1.0 倍・時間 1.0 倍）で効率 100.0 点。ほかは Compound Engineering 95.0。</li><li>順位の入れ替わり: なし（従来の総合点の 1 位 baseline（候補なし） は、品質でも 1 位（同点を含む: baseline（候補なし））。</li></ul></div>
+  <h3>候補ごとの平均</h3>
+  <div class="table-wrap"><table><thead><tr><th>候補</th><th>回数</th><th>品質 / 100</th><th>2 回の差</th><th>効率 / 100</th><th>総合点（従来）</th><th>費用（baseline 比）</th><th>時間（baseline 比）</th><th>介入</th><th>質問（参考）</th></tr></thead><tbody><tr><th scope="row">Superpowers</th><td class="num">2</td><td class="num">98.2</td><td class="num">1.2</td><td class="num">100.0</td><td class="num">95.3</td><td class="num">$1.17（1.3 倍）</td><td class="num">7.1 分（1.0 倍）</td><td class="num">0 回</td><td class="num">0 回</td></tr><tr><th scope="row">Feature Dev</th><td class="num">2</td><td class="num">98.2</td><td class="num">1.2</td><td class="num">95.0</td><td class="num">90.4</td><td class="num">$1.93（2.2 倍）</td><td class="num">7.5 分（1.1 倍）</td><td class="num">0 回</td><td class="num">0 回</td></tr><tr><th scope="row">Compound Engineering</th><td class="num">2</td><td class="num">99.7（差なし）</td><td class="num">0.6</td><td class="num">95.0</td><td class="num">91.2</td><td class="num">$2.15（2.5 倍）</td><td class="num">9.1 分（1.3 倍）</td><td class="num">0 回</td><td class="num">0 回</td></tr><tr><th scope="row">gstack</th><td class="num">2</td><td class="num">99.1</td><td class="num">0.6</td><td class="num">71.5</td><td class="num">88.0</td><td class="num">$4.80（5.5 倍）</td><td class="num">17.4 分（2.6 倍）</td><td class="num">0 回</td><td class="num">0 回</td></tr><tr><th scope="row">baseline（候補なし）</th><td class="num">1</td><td class="num">100.0（最高）</td><td class="num">—</td><td class="num">100.0</td><td class="num">100.0</td><td class="num">$0.88（1.0 倍）</td><td class="num">6.8 分（1.0 倍）</td><td class="num">0 回</td><td class="num">0 回</td></tr></tbody></table></div>
+  <h3>試行ごとの内訳</h3>
+  <div class="table-wrap"><table><thead><tr><th>試行</th><th>UI チェックリスト / 40</th><th>検証の証跡 / 15</th><th>PR の完成度 / 30</th><th>品質 / 100</th><th>費用 / 50</th><th>時間 / 30</th><th>介入 / 20</th><th>効率 / 100</th><th>総合点（従来）</th></tr></thead><tbody><tr><th scope="row">Superpowers #1</th><td class="num">40</td><td class="num">15</td><td class="num">28</td><td class="num">97.6</td><td class="num">50.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">100.0</td><td class="num">92.3</td></tr><tr><th scope="row">Superpowers #2</th><td class="num">40</td><td class="num">15</td><td class="num">29</td><td class="num">98.8</td><td class="num">50.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">100.0</td><td class="num">98.3</td></tr><tr><th scope="row">Feature Dev #1</th><td class="num">40</td><td class="num">15</td><td class="num">28</td><td class="num">97.6</td><td class="num">40.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">90.0</td><td class="num">89.2</td></tr><tr><th scope="row">Feature Dev #2</th><td class="num">40</td><td class="num">15</td><td class="num">29</td><td class="num">98.8</td><td class="num">50.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">100.0</td><td class="num">91.6</td></tr><tr><th scope="row">Compound Engineering #1</th><td class="num">40</td><td class="num">15</td><td class="num">30</td><td class="num">100.0</td><td class="num">40.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">90.0</td><td class="num">90.0</td></tr><tr><th scope="row">Compound Engineering #2</th><td class="num">40</td><td class="num">15</td><td class="num">29.5</td><td class="num">99.4</td><td class="num">50.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">100.0</td><td class="num">92.3</td></tr><tr><th scope="row">gstack #1</th><td class="num">40</td><td class="num">15</td><td class="num">29</td><td class="num">98.8</td><td class="num">40.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">90.0</td><td class="num">89.8</td></tr><tr><th scope="row">gstack #2</th><td class="num">40</td><td class="num">15</td><td class="num">29.5</td><td class="num">99.4</td><td class="num">15.0</td><td class="num">18.0</td><td class="num">20</td><td class="num">53.0</td><td class="num">86.3</td></tr><tr><th scope="row">baseline（候補なし） #1</th><td class="num">40</td><td class="num">15</td><td class="num">30</td><td class="num">100.0</td><td class="num">50.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">100.0</td><td class="num">100.0</td></tr></tbody></table></div>
+  <h3>計算方法と判断の記録</h3>
+  <div class="box"><ul><li>品質 = （UI チェックリスト 40 + 検証の証跡 15 + PR の完成度 30）の得点 ÷ 85 × 100。</li><li>効率 = 費用 50 + 時間 30 + 介入 20。費用・時間は baseline（$0.8769・409 秒）に対する倍率で、2 倍以下 = 満点、3 倍以下 = 80%、5 倍以下 = 60%、10 倍以下 = 30%、10 倍超 = 0。介入は 0 回 = 20、1 回 = 10、2 回以上 = 0。</li><li>質問の回数は効率から引かない（参考値）。品質の差が、比べる 2 候補の 2 回の差（ばらつき）の大きい方以下なら「差なし」とする。</li><li>定義は docs/poc/PLAN.md §4.4。計算は scripts/poc/two_axis.py。従来の総合点・順位はこの節では変えない。</li></ul></div>
+
+
+  <h2>従来の総合点（平均点）</h2>
+  <div class="cards">
+      <article class="card top">
+        <header><h3>Superpowers</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>95.3</strong><small> / 100</small></p>
+        <dl><div><dt>UI チェックリスト</dt><dd>40 / 40</dd></div><div><dt>検証の証跡</dt><dd>15 / 15</dd></div><div><dt>PR の完成度</dt><dd>28.5 / 30</dd></div><div><dt>費用</dt><dd>11.8 / 15</dd></div></dl>
+        <p class="meta">不具合なしの項目 16 / 16<br>
+        平均 $1.17 ・ 7.1 分</p>
+      </article>
+      <article class="card">
+        <header><h3>Feature Dev</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>90.4</strong><small> / 100</small></p>
+        <dl><div><dt>UI チェックリスト</dt><dd>40 / 40</dd></div><div><dt>検証の証跡</dt><dd>15 / 15</dd></div><div><dt>PR の完成度</dt><dd>28.5 / 30</dd></div><div><dt>費用</dt><dd>6.9 / 15</dd></div></dl>
+        <p class="meta">不具合なしの項目 16 / 16<br>
+        平均 $1.93 ・ 7.5 分</p>
+      </article>
+      <article class="card">
+        <header><h3>Compound Engineering</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>91.2</strong><small> / 100</small></p>
+        <dl><div><dt>UI チェックリスト</dt><dd>40 / 40</dd></div><div><dt>検証の証跡</dt><dd>15 / 15</dd></div><div><dt>PR の完成度</dt><dd>29.8 / 30</dd></div><div><dt>費用</dt><dd>6.4 / 15</dd></div></dl>
+        <p class="meta">不具合なしの項目 16 / 16<br>
+        平均 $2.15 ・ 9.1 分</p>
+      </article>
+      <article class="card">
+        <header><h3>gstack</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>88.0</strong><small> / 100</small></p>
+        <dl><div><dt>UI チェックリスト</dt><dd>40 / 40</dd></div><div><dt>検証の証跡</dt><dd>15 / 15</dd></div><div><dt>PR の完成度</dt><dd>29.2 / 30</dd></div><div><dt>費用</dt><dd>3.8 / 15</dd></div></dl>
+        <p class="meta">不具合なしの項目 16 / 16<br>
+        平均 $4.80 ・ 17.4 分</p>
+      </article>
+      <article class="card">
+        <header><h3>baseline（候補なし）</h3><span class="runs">1 回</span></header>
+        <p class="score"><strong>100.0</strong><small> / 100</small></p>
+        <dl><div><dt>UI チェックリスト</dt><dd>40 / 40</dd></div><div><dt>検証の証跡</dt><dd>15 / 15</dd></div><div><dt>PR の完成度</dt><dd>30.0 / 30</dd></div><div><dt>費用</dt><dd>15.0 / 15</dd></div></dl>
+        <p class="meta">不具合なしの項目 8 / 8<br>
+        平均 $0.88 ・ 6.8 分</p>
+      </article></div>
+
+  <h2>配点ごとの内訳</h2>
+  <div class="box"><div class="bd-row"><span class="bd-name">Superpowers</span><div class="bd-bars"><div><small>UI チェックリスト 40 / 40</small><div class="bar a"><span style="width:100%"></span></div></div><div><small>検証の証跡 15 / 15</small><div class="bar b"><span style="width:100%"></span></div></div><div><small>PR の完成度 28.5 / 30</small><div class="bar c"><span style="width:95%"></span></div></div><div><small>費用 11.8 / 15</small><div class="bar d"><span style="width:79%"></span></div></div></div></div><div class="bd-row"><span class="bd-name">Feature Dev</span><div class="bd-bars"><div><small>UI チェックリスト 40 / 40</small><div class="bar a"><span style="width:100%"></span></div></div><div><small>検証の証跡 15 / 15</small><div class="bar b"><span style="width:100%"></span></div></div><div><small>PR の完成度 28.5 / 30</small><div class="bar c"><span style="width:95%"></span></div></div><div><small>費用 6.9 / 15</small><div class="bar d"><span style="width:46%"></span></div></div></div></div><div class="bd-row"><span class="bd-name">Compound Engineering</span><div class="bd-bars"><div><small>UI チェックリスト 40 / 40</small><div class="bar a"><span style="width:100%"></span></div></div><div><small>検証の証跡 15 / 15</small><div class="bar b"><span style="width:100%"></span></div></div><div><small>PR の完成度 29.8 / 30</small><div class="bar c"><span style="width:99%"></span></div></div><div><small>費用 6.4 / 15</small><div class="bar d"><span style="width:43%"></span></div></div></div></div><div class="bd-row"><span class="bd-name">gstack</span><div class="bd-bars"><div><small>UI チェックリスト 40 / 40</small><div class="bar a"><span style="width:100%"></span></div></div><div><small>検証の証跡 15 / 15</small><div class="bar b"><span style="width:100%"></span></div></div><div><small>PR の完成度 29.2 / 30</small><div class="bar c"><span style="width:97%"></span></div></div><div><small>費用 3.8 / 15</small><div class="bar d"><span style="width:25%"></span></div></div></div></div><div class="bd-row"><span class="bd-name">baseline（候補なし）</span><div class="bd-bars"><div><small>UI チェックリスト 40 / 40</small><div class="bar a"><span style="width:100%"></span></div></div><div><small>検証の証跡 15 / 15</small><div class="bar b"><span style="width:100%"></span></div></div><div><small>PR の完成度 30.0 / 30</small><div class="bar c"><span style="width:100%"></span></div></div><div><small>費用 15.0 / 15</small><div class="bar d"><span style="width:100%"></span></div></div></div></div></div>
+
+  <h2>UI チェックリストの項目ごとの結果</h2>
+  <p class="lead">その項目に不具合が残っていなかった試行の数（候補ごとの試行数のうち）。</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>候補</th><th>U1 表示・並び順</th><th>U2 空状態</th><th>U3 追加・二重送信</th><th>U4 入力エラー</th><th>U5 通信エラー</th><th>U6 ステータス変更</th><th>U7 レスポンシブ</th><th>U8 導線・ラベル</th></tr></thead>
+      <tbody><tr><th scope="row">Superpowers</th><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td></tr><tr><th scope="row">Feature Dev</th><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td></tr><tr><th scope="row">Compound Engineering</th><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td></tr><tr><th scope="row">gstack</th><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td></tr><tr><th scope="row">baseline（候補なし）</th><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td></tr></tbody>
+    </table>
+  </div>
+
+  <h2>試行ごとの結果</h2>
+  <div class="table-wrap">
+    <table class="wide">
+      <thead><tr>
+        <th>試行</th><th>点数</th><th>UI チェックリスト</th><th>証跡</th><th>PR（説明 / テスト / CI）</th><th>チェック</th>
+        <th>介入 / 質問</th><th>コード追加行</th><th>テスト追加行</th><th>費用</th><th>時間（分）</th><th>ターン</th><th>サブエージェント</th>
+        <th>拒否された操作</th><th>使われた Skill</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <th scope="row">Superpowers #1</th>
+          <td class="num">92.3</td>
+          <td><span class="pill ok">U1</span> <span class="pill ok">U2</span> <span class="pill ok">U3</span> <span class="pill ok">U4</span> <span class="pill ok">U5</span> <span class="pill ok">U6</span> <span class="pill ok">U7</span> <span class="pill ok">U8</span></td>
+          <td><span class="pill ok">E1 5</span> <span class="pill ok">E2 5</span> <span class="pill ok">E3 5</span></td>
+          <td class="num">10.0 / 8 / 10.0</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">278</td>
+          <td class="num">32</td>
+          <td class="num">$1.41</td>
+          <td class="num">8.3</td>
+          <td class="num">5</td>
+          <td class="num">1</td>
+          <td class="num">9</td>
+          <td>superpowers:brainstorming, superpowers:requesting-code-review</td>
+        </tr>
+        <tr>
+          <th scope="row">Superpowers #2</th>
+          <td class="num">98.3</td>
+          <td><span class="pill ok">U1</span> <span class="pill ok">U2</span> <span class="pill ok">U3</span> <span class="pill ok">U4</span> <span class="pill ok">U5</span> <span class="pill ok">U6</span> <span class="pill ok">U7</span> <span class="pill ok">U8</span></td>
+          <td><span class="pill ok">E1 5</span> <span class="pill ok">E2 5</span> <span class="pill ok">E3 5</span></td>
+          <td class="num">11.0 / 8 / 10.0</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">191</td>
+          <td class="num">20</td>
+          <td class="num">$0.92</td>
+          <td class="num">5.9</td>
+          <td class="num">60</td>
+          <td class="num">0</td>
+          <td class="num">6</td>
+          <td>superpowers:brainstorming</td>
+        </tr>
+        <tr>
+          <th scope="row">Feature Dev #1</th>
+          <td class="num">89.2</td>
+          <td><span class="pill ok">U1</span> <span class="pill ok">U2</span> <span class="pill ok">U3</span> <span class="pill ok">U4</span> <span class="pill ok">U5</span> <span class="pill ok">U6</span> <span class="pill ok">U7</span> <span class="pill ok">U8</span></td>
+          <td><span class="pill ok">E1 5</span> <span class="pill ok">E2 5</span> <span class="pill ok">E3 5</span></td>
+          <td class="num">10.0 / 8 / 10.0</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">257</td>
+          <td class="num">54</td>
+          <td class="num">$2.12</td>
+          <td class="num">7.4</td>
+          <td class="num">97</td>
+          <td class="num">7</td>
+          <td class="num">12</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">Feature Dev #2</th>
+          <td class="num">91.6</td>
+          <td><span class="pill ok">U1</span> <span class="pill ok">U2</span> <span class="pill ok">U3</span> <span class="pill ok">U4</span> <span class="pill ok">U5</span> <span class="pill ok">U6</span> <span class="pill ok">U7</span> <span class="pill ok">U8</span></td>
+          <td><span class="pill ok">E1 5</span> <span class="pill ok">E2 5</span> <span class="pill ok">E3 5</span></td>
+          <td class="num">11.0 / 8 / 10.0</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">405</td>
+          <td class="num">75</td>
+          <td class="num">$1.73</td>
+          <td class="num">7.5</td>
+          <td class="num">3</td>
+          <td class="num">7</td>
+          <td class="num">5</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">Compound Engineering #1</th>
+          <td class="num">90.0</td>
+          <td><span class="pill ok">U1</span> <span class="pill ok">U2</span> <span class="pill ok">U3</span> <span class="pill ok">U4</span> <span class="pill ok">U5</span> <span class="pill ok">U6</span> <span class="pill ok">U7</span> <span class="pill ok">U8</span></td>
+          <td><span class="pill ok">E1 5</span> <span class="pill ok">E2 5</span> <span class="pill ok">E3 5</span></td>
+          <td class="num">12.0 / 8 / 10.0</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">244</td>
+          <td class="num">47</td>
+          <td class="num">$2.61</td>
+          <td class="num">10.3</td>
+          <td class="num">137</td>
+          <td class="num">5</td>
+          <td class="num">17</td>
+          <td>compound-engineering:ce-code-review, compound-engineering:ce-simplify-code</td>
+        </tr>
+        <tr>
+          <th scope="row">Compound Engineering #2</th>
+          <td class="num">92.3</td>
+          <td><span class="pill ok">U1</span> <span class="pill ok">U2</span> <span class="pill ok">U3</span> <span class="pill ok">U4</span> <span class="pill ok">U5</span> <span class="pill ok">U6</span> <span class="pill ok">U7</span> <span class="pill ok">U8</span></td>
+          <td><span class="pill ok">E1 5</span> <span class="pill ok">E2 5</span> <span class="pill ok">E3 5</span></td>
+          <td class="num">11.5 / 8 / 10.0</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">238</td>
+          <td class="num">30</td>
+          <td class="num">$1.69</td>
+          <td class="num">7.9</td>
+          <td class="num">86</td>
+          <td class="num">0</td>
+          <td class="num">13</td>
+          <td>compound-engineering:ce-code-review</td>
+        </tr>
+        <tr>
+          <th scope="row">gstack #1</th>
+          <td class="num">89.8</td>
+          <td><span class="pill ok">U1</span> <span class="pill ok">U2</span> <span class="pill ok">U3</span> <span class="pill ok">U4</span> <span class="pill ok">U5</span> <span class="pill ok">U6</span> <span class="pill ok">U7</span> <span class="pill ok">U8</span></td>
+          <td><span class="pill ok">E1 5</span> <span class="pill ok">E2 5</span> <span class="pill ok">E3 5</span></td>
+          <td class="num">11.0 / 8 / 10.0</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">239</td>
+          <td class="num">16</td>
+          <td class="num">$2.27</td>
+          <td class="num">11.9</td>
+          <td class="num">100</td>
+          <td class="num">0</td>
+          <td class="num">8</td>
+          <td>review, ship</td>
+        </tr>
+        <tr>
+          <th scope="row">gstack #2</th>
+          <td class="num">86.3</td>
+          <td><span class="pill ok">U1</span> <span class="pill ok">U2</span> <span class="pill ok">U3</span> <span class="pill ok">U4</span> <span class="pill ok">U5</span> <span class="pill ok">U6</span> <span class="pill ok">U7</span> <span class="pill ok">U8</span></td>
+          <td><span class="pill ok">E1 5</span> <span class="pill ok">E2 5</span> <span class="pill ok">E3 5</span></td>
+          <td class="num">11.5 / 8 / 10.0</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">340</td>
+          <td class="num">91</td>
+          <td class="num">$7.34</td>
+          <td class="num">22.9</td>
+          <td class="num">213</td>
+          <td class="num">8</td>
+          <td class="num">11</td>
+          <td>code-review, review</td>
+        </tr>
+        <tr>
+          <th scope="row">baseline（候補なし） #1</th>
+          <td class="num">100.0</td>
+          <td><span class="pill ok">U1</span> <span class="pill ok">U2</span> <span class="pill ok">U3</span> <span class="pill ok">U4</span> <span class="pill ok">U5</span> <span class="pill ok">U6</span> <span class="pill ok">U7</span> <span class="pill ok">U8</span></td>
+          <td><span class="pill ok">E1 5</span> <span class="pill ok">E2 5</span> <span class="pill ok">E3 5</span></td>
+          <td class="num">12.0 / 8 / 10.0</td>
+          <td><span class="pill ok">typecheck</span> <span class="pill ok">test</span> <span class="pill ok">build</span></td>
+          <td class="num">0 / 0</td>
+          <td class="num">224</td>
+          <td class="num">20</td>
+          <td class="num">$0.88</td>
+          <td class="num">6.8</td>
+          <td class="num">1</td>
+          <td class="num">0</td>
+          <td class="num">5</td>
+          <td>—</td>
+        </tr></tbody>
+    </table>
+  </div>
+
+  <h2>所見</h2>
+  <div class="box"><ul><li>UI チェックリストの 8 項目は全 9 試行で不具合なし（隠しの E2E 16/16）。実装の形は試行ごとに違い（クライアント部品から既存 API を呼ぶもの、失敗時の処理を <code>src/lib/</code> に切り出してテストしたもの、CSS Modules を使うものなど）、どの形でも仕様を満たしました。課題文に表示要素・文言・失敗時の振る舞いまで書いたので、仕様の読み落としが起きにくい課題でした。</li><li>ブラウザでの確認は 9 試行とも Playwright MCP（gstack #1・#2 の <code>/qa</code> は gstack の browse も）で行い、幅 375px と 1280px のスクリーンショットを 6〜17 枚コミットしました。通信の失敗やサーバーエラーは、多くの試行がリクエストを差し替えて再現していました。担当タスクが 0 件の状態は初期データに無いため、ブラウザで確かめなかった試行が多く、その多くは PR.md に「未確認」と書いています。</li><li>PR の説明は 2 名のブラインドレビューで 10〜12 点（12 点満点）。減点は、Superpowers #1 が注意点・未確認事項を書いていない（d 1 点）、Feature Dev・gstack #1・Superpowers #2 が変更内容をファイル単位で書いている（b 2 点）、gstack #2 が工程の記録（カバレッジ表・レビューの経過）まで載せて長い（a）といった点でした。実施していない確認を確認済みと書いた試行はありません。</li><li>Superpowers は 2 回とも <code>brainstorming</code> が発火し、#1 は <code>requesting-code-review</code> でサブエージェントにレビューさせました。2 ステップ目の <code>finishing-a-development-branch</code> は、テストを確かめてから「ローカルでマージ / push して PR / 残す」の選択肢を示して止まりました（無人なので答えは来ない。PR.md は 1 ステップ目で作成済み）。</li><li>Feature Dev は 2 回とも code-explorer 2・code-architect 2・code-reviewer 3 のサブエージェントを使う 7 フェーズで進めました（#2 は「無人実行のため推奨案で確定」と明記）。#1 は最初のコミットにテストが入っておらず（追記のコマンドが拒否されていた）、2 ステップ目の「PR 作成の指示」で気づいて追加しました。</li><li>gstack は 1 ステップ目で実装とブラウザ確認・PR.md まで済ませ、<code>/qa</code> で追加の観点（長いタイトル、HTML 文字列、タッチ操作、セッション切れ）を確かめました。#2 は <code>/qa</code> でセッション切れ（401）の表示を ISSUE-001 として直し、<code>/ship</code> がリモート無しでも進められる工程（レビュー、テストの網羅率の確認、PR.md の最終版）を進めたため、費用 $7.34・所要時間 23 分と 9 試行で最も多くかかりました。#1 の <code>/ship</code> はプリフライトの <code>git fetch origin</code> の失敗で止まりました。<code>gstack-egress list</code> の外部送信の記録は 2 回とも無し。</li><li>Compound Engineering は <code>/ce-work</code> の中で実装・ブラウザ確認・レビュー（ce-code-review の簡易パス）・PR.md まで済ませました。<code>/ce-test-browser</code> は「ホスト組み込みのブラウザか agent-browser だけを使う」規則のため Playwright MCP を使わず、agent-browser の有無を確かめるコマンドも承認が要るため、2 回ともテストを始めずに止まりました（その前の工程の Playwright MCP での確認は、このスキルの結果としては数えないと明記）。補助スクリプト（review-scope など）も承認が要り、手作業で代えています。</li><li>介入（定型の「お任せします」）は、やり直した後の 9 試行ではどれも 0 回、質問ツールの呼び出しも 0 回でした。費用の上限（watch）で止めた試行もありません。</li></ul></div>
+
+  <h2>試行の詳細</h2>
+  
+      <details>
+        <summary><strong>Superpowers #1</strong> — 92.3 点</summary>
+        <p>brainstorming が発火。実装後にサブエージェントでレビュー（requesting-code-review）し、指摘（エラー表示のキー）を直して PR.md を追加。finishing-a-development-branch は選択肢を示して止まった。PR.md に注意点・未確認事項が無い点で減点。</p>
+        
+        <p class="sub">PR の説明のブラインドレビュー（R01）: 採点者 1 = 10、採点者 2 = 10（各 12 点満点）</p><ul class="files"><li>冒頭と概要で利用者から見た振る舞いが分かり、0件表示も含めて画像付きで具体的に確認している。一方で残課題・注意点（未確認事項や既存APIの制約）の記載がまったくない。</li><li>冒頭と概要が利用者の振る舞い中心で分かりやすく、0 件表示を含むブラウザ確認も証跡と一致する。一方で残課題・注意点（未確認事項や制約）の記載がまったく無い。</li></ul>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>PR.md</code> +34 −0 <span class="kind">doc</span></li><li><code>docs/evidence/my-tasks-1280.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-add-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-after-add.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-empty.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-initial.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-status-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-validation-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>src/app/globals.css</code> +90 −0 <span class="kind">code</span></li><li><code>src/app/layout.tsx</code> +4 −2 <span class="kind">code</span></li><li><code>src/app/my-tasks/my-tasks.tsx</code> +147 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/page.tsx</code> +18 −0 <span class="kind">code</span></li><li><code>src/lib/task-order.ts</code> +7 −0 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +12 −0 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +32 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>8d5ae6c PR.md を追加し、エラー表示のキーを修正</code></li><li><code>defa35f マイタスク画面（/my-tasks）を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Superpowers #2</strong> — 98.3 点</summary>
+        <p>許可リストの漏れを直した後のやり直し（1 回目は <code>W6/excluded/</code>）。brainstorming が発火。<code>feat/my-tasks</code> ブランチを切って実装し、ブラウザ確認とスクリーンショット 6 枚まで 1 ステップ目で完了。finishing-a-development-branch は選択肢を示して止まった。</p>
+        
+        <p class="sub">PR の説明のブラインドレビュー（R06）: 採点者 1 = 11、採点者 2 = 11（各 12 点満点）</p><ul class="files"><li>検証表は具体的で事実と一致し、0件表示が未確認であることとクリックの代替手段も明記している。概要がすぐファイル単位の列挙になっており、振る舞いの説明はその中に混在している。</li><li>検証表と証跡が具体的で、0 件表示を未確認と明記しクリック操作の制約も書いている。概要の箇条書きがファイル名を主語にしており、振る舞いの整理が弱い。</li></ul>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>PR.md</code> +44 −0 <span class="kind">doc</span></li><li><code>docs/evidence/my-tasks-1280.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-add-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-after-add.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-initial.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-status-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-validation-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>src/app/layout.tsx</code> +2 −1 <span class="kind">code</span></li><li><code>src/app/my-tasks/my-tasks.module.css</code> +11 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/my-tasks.tsx</code> +152 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/page.tsx</code> +16 −0 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +10 −0 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +20 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>05684f4 マイタスク画面（/my-tasks）を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Feature Dev #1</strong> — 89.2 点</summary>
+        <p>7 フェーズ（サブエージェント 7 体）。最初のコミットにテストが入っておらず、PR 作成の指示のステップで気づいて追加し、PR.md のテスト件数も直した。最後に残った変更は run-trial.sh が拾った。</p>
+        
+        <p class="sub">PR の説明のブラインドレビュー（R07）: 採点者 1 = 10、採点者 2 = 10（各 12 点満点）</p><ul class="files"><li>検証は0件表示まで画像付きで具体的に示している。変更内容はファイル・コンポーネント単位の説明が中心である。注意点は既存APIの所有者チェックだけで、未確認事項や制約の記載が薄い。</li><li>0 件表示を含む検証表と証跡は事実と一致し具体的。変更内容はファイル単位で実装寄り、注意点は API の所有者チェックのみで未確認事項の記載が無い。</li></ul>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>.playwright-mcp/console-2026-11-09T05-21-46-764Z.log</code> +6 −0 <span class="kind">code</span></li><li><code>PR.md</code> +44 −0 <span class="kind">doc</span></li><li><code>docs/evidence/01-375-initial.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/02-375-validation-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/03-375-added.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/04-375-status-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/05-375-add-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/06-1280.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/07-375-empty.png</code> +0 −0 <span class="kind">code</span></li><li><code>src/app/layout.tsx</code> +2 −1 <span class="kind">code</span></li><li><code>src/app/my-tasks/MyTaskItem.tsx</code> +57 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/TaskAddForm.tsx</code> +61 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/my-tasks.module.css</code> +77 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/page.tsx</code> +27 −0 <span class="kind">code</span></li><li><code>src/lib/task-form.ts</code> +17 −0 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +10 −0 <span class="kind">code</span></li><li><code>tests/task-form.test.ts</code> +30 −0 <span class="kind">test</span></li><li><code>tests/tasks.test.ts</code> +24 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>5c51718 poc: uncommitted leftovers</code></li><li><code>1e25774 listTasksByAssignee のテストを追加し、PR.md のテスト件数を更新する</code></li><li><code>05df139 マイタスク画面（/my-tasks）を追加する</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Feature Dev #2</strong> — 91.6 点</summary>
+        <p>7 フェーズ（サブエージェント 7 体）。確認中に一度だけステータス変更が再読み込み後に保持されない場面があり、再現しなかったことを PR.md に書いた。next dev が書き出した AGENTS.md が残り、run-trial.sh が拾った。</p>
+        
+        <p class="sub">PR の説明のブラインドレビュー（R05）: 採点者 1 = 11、採点者 2 = 11（各 12 点満点）</p><ul class="files"><li>検証表は具体的で、再現しなかった不具合も正直に書いている。変更内容はファイル単位の構成で、testid・ref などの実装の詳細が多い。</li><li>確認表と証跡は具体的で、hydration 警告や再現しなかった不具合など注意点も開示している。変更内容がファイル単位の構成で、振る舞いの変化が読み取りにくい。</li></ul>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>.playwright-mcp/console-2026-11-09T05-44-24-051Z.log</code> +86 −0 <span class="kind">code</span></li><li><code>.playwright-mcp/console-2026-11-09T05-46-08-743Z.log</code> +5 −0 <span class="kind">code</span></li><li><code>.playwright-mcp/console-2026-11-09T05-46-21-621Z.log</code> +94 −0 <span class="kind">code</span></li><li><code>AGENTS.md</code> +9 −0 <span class="kind">doc</span></li><li><code>PR.md</code> +50 −0 <span class="kind">doc</span></li><li><code>docs/evidence/01-mobile-375-list.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/02-mobile-375-validation-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/03-mobile-375-server-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/04-mobile-375-after-add.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/05-mobile-375-status-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/06-desktop-1280.png</code> +0 −0 <span class="kind">code</span></li><li><code>src/app/layout.tsx</code> +2 −1 <span class="kind">code</span></li><li><code>src/app/my-tasks/add-task-form.tsx</code> +73 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/page.tsx</code> +44 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/status-select.tsx</code> +47 −0 <span class="kind">code</span></li><li><code>src/lib/task-client.ts</code> +44 −0 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +10 −0 <span class="kind">code</span></li><li><code>tests/task-client.test.ts</code> +54 −0 <span class="kind">test</span></li><li><code>tests/tasks.test.ts</code> +21 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>3d93cd8 poc: uncommitted leftovers</code></li><li><code>bd3c100 マイタスク画面（/my-tasks）を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Compound Engineering #1</strong> — 90.0 点</summary>
+        <p><code>/ce-work</code> で 4 コミット（関数とテスト、画面、コメントの削除、証跡と PR.md）。ce-simplify-code・ce-code-review（簡易パス）を使用。<code>/ce-test-browser</code> は規則によりテストを始めず、<code>/ce-commit-push-pr</code> はリモート無しで停止。</p>
+        
+        <p class="sub">PR の説明のブラインドレビュー（R04）: 採点者 1 = 12、採点者 2 = 12（各 12 点満点）</p><ul class="files"><li>振る舞いを概要で説明し、本番ビルドでの確認を表で具体的に示している。二重クリックや0件表示を確認していないことも正直に書いている。残るリスクと環境上の注意も明記している。</li><li>概要で振る舞いを平易に説明し、確認表と証跡が揃っている。二重クリックや 0 件表示を未確認と正直に書き、開発サーバーの DB の注意点など残リスクも明記している。</li></ul>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>PR.md</code> +57 −0 <span class="kind">doc</span></li><li><code>docs/evidence/desktop-1280.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/mobile-375-add-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/mobile-375-added.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/mobile-375-initial.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/mobile-375-status-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/mobile-375-validation-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>src/app/globals.css</code> +79 −0 <span class="kind">code</span></li><li><code>src/app/layout.tsx</code> +3 −1 <span class="kind">code</span></li><li><code>src/app/my-tasks/my-tasks.tsx</code> +134 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/page.tsx</code> +16 −0 <span class="kind">code</span></li><li><code>src/lib/task-order.ts</code> +4 −0 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +8 −0 <span class="kind">code</span></li><li><code>tests/my-tasks.test.ts</code> +47 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>b31492e docs: マイタスク画面のブラウザ確認の証跡と PR 本文を追加</code></li><li><code>e75995f refactor(tasks): 内容を言い直しているだけのコメントを削除</code></li><li><code>3df74ba feat(my-tasks): 担当タスクを確認・追加・更新できるマイタスク画面を追加</code></li><li><code>7186862 feat(tasks): 担当者でタスクを絞り込み、期限順に並べる関数を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Compound Engineering #2</strong> — 92.3 点</summary>
+        <p>許可リストの漏れを直した後のやり直し（1 回目は <code>W6/excluded/</code>。中断を挟み、再開後に最初から実行）。<code>/ce-work</code> で実装・ブラウザ確認・PR.md まで完了。ce-code-review（lite）は指摘 0 件、補助スクリプトは承認が要り手作業で代替。<code>/ce-test-browser</code>・<code>/ce-commit-push-pr</code> は #1 と同じく停止。</p>
+        
+        <p class="sub">PR の説明のブラインドレビュー（R09）: 採点者 1 = 12、採点者 2 = 11（各 12 点満点）</p><ul class="files"><li>振る舞いの節があり、検証表で証跡の有無まで正直に区別している。0件表示も確認している。クリック操作の代替や残余リスクも書いているが、レビュー工程の記録は読み手に不要な情報を含む。</li><li>検証表が具体的で証跡・0 件表示の確認も事実と一致し、残余リスクやブラウザ操作の制約も書いている。変更内容の前半はファイル・関数名主体で、振る舞いは別節に分かれている。</li></ul>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>PR.md</code> +56 −0 <span class="kind">doc</span></li><li><code>docs/evidence/01-mobile-375-list.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/02-mobile-375-validation-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/03-mobile-375-after-add.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/04-mobile-375-status-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/05-mobile-375-add-failed.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/06-desktop-1280.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/07-mobile-375-empty.png</code> +0 −0 <span class="kind">code</span></li><li><code>src/app/globals.css</code> +72 −0 <span class="kind">code</span></li><li><code>src/app/layout.tsx</code> +3 −1 <span class="kind">code</span></li><li><code>src/app/my-tasks/MyTasks.tsx</code> +140 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/page.tsx</code> +15 −0 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +8 −0 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +30 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>dd27d1c docs: マイタスク画面の確認証跡と PR 本文を追加</code></li><li><code>304c814 docs: マイタスク画面の確認証跡と PR 本文を追加</code></li><li><code>168ecd6 feat(my-tasks): マイタスク画面（/my-tasks）を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>gstack #1</strong> — 89.8 点</summary>
+        <p>1 ステップ目で実装・Playwright MCP での確認・PR.md を済ませ、<code>/qa</code> は gstack の browse（事前インストール済みの Chromium）で追加の観点を確認（指摘 1 件・低、保留）。<code>/ship</code> は origin が無くプリフライトで停止。</p>
+        
+        <p class="sub">PR の説明のブラインドレビュー（R02）: 採点者 1 = 11、採点者 2 = 11（各 12 点満点）</p><ul class="files"><li>検証は本番ビルドで状態ごとに具体的に書かれ、事実と一致する。変更内容はファイル単位の列挙が中心で、振る舞いはその中に埋もれている。開発インジケーターと0件表示が未確認であることも明記している。</li><li>確認内容は具体的で、0 件表示の未確認や開発サーバーの注意点も正直に書いている。変更内容はファイル単位の箇条書きが主で、振る舞いの整理はやや弱い。</li></ul>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>AGENTS.md</code> +9 −0 <span class="kind">doc</span></li><li><code>PR.md</code> +50 −0 <span class="kind">doc</span></li><li><code>evidence/01-mobile-list.png</code> +0 −0 <span class="kind">code</span></li><li><code>evidence/02-mobile-validation-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>evidence/03-mobile-after-add.png</code> +0 −0 <span class="kind">code</span></li><li><code>evidence/04-mobile-status-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>evidence/05-mobile-add-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>evidence/06-desktop.png</code> +0 −0 <span class="kind">code</span></li><li><code>src/app/layout.tsx</code> +2 −1 <span class="kind">code</span></li><li><code>src/app/my-tasks/my-tasks.module.css</code> +52 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/my-tasks.tsx</code> +161 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/page.tsx</code> +16 −0 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +8 −0 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +16 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>44f5ffc poc: uncommitted leftovers</code></li><li><code>1986766 マイタスク画面（/my-tasks）を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>gstack #2</strong> — 86.3 点</summary>
+        <p><code>/qa</code> でセッション切れの表示を直し（ISSUE-001）、QA レポートとスクリーンショットをコミット。<code>/ship</code> はレビュー（gstack の <code>/review</code> が動かず code-review で代替）と網羅率の確認、失敗時の処理の <code>src/lib/</code> への切り出しとテスト追加まで進めた。$7.34・23 分で最多。</p>
+        
+        <p class="sub">PR の説明のブラインドレビュー（R03）: 採点者 1 = 12、採点者 2 = 11（各 12 点満点）</p><ul class="files"><li>振る舞いの一覧、検証表、証跡、未検証の点の開示はそろっている。ただし英語のカバレッジ表やレビュー工程の記録が長く、変更の大きさに対して読み手の負担が大きい。</li><li>冒頭がリモート無しの説明から始まり、カバレッジ表やレビュー工程の記述が多く非エンジニアには読みにくい。振る舞いの記述・検証表・証跡・未検証点の開示は充実している。</li></ul>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>.gstack/qa-reports/run-20261109T054759Z/baseline.json</code> +11 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/deadline.json</code> +1 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/exploration-001.json</code> +6 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/exploration-002.json</code> +6 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/exploration-003.json</code> +6 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/exploration-004.json</code> +6 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/exploration-005.json</code> +6 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/exploration-006.json</code> +6 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/exploration-007.json</code> +6 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/exploration-008.json</code> +6 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/qa-report-localhost-2026-11-09.md</code> +132 −0 <span class="kind">doc</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/screenshots/final-1280.jpg</code> +0 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/screenshots/final-375.jpg</code> +0 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/screenshots/initial.jpg</code> +0 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/screenshots/issue-001-after.jpg</code> +0 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/screenshots/issue-001-before.jpg</code> +0 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/screenshots/probe-002.jpg</code> +0 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/screenshots/probe-003.jpg</code> +0 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/screenshots/probe-004-empty.jpg</code> +0 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/screenshots/probe-004-first.jpg</code> +0 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/screenshots/probe-005.jpg</code> +0 −0 <span class="kind">code</span></li><li><code>.gstack/qa-reports/run-20261109T054759Z/screenshots/probe-006.jpg</code> +0 −0 <span class="kind">code</span></li><li><code>PR.md</code> +113 −0 <span class="kind">doc</span></li><li><code>docs/evidence/01-mobile-375-list.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/02-mobile-375-validation-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/03-mobile-375-added.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/04-mobile-375-status-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/05-mobile-375-add-failed.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/06-desktop-1280.png</code> +0 −0 <span class="kind">code</span></li><li><code>src/app/globals.css</code> +67 −0 <span class="kind">code</span></li><li><code>src/app/layout.tsx</code> +3 −1 <span class="kind">code</span></li><li><code>src/app/my-tasks/my-tasks.tsx</code> +153 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/page.tsx</code> +16 −0 <span class="kind">code</span></li><li><code>src/lib/my-tasks.ts</code> +25 −0 <span class="kind">code</span></li><li><code>src/lib/task-order.ts</code> +8 −0 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +8 −0 <span class="kind">code</span></li><li><code>tests/my-tasks.test.ts</code> +91 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>3219709 docs: PR の本文（タイトル・カバレッジ・レビュー・検証結果）を最終版にする</code></li><li><code>35e7985 docs: 証跡のスクリーンショットを最終の見た目に更新する</code></li><li><code>ccb19f5 マイタスクの失敗時処理を src/lib に切り出してテストを追加し、レビュー指摘を反映する</code></li><li><code>0979ff3 docs(qa): /my-tasks の QA レポートと証跡を追加</code></li><li><code>c2af21e fix(qa): ISSUE-001 — セッション切れ（401）のときにログインし直す案内を表示する</code></li><li><code>3cc922d マイタスク画面（/my-tasks）を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>baseline（候補なし） #1</strong> — 100.0 点</summary>
+        <p>候補なし。Playwright MCP で 375px・1280px を操作し、入力エラー・500 / 通信失敗・二重クリック・ステータス変更の失敗まで確かめ、スクリーンショット 6 枚を <code>docs/evidence/</code> にコミット。PR.md には 0 件表示を未確認と明記。最安・最短。</p>
+        
+        <p class="sub">PR の説明のブラインドレビュー（R08）: 採点者 1 = 12、採点者 2 = 12（各 12 点満点）</p><ul class="files"><li>概要で振る舞いを簡潔に列挙し、確認項目と証跡のリンクもそろっている。未確認の項目と既存APIの制約を短くまとめており、分量も適切である。</li><li>簡潔に振る舞いを説明し、確認項目と証跡を列挙、0 件表示の未確認や既存 API の制約も明記している。分量も変更に見合っている。</li></ul>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>PR.md</code> +40 −0 <span class="kind">doc</span></li><li><code>docs/evidence/my-tasks-1280.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-add-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-after-add.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-status-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375-validation-error.png</code> +0 −0 <span class="kind">code</span></li><li><code>docs/evidence/my-tasks-375.png</code> +0 −0 <span class="kind">code</span></li><li><code>src/app/layout.tsx</code> +3 −2 <span class="kind">code</span></li><li><code>src/app/my-tasks/my-tasks.module.css</code> +49 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/my-tasks.tsx</code> +146 −0 <span class="kind">code</span></li><li><code>src/app/my-tasks/page.tsx</code> +18 −0 <span class="kind">code</span></li><li><code>src/lib/tasks.ts</code> +8 −0 <span class="kind">code</span></li><li><code>tests/tasks.test.ts</code> +20 −0 <span class="kind">test</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>d746d0d マイタスク画面（/my-tasks）を追加</code></li></ul>
+      </details>
+
+  <h2>採点方法</h2>
+  <div class="box"><p>配点は PLAN.md §5.1 の W6、手順は試行前に固定した <code>docs/poc/answer-key/W6/grading.md</code> のとおり（<code>scripts/poc/grade_w6.py</code> → <code>blind_w6.py</code> → <code>score_w6.py</code>）。2 本立ての点数は PLAN.md §4.4（<code>scripts/poc/two_axis.py</code>）。</p><ul><li><strong>UI チェックリスト（40）</strong>: 8 項目それぞれ 5 点。隠しの E2E（<code>acceptance.cjs</code>、16 件）で、その項目のチェックがすべて通れば不具合なし。通信の失敗は、ページからの GET 以外のリクエストを止める・500 を返すことで再現（実装の方式に依存しない）。</li><li><strong>検証の証跡（15）</strong>: ブラウザで <code>/my-tasks</code> を開いて操作した 5、スクリーンショットをコミットした 5（撮影のみ 3）、幅 480px 以下で確認した 5。トランスクリプトのツール呼び出し（サブエージェントを含む）から自動で判定。</li><li><strong>PR の完成度（30）</strong>: PR.md の説明 12（2 名のブラインドレビュー、4 項目 × 0〜3 点の平均）、テスト 8（tests/ の追加・変更があり npm test が通る）、CI 10（型チェック・単体テスト・ビルド）。</li><li><strong>費用（15）</strong>: 15 ×（最安 / 自分）。</li><li><strong>2 本立て</strong>: 品質 = (UI + 証跡 + PR) / 85 × 100。効率 = 費用 50 + 時間 30 + 介入 20（baseline の実額 $0.8769・実時間 409 秒に対する倍率の段階）。</li></ul></div>
+
+  <h2>この結果の制約</h2>
+  <div class="box"><ul><li>課題文に表示要素・文言・失敗時の振る舞いまで細かく書いたため、UI チェックリストでは差が付きませんでした（全試行が満点）。仕様の書かれていない UI の気配り（仕様外の状態の扱い、見た目の質）での差は、この結果からは分かりません。</li><li>見た目の質（レイアウトの美しさ・一貫性）は採点に入れていません。E2E で測れるのは、幅に収まるか・要素が表示されるかまでです。</li><li>PR はリモートが無い環境でローカルの PR.md に書かせたため、<code>/ship</code>・<code>/ce-commit-push-pr</code>・<code>finishing-a-development-branch</code> の本来の工程（push、PR の作成、CI の監視）は評価できていません。リモートがある環境では結果が変わり得ます。</li><li>Compound Engineering の <code>/ce-test-browser</code> は、この環境では使える駆動手段（ホスト組み込みのブラウザか agent-browser）が無く、機能そのものは評価できていません。</li><li>検証の証跡は、ツールの呼び出しから自動で判定しています（スクリーンショットの中身の正しさまでは見ていません）。</li><li>所要時間は 2 本並列で実行したときの壁時計の時間（CE #2 は再開後に 1 本で実行）で、並列の相手によって揺れがあります。各候補 2 回（baseline は 1 回）だけで、ばらつきの評価には足りません。</li></ul></div>
+
+  <h2>判断の記録</h2>
+  <div class="box"><ul><li><strong>課題の作り方</strong>: 「空状態・エラー表示・レスポンシブ」を含む新しい画面として、既存の API をそのまま使える「マイタスク」画面にした（スキーマ変更なし）。採点を自動で再現できるよう、要素の目印（<code>data-testid</code>、フォームの <code>aria-label</code>、<code>role="alert"</code>）と文言を課題文に書いた。隠しの E2E は、参照実装で 16/16、変更なしの poc-app で 1/16、参照実装から 4 つの不具合を入れた版で該当の 4 件だけ落ちることを試行前に確かめた。</li><li><strong>費用の上限</strong>: <code>POC_BUDGET_MODE=watch</code>（上限を子セッションに見せない）。規模係数 = W6 baseline の実額 $0.8769 ÷ W1 baseline $0.15 = 5.85。上限 = 5.85 × W1 の候補平均 × 5（最大 $10）で、Superpowers $4.96、Feature Dev $5.02、gstack $10（計算値 $13.4）、Compound Engineering $10（計算値 $52.2）。baseline は規模係数を決める前に暫定 $5 で実行した。上限で止まった試行は無い（最高は gstack #2 の $7.34）。</li><li><strong>子セッションの許可リスト（W6 以降だけ追加。W1〜W5 は変えていない）</strong>: 開発サーバーの起動（<code>npm run dev</code> / <code>npm run start</code> / <code>npm start</code> / <code>npx next dev</code> / <code>npx next start</code>、<code>timeout</code> 付き、<code>PORT=…</code> 付き）、Playwright MCP と Next.js DevTools MCP のツール、gstack の browse。理由: W6 はブラウザでの確認が課題の一部で、サーバーを起動できないと確認ができないため（コーディネーターの判断・ユーザー委任済み）。試行後のサーバーとブラウザは reap_servers（結果の 30 秒後と試行の終了時）が止める。</li><li><strong>許可リストの漏れとやり直し</strong>: 最初の許可リストに <code>npm start</code> と <code>PORT=3100 npm run start</code> などの形が無く（私の書き漏れ）、Superpowers #2 と Compound Engineering #2 はサーバーを起動できず、ブラウザ確認をしないまま終わった（証跡 0 点）。この形を足して 2 本をやり直し、元の結果は <code>W6/excluded/</code> に残して点数には使っていない。足す前に終わったほかの 7 本の <code>permission_denials</code> を調べ、足した形の拒否が 0 件だったので、やり直していない（全試行が実質的に同じ許可リストで動いた）。</li><li><strong>ブラウザ</strong>: gstack の setup の Chrome 取得（cdn.playwright.dev）はネットワーク制限で使えないため <code>--no-browser</code> のまま、W6 以降だけ環境変数 <code>GSTACK_CHROMIUM_PATH=/opt/pw-browsers/chromium</code> で事前インストール済みの Chromium を使わせた。gstack の browse と <code>/qa</code> はこれで動いた。Playwright MCP は全候補で同じ設定で動いた。Compound Engineering の <code>/ce-test-browser</code> は規則で Playwright MCP を使わず、agent-browser も無いため動かなかった（挙動として記録）。ネットワーク許可は追加していない。</li><li><strong>PR の作り方（候補間で公平にするため）</strong>: GitHub には出さず、課題文で全候補に「作成するはずだった PR のタイトルと本文を PR.md に書いてコミットする」と指示した。作業用コピーにはリモートが無く、<code>git push</code> と <code>gh</code> は許可リストに無い。Feature Dev の「PR 作成の指示」も同じ趣旨の定型文にした。PR の完成度は PR.md・テスト・チェック結果で判定した。push や gh を試みた試行は無かった（全試行が先にリモートの有無を確かめて止まった）。</li><li><strong>候補ごとの手順</strong>: PLAN §5.1 の W6 の行のとおり（Superpowers: 課題 → <code>/superpowers:finishing-a-development-branch</code>、Feature Dev: <code>/feature-dev:feature-dev</code> → PR 作成の指示、gstack: 課題 → <code>/qa</code> → <code>/ship</code>、Compound Engineering: <code>/ce-work</code> → <code>/ce-test-browser</code> → <code>/ce-commit-push-pr</code>）。全候補とも作業ブランチの上で開始。末尾の定型文は新文言（全試行の <code>task-suffix</code> が <code>new</code>）。</li><li><strong>PR の説明の採点</strong>: 人が読む文章の質なので、W2 と同じく 2 名のブラインドレビュー（候補名を伏せ、試行ごとの事実の要約を添え、順番を変えて渡す）にした。伏せ字の漏れ（「Compound Pack」）を見つけて伏せ字の規則を強め、資料を作り直してから渡した。2 名の差が 2 点以上の項目は無かった。</li><li><strong>2 本立ての点数</strong>: コーディネーター経由のユーザー指示で、品質・効率の 2 本立てを主表示にし、従来の総合点も並記した。W6 には介入の仕組みがあるので効率は 費用 50 + 時間 30 + 介入 20。基準は W6 baseline の $0.8769・409 秒。</li><li><strong>中断と再開</strong>: usage の上限が近いというユーザーの指示で、Compound Engineering #2 のやり直しを 1 ステップ目の途中で止めた（途中の記録は採点に使わない）。再開後に同じ方式（watch・上限 $10・同じ許可リスト）で最初から実行した。</li><li><strong>並列度と順番</strong>: 2 本並列（W4・W7 の担当と並行するため 1〜2 本に抑えた）。baseline を先に 1 本で実行して規模係数を決め、レーン A が gstack #1 → Superpowers #1 → Compound Engineering #2 → Feature Dev #2、レーン B が Feature Dev #1 → Compound Engineering #1 → Superpowers #2 → gstack #2。やり直しの Superpowers #2 は 2 本並列、Compound Engineering #2 は再開後に 1 本で実行。</li><li><strong>W1〜W5 との後方互換</strong>: <code>run-trial.sh</code> の変更は、W6 の手順・介入の文言・PR.md の完了条件・許可の追加・<code>GSTACK_CHROMIUM_PATH</code>・終了時のサーバー停止のすべてが W6 以降（<code>SCN_NUM >= 6</code> か <code>SCENARIO == W6</code>）のときだけ働く。共通部分の変更は、reap_servers が止める対象に browse・chrome を足したこと（W5 までは起動されない）と、未コミットの判定から <code>.playwright-mcp/</code> を除いたこと（W5 までは作られない）だけ。</li></ul></div>
+
+  <h2>試行間の独立性の確認結果</h2>
+  <div class="box"><p><code>grade.py</code> の検出（自分の作業用コピーの外への参照）は全 9 試行で 0 件、正解データ（<code>answer-key</code>）を読んだ形跡も 0 件でした（検出であり、完全な防止ではありません）。</p></div>
+
+  <h2>次の対応</h2>
+  <div class="box"><ul><li>UI の差を見たいなら、仕様を細かく書かない課題（画面の目的だけを渡し、空状態やエラーの扱いを候補に考えさせる）で、見た目の質も含めたブラインドレビューを検討する。</li><li><code>/ship</code>・<code>/ce-commit-push-pr</code> の本来の工程（push・PR 作成・CI の監視）は、PoC 専用のリモート（使い捨てのリポジトリ）を用意できる場合だけ別に評価する（ネットワーク・権限の追加が要るので、要否をユーザーに確認する）。</li><li>Compound Engineering の <code>/ce-test-browser</code> を評価するには agent-browser の導入が要る（候補固有の追加依存として、導入するかを判断する）。</li></ul></div>
+</main>
+</body>
+</html>
