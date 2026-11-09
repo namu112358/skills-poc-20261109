@@ -49,8 +49,8 @@
 | `.github/ISSUE_TEMPLATE/bug.yml` | 不具合報告（ラベル `bug`）。必須: 発生している問題 / 期待する動作 / 実際の動作 / 再現手順 |
 | `.github/ISSUE_TEMPLATE/tech-debt.yml` | 技術的負債（ラベル `tech-debt`）。必須: 現状の問題 / 改善する理由 / 期待する改善 / 既存動作への影響 / 完了条件 |
 | `.github/ISSUE_TEMPLATE/config.yml` | 空の Issue を許可する設定 |
-| `.github/pull_request_template.md` | 見出しは 概要 / 変更内容 / 検証結果 / 注意事項・残課題 / 関連 Issue。検証結果には、テストの削除や `skip` の有無を書く欄がある（[開発標準](../standards/ai-software-factory-engineering-standard.md) §2.5） |
-| `.github/workflows/pr-body-check.yml` | `--with-check` を付けたときだけ配置する。必須見出し（概要 / 変更内容 / 検証結果 / 関連 Issue）が欠けているか空なら失敗する。マージを止めたいときは、ブランチ保護で必須チェックに設定する |
+| `.github/pull_request_template.md` | 見出しは 概要 / 背景・目的 / 変更内容（変更前 / 変更後）/ 検証結果 / 注意事項・残課題 / 関連 Issue。検証結果には、テストの削除や `skip` の有無を書く欄がある（[開発標準](../standards/ai-software-factory-engineering-standard.md) §2.5） |
+| `.github/workflows/pr-body-check.yml` | `--with-check` を付けたときだけ配置する。必須見出し（概要 / 背景・目的 / 変更内容 / 検証結果 / 関連 Issue）が欠けているか空なら失敗する。マージを止めたいときは、ブランチ保護で必須チェックに設定する |
 | `docs/github-writing.md` | AI と人の共通の記述ルール（正本）。スクリプトが `AGENTS.md` から参照する 1 行を追記する。`AGENTS.md` がなければ `CLAUDE.md` に `@docs/github-writing.md` を追記する |
 
 記入済みサンプル: [機能要望](examples/feature-issue.md) / [不具合報告](examples/bug-issue.md) / [PR](examples/pull-request.md)
