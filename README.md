@@ -72,7 +72,7 @@ AI 駆動開発の標準基盤・設計原則: [docs/standards/ai-software-facto
 
 ## GitHub リポジトリの初期設定
 
-新規リポジトリを作るときの GitHub 側の標準設定（Rulesets、Advanced Security、Actions、Environments、標準ファイル）と、AI エージェントが品質ゲートを迂回できないようにする権限設計は [docs/github-setup/README.md](docs/github-setup/README.md) にまとめています。設定の反映には `scripts/github-setup/apply-repo-settings.sh`（既定はドライラン）を使います。
+新規リポジトリを作るときの GitHub 側の標準設定（Rulesets、Advanced Security、Actions、Environments、標準ファイル）と、AI エージェントが品質ゲートを迂回できないようにする権限設計は [docs/github-setup/README.md](docs/github-setup/README.md) にまとめています。
 
 ## 比較検討中ツールの PoC
 

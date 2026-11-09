@@ -5,15 +5,9 @@
 - 前提: Claude Code などの AI エージェントが実装・テスト・PR 作成を行う
 - 確認方法: 2026-11-09 に GitHub Docs の該当ページを確認した。GitHub の画面名・プラン条件は頻繁に変わるため、適用前に [§9 公式 URL](#9-公式-url-一覧) で最新の記述を確認すること。
 
-この手順書は、新しいリポジトリを作るたびに上から順に実施することを想定している。設定値を反映するテンプレートとスクリプトは同じディレクトリにある。
+この手順書は、新しいリポジトリを作るたびに上から順に実施することを想定している。各表の「API」列は、同じ設定を `gh api` などで自動化する場合の参照先である。
 
-| 置き場所 | 内容 |
-|---|---|
-| [`templates/`](templates/) | 新規リポジトリへコピーする標準ファイル（CODEOWNERS、CI、dependabot.yml、PR テンプレートなど） |
-| [`templates/rulesets/`](templates/rulesets/) | main ブランチ用 Ruleset の JSON（個人開発用とチーム開発用） |
-| [`../../scripts/github-setup/apply-repo-settings.sh`](../../scripts/github-setup/apply-repo-settings.sh) | Repository Settings を `gh api` で反映するスクリプト（既定はドライラン） |
-
-> この手順書が扱う設定の多くは「セキュリティ上重要な設定変更」に当たる。スクリプトを `--apply` で実行する前、また Web UI で変更する前に、リポジトリ管理者の承認を得ること。
+> この手順書が扱う設定の多くは「セキュリティ上重要な設定変更」に当たる。Web UI または API で変更する前に、リポジトリ管理者の承認を得ること。
 
 ---
 
@@ -110,7 +104,7 @@
 
 | 設定 | リポジトリ個別 | Organization 共通 |
 |---|---|---|
-| マージ方式・ブランチ自動削除 | Settings → General | なし（テンプレートやスクリプトで揃える） |
+| マージ方式・ブランチ自動削除 | Settings → General | なし（Template Repository の手順や API で揃える） |
 | ブランチ保護 | Repository Rulesets | Organization Rulesets（Team 以上） |
 | セキュリティ機能 | Settings → Advanced Security | Security Configurations＋Global Settings |
 | Actions のポリシー | Settings → Actions → General | Organization の Actions 設定が上限になる |
@@ -167,7 +161,7 @@ AI が人間のトークンで動く場合、PR の作成者は人間になる�
 - Ruleset の Required Approvals は 0。Required Status Checks、Force Push の禁止、ブランチ削除の禁止は有効にする。
 - **Bypass List を空にする**（オーナー本人も PR 経由でしか main を変更できないようにする）。
 - AI に渡すトークンは §2.1 と同じ最小権限の Fine-grained PAT にする（オーナーのログイン済み `gh` や Classic PAT を AI に使わせない）。トークンに Administration 権限がなければ、オーナー名義でも Ruleset は変更できない。
-- AI がマージしないことは、GitHub 側では強制できない。Claude Code の `permissions` で `gh pr merge` や GitHub MCP のマージツールを `ask` または `deny` にする（[`templates/.claude/settings.json`](templates/.claude/settings.json)）。**これはクライアント側の制御であり、強制力は GitHub の設定より弱い**ことを理解したうえで使う。
+- AI がマージしないことは、GitHub 側では強制できない。Claude Code の `permissions` で `gh pr merge` や GitHub MCP のマージツールを `ask` または `deny` にする（§3.F の `.claude/settings.json`）。**これはクライアント側の制御であり、強制力は GitHub の設定より弱い**ことを理解したうえで使う。
 - Auto Merge は無効にする（承認が 0 のため、AI が有効にすると CI 成功と同時にマージされる）。
 
 ---
@@ -200,7 +194,7 @@ AI が人間のトークンで動く場合、PR の作成者は人間になる�
 
 利用条件: Public は全プラン、Private は Pro / Team / Enterprise Cloud。Organization Rulesets は Team 以上。
 
-JSON: 個人用 [`templates/rulesets/main-solo.json`](templates/rulesets/main-solo.json)、チーム用 [`templates/rulesets/main-team.json`](templates/rulesets/main-team.json)。API は `POST /repos/{owner}/{repo}/rulesets`。
+API は `POST /repos/{owner}/{repo}/rulesets`（下表の値を JSON で指定する）。
 
 | 項目（UI 表記） | 個人 | チーム | 評価 | 目的 | 理由 |
 |---|---|---|---|---|---|
@@ -218,7 +212,7 @@ JSON: 個人用 [`templates/rulesets/main-solo.json`](templates/rulesets/main-so
 | └ Require conversation resolution before merging | 有効 | 有効 | 推奨 | 品質保証 | AI レビューや人間の指摘が未解決のままマージされることを防ぐ |
 | └ Allowed merge methods | Squash | Squash | 推奨 | 品質保証 | General の設定と揃える |
 | Require status checks to pass | **有効** | **有効** | 必須 | 品質保証・AI 権限制御 | CI の成功をマージ条件にする |
-| └ Status checks | CI のジョブ名（テンプレートでは `ci`）。**発行元（Source）に GitHub Actions を指定する** | 同左 | 必須 | AI 権限制御 | 発行元を指定しないと、`statuses: write` を持つトークンで同じ名前の成功ステータスを送って偽装できる |
+| └ Status checks | CI のジョブ名（例: `ci`）。**発行元（Source）に GitHub Actions を指定する** | 同左 | 必須 | AI 権限制御 | 発行元を指定しないと、`statuses: write` を持つトークンで同じ名前の成功ステータスを送って偽装できる |
 | └ Require branches to be up to date before merging | 任意 | 有効（PR が多い場合は Merge Queue を検討） | 推奨 | 品質保証 | base の最新状態でテストした結果だけを認める |
 | Require code scanning results | CodeQL を使う場合に有効 | 同左 | 推奨 | セキュリティ | 重要度が高いアラートがある PR をブロックする（Code Security が必要。Public は無料） |
 | Require signed commits | 無効 | 任意 | 任意 | セキュリティ | AI の署名鍵の管理が増える。GitHub App の API 経由のコミットは自動で署名される |
@@ -229,7 +223,7 @@ JSON: 個人用 [`templates/rulesets/main-solo.json`](templates/rulesets/main-so
 
 | 項目 | 推奨値 | 評価 | 理由 |
 |---|---|---|---|
-| タグ Ruleset（`v*`） | Restrict updates・Restrict deletions・Block force pushes を有効 | 推奨 | リリースタグの付け替えを防ぐ（[`templates/rulesets/tags-release.json`](templates/rulesets/tags-release.json)） |
+| タグ Ruleset（`v*`） | Restrict updates・Restrict deletions・Block force pushes を有効 | 推奨 | リリースタグの付け替えを防ぐ |
 | Push Ruleset（Organization、Private／Internal） | `.github/workflows/**` の変更を制限し、Bypass に人間の管理者 Team だけを入れる | 任意 | CI 定義の変更を「PR で承認されても AI 経由では入らない」状態にしたい場合。運用が重くなるため、通常は CODEOWNERS と AI の Workflows 権限なしで十分 |
 | Merge Queue | ― | 任意 | PR の多いチーム向け。Organization のリポジトリで使える |
 
@@ -249,7 +243,7 @@ JSON: 個人用 [`templates/rulesets/main-solo.json`](templates/rulesets/main-so
 | Dependabot alerts | 有効 | 必須 | セキュリティ | 全プラン無料 | 同上 |
 | Dependabot security updates | 有効 | 必須 | セキュリティ | 全プラン無料。パッチがあるアラートに対して PR を自動作成する | `PUT /repos/{o}/{r}/automated-security-fixes` |
 | Grouped security updates | 有効 | 推奨 | 開発効率 | 無料。PR の数を減らす | dependabot.yml の `groups` |
-| Dependabot version updates | 有効（`dependabot.yml` を置く） | 推奨 | 運用・保守 | 無料。既定で 3 日の Cooldown がある（セキュリティ更新には適用されない） | ファイル（[`templates/.github/dependabot.yml`](templates/.github/dependabot.yml)） |
+| Dependabot version updates | 有効（`dependabot.yml` を置く） | 推奨 | 運用・保守 | 無料。既定で 3 日の Cooldown がある（セキュリティ更新には適用されない） | ファイル（`.github/dependabot.yml`） |
 | Dependabot on Actions runners | 有効（既定） | 推奨 | 運用・保守 | Actions の分数を消費する（Public は無料） | ― |
 | CodeQL analysis（Default setup） | 有効（対応言語のみ） | Public: 必須／Private: 推奨 | セキュリティ | Public は無料、Private は **Code Security** が必要。Actions が有効であること。6 か月 push も PR もないと週次スキャンが止まる | `PATCH /repos/{o}/{r}/code-scanning/default-setup` |
 | Copilot Autofix | 有効（既定） | 任意 | 開発効率 | Code Security に含まれる | ― |
@@ -264,7 +258,7 @@ JSON: 個人用 [`templates/rulesets/main-solo.json`](templates/rulesets/main-so
 
 | 目的 | 代替 |
 |---|---|
-| シークレット検出 | Gitleaks などを CI と pre-commit で実行する（テンプレートの CI に含む） |
+| シークレット検出 | Gitleaks などを CI と pre-commit で実行する |
 | 静的解析 | Semgrep CE、ESLint のセキュリティ系プラグインなど（スタックに応じて） |
 | 依存関係 | Dependabot alerts／security updates（無料）＋ `npm audit --audit-level=high` などを CI で実行 |
 
@@ -283,7 +277,7 @@ JSON: 個人用 [`templates/rulesets/main-solo.json`](templates/rulesets/main-so
 | Artifact and log retention | 既定（90 日）。Private で容量を抑えたい場合は短くする | 任意 | 運用・保守 | ― | `PUT .../actions/permissions/artifact-and-log-retention` |
 | Access（Private のみ） | Not accessible（Reusable Workflow を他のリポジトリに提供する中央リポジトリだけ公開） | 推奨 | セキュリティ | ― | `PUT .../actions/permissions/access` |
 
-**Workflow を書くときのルール**（テンプレートの CI に反映済み）:
+**Workflow を書くときのルール**:
 
 - `permissions:` を Workflow の先頭で `contents: read` にし、必要なジョブだけ追加する。
 - `uses:` は **40 桁のコミット SHA** で指定し、コメントにバージョンを書く（`actions/checkout@<sha> # v7.0.1`）。
@@ -344,24 +338,24 @@ JSON: 個人用 [`templates/rulesets/main-solo.json`](templates/rulesets/main-so
 
 ### F. リポジトリ標準ファイル
 
-テンプレートは [`templates/`](templates/) にある。`.github/` 以下はこのディレクトリでは `templates/.github/` に置いている（このリポジトリで有効にならないようにするため）。
+各ファイルの内容はプロジェクトに合わせて作成する。組織で共通化する場合は Template Repository に置く（§5）。
 
-| ファイル | 評価 | 目的 | 内容・注意 | テンプレート |
-|---|---|---|---|---|
-| `CLAUDE.md` | 必須（Claude Code を使う場合） | AI 権限制御・品質保証 | ビルド・テストのコマンド、禁止事項（main へ直接 push しない、CI を無効化しない、Secrets を読まない）、PR の作り方。短く保ち、詳細は `.claude/rules/` に分ける | [`templates/CLAUDE.md`](templates/CLAUDE.md) |
-| `AGENTS.md` | 推奨（Claude Code 以外のエージェントも使う場合） | AI 権限制御 | エージェント共通の指示。Claude Code は `CLAUDE.md` を読むため、`CLAUDE.md` から `@AGENTS.md` で取り込み、内容を二重に管理しない | [`templates/AGENTS.md`](templates/AGENTS.md) |
-| `.claude/rules/*.md` | 任意 | 品質保証 | 特定のパスにだけ適用するルール（`paths:` で指定）。例: テストの書き方、DB マイグレーションのルール | [`templates/.claude/rules/testing.md`](templates/.claude/rules/testing.md) |
-| `.claude/settings.json` | 推奨 | AI 権限制御 | `.env` の読み取り、`git push --force`、`gh pr merge`、Ruleset を変更する `gh api` などを `deny`／`ask` にする。認証情報は書かない | [`templates/.claude/settings.json`](templates/.claude/settings.json) |
-| `.github/CODEOWNERS` | チーム: 必須／個人: 推奨 | AI 権限制御 | `.github/`、`CODEOWNERS`、`CLAUDE.md`、`AGENTS.md`、`.claude/`、依存関係のロックファイル、インフラ定義の承認者を指定する | [`templates/.github/CODEOWNERS`](templates/.github/CODEOWNERS) |
-| `.github/dependabot.yml` | 推奨 | 運用・保守 | `github-actions` と使用するパッケージマネージャー。週次、グループ化、Cooldown | [`templates/.github/dependabot.yml`](templates/.github/dependabot.yml) |
-| `.github/workflows/ci.yml` | 必須 | 品質保証 | Lint、型チェック、テスト、ビルド、シークレット検出。`permissions: contents: read`、SHA 固定 | [`templates/.github/workflows/ci.yml`](templates/.github/workflows/ci.yml) |
-| `.github/workflows/dependency-review.yml` | Public／Code Security あり: 推奨 | セキュリティ | PR で追加される依存関係の脆弱性とライセンスを確認する | [`templates/.github/workflows/dependency-review.yml`](templates/.github/workflows/dependency-review.yml) |
-| `.github/ISSUE_TEMPLATE/` | 推奨 | 開発効率 | バグ報告と機能要望のフォーム。AI に渡す前提条件（受け入れ条件）を書く欄を設ける | [`templates/.github/ISSUE_TEMPLATE/`](templates/.github/ISSUE_TEMPLATE/) |
-| `.github/pull_request_template.md` | 必須 | 品質保証 | 変更内容、テスト結果、AI が作成したかどうか、影響範囲、ロールバック方法 | [`templates/.github/pull_request_template.md`](templates/.github/pull_request_template.md) |
-| `SECURITY.md` | Public: 必須／Private: 推奨 | 運用・保守 | 脆弱性の報告窓口（Private vulnerability reporting）。Organization の `.github` に置けば共通化できる | [`templates/SECURITY.md`](templates/SECURITY.md) |
-| `.env.example` | 必須（環境変数を使う場合） | セキュリティ | 変数名と説明だけを書き、値は空にする。`.env*`（`.env.example` を除く）を `.gitignore` に入れる | [`templates/.env.example`](templates/.env.example) |
-| `.gitignore` | 必須 | セキュリティ | `.env`、`.claude/settings.local.json`、ビルド成果物 | 言語ごとの GitHub 公式テンプレートを使う |
-| `LICENSE` | Public: 必須 | 運用・保守 | ― | リポジトリ作成時に選択 |
+| ファイル | 評価 | 目的 | 内容・注意 |
+|---|---|---|---|
+| `CLAUDE.md` | 必須（Claude Code を使う場合） | AI 権限制御・品質保証 | ビルド・テストのコマンド、禁止事項（main へ直接 push しない、CI を無効化しない、Secrets を読まない）、PR の作り方。短く保ち、詳細は `.claude/rules/` に分ける |
+| `AGENTS.md` | 推奨（Claude Code 以外のエージェントも使う場合） | AI 権限制御 | エージェント共通の指示。Claude Code は `CLAUDE.md` を読むため、`CLAUDE.md` から `@AGENTS.md` で取り込み、内容を二重に管理しない |
+| `.claude/rules/*.md` | 任意 | 品質保証 | 特定のパスにだけ適用するルール（`paths:` で指定）。例: テストの書き方、DB マイグレーションのルール |
+| `.claude/settings.json` | 推奨 | AI 権限制御 | `.env` の読み取り、`git push --force`、`gh pr merge`、Ruleset を変更する `gh api` などを `deny`／`ask` にする。認証情報は書かない |
+| `.github/CODEOWNERS` | チーム: 必須／個人: 推奨 | AI 権限制御 | `.github/`、`CODEOWNERS`、`CLAUDE.md`、`AGENTS.md`、`.claude/`、依存関係のロックファイル、インフラ定義の承認者を指定する |
+| `.github/dependabot.yml` | 推奨 | 運用・保守 | `github-actions` と使用するパッケージマネージャー。週次、グループ化、Cooldown |
+| `.github/workflows/ci.yml` | 必須 | 品質保証 | Lint、型チェック、テスト、ビルド、シークレット検出。`permissions: contents: read`、SHA 固定 |
+| `.github/workflows/dependency-review.yml` | Public／Code Security あり: 推奨 | セキュリティ | PR で追加される依存関係の脆弱性とライセンスを確認する |
+| `.github/ISSUE_TEMPLATE/` | 推奨 | 開発効率 | バグ報告と機能要望のフォーム。AI に渡す前提条件（受け入れ条件）を書く欄を設ける |
+| `.github/pull_request_template.md` | 必須 | 品質保証 | 変更内容、テスト結果、AI が作成したかどうか、影響範囲、ロールバック方法 |
+| `SECURITY.md` | Public: 必須／Private: 推奨 | 運用・保守 | 脆弱性の報告窓口（Private vulnerability reporting）。Organization の `.github` に置けば共通化できる |
+| `.env.example` | 必須（環境変数を使う場合） | セキュリティ | 変数名と説明だけを書き、値は空にする。`.env*`（`.env.example` を除く）を `.gitignore` に入れる |
+| `.gitignore` | 必須 | セキュリティ | `.env`、`.claude/settings.local.json`、ビルド成果物 |
+| `LICENSE` | Public: 必須 | 運用・保守 | ― |
 
 `CONTRIBUTING.md`、`CODE_OF_CONDUCT.md` は OSS として公開する場合のみ追加する（任意）。
 
@@ -399,7 +393,7 @@ JSON: 個人用 [`templates/rulesets/main-solo.json`](templates/rulesets/main-so
 | **Organization Rulesets** | 全リポジトリ、名前のパターン、Custom Properties で対象を選んで Ruleset を一括適用する | リポジトリ側で緩められない（変更は Organization オーナーのみ） | Team 以上: 必須 |
 | **Security Configurations** | セキュリティ機能の有効化をまとめて適用する。新規リポジトリの既定にもできる | マージ方式などの General 設定 | Team 以上: 必須 |
 | **Reusable Workflows** | CI の中身を中央リポジトリで管理し、各リポジトリから `uses: org/ci/.github/workflows/x.yml@<sha>` で呼ぶ | 呼び出し側の Workflow ファイルは各リポジトリに必要 | 推奨 |
-| **GitHub CLI**（`gh`） | `gh repo create --template`、`gh api` で Settings を反映する。手順書のスクリプトはこれを使う | 状態の差分管理はしない | 必須 |
+| **GitHub CLI**（`gh`） | `gh repo create --template`、`gh api` で Settings を反映する | 状態の差分管理はしない | 必須 |
 | **GitHub REST API** | 上記すべての設定（§1.6） | ― | ― |
 | **Terraform GitHub Provider**（`integrations/github`） | リポジトリ、Rulesets、Environments、Actions の権限、Team の権限などをコードで管理し、差分を検出する | 状態ファイルと Provider の認証情報（GitHub App 推奨）の管理が必要 | 任意（リポジトリが数十を超える場合は推奨） |
 
@@ -407,9 +401,9 @@ JSON: 個人用 [`templates/rulesets/main-solo.json`](templates/rulesets/main-so
 
 | コピーされる（ファイル） | 作成後に別途設定が必要（Repository Settings） |
 |---|---|
-| `CLAUDE.md`、`AGENTS.md`、`.claude/`（`settings.local.json` を除く） | Visibility・マージ方式・ブランチ自動削除・Auto merge・Features（§3.A） |
-| `.github/CODEOWNERS`、`dependabot.yml`、`workflows/`、`ISSUE_TEMPLATE/`、`pull_request_template.md` | Rulesets（§3.B） |
-| `SECURITY.md`、`.env.example`、`.gitignore`、`LICENSE` | Dependency graph・Dependabot・CodeQL・Secret Scanning・Push Protection（§3.C） |
+| `CLAUDE.md`、`AGENTS.md`、`.claude/`（`settings.local.json` を除く） |
+| `.github/CODEOWNERS`、`dependabot.yml`、`workflows/`、`ISSUE_TEMPLATE/`、`pull_request_template.md` |
+| `SECURITY.md`、`.env.example`、`.gitignore`、`LICENSE` |
 | | Actions の権限・SHA 固定・GITHUB_TOKEN の既定（§3.D） |
 | | Environments・Secrets・Variables（§3.E） |
 | | Collaborators・Team の権限、GitHub App のインストール、Custom Properties |
@@ -427,20 +421,6 @@ Organization 全体ではなく、特定の Team のリポジトリだけに適�
 
 Custom Property を AI が変更できると、Ruleset の対象から外れることができる。プロパティの値を変更できるのは Organization オーナー（またはプロパティ編集を許可した人）だけにする。
 
-### 5.3 このリポジトリのスクリプト
-
-```bash
-scripts/github-setup/apply-repo-settings.sh <owner>/<repo> --profile team
-```
-
-上のコマンドは実行内容を表示するだけ（ドライラン）。承認を得てから `--apply` を付けて実行する。
-
-```bash
-scripts/github-setup/apply-repo-settings.sh <owner>/<repo> --profile team --apply
-```
-
-`--profile` は `solo`（個人、AI 専用 ID あり）、`solo-minimal`（§2.2 の構成）、`team` の 3 種類。実行には対象リポジトリの Admin 権限を持つ人間の `gh` 認証が必要（AI のトークンでは実行できないのが正しい状態）。
-
 ---
 
 ## 6. セットアップ手順（チェックリスト）
@@ -449,7 +429,7 @@ scripts/github-setup/apply-repo-settings.sh <owner>/<repo> --profile team --appl
 
 - [ ] Personal か Organization か、プラン（§1）
 - [ ] Public か Private か
-- [ ] 個人（`solo`／`solo-minimal`）かチーム（`team`）か
+- [ ] 個人（AI 専用 ID あり／§2.2 の最小構成）かチームか
 - [ ] AI を動かす ID（GitHub App／マシンユーザー／本人の最小権限 PAT）（§2）
 - [ ] Secret Protection／Code Security を使うか（Private の場合）
 - [ ] 本番環境があるか、デプロイ先と認証方式（OIDC を使えるか）
@@ -462,12 +442,11 @@ scripts/github-setup/apply-repo-settings.sh <owner>/<repo> --profile team --appl
 gh repo create <owner>/<repo> --private --template <owner>/<template-repo> --clone
 ```
 
-- [ ] テンプレートを使わない場合は、[`templates/`](templates/) の内容をコピーし、`CODEOWNERS` のユーザー名・Team 名、CI のコマンド、`dependabot.yml` のエコシステムを書き換えて、最初の PR（または初回コミット）で入れる
+- [ ] Template Repository を使わない場合は、§3.F の標準ファイルを作成し、最初の PR（または初回コミット）で入れる
 
 ### 6.2 Repository Settings の反映
 
-- [ ] スクリプトをドライランで実行し、内容を確認する
-- [ ] 承認を得て `--apply` で実行する（General、Actions、Advanced Security、Rulesets）
+- [ ] 承認を得て、§3.A〜§3.D の設定を Web UI または API で反映する（General、Actions、Advanced Security、Rulesets）
 - [ ] CI を一度実行してから、Ruleset の Required Status Checks に CI のジョブ名を登録し、発行元が GitHub Actions になっていることを Web UI で確認する（チェックが一度も実行されていないと選択できない）
 - [ ] Organization の場合は Organization Rulesets・Security Configuration が適用されていることを確認する
 
@@ -604,5 +583,5 @@ AI 専用 ID（または AI が使うトークン）で次を試し、**すべ�
 | Dependency review の Public での扱い | GHAS の比較表と、Dependency review のページの記述が食い違っている | Public は無料（Dependency review のページの記述）に従う |
 | Prevent self-review の Private での可否 | Required reviewers の節に含まれ、Private（Pro / Team）では Required reviewers 自体が使えない | Private では Enterprise Cloud のみと判断 |
 | Personal Account の Bypass List | 個人のリポジトリでの対象が明記されていない | Repository admin、GitHub App、Dependabot を対象と判断（Team は不可） |
-| API の `sha_pinning_required` | Web UI の設定は確認済み。API のフィールド名はスクリプトで確認のうえ使う | スクリプトの実行結果でエラーが出た場合は Web UI で設定する |
+| API の `sha_pinning_required` | Web UI の設定は確認済み。API のフィールド名は未検証 | API でエラーが出た場合は Web UI で設定する |
 | 価格 | 2025 年 4 月の発表時の価格を記載 | 公式の料金ページで確認する |
