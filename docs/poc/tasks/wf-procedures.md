@@ -41,3 +41,12 @@
   - `--no-browser`: Chrome for Testing のダウンロード先（`cdn.playwright.dev`）が環境のネットワーク制限で使えないため
 - `gstack-config set update_check false`、`gstack-config set codex_reviews disabled`（テレメトリーは初期値 off）
 - 試行後に `gstack-egress list` で外部送信の記録を保存する
+
+## 試行間の独立性（2026-11-09 追加。W4 の試行から適用）
+
+候補同士が互いの成果や正解データを参照しないよう、次のとおりにする。完全な防止ではなく、防止と検出の組み合わせである（Bash の `cat`・`ls`・`find`・`grep` は参照先のパスを制限できない）。各 W の report.md に「試行間の独立性の確認結果」を 1 行書く。
+
+- **置き場所**: 作業用コピーはリポジトリの外の `/tmp/poc-trials/<試行ID>/`（`POC_TRIAL_ROOT` で変更可）に置く。リポジトリ本体（正解データ `docs/poc/answer-key/`、他の候補の結果 `docs/poc/results/`）へ相対パスで辿れない。置き場所は `raw/<試行ID>/workdir` に記録し、`grade.py` と `blind_w2.py` はそこを読む（記録が無い W1〜W3 の試行は従来の `.poc-work/trials/<試行ID>/`）。
+  - これに伴い、子セッションはリポジトリ本体の `CLAUDE.md`（親ディレクトリにあるもの）を読み込まなくなる。W3 までは作業用コピーがリポジトリの中にあったため、読み込まれていた可能性がある。どちらも全候補で同じ条件。
+- **片付け**: 採点とブラインドレビューが済んだ試行は `python3 scripts/poc/grade.py <W> <試行ID> --cleanup-only` で作業用コピーを片付ける（成果は `raw/<試行ID>/diff.patch` などに保存済みであることを確認してから消す）。並列で走っている兄弟試行以外の作業用コピーを残さない。
+- **検出**: `grade.py` は子セッションのツール入力を切り詰める前の全文で調べ、自分の作業用コピーの外への参照（リポジトリ本体の絶対パス、他の試行の作業用コピー、他の試行 ID、`../../` で外に出る相対パス、`docs/poc`、`results/`、`answer-key`）を `transcript.isolation_suspects` に記録する。空でなければ採点者が中身を確認し、判断を report.md に書く。
