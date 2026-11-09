@@ -29,7 +29,10 @@ def main():
     random.Random(SEED).shuffle(trials)
     mapping = dict(zip(codes, trials))
     for code, trial in mapping.items():
-        app = ROOT / ".poc-work" / "trials" / trial / "app"
+        raw = ROOT / "docs" / "poc" / "results" / "workflow" / "raw" / trial
+        # 作業用コピーの場所は run-trial.sh が workdir に記録する（無ければ旧来の .poc-work/trials/<ID>）
+        work = Path((raw / "workdir").read_text().strip()) if (raw / "workdir").exists() else ROOT / ".poc-work" / "trials" / trial
+        app = work / "app"
         base = (ROOT / "docs" / "poc" / "results" / "workflow" / "raw" / trial / "baseline-commit").read_text().strip()
         diff = subprocess.run(["git", "diff", base, "HEAD", "--", ".", *EXCLUDE], cwd=app,
                               capture_output=True, text=True, check=True).stdout
