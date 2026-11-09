@@ -1,3 +1,5 @@
+import { getDb, type Db } from "./db/index.ts";
+
 export type TaskStatus = "todo" | "in_progress" | "done";
 
 export type Task = {
@@ -16,16 +18,6 @@ export const STATUS_LABELS: Record<TaskStatus, string> = {
   done: "完了",
 };
 
-const TASKS: readonly Task[] = [
-  { id: 1, title: "要件定義書のレビュー", status: "done", assignee: "sato", dueDate: "2026-11-02" },
-  { id: 2, title: "ログイン画面のデザイン", status: "in_progress", assignee: "suzuki", dueDate: "2026-11-12" },
-  { id: 3, title: "API 設計", status: "in_progress", assignee: "sato", dueDate: "2026-11-14" },
-  { id: 4, title: "DB スキーマ作成", status: "todo", assignee: "tanaka", dueDate: "2026-11-18" },
-  { id: 5, title: "CI の整備", status: "todo", assignee: "suzuki", dueDate: "2026-11-20" },
-  { id: 6, title: "E2E テストの追加", status: "todo", assignee: "sato", dueDate: "2026-11-25" },
-  { id: 7, title: "リリースノート作成", status: "done", assignee: "tanaka", dueDate: "2026-11-05" },
-];
-
 export function isTaskStatus(value: unknown): value is TaskStatus {
   return typeof value === "string" && (TASK_STATUSES as readonly string[]).includes(value);
 }
@@ -34,6 +26,22 @@ export type TaskFilter = {
   status?: TaskStatus;
 };
 
-export function listTasks(filter: TaskFilter = {}): Task[] {
-  return TASKS.filter((task) => filter.status === undefined || task.status === filter.status);
+type TaskRow = { id: number; title: string; status: TaskStatus; assignee: string; due_date: string };
+
+function toTask(row: TaskRow): Task {
+  return { id: row.id, title: row.title, status: row.status, assignee: row.assignee, dueDate: row.due_date };
+}
+
+export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
+  const rows = db
+    .prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id")
+    .all({ status: filter.status ?? null }) as TaskRow[];
+  return rows.map(toTask);
+}
+
+export function getTask(id: number, db: Db = getDb()): Task | undefined {
+  const row = db.prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE id = ?").get(id) as
+    | TaskRow
+    | undefined;
+  return row && toTask(row);
 }
