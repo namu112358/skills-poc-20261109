@@ -58,10 +58,18 @@ if [[ -n "$CONTINUE_FROM" ]]; then
   git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
   git -C "$APP" switch -q -c "poc/wf/$CAND/$SCENARIO/$RUN"
 else
+if [[ "$SCENARIO" == W11-* ]]; then
+  # W11（実在する OSS の解決済み課題）: scripts/poc/oss/oss.py prepare で作った初期状態（修正の 1 つ前のソース。履歴なし）を写す。
+  # node_modules はハードリンク、python の課題は $WORK/venv に環境を作る（app の外なので git に入らない）。
+  # 本家の履歴・修正後のコード・隠しテストは作業用コピーに置かない（docs/poc/tasks/wf-W11-design.md）。
+  OSS_TASK="${SCENARIO#W11-}"
+  python3 "$ROOT/scripts/poc/oss/oss.py" copy-app "$OSS_TASK" "$APP" "$WORK" > "$OUT/oss-setup.log" 2>&1
+else
 cp -a "$APP_SRC/." "$APP/"
 rm -rf "$APP/.next" "$APP"/*.tsbuildinfo
-mkdir -p "$APP/.claude"
-cp -a "$ROOT/.claude/skills" "$APP/.claude/skills"
+fi
+mkdir -p "$APP/.claude/skills"
+cp -a "$ROOT/.claude/skills/." "$APP/.claude/skills/"
 rm -f "$APP/.claude/skills/SOURCES.md"
 cat > "$APP/.mcp.json" <<'JSON'
 {"mcpServers":{
@@ -165,21 +173,42 @@ ALLOWED=(
   "Bash(git add:*)" "Bash(git commit:*)" "Bash(git branch:*)" "Bash(git rev-parse:*)"
   "Bash(git switch:*)" "Bash(git checkout:*)" "Bash(git -C:*)" "Bash(git check-ignore:*)"
   "Bash(ls:*)" "Bash(cat:*)" "Bash(grep:*)" "Bash(find:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(wc:*)"
-  "Bash(cd:*)" "Bash(mkdir:*)" "Bash(sleep:*)" "Bash(curl -s:*)" "Bash(npx next:*)"
+  "Bash(cd:*)" "Bash(mkdir:*)" "Bash(sleep:*)"
   # 候補プラグイン自身のスクリプト（試行ごとのコピー）
   "Bash(python3 $PLUG/:*)" "Bash(bash $PLUG/:*)" "Bash(node $PLUG/:*)"
 )
+if [[ "$SCENARIO" != W11-* ]]; then
+  # W11 は外部への接続（本家の修正の参照）を避けるため curl を許可しない。next は W11 では使わない
+  ALLOWED+=("Bash(curl -s:*)" "Bash(npx next:*)")
+fi
+CHILD_ENV=()
+if [[ "$SCENARIO" == W11-* ]]; then
+  # W11: 課題のテストと、再現用のスクリプトの実行を許可する（2026-11-09 ユーザー承認）。依存のインストールは許可しない。
+  ALLOWED+=(
+    "Bash(python:*)" "Bash(python3:*)" "Bash(pytest:*)" "Bash(timeout * python*)"
+    "Bash(node:*)" "Bash(npx vitest:*)" "Bash(npx tsx:*)" "Bash(npx tsc:*)" "Bash(timeout * node*)" "Bash(timeout * npx*)"
+    "Bash(pnpm test:*)" "Bash(pnpm vitest:*)" "Bash(pnpm exec vitest:*)" "Bash(pnpm exec tsx:*)" "Bash(pnpm exec tsc:*)"
+  )
+  # python の課題: 試行ごとの環境（$WORK/venv）の python・pytest を使わせる
+  [[ -x "$WORK/venv/bin/python" ]] && CHILD_ENV=(PATH="$WORK/venv/bin:$PATH" VIRTUAL_ENV="$WORK/venv")
+  # zod の課題（B3・F1）: CLAUDE.md が指示する nub の代替（scripts/poc/oss/nub-shim）を PATH に入れ、nub の実行を許可する。
+  # 代替は事前に入れた依存だけで動き、依存の変更と知らないサブコマンドは拒否する（2026-11-09 コーディネーター承認）
+  if [[ -x "$WORK/bin/nub" ]]; then
+    CHILD_ENV=(PATH="$WORK/bin:$PATH")
+    ALLOWED+=("Bash(nub:*)" "Bash(timeout * nub*)")
+  fi
+fi
 if [[ "$CAND" == gstack ]]; then
   # gstack 自身のコマンド（~/.claude/skills/gstack/bin/*）
   ALLOWED+=("Bash($GSTACK/bin/:*)" "Bash(~/.claude/skills/gstack/bin/:*)" "Bash(bun $GSTACK/:*)")
 fi
 # W6 以降（UI 実装からブラウザ検証まで）: 開発サーバーの起動とブラウザ操作を許可する（2026-11-09 追加）。
 # W1〜W5 は比較の条件を揃えるため従来の許可リストのまま。サーバーは試行後に reap_servers が止める。
-SCN_NUM="${SCENARIO#W}"; SCN_NUM="${SCN_NUM%%[a-z]*}"
-CHILD_ENV=()
+SCN_NUM="${SCENARIO#W}"; SCN_NUM="${SCN_NUM%%[a-z-]*}"
 # W7 は除く: W7 の試行は、この許可の追加が main に入る前に現行の許可リストで始めたため、
 # 対照も含めて同じ許可リストのまま行う（W7 の report.md「判断の記録」）。
-if [[ "$SCN_NUM" -ge 6 && "$SCN_NUM" != 7 ]]; then
+# W11 は OSS のライブラリが対象なので、開発サーバー・ブラウザの許可は足さない
+if [[ "$SCN_NUM" -ge 6 && "$SCN_NUM" != 7 && "$SCN_NUM" != 11 ]]; then
   ALLOWED+=(
     "Bash(npm run dev)" "Bash(npm run dev:*)" "Bash(npm run start)" "Bash(npm run start:*)"
     "Bash(timeout * npm run dev*)" "Bash(timeout * npm run start*)" "Bash(timeout * npx next *)"
@@ -194,7 +223,7 @@ if [[ "$SCN_NUM" -ge 6 && "$SCN_NUM" != 7 ]]; then
     # gstack のブラウザ（browse）。Chrome for Testing は取得できないので、事前インストール済みの Chromium を使わせる
     ALLOWED+=("Bash($GSTACK/browse/dist/:*)" "Bash(~/.claude/skills/gstack/browse/dist/:*)")
   fi
-  CHILD_ENV=(GSTACK_CHROMIUM_PATH=/opt/pw-browsers/chromium)
+  CHILD_ENV+=(GSTACK_CHROMIUM_PATH=/opt/pw-browsers/chromium)
   # 子セッションが起動したサーバー・ブラウザが試行後に残らないよう、終了時にも止める（reap_servers は下で定義）
   trap 'declare -F reap_servers >/dev/null && reap_servers end' EXIT
 fi
@@ -260,8 +289,19 @@ if [[ "$SCENARIO" == W6 ]]; then
     gstack) STEPS=("$TASK" "/qa" "/ship") ;;
   esac
 fi
-if [[ "$SCENARIO" == W5 ]]; then
-  # W5 の手順（docs/poc/tasks/wf-procedures.md）。gstack は /qa、Compound Engineering は /ce-debug に課題を渡す。
+if [[ "$SCENARIO" == W8 ]]; then
+  # W8（人の介入なしでの自律実行）の手順（docs/poc/tasks/wf-procedures.md・PLAN.md §5.1 の W8 の行）。
+  # 介入（「お任せします」）は既定 0 回（POC_MAX_NUDGES の既定どおり）。最初の指示と手順のコマンド以外は送らない。
+  case "$CAND" in
+    baseline) STEPS=("$TASK") ;;
+    superpowers) STEPS=("/superpowers:writing-plans $TASK" "/superpowers:subagent-driven-development") ;;
+    feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
+    compound-engineering) STEPS=("/ce-brainstorm $TASK" "/lfg") ;;
+    gstack) STEPS=("/autoplan $TASK" "/ship") ;;
+  esac
+fi
+if [[ "$SCENARIO" == W5 || "$SCENARIO" == W11-B* ]]; then
+  # W5 の手順（W11 の不具合の課題も同じ）（docs/poc/tasks/wf-procedures.md）。gstack は /qa、Compound Engineering は /ce-debug に課題を渡す。
   case "$CAND" in
     baseline|superpowers|feature-dev) STEPS=("$TASK") ;;
     compound-engineering) STEPS=("/ce-debug $TASK") ;;
@@ -305,7 +345,7 @@ NUDGE="お任せします。確認は不要なので、課題を最後まで実�
 MAX_QA="${POC_MAX_QA_ROUNDS:-10}"
 QA_CLOSE="質問はここまでで締め切ります。残りはお任せします。ここまでの回答をもとに要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
 [[ "$SCENARIO" == W3 ]] && NUDGE="お任せします。確認は不要なので、要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
-[[ "$SCENARIO" == W5 ]] && NUDGE="お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。"
+[[ "$SCENARIO" == W5 || "$SCENARIO" == W11-B* ]] && NUDGE="お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。"
 # W7: 手順を終えた後、落とし穴 2 件を判定し（scripts/poc/check_w7.py）、避けられなかったものをレビューの定型の指摘で直させる回数の上限。
 # 判定にかかった時間は所要時間から除く（check-seconds）。W7 以外は 0（判定しない）。
 MAX_FEEDBACK="${POC_MAX_FEEDBACK:-0}"

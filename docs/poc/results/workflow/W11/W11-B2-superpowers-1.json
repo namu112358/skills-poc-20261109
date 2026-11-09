@@ -1,0 +1,81 @@
+{
+ "scenario": "W11",
+ "task": "B2",
+ "kind": "bug",
+ "repo": "pytest-dev/pytest",
+ "trial": "W11-B2-superpowers-1",
+ "candidate": "superpowers",
+ "run": 1,
+ "resolved": true,
+ "quality": 100.0,
+ "hidden_tests": {
+  "f2p_total": 13,
+  "f2p_pass": 13,
+  "new_total": 13,
+  "new_pass": 13,
+  "existing_total": 193,
+  "existing_pass": 193,
+  "p2p_total": 193,
+  "p2p_pass": 193,
+  "f2p_failed": [],
+  "p2p_broken": [],
+  "seconds": 6.1,
+  "log_tail": ""
+ },
+ "diff": {
+  "src_added": 28,
+  "src_removed": 76,
+  "src_files": [
+   "src/_pytest/assertion/rewrite.py"
+  ],
+  "test_added": 94,
+  "test_files": [
+   "testing/test_assertrewrite.py"
+  ],
+  "other_files": [
+   "changelog/14500.bugfix.rst"
+  ],
+  "upstream_src_added": 83,
+  "upstream_src_removed": 78
+ },
+ "facts": {
+  "cost_usd": 0.6583,
+  "elapsed_seconds": 470,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 2
+ },
+ "transcript": {
+  "cost_usd": 0.6583,
+  "turns": 3,
+  "tools": {
+   "Skill": 2,
+   "Bash": 26,
+   "Read": 1,
+   "Agent": 1,
+   "ReadNotifications": 1
+  },
+  "skills": [
+   "superpowers:requesting-code-review",
+   "superpowers:systematic-debugging"
+  ],
+  "subagents": 1,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cat changelog/10128.bugfix.rst | head -3; git log -1 --format=%an; ls changelog | grep -i \\\"^1[0-9]\\\\{4\\\\}\\\\.bugfix\\\" | tail -3\\nS=/tmp/claude-0/-tmp-poc-trials-W11-B2-superpowers-1-app/5"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python -m pytest testing -q -n4 -p no:cacheprovider 2>&1 | grep -i \\\"^ERROR\\\"; git stash -q; python -m pytest testing -q -n4 -p no:cacheprovider 2>&1 | grep -i \\\"^ERROR\\\\|passed\\\"; git st"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"mkdir -p /tmp/claude-0/exp && cd /tmp/claude-0/exp && cat > test_x.py <<'EOF'\\nimport pytest\\ncalls=[]\\ndef f(*a):\\n    calls.append(a); return len(calls)\\ng = 5\\ndef test_boolop_later():"
+   }
+  ],
+  "isolation_suspects": [],
+  "final_text": " in `src/_pytest/assertion/rewrite.py` evaluated each walrus once for the assertion and again when building the failure message. The workaround from #10758 and #11041 then re-evaluated it at later uses of the name.\n\n**Fix:**\n- The rewriter evaluates the walrus once, into a temporary variable.\n- Reads of a name that a walrus rebinds in the same assert are captured at their evaluation point. This keeps `my_func(a, a := f(a))` working.\n- The old workaround and its scope tracking are removed, about 75 lines of fragile code.\n\nThe code review returned \"with fixes\" and flagged two things I acted on:\n- **Message label:** the rewriter's internal temporary name could leak into the failure message. That is fixed, and the message test asserts that no `@py_assert` names appear.\n- **Test coverage:** I added tests for evaluation order, short-circuit `and`, comprehensions, chained comparisons, failure messages and the assertion-pass hook, in addition to the two cases from the issue.\n\nThe reviewer could not run anything and judged the change by reading it, so the tests are the verification.\n\nI left the review's optional suggestion to skip lambda bodies when collecting walrus targets. It is harmless but adds a few extra statements.\n\n**To do:** the changelog file `changelog/14500.bugfix.rst` uses 14500 as a placeholder number. Rename it to the real issue or PR number.\n\nThere are two commits on top of the baseline: `dd3999e` (the fix and first tests) and `39ab415` (review fixes and extra tests)."
+ }
+}

@@ -1,0 +1,66 @@
+{
+ "scenario": "W11",
+ "task": "B3",
+ "kind": "bug",
+ "repo": "colinhacks/zod",
+ "trial": "W11-B3-gstack-1",
+ "candidate": "gstack",
+ "run": 1,
+ "resolved": false,
+ "quality": 65.0,
+ "hidden_tests": {
+  "f2p_total": 10,
+  "f2p_pass": 5,
+  "new_total": 10,
+  "new_pass": 5,
+  "existing_total": 111,
+  "existing_pass": 111,
+  "p2p_total": 111,
+  "p2p_pass": 111,
+  "f2p_failed": [
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > a cycle that closes after an await is a back-edge, not a wait",
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > visits that would wait on each other resolve: a node waited on twice, the first closing the loop",
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > visits that would wait on each other resolve: a node waiting twice, the first closing the loop",
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > visits that would wait on each other resolve: around a ring",
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > visits that would wait on each other resolve: each waits on the other"
+  ],
+  "p2p_broken": [],
+  "seconds": 32.8,
+  "log_tail": "JSON report written to /tmp/w11-res-w50wznpk/vitest.json\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\n"
+ },
+ "diff": {
+  "src_added": 18,
+  "src_removed": 1,
+  "src_files": [
+   "packages/zod/src/v4/core/memoizer.ts"
+  ],
+  "test_added": 15,
+  "test_files": [
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts"
+  ],
+  "other_files": [],
+  "upstream_src_added": 71,
+  "upstream_src_removed": 23
+ },
+ "facts": {
+  "cost_usd": 0.4981,
+  "elapsed_seconds": 322,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 1
+ },
+ "transcript": {
+  "cost_usd": 0.4981,
+  "turns": 18,
+  "tools": {
+   "Bash": 13,
+   "Read": 4
+  },
+  "skills": [],
+  "subagents": 0,
+  "permission_denials": [],
+  "isolation_suspects": [],
+  "final_text": "Issue の再現は直り、修正は `b071605` でコミット済みです。\n\n**原因**: メモ化は、まだ処理中のエントリにヒットすると「祖先の循環参照（back edge）」とみなし、チェックを省略していました。非同期チェックを持つ共有スキーマでは、union の兄弟 option が処理中のエントリにヒットして issue なしで解決されていました。そのため union が先行 option の結果を受け取らず、`success: true` を返していました。\n\n**修正**（`packages/zod/src/v4/core/memoizer.ts`）: 非同期でエントリの同期部分を抜けたあと、そのエントリに `pending` の Promise を持たせます。同期部分を抜けた後のヒットは兄弟とみなし、その Promise を待って記録済みの issue を再生します。同期的に再入する真の循環は、従来どおり back edge として扱います。\n\n**回帰テスト**（`cyclic-data.test.ts`）: Issue の再現に加え、`kids` に不正データを入れたケースと、正常入力が通るケースを入れました。修正前は失敗し、修正後は通ります。\n\n**テスト結果**: `packages/zod/src/v4/classic/tests` 配下は 273 ファイル・4887 件がすべて通りました。リポジトリ全体の vitest では treeshaking 系の 3 ファイルが失敗しますが、ベースでも同じ失敗です。パッケージ未ビルドで `packages/zod/index.js` が無いためです。\n\n**未実施・制限**:\n- この環境に `nub` がなかったため、素の `vitest` と `biome` で代用しました。\n- CLAUDE.md が求める runtime／memory／bundle の 3 軸の計測は行っていません。変更はエントリの任意フィールド 1 つと、非同期ヒット時のみの Promise 待ちだけです。同期パスのコストは増えません。\n- 非同期処理の途中で循環に再入する祖先（pipe の後段を非同期で処理するケースなど）は、理論上は待ちが解けない可能性があります。テストでは再現しませんでした。"
+ }
+}

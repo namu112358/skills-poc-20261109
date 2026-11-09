@@ -1,0 +1,1553 @@
+{
+  "scores": [
+    {
+      "trial": "W10-baseline-1",
+      "candidate": "baseline",
+      "run": 1,
+      "total": 79.7,
+      "acceptance": 25.0,
+      "hidden": 26.7,
+      "test_strength": 16.0,
+      "review": 12.0,
+      "hidden_items": {
+        "H01": true,
+        "H02": true,
+        "H03": true,
+        "H04": true,
+        "H05": true,
+        "H06": true,
+        "H07": false,
+        "H08": true,
+        "H09": false,
+        "H10": false,
+        "H11": true,
+        "H12": false
+      },
+      "review_detail": {
+        "code": "R08",
+        "totals": [
+          13,
+          11
+        ],
+        "mean": 12.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            2
+          ],
+          "c": [
+            3,
+            2
+          ],
+          "d": [
+            2,
+            2
+          ],
+          "e": [
+            2,
+            2
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "担当者のみ申請・本人判断不可・条件付き UPDATE と堅牢で、構成も既存 API と揃った素直なもの。テストは 1 ケースに多数の確認を詰め込んでいて読みにくく、承認時に updateTask を通さず直接 UPDATE し、理由の長さが UTF-16 単位で数えられている。",
+          "担当者のみ申請・本人判断不可・条件付き UPDATE と権限まわりは押さえ、switch で理由ごとに応答を分けて分かりやすい。理由の長さが UTF-16 長、期限の妥当性（現期限より後）は未考慮で、ルート間の switch 重複や判断時の冗長な getTask がある。テストは 1 ケースに多くを詰めている。"
+        ]
+      },
+      "facts": {
+        "e2e_pass": 13,
+        "e2e_total": 13,
+        "e2e_failed": [],
+        "hidden_pass": 8,
+        "hidden_total": 12,
+        "hidden_failed": [
+          {
+            "id": "H07",
+            "detail": "同じ日=201 前の日=409 1 日後=409"
+          },
+          {
+            "id": "H09",
+            "detail": "2026-11-05（今日は 2026-11-10）: 201 {\"extension\":{\"id\":6,\"taskId\":19,\"requester\":\"sato\",\"newDueDate\":\"2026-11-05\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.771Z\",\"decidedBy"
+          },
+          {
+            "id": "H10",
+            "detail": "11-09=201 11-10=201"
+          },
+          {
+            "id": "H12",
+            "detail": "承認=200 で期限が 2026-12-20 になった（2026-12-31 のままであるべき）"
+          }
+        ],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "mutants": 60,
+        "killed": 48,
+        "kill_rate": 0.8,
+        "mutation_files": [
+          "src/lib/db/migrations.ts",
+          "src/lib/extensions.ts"
+        ],
+        "baseline_tests_pass": true,
+        "tests_changed": [
+          "tests/extensions.test.ts"
+        ],
+        "interventions": 0,
+        "questions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 1,
+        "budget_stopped": "",
+        "code_added": 250,
+        "test_added": 149,
+        "artifacts": [
+          "CLAUDE.md"
+        ],
+        "cost_usd": 0.7308,
+        "elapsed_seconds": 218,
+        "active_seconds": 207,
+        "turns": 36,
+        "subagents": 0,
+        "subagent_types": {},
+        "skills_used": [
+          "code-review"
+        ],
+        "tool_calls": {
+          "Bash": 28,
+          "Edit": 6,
+          "Write": 6,
+          "Skill": 1,
+          "Read": 5
+        },
+        "denials": 12,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\ns=s.rstrip()\\nassert s.endswith(\\\"];\\\")\\ns=s[:-2]+'''  {\\n    version: 3,\\n    name: \\\"task_extensions\\\",\\n    sql: `\\n "
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"sed -i 's/    createExtension(2, \\\"suzuki\\\", input, db) && assert.fail === undefined;/    createExtension(2, \\\"suzuki\\\", input, db);/' tests/extensions.test.ts && grep -n \\\"user_version\\\\"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"(PORT=3917 npx next start -p 3917 >/tmp/claude-0/next.log 2>&1 &) ; sleep 4\\nB=http://localhost:3917; J=/tmp/claude-0/-tmp-poc-trials-W10-baseline-1-app/bc2226a0-8668-47de-b7a3-f50d3f63f0"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"(npx next start -p 3917 >/tmp/claude-0/next.log 2>&1 &); sleep 5; bash /tmp/claude-0/-tmp-poc-trials-W10-baseline-1-app/bc2226a0-8668-47de-b7a3-f50d3f63f0c8/scratchpad/smoke.sh; pkill -f "
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"nohup npx next start -p 3917 > /tmp/claude-0/next.log 2>&1 &\\nsleep 5; curl -s -o /dev/null -w '%{http_code}\\\\n' http://localhost:3917/login\", \"run_in_background\": true}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"timeout 40 npx next start -p 3917 > .next-smoke.log 2>&1 &\\nsleep 6; bash /tmp/claude-0/-tmp-poc-trials-W10-baseline-1-app/bc2226a0-8668-47de-b7a3-f50d3f63f0c8/scratchpad/smoke.sh\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"sleep 4; bash /tmp/claude-0/-tmp-poc-trials-W10-baseline-1-app/bc2226a0-8668-47de-b7a3-f50d3f63f0c8/scratchpad/smoke.sh\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W10-baseline-1-app/bc2226a0-8668-47de-b7a3-f50d3f63f0c8/scratchpad && B=http://localhost:3917; H='content-type: application/json'\\ncurl -s -o /dev/null -c"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"pkill -f \\\"next start\\\"; rm -f .next-smoke.log; git status --short\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"git status --short && git diff @{upstream}...HEAD 2>/dev/null | head -5; git log --oneline | head -5; git diff HEAD\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat src/lib/extensions.ts; find src/app/api/tasks -type f | xargs ls; for f in src/app/api/tasks/\\\\[id\\\\]/extensions/*.ts src/app/api/tasks/\\\\[id\\\\]/extensions/*/*.ts; do echo \\\"=== $f\\\";"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W10-baseline-1/app/src/app/api/tasks/\\\\[id\\\\] && cat extensions/route.ts extensions/\\\\[extensionId\\\\]/*/route.ts route.ts; cd ../../../../..; grep -n \\\"transaction\\\" -A"
+          }
+        ],
+        "commits": [
+          "2423655 タスクの期限延長申請 API を追加"
+        ],
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W10-compound-engineering-1",
+      "candidate": "compound-engineering",
+      "run": 1,
+      "total": 76.2,
+      "acceptance": 25.0,
+      "hidden": 20.0,
+      "test_strength": 17.7,
+      "review": 13.5,
+      "hidden_items": {
+        "H01": false,
+        "H02": false,
+        "H03": true,
+        "H04": true,
+        "H05": true,
+        "H06": true,
+        "H07": false,
+        "H08": true,
+        "H09": false,
+        "H10": false,
+        "H11": true,
+        "H12": false
+      },
+      "review_detail": {
+        "code": "R04",
+        "totals": [
+          14,
+          13
+        ],
+        "mean": 13.5,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            2,
+            1
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "CHECK 制約・条件付き UPDATE・ロールバックの確認まで含む、とても網羅的で読みやすいテストと薄い lib 設計が良い。権限の制限はなく、申請者本人の承認を許すことをテストで固定している点は仕様の「ほかのメンバー」の趣旨から外れる。",
+          "CHECK 制約・ロールバック確認・スキーマのテストまであり、コードも最小限で読みやすい。ただし申請者本人による承認を明示的に許してテストで固定しており、「ほかのメンバーが確認する」という仕様の意図に反する。担当者確認も無い。"
+        ]
+      },
+      "facts": {
+        "e2e_pass": 13,
+        "e2e_total": 13,
+        "e2e_failed": [],
+        "hidden_pass": 6,
+        "hidden_total": 12,
+        "hidden_failed": [
+          {
+            "id": "H01",
+            "detail": "suzuki が sato のタスクに申請: 201 {\"extension\":{\"id\":1,\"taskId\":8,\"requester\":\"suzuki\",\"newDueDate\":\"2026-12-20\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.595Z\",\"decidedBy\":nu"
+          },
+          {
+            "id": "H02",
+            "detail": "本人が承認: 200 {\"extension\":{\"id\":2,\"taskId\":9,\"requester\":\"sato\",\"newDueDate\":\"2026-12-20\",\"reason\":\"作業が遅れているため\",\"status\":\"approved\",\"createdAt\":\"2026-11-09T15:30:01.610Z\",\"decidedBy\":\"sato\",\"decidedAt\":"
+          },
+          {
+            "id": "H07",
+            "detail": "同じ日=201 前の日=409 1 日後=409"
+          },
+          {
+            "id": "H09",
+            "detail": "2026-11-05（今日は 2026-11-10）: 201 {\"extension\":{\"id\":7,\"taskId\":19,\"requester\":\"sato\",\"newDueDate\":\"2026-11-05\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.792Z\",\"decidedBy"
+          },
+          {
+            "id": "H10",
+            "detail": "11-09=201 11-10=201"
+          },
+          {
+            "id": "H12",
+            "detail": "承認=200 で期限が 2026-12-20 になった（2026-12-31 のままであるべき）"
+          }
+        ],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "mutants": 60,
+        "killed": 53,
+        "kill_rate": 0.883,
+        "mutation_files": [
+          "src/lib/db/migrations.ts",
+          "src/lib/extensions.ts"
+        ],
+        "baseline_tests_pass": true,
+        "tests_changed": [
+          "tests/extensions.test.ts"
+        ],
+        "interventions": 0,
+        "questions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "budget_stopped": "",
+        "code_added": 256,
+        "test_added": 278,
+        "artifacts": [
+          "CLAUDE.md",
+          "docs/plans/2026-11-09-1503-feat-task-due-date-extension-api-plan.md"
+        ],
+        "cost_usd": 5.3703,
+        "elapsed_seconds": 741,
+        "active_seconds": 716,
+        "turns": 142,
+        "subagents": 11,
+        "subagent_types": {
+          "general-purpose": 11
+        },
+        "skills_used": [
+          "compound-engineering:ce-code-review",
+          "compound-engineering:ce-commit",
+          "compound-engineering:ce-doc-review",
+          "compound-engineering:ce-simplify-code"
+        ],
+        "tool_calls": {
+          "Bash": 125,
+          "Read": 45,
+          "Agent": 11,
+          "Write": 15,
+          "Skill": 4,
+          "Edit": 4,
+          "TaskStop": 1,
+          "Grep": 1
+        },
+        "denials": 28,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W10-compound-engineering-1/app && git rev-parse --show-toplevel && ls -a && cat .compound-engineering/config.yaml .compound-engineering/config.local.yaml 2>&1 | head -3"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W10-compound-engineering-1/app; for f in src/lib/tasks.ts src/lib/users.ts src/lib/auth.ts src/lib/db/seed.ts \\\"src/app/api/tasks/[id]/route.ts\\\" src/app/api/tasks/rout"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W10-compound-engineering-1/app; node -e 'for (const s of [\\\"2026-02-30\\\",\\\"2026-13-01\\\",\\\"2026-02-28\\\",\\\"2026-00-10\\\",\\\"2026-04-31\\\"]) console.log(s, Date.parse(s))'; n"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"SKILL_DIR=\\\"/tmp/poc-trials/W10-compound-engineering-1/plugins/compound-engineering/skills/ce-plan\\\"; ls \\\"$SKILL_DIR\\\" \\\"$SKILL_DIR/references/agents\\\" \\\"$SKILL_DIR/scripts\\\" 2>&1; cd /t"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"node -e 'for (const s of [\\\"2026-02-30\\\",\\\"2026-13-01\\\",\\\"2026-02-28\\\",\\\"2026-00-10\\\",\\\"2026-04-31\\\"]) console.log(s, Date.parse(s))'; node --version\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"node -e 'console.log([\\\"2026-02-30\\\",\\\"2026-13-01\\\",\\\"2026-02-28\\\",\\\"2026-04-31\\\"].map(s=>s+\\\" \\\"+Date.parse(s)).join(\\\"\\\\n\\\"))'\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 /tmp/poc-trials/W10-compound-engineering-1/plugins/compound-engineering/skills/ce-plan/scripts/packs-resolve.py\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W10-compound-engineering-1/app; git ls-files src tests; for f in src/lib/db/index.ts src/lib/db/migrations.ts src/lib/tasks.ts src/lib/api.ts src/lib/session.ts src/app"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W10-compound-engineering-1/app; S=/tmp/claude-0/-tmp-poc-trials-W10-compound-engineering-1-app/92d003df-9567-42dc-9a08-ebad2b0407d8/scratchpad; cat > $S/q.ts <<'EOF'\\ni"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W10-compound-engineering-1/app; node -e 'for (const s of [\\\"2026-02-30\\\",\\\"2026-13-01\\\",\\\"2026-00-10\\\",\\\"2026-02-29\\\",\\\"0000-01-01\\\"]) console.log(s, Date.parse(s))'; c"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"node -e 'for (const s of [\\\"2026-02-30\\\",\\\"2026-13-01\\\",\\\"2026-00-10\\\",\\\"2026-02-29\\\",\\\"0000-01-01\\\"]) console.log(s, Date.parse(s))'\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"node --experimental-strip-types --no-warnings /tmp/claude-0/-tmp-poc-trials-W10-compound-engineering-1-app/92d003df-9567-42dc-9a08-ebad2b0407d8/scratchpad/q.ts; git status --short | head "
+          }
+        ],
+        "commits": [
+          "0f4b9c1 Reuse ExtensionStatus for the decision parameter type",
+          "cace026 Expose extension requests through the tasks API",
+          "ef05d5b Add extension request storage, validation, and approve/reject logic",
+          "aa9a4a1 Plan the task due-date extension request API"
+        ],
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W10-compound-engineering-2",
+      "candidate": "compound-engineering",
+      "run": 2,
+      "total": 79.5,
+      "acceptance": 25.0,
+      "hidden": 26.7,
+      "test_strength": 16.3,
+      "review": 11.5,
+      "hidden_items": {
+        "H01": true,
+        "H02": true,
+        "H03": true,
+        "H04": true,
+        "H05": true,
+        "H06": true,
+        "H07": false,
+        "H08": true,
+        "H09": false,
+        "H10": false,
+        "H11": true,
+        "H12": false
+      },
+      "review_detail": {
+        "code": "R09",
+        "totals": [
+          11,
+          12
+        ],
+        "mean": 11.5,
+        "items": {
+          "a": [
+            2,
+            3
+          ],
+          "b": [
+            3,
+            2
+          ],
+          "c": [
+            2,
+            2
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            1,
+            2
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "担当者確認・本人判断不可・CHECK 制約・ロールバック・確認の順序までテストで固めていて堅牢。ただし検証を申請処理の中で呼び、ルートから検証関数を通す規約から外れる。extension-api.ts と unknown 型の toBody コールバックは過剰な抽象化で、不正な ID を `?? 0` で 0 に変えて「見つからない」にする書き方も誤解を招く。",
+          "担当者確認・本人判断不可・CHECK 制約・条件付き UPDATE・ロールバックと、確認順序まで仕様化したテスト・スキーマのテストが充実している。一方で extension-api.ts の unknown 型コールバックや parseExtensionId(...) ?? 0 のような抜け道があり抽象化がやや過剰。新期限と現期限の関係も確かめていない。"
+        ]
+      },
+      "facts": {
+        "e2e_pass": 13,
+        "e2e_total": 13,
+        "e2e_failed": [],
+        "hidden_pass": 8,
+        "hidden_total": 12,
+        "hidden_failed": [
+          {
+            "id": "H07",
+            "detail": "同じ日=201 前の日=409 1 日後=409"
+          },
+          {
+            "id": "H09",
+            "detail": "2026-11-05（今日は 2026-11-10）: 201 {\"extension\":{\"id\":6,\"taskId\":19,\"requester\":\"sato\",\"newDueDate\":\"2026-11-05\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.831Z\",\"decidedBy"
+          },
+          {
+            "id": "H10",
+            "detail": "11-09=201 11-10=201"
+          },
+          {
+            "id": "H12",
+            "detail": "承認=200 で期限が 2026-12-20 になった（2026-12-31 のままであるべき）"
+          }
+        ],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "mutants": 60,
+        "killed": 49,
+        "kill_rate": 0.817,
+        "mutation_files": [
+          "src/lib/db/migrations.ts",
+          "src/lib/extension-api.ts",
+          "src/lib/extensions.ts"
+        ],
+        "baseline_tests_pass": true,
+        "tests_changed": [
+          "tests/extensions.test.ts"
+        ],
+        "interventions": 0,
+        "questions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "budget_stopped": "",
+        "code_added": 254,
+        "test_added": 256,
+        "artifacts": [
+          "CLAUDE.md",
+          "docs/plans/2026-11-09-1517-feat-task-due-date-extension-api-plan.md"
+        ],
+        "cost_usd": 6.8714,
+        "elapsed_seconds": 776,
+        "active_seconds": 731,
+        "turns": 203,
+        "subagents": 11,
+        "subagent_types": {
+          "general-purpose": 11
+        },
+        "skills_used": [
+          "compound-engineering:ce-code-review",
+          "compound-engineering:ce-doc-review",
+          "compound-engineering:ce-simplify-code"
+        ],
+        "tool_calls": {
+          "Bash": 122,
+          "Read": 51,
+          "Agent": 11,
+          "ReadNotifications": 25,
+          "Write": 20,
+          "Edit": 18,
+          "Skill": 3,
+          "ListAgents": 4,
+          "ToolSearch": 2,
+          "TaskStop": 2,
+          "ScheduleWakeup": 1
+        },
+        "denials": 26,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat intake.md output-contracts.md; cd /tmp/poc-trials/W10-compound-engineering-2/app; git status --short | head; git log --oneline | head -5; cat .compound-engineering/config*.yaml 2>/dev"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W10-compound-engineering-2/app && git status --short | head; git log --oneline | head -5; cat .compound-engineering/config*.yaml 2>/dev/null; ls; ls docs 2>/dev/null\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"A=/tmp/poc-trials/W10-compound-engineering-2/app; git -C $A status --short | head; git -C $A log --oneline | head -5; ls -a $A $A/docs $A/.compound-engineering 2>&1 | head -50; find $A/sr"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"A=/tmp/poc-trials/W10-compound-engineering-2/app; find $A/src $A/tests $A/docs $A/.compound-engineering -type f 2>/dev/null | sort; ls -a $A; git -C $A log --oneline | head -5; git -C $A "
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W10-compound-engineering-2/app/src; for f in lib/api.ts lib/db/index.ts lib/db/migrations.ts lib/tasks.ts lib/session.ts lib/users.ts \\\"app/api/tasks/[id]/route.ts\\\" ap"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"SKILL_DIR=\\\"/tmp/poc-trials/W10-compound-engineering-2/plugins/compound-engineering/skills/ce-plan\\\"; cd /tmp/poc-trials/W10-compound-engineering-2/app && PY=\\\"$(for c in python3 python p"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 /tmp/poc-trials/W10-compound-engineering-2/plugins/compound-engineering/skills/ce-plan/scripts/packs-resolve.py; mkdir -p /tmp/claude-0/-tmp-poc-trials-W10-compound-engineering-2-"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W10-compound-engineering-2-app/2ce60534-5636-4f52-ac07-f88711c212c8/scratchpad/review; cat > /tmp/claude-0/-tmp-poc-trials-W10-compound-engineering-"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W10-compound-engineering-2/app; node -e 'for (const s of [\\\"2026-02-30\\\",\\\"2026-11-31\\\",\\\"2026-13-01\\\",\\\"2027-02-29\\\"]) console.log(s, Date.parse(s))'; grep -n \\\"migrat"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W10-compound-engineering-2-app/2ce60534-5636-4f52-ac07-f88711c212c8/scratchpad/review && cat > /tmp/claude-0/-tmp-poc-trials-W10-compound-engineerin"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat > /tmp/claude-0/-tmp-poc-trials-W10-compound-engineering-2-app/2ce60534-5636-4f52-ac07-f88711c212c8/scratchpad/review/feasibility.json <<'EOF'\\n{\\n  \\\"reviewer\\\": \\\"feasibility\\\",\\n  "
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W10-compound-engineering-2/app && git branch --show-current; git remote -v; git status --short --untracked-files=all; cat /tmp/poc-trials/W10-compound-engineering-2/plu"
+          }
+        ],
+        "commits": [
+          "23aede2 test(extensions): pin check order and the status constraint",
+          "30e57ec refactor(api): share the approve/reject route handler",
+          "cfab461 feat(api): add extension request endpoints",
+          "210915d feat(extensions): add extension request logic",
+          "ffd798b feat(db): add extension_requests table (migration 3)",
+          "0872f26 docs: plan task due-date extension request API"
+        ],
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W10-feature-dev-1",
+      "candidate": "feature-dev",
+      "run": 1,
+      "total": 67.2,
+      "acceptance": 25.0,
+      "hidden": 20.0,
+      "test_strength": 14.7,
+      "review": 7.5,
+      "hidden_items": {
+        "H01": false,
+        "H02": false,
+        "H03": true,
+        "H04": true,
+        "H05": true,
+        "H06": true,
+        "H07": false,
+        "H08": true,
+        "H09": false,
+        "H10": false,
+        "H11": true,
+        "H12": false
+      },
+      "review_detail": {
+        "code": "R07",
+        "totals": [
+          8,
+          7
+        ],
+        "mean": 7.5,
+        "items": {
+          "a": [
+            2,
+            2
+          ],
+          "b": [
+            1,
+            1
+          ],
+          "c": [
+            1,
+            1
+          ],
+          "d": [
+            2,
+            2
+          ],
+          "e": [
+            2,
+            1
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "検証関数や結果型は規約どおりで、テストも基本の振る舞いを押さえている。一方で権限の制限がなく、承認・却下のルート処理を汎用の src/lib/api.ts に移して domain へ依存させており、テーブル名 extensions とマイグレーション名 due_date_extensions も食い違う。",
+          "承認・却下のルートを共通化して短くしているが、汎用の src/lib/api.ts が decideExtension を取り込み層の責務が崩れている。権限の考慮が無く、UPDATE に保留中条件も無い。テーブル名 extensions とマイグレーション名 due_date_extensions が食い違い、テストも基本的な観点にとどまる。"
+        ]
+      },
+      "facts": {
+        "e2e_pass": 13,
+        "e2e_total": 13,
+        "e2e_failed": [],
+        "hidden_pass": 6,
+        "hidden_total": 12,
+        "hidden_failed": [
+          {
+            "id": "H01",
+            "detail": "suzuki が sato のタスクに申請: 201 {\"extension\":{\"id\":1,\"taskId\":8,\"requester\":\"suzuki\",\"newDueDate\":\"2026-12-20\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.516Z\",\"decidedBy\":nu"
+          },
+          {
+            "id": "H02",
+            "detail": "本人が承認: 200 {\"extension\":{\"id\":2,\"taskId\":9,\"requester\":\"sato\",\"newDueDate\":\"2026-12-20\",\"reason\":\"作業が遅れているため\",\"status\":\"approved\",\"createdAt\":\"2026-11-09T15:30:01.530Z\",\"decidedBy\":\"sato\",\"decidedAt\":"
+          },
+          {
+            "id": "H07",
+            "detail": "同じ日=201 前の日=409 1 日後=409"
+          },
+          {
+            "id": "H09",
+            "detail": "2026-11-05（今日は 2026-11-10）: 201 {\"extension\":{\"id\":7,\"taskId\":19,\"requester\":\"sato\",\"newDueDate\":\"2026-11-05\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.713Z\",\"decidedBy"
+          },
+          {
+            "id": "H10",
+            "detail": "11-09=201 11-10=201"
+          },
+          {
+            "id": "H12",
+            "detail": "承認=200 で期限が 2026-12-20 になった（2026-12-31 のままであるべき）"
+          }
+        ],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "mutants": 60,
+        "killed": 44,
+        "kill_rate": 0.733,
+        "mutation_files": [
+          "src/lib/api.ts",
+          "src/lib/db/migrations.ts",
+          "src/lib/extensions.ts"
+        ],
+        "baseline_tests_pass": true,
+        "tests_changed": [
+          "tests/extensions.test.ts"
+        ],
+        "interventions": 0,
+        "questions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "budget_stopped": "",
+        "code_added": 245,
+        "test_added": 158,
+        "artifacts": [],
+        "cost_usd": 1.0512,
+        "elapsed_seconds": 182,
+        "active_seconds": 169,
+        "turns": 37,
+        "subagents": 5,
+        "subagent_types": {
+          "feature-dev:code-explorer": 2,
+          "feature-dev:code-architect": 1,
+          "feature-dev:code-reviewer": 2
+        },
+        "skills_used": [],
+        "tool_calls": {
+          "Agent": 5,
+          "Glob": 7,
+          "Read": 35,
+          "ReadNotifications": 6,
+          "Bash": 13,
+          "Grep": 5,
+          "Edit": 3,
+          "Write": 7
+        },
+        "denials": 4,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"node -e 'for (const s of [\\\"2026-02-30\\\",\\\"2026-13-01\\\",\\\"2026-02-29\\\",\\\"2026-00-10\\\"]) console.log(s, Date.parse(s))'; cat src/lib/db/seed.ts | head -30; cat package.json | grep -A8 scri"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"node -p '[\\\"2026-02-30\\\",\\\"2026-13-01\\\",\\\"2026-02-29\\\",\\\"2026-00-10\\\"].map(s=>s+\\\" \\\"+Date.parse(s)).join(\\\"\\\\n\\\")'\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\nidx=s.rindex(\\\"];\\\")\\nadd='''  {\\n    version: 3,\\n    name: \\\"due_date_extensions\\\",\\n    sql: `\\n      CREATE TABLE ex"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat >> src/lib/api.ts <<'EOF'\\n\\n/**\\n * 延長申請の承認・却下の API Route の共通処理。ログイン確認から応答まで行う。\\n * 承認のときは変更後のタスクも返し、却下のときは申請だけを返す。\\n */\\nexport async function respondToExtensionDecision(\\n  params:"
+          }
+        ],
+        "commits": [
+          "4610dff タスク期限の延長申請 API を追加"
+        ],
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W10-feature-dev-2",
+      "candidate": "feature-dev",
+      "run": 2,
+      "total": 78.8,
+      "acceptance": 25.0,
+      "hidden": 23.3,
+      "test_strength": 17.0,
+      "review": 13.5,
+      "hidden_items": {
+        "H01": false,
+        "H02": true,
+        "H03": true,
+        "H04": true,
+        "H05": true,
+        "H06": true,
+        "H07": false,
+        "H08": true,
+        "H09": false,
+        "H10": false,
+        "H11": true,
+        "H12": false
+      },
+      "review_detail": {
+        "code": "R05",
+        "totals": [
+          14,
+          13
+        ],
+        "mean": 13.5,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            2
+          ],
+          "c": [
+            3,
+            2
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "本人判断不可、判断済みの整合を保つ CHECK 制約、条件付き UPDATE、ロールバックのテストまで揃い、担当者を確認しない理由もコメントに残している。理由の長さが UTF-16 単位で数えられ、HTTP 対応表を確かめるだけのテストは価値が薄い。",
+          "本人判断の 403、判断済み 409、CHECK 制約、条件付き UPDATE、ロールバックのテストと充実しており、担当者確認をしない理由もコメントで明示している。HTTP ステータスの対応表を src/lib/extensions.ts に置いて層が混ざっている点と、理由の長さが UTF-16 長である点が惜しい。"
+        ]
+      },
+      "facts": {
+        "e2e_pass": 13,
+        "e2e_total": 13,
+        "e2e_failed": [],
+        "hidden_pass": 7,
+        "hidden_total": 12,
+        "hidden_failed": [
+          {
+            "id": "H01",
+            "detail": "suzuki が sato のタスクに申請: 201 {\"extension\":{\"id\":1,\"taskId\":8,\"requester\":\"suzuki\",\"newDueDate\":\"2026-12-20\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.558Z\",\"decidedBy\":nu"
+          },
+          {
+            "id": "H07",
+            "detail": "同じ日=201 前の日=409 1 日後=409"
+          },
+          {
+            "id": "H09",
+            "detail": "2026-11-05（今日は 2026-11-10）: 201 {\"extension\":{\"id\":7,\"taskId\":19,\"requester\":\"sato\",\"newDueDate\":\"2026-11-05\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.782Z\",\"decidedBy"
+          },
+          {
+            "id": "H10",
+            "detail": "11-09=201 11-10=201"
+          },
+          {
+            "id": "H12",
+            "detail": "承認=200 で期限が 2026-12-20 になった（2026-12-31 のままであるべき）"
+          }
+        ],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "mutants": 60,
+        "killed": 51,
+        "kill_rate": 0.85,
+        "mutation_files": [
+          "src/lib/db/migrations.ts",
+          "src/lib/extensions.ts"
+        ],
+        "baseline_tests_pass": true,
+        "tests_changed": [
+          "tests/extensions.test.ts"
+        ],
+        "interventions": 0,
+        "questions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "budget_stopped": "",
+        "code_added": 264,
+        "test_added": 216,
+        "artifacts": [],
+        "cost_usd": 1.7969,
+        "elapsed_seconds": 355,
+        "active_seconds": 289,
+        "turns": 80,
+        "subagents": 7,
+        "subagent_types": {
+          "feature-dev:code-explorer": 2,
+          "feature-dev:code-architect": 2,
+          "feature-dev:code-reviewer": 3
+        },
+        "skills_used": [],
+        "tool_calls": {
+          "Bash": 28,
+          "Agent": 7,
+          "Glob": 11,
+          "Read": 57,
+          "Grep": 8,
+          "ReadNotifications": 11,
+          "Monitor": 9,
+          "Edit": 9,
+          "Write": 7,
+          "ToolSearch": 1,
+          "TaskStop": 1,
+          "ListAgents": 1
+        },
+        "denials": 7,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"for f in src/lib/api.ts src/lib/session.ts src/lib/tasks.ts src/lib/db/index.ts src/lib/db/migrations.ts src/app/api/tasks/route.ts \\\"src/app/api/tasks/[id]/route.ts\\\" src/lib/users.ts; d"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"node -e 'console.log(Date.parse(\\\"2026-02-30\\\"), Date.parse(\\\"2026-13-01\\\"), Date.parse(\\\"2026-02-29\\\"))'; node --version\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/extensions.ts'\\ns=open(p).read()\\ns=s.replace('import { getTask, type Task, type ValidationResult } from \\\"./tasks.ts\\\";','import { getTask, updateTask, type"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"(PORT=3100 npm run start > /tmp/claude-0/-tmp-poc-trials-W10-feature-dev-2-app/0dd0981f-9a2e-418c-86bd-90e5b9ea7851/scratchpad/server.log 2>&1 &) ; until curl -s -o /dev/null http://local"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"until curl -s -o /dev/null http://localhost:3100/login; do sleep 1; done; bash /tmp/claude-0/-tmp-poc-trials-W10-feature-dev-2-app/0dd0981f-9a2e-418c-86bd-90e5b9ea7851/scratchpad/e2e.sh\","
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W10-feature-dev-2-app/0dd0981f-9a2e-418c-86bd-90e5b9ea7851/scratchpad/e2e.sh\", \"timeout\": 60000}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W10-feature-dev-2-app/0dd0981f-9a2e-418c-86bd-90e5b9ea7851/scratchpad && B=http://localhost:3100 && H='content-type: application/json' && \\necho A; curl -"
+          }
+        ],
+        "commits": [
+          "067e8f8 タスクの延長申請 API を追加する"
+        ],
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W10-gstack-1",
+      "candidate": "gstack",
+      "run": 1,
+      "total": 78.6,
+      "acceptance": 25.0,
+      "hidden": 23.3,
+      "test_strength": 17.3,
+      "review": 13.0,
+      "hidden_items": {
+        "H01": false,
+        "H02": true,
+        "H03": true,
+        "H04": true,
+        "H05": true,
+        "H06": true,
+        "H07": false,
+        "H08": true,
+        "H09": false,
+        "H10": false,
+        "H11": true,
+        "H12": false
+      },
+      "review_detail": {
+        "code": "R02",
+        "totals": [
+          14,
+          12
+        ],
+        "mean": 13.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            2
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            2
+          ],
+          "e": [
+            2,
+            2
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "検証関数・ID パーサ・結果型の分け方が素直で、本人判断の 403、条件付き UPDATE による二重判断防止、部分ユニークインデックスも備える。承認・却下ルートでエラー対応づけが重複し、理由の長さが UTF-16 単位で数えられている点は小さな難。",
+          "検証関数・ID 解析・updateTask 再利用・条件付き UPDATE による二重判断防止と、規約に沿った素直な構成。担当者確認や新期限が現期限より後かの確認は無く、理由の文字数が UTF-16 長で、ルート間のエラー対応づけも重複している。"
+        ]
+      },
+      "facts": {
+        "e2e_pass": 13,
+        "e2e_total": 13,
+        "e2e_failed": [],
+        "hidden_pass": 7,
+        "hidden_total": 12,
+        "hidden_failed": [
+          {
+            "id": "H01",
+            "detail": "suzuki が sato のタスクに申請: 201 {\"extension\":{\"id\":1,\"taskId\":8,\"requester\":\"suzuki\",\"newDueDate\":\"2026-12-20\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.564Z\",\"decidedBy\":nu"
+          },
+          {
+            "id": "H07",
+            "detail": "同じ日=201 前の日=409 1 日後=409"
+          },
+          {
+            "id": "H09",
+            "detail": "2026-11-05（今日は 2026-11-10）: 201 {\"extension\":{\"id\":7,\"taskId\":19,\"requester\":\"sato\",\"newDueDate\":\"2026-11-05\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.757Z\",\"decidedBy"
+          },
+          {
+            "id": "H10",
+            "detail": "11-09=201 11-10=201"
+          },
+          {
+            "id": "H12",
+            "detail": "承認=200 で期限が 2026-12-20 になった（2026-12-31 のままであるべき）"
+          }
+        ],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "mutants": 60,
+        "killed": 52,
+        "kill_rate": 0.867,
+        "mutation_files": [
+          "src/lib/db/migrations.ts",
+          "src/lib/extensions.ts"
+        ],
+        "baseline_tests_pass": true,
+        "tests_changed": [
+          "tests/extensions.test.ts"
+        ],
+        "interventions": 0,
+        "questions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "budget_stopped": "",
+        "code_added": 248,
+        "test_added": 165,
+        "artifacts": [],
+        "cost_usd": 2.7675,
+        "elapsed_seconds": 364,
+        "active_seconds": 349,
+        "turns": 53,
+        "subagents": 9,
+        "subagent_types": {
+          "general-purpose": 9
+        },
+        "skills_used": [
+          "code-review",
+          "review",
+          "verify"
+        ],
+        "tool_calls": {
+          "Bash": 46,
+          "Edit": 2,
+          "Write": 6,
+          "Skill": 3,
+          "Read": 22,
+          "Agent": 9
+        },
+        "denials": 7,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"node -e 'console.log(Date.parse(\\\"2026-02-31\\\"), Date.parse(\\\"2026-13-01\\\"))'; cat src/lib/session.ts | head -30\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat >> src/lib/db/migrations.ts.new <<'EOF'\\nEOF\\nrm src/lib/db/migrations.ts.new\\npython3 - <<'EOF'\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\nidx=s.rstrip().rfind('];')\\nadd='''  "
+          },
+          {
+            "tool": "Skill",
+            "input": "{\"skill\": \"review\"}"
+          },
+          {
+            "tool": "Skill",
+            "input": "{\"skill\": \"verify\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"git status --short && git diff @{upstream}...HEAD 2>/dev/null | head -5; git log --oneline | head -5; git diff HEAD\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat src/lib/extensions.ts; find src/app/api/tasks -type f | xargs ls; for f in $(find \\\"src/app/api/tasks/[id]/extensions\\\" -type f); do echo \\\"=== $f\\\"; cat \\\"$f\\\"; done; cat src/lib/api"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"for f in src/app/api/tasks/\\\\[id\\\\]/extensions/route.ts src/app/api/tasks/\\\\[id\\\\]/extensions/\\\\[extensionId\\\\]/approve/route.ts src/app/api/tasks/\\\\[id\\\\]/extensions/\\\\[extensionId\\\\]/re"
+          }
+        ],
+        "commits": [
+          "4996732 タスク期限の延長申請 API を追加"
+        ],
+        "errors": "stepend killed leftover: next-server (v16.4.3)                                                      \n"
+      }
+    },
+    {
+      "trial": "W10-gstack-2",
+      "candidate": "gstack",
+      "run": 2,
+      "total": 74.2,
+      "acceptance": 25.0,
+      "hidden": 20.0,
+      "test_strength": 18.7,
+      "review": 10.5,
+      "hidden_items": {
+        "H01": false,
+        "H02": false,
+        "H03": true,
+        "H04": true,
+        "H05": true,
+        "H06": true,
+        "H07": false,
+        "H08": true,
+        "H09": false,
+        "H10": false,
+        "H11": true,
+        "H12": false
+      },
+      "review_detail": {
+        "code": "R03",
+        "totals": [
+          11,
+          10
+        ],
+        "mean": 10.5,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            1,
+            1
+          ],
+          "c": [
+            3,
+            2
+          ],
+          "d": [
+            2,
+            2
+          ],
+          "e": [
+            2,
+            2
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "承認・却下を共通の decide にまとめた構成は簡潔で、条件付き UPDATE で二重判断も防ぐ。ただし誰が申請・判断できるかの制限が一切なく（自分の申請を自分で承認できる）、失敗の伝え方が undefined と例外の混在で一貫しない。",
+          "条件付き UPDATE と部分ユニークインデックスで状態競合を防ぎ、理由はコードポイントで数えるなど基本は堅実。誰が申請・判断できるかの配慮が全く無く、失敗の表現が例外と undefined の混在で、テストも権限や文字数境界の観点が薄い。"
+        ]
+      },
+      "facts": {
+        "e2e_pass": 13,
+        "e2e_total": 13,
+        "e2e_failed": [],
+        "hidden_pass": 6,
+        "hidden_total": 12,
+        "hidden_failed": [
+          {
+            "id": "H01",
+            "detail": "suzuki が sato のタスクに申請: 201 {\"extension\":{\"id\":1,\"taskId\":8,\"requester\":\"suzuki\",\"newDueDate\":\"2026-12-20\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.536Z\",\"decidedBy\":nu"
+          },
+          {
+            "id": "H02",
+            "detail": "本人が承認: 200 {\"extension\":{\"id\":2,\"taskId\":9,\"requester\":\"sato\",\"newDueDate\":\"2026-12-20\",\"reason\":\"作業が遅れているため\",\"status\":\"approved\",\"createdAt\":\"2026-11-09T15:30:01.558Z\",\"decidedBy\":\"sato\",\"decidedAt\":"
+          },
+          {
+            "id": "H07",
+            "detail": "同じ日=201 前の日=409 1 日後=409"
+          },
+          {
+            "id": "H09",
+            "detail": "2026-11-05（今日は 2026-11-10）: 201 {\"extension\":{\"id\":7,\"taskId\":19,\"requester\":\"sato\",\"newDueDate\":\"2026-11-05\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.755Z\",\"decidedBy"
+          },
+          {
+            "id": "H10",
+            "detail": "11-09=201 11-10=201"
+          },
+          {
+            "id": "H12",
+            "detail": "承認=200 で期限が 2026-12-20 になった（2026-12-31 のままであるべき）"
+          }
+        ],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "mutants": 45,
+        "killed": 42,
+        "kill_rate": 0.933,
+        "mutation_files": [
+          "src/lib/db/migrations.ts",
+          "src/lib/extensions.ts"
+        ],
+        "baseline_tests_pass": true,
+        "tests_changed": [
+          "tests/extensions.test.ts"
+        ],
+        "interventions": 0,
+        "questions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "budget_stopped": "",
+        "code_added": 262,
+        "test_added": 138,
+        "artifacts": [],
+        "cost_usd": 2.1969,
+        "elapsed_seconds": 259,
+        "active_seconds": 239,
+        "turns": 45,
+        "subagents": 10,
+        "subagent_types": {
+          "general-purpose": 10
+        },
+        "skills_used": [
+          "review",
+          "verify"
+        ],
+        "tool_calls": {
+          "Bash": 36,
+          "Edit": 1,
+          "Write": 6,
+          "Skill": 2,
+          "Read": 14,
+          "Agent": 10
+        },
+        "denials": 6,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat >> src/lib/db/migrations.ts <<'EOF'\\nEOF\\npython3 - <<'EOF'\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\ns=s.rstrip()\\nassert s.endswith(\\\"];\\\")\\ns=s[:-2]+'''  {\\n    version: 3,\\"
+          },
+          {
+            "tool": "Skill",
+            "input": "{\"skill\": \"review\"}"
+          },
+          {
+            "tool": "Skill",
+            "input": "{\"skill\": \"verify\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"(PORT=3999 npx next dev -p 3999 >/tmp/claude-0/dev.log 2>&1 &) ; sleep 8\\nB=http://localhost:3999; J=/tmp/claude-0/cj\\ncurl -s -o /dev/null -w \\\"unauth %{http_code}\\\\n\\\" $B/api/tasks/3/ex"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W10-gstack-2-app/a048986a-c9a7-4773-a16e-258eccb8fb25/scratchpad/e2e.sh 2>&1 | tail -30; cd /tmp/poc-trials/W10-gstack-2/app && git status --short\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W10-gstack-2-app/a048986a-c9a7-4773-a16e-258eccb8fb25/scratchpad/e2e.sh\"}"
+          }
+        ],
+        "commits": [
+          "822f55b タスクの期限の延長申請 API を追加"
+        ],
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W10-superpowers-1",
+      "candidate": "superpowers",
+      "run": 1,
+      "total": 93.3,
+      "acceptance": 25.0,
+      "hidden": 40.0,
+      "test_strength": 16.3,
+      "review": 12.0,
+      "hidden_items": {
+        "H01": true,
+        "H02": true,
+        "H03": true,
+        "H04": true,
+        "H05": true,
+        "H06": true,
+        "H07": true,
+        "H08": true,
+        "H09": true,
+        "H10": true,
+        "H11": true,
+        "H12": true
+      },
+      "review_detail": {
+        "code": "R01",
+        "totals": [
+          12,
+          12
+        ],
+        "mean": 12.0,
+        "items": {
+          "a": [
+            2,
+            2
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            2
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            2
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "担当者のみ申請・本人判断不可・日本時間の今日以降・承認時の期限逆転・同時申請の一意制約違反まで扱い、テストも境界と JST を確かめていて堅牢。一方で独立した検証関数がなく申請処理に検証が混在し、承認時は updateTask を通さず tasks を直接 UPDATE している。",
+          "担当者のみ申請・本人判断不可・現期限より後かつ日本時間の今日以降・承認時の期限逆転・同時申請の一意制約捕捉まで配慮が最も厚く、テストも JST 境界を含む。一方で本文検証が独立した検証関数になっておらず申請処理に混在し、延長申請 ID の解析に parseTaskId を流用している。"
+        ]
+      },
+      "facts": {
+        "e2e_pass": 13,
+        "e2e_total": 13,
+        "e2e_failed": [],
+        "hidden_pass": 12,
+        "hidden_total": 12,
+        "hidden_failed": [],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "mutants": 60,
+        "killed": 49,
+        "kill_rate": 0.817,
+        "mutation_files": [
+          "src/lib/db/migrations.ts",
+          "src/lib/extensions.ts"
+        ],
+        "baseline_tests_pass": true,
+        "tests_changed": [
+          "tests/extensions.test.ts"
+        ],
+        "interventions": 0,
+        "questions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 1,
+        "budget_stopped": "",
+        "code_added": 249,
+        "test_added": 176,
+        "artifacts": [
+          "docs/superpowers/specs/2026-11-09-task-extensions-design.md"
+        ],
+        "cost_usd": 0.6368,
+        "elapsed_seconds": 193,
+        "active_seconds": 180,
+        "turns": 25,
+        "subagents": 3,
+        "subagent_types": {
+          "general-purpose": 3
+        },
+        "skills_used": [
+          "superpowers:brainstorming"
+        ],
+        "tool_calls": {
+          "Skill": 1,
+          "Bash": 19,
+          "Agent": 3,
+          "Read": 5,
+          "Write": 7,
+          "Edit": 1
+        },
+        "denials": 8,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"mkdir -p /tmp/poc-trials/W10-superpowers-1/app/docs/superpowers/specs && cat > /tmp/poc-trials/W10-superpowers-1/app/docs/superpowers/specs/2026-11-09-task-extensions-design.md <<'EOF'\\n#"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"ls /tmp/poc-trials/W10-superpowers-1/app/docs/superpowers/specs/ 2>&1; find /tmp/poc-trials/W10-superpowers-1 -name \\\"*task-extensions*\\\" -not -path \\\"*/node_modules/*\\\" 2>/dev/null\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"mkdir -p \\\"src/app/api/tasks/[id]/extensions/[extensionId]/approve\\\" \\\"src/app/api/tasks/[id]/extensions/[extensionId]/reject\\\"\\ncat > \\\"src/app/api/tasks/[id]/extensions/route.ts\\\" <<'EO"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"(PORT=3917 npm start >/tmp/claude-0/srv.log 2>&1 &) ; sleep 4\\nB=http://localhost:3917; J=/tmp/claude-0/c\\nlogin(){ curl -s -c $J.$1 -H 'content-type: application/json' -d \\\"{\\\\\\\"username"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W10-superpowers-1-app/adc32325-7153-4aa5-b20e-75339c96ed30/scratchpad/e2e.sh 2>&1 | tail -20\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"git status --short && git diff && cat src/lib/extensions.ts && find src/app/api/tasks/\\\\[id\\\\]/extensions -type f | xargs tail -n +1 && ls docs/superpowers/specs\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"for f in $(git ls-files -o --exclude-standard | grep 'api/tasks'); do echo \\\"=== $f\\\"; cat \\\"$f\\\"; done\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W10-superpowers-1/app/src/app/api/tasks/\\\\[id\\\\] && cat extensions/route.ts extensions/\\\\[extensionId\\\\]/approve/route.ts; diff extensions/\\\\[extensionId\\\\]/approve/rou"
+          }
+        ],
+        "commits": [
+          "9b7b73d タスクの延長申請 API を追加"
+        ],
+        "errors": ""
+      }
+    },
+    {
+      "trial": "W10-superpowers-2",
+      "candidate": "superpowers",
+      "run": 2,
+      "total": 86.3,
+      "acceptance": 25.0,
+      "hidden": 33.3,
+      "test_strength": 16.0,
+      "review": 12.0,
+      "hidden_items": {
+        "H01": true,
+        "H02": true,
+        "H03": true,
+        "H04": true,
+        "H05": true,
+        "H06": true,
+        "H07": true,
+        "H08": true,
+        "H09": false,
+        "H10": false,
+        "H11": true,
+        "H12": true
+      },
+      "review_detail": {
+        "code": "R06",
+        "totals": [
+          12,
+          12
+        ],
+        "mean": 12.0,
+        "items": {
+          "a": [
+            2,
+            2
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            2
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            2
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "担当者のみ申請・本人判断不可・現在の期限より後・承認時の期限逆転（stale）と堅牢で、テストもコードポイント数などの境界を押さえる。汎用の src/lib/api.ts に延長申請専用の応答関数を追加して依存を持ち込み、conflictMessage の既定引数や updateTask を通さない直接 UPDATE が分かりにくい。",
+          "担当者のみ申請・本人判断不可・現期限より後・承認時の stale 検出・コードポイント計数と業務上の配慮が厚く、テストも stale や 4 バイト文字を確かめている。共通の api.ts に機能固有の応答関数を加えて extensions に依存させ、conflictMessage 引数の既定値が文脈によって誤解を招く。"
+        ]
+      },
+      "facts": {
+        "e2e_pass": 13,
+        "e2e_total": 13,
+        "e2e_failed": [],
+        "hidden_pass": 10,
+        "hidden_total": 12,
+        "hidden_failed": [
+          {
+            "id": "H09",
+            "detail": "2026-11-05（今日は 2026-11-10）: 201 {\"extension\":{\"id\":6,\"taskId\":19,\"requester\":\"sato\",\"newDueDate\":\"2026-11-05\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.873Z\",\"decidedBy"
+          },
+          {
+            "id": "H10",
+            "detail": "11-09=201 11-10=201"
+          }
+        ],
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "mutants": 60,
+        "killed": 48,
+        "kill_rate": 0.8,
+        "mutation_files": [
+          "src/lib/api.ts",
+          "src/lib/db/migrations.ts",
+          "src/lib/extensions.ts"
+        ],
+        "baseline_tests_pass": true,
+        "tests_changed": [
+          "tests/extensions.test.ts"
+        ],
+        "interventions": 0,
+        "questions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "budget_stopped": "",
+        "code_added": 270,
+        "test_added": 183,
+        "artifacts": [],
+        "cost_usd": 0.7969,
+        "elapsed_seconds": 221,
+        "active_seconds": 185,
+        "turns": 44,
+        "subagents": 1,
+        "subagent_types": {
+          "general-purpose": 1
+        },
+        "skills_used": [
+          "superpowers:brainstorming",
+          "superpowers:requesting-code-review",
+          "superpowers:test-driven-development"
+        ],
+        "tool_calls": {
+          "Skill": 3,
+          "Bash": 20,
+          "Write": 6,
+          "Edit": 11,
+          "Agent": 1,
+          "ReadNotifications": 1
+        },
+        "denials": 5,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\ni=s.rstrip().rfind(\\\"];\\\")\\nadd='''  {\\n    version: 3,\\n    name: \\\"task_extensions\\\",\\n    sql: `\\n      CREATE TABLE "
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"sed -i 's|export function extensionFailureResponse(reason: \\\"not_found\\\" \\\\| \\\"forbidden\\\" \\\\| \\\"conflict\\\"): NextResponse {|export function extensionFailureResponse(\\\\n  reason: \\\"not_fo"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"(PORT=3917 npm start >/tmp/claude-0/srv.log 2>&1 &) ; sleep 4\\nB=http://localhost:3917; J='-H content-type:application/json'\\nlogin(){ curl -s -c /tmp/claude-0/$1.jar $J -d \\\"{\\\\\\\"userId\\"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W10-superpowers-2-app/1208513f-447c-4e1d-84be-66b5c6540233/scratchpad/e2e.sh 2>&1\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W10-superpowers-2-app/1208513f-447c-4e1d-84be-66b5c6540233/scratchpad/e2e.sh\", \"description\": \"Run end-to-end API smoke script against local server\"}"
+          }
+        ],
+        "commits": [
+          "e5dbb9e 延長申請: 承認時に期限が延びない古い申請を 409 にし、理由の文字数をコードポイントで数える",
+          "f81bd00 タスクの期限延長申請 API を追加"
+        ],
+        "errors": ""
+      }
+    }
+  ]
+}

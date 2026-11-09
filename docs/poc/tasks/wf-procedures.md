@@ -14,7 +14,9 @@
 | W7a | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` →（落とし穴の指摘の後）`/ce-compound` |
 | W7b | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W7c〜W7e | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` →（落とし穴の指摘の後、最後の段階を除き）`/ce-compound` |
+| W8 | `<課題>` | `/superpowers:writing-plans <課題>` → `/superpowers:subagent-driven-development` | `/feature-dev:feature-dev <課題>` | `/autoplan <課題>` → `/ship` | `/ce-brainstorm <課題>` → `/lfg` |
 | W9 | `<課題>` | `/superpowers:requesting-code-review <課題>` | 「Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。」+ `<課題>` | `/review <課題>` | `/ce-code-review <課題>` |
+| W10 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 
 ### W2 以降の共通の決まり
 
@@ -48,6 +50,17 @@
 - 費用の上限は `POC_BUDGET_MODE=watch`（下の「費用の上限の守り方」）。
 - 採点は `scripts/poc/grade_w6.py`（`docs/poc/answer-key/W6/grading.md`）。
 
+### W8 の決まり（人の介入なしでの自律実行）
+
+- 課題文は `wf-W8.md`（タスクのタグ機能。DB + API + 画面で W2 と同程度の規模、W2 のコメント機能とは別の機能）。
+- 最初の指示（課題文 + 末尾の新文言）と、上の表の手順のコマンド以外は送らない。介入（定型の「お任せします」）は行わない（`POC_MAX_NUDGES=0`。全候補で同じ）。手順を終えた時点で終わっていなければ、介入で続けさせずに「途中停止」として採点する。
+- 2 ステップ目以降のコマンド（`/superpowers:subagent-driven-development`・`/ship`・`/lfg`）は引数なしで送る（同じセッションを `--resume` で続けるので、1 ステップ目の計画・要件が会話に残っている）。gstack の手順に実装のステップは無い（PLAN の W8 の行のとおり。`/autoplan` の後に実装まで進むかどうかも結果として記録する）。
+- 費用の上限: 当初は watch 方式で「規模係数 × W1 の候補平均 × 5、最大 $10」としたが、2026-11-09 のユーザー指示で **W8 は上限なし**に変更した（`POC_W8_NOCAP=1 scripts/poc/run_w8_trials.sh ...`。watch 方式のまま上限を渡さない）。上限で途中停止した試行は同じ回の番号で上限なしでやり直し、上限ありの結果は `results/workflow/W8/capped/` に参考として残す。上限内で終わった試行は、watch 方式では子セッションに上限が見えないため上限なしと同じ条件とみなし、やり直さない。
+- 対象は Superpowers・Compound Engineering・gstack と baseline（PLAN §5.1 のシナリオ表）。Feature Dev の 1 回は参考値（`results/workflow/W8/reference/`）。
+- 子セッションの許可リストは W6 以降のもの（開発サーバーの起動・Playwright MCP・gstack の browse を含む。`SCN_NUM >= 6` で W8 にも効く）。
+- リモートが無いので、`/ship`・`/lfg` の push・PR 作成は手前で止まる（W6 と同じく結果として記録する）。
+- 破壊的操作と暴走の判定方法は `docs/poc/answer-key/W8/grading.md` に試行前に固定した。採点は `scripts/poc/grade_w8.py` → `scripts/poc/score_w8.py`。
+
 ### W9 の決まり（レビューで不具合を見つける。2026-11-09 追加）
 
 - レビュー対象の差分（正解データ `docs/poc/answer-key/W9/review.patch`。不具合 10 件とおとり 5 件を含む PR 相当の変更）を、`run-trial.sh` が作業用コピーの作業ブランチにだけ当て、PR の説明（課題文の「# PR:」以降）をメッセージにしたコミットを 1 つ作る。候補は `master` との差分をレビューする。パッチファイルは作業用コピーに置かない（ハッシュを `raw/<試行ID>/review-patch` に記録する）。`baseline-commit` はこのレビュー対象のコミットにする（候補の成果は `REVIEW.md` などの差分だけになる）。W9 以外では当てない。
@@ -71,6 +84,21 @@
 - Compound Engineering の `/ce-compound` は、W7a の指摘のやり取りが終わった後に行う（手順の一部で、介入に数えない）。
 - 課題文の末尾は新文言（既定）。介入の定型文は W2 と同じ。採点は `scripts/poc/grade_w7.py`（`docs/poc/answer-key/W7/grading.md`）。W7a は W7b を始める前に採点し、作業用コピーは W7b の採点が済んでから `grade.py W7a <W7a の試行 ID> --cleanup-only` で片付ける。
 
+### W10 の決まり（仕様に書かれていない落とし穴がある機能追加。2026-11-09 追加）
+
+- 課題文（`wf-W10.md`）は普通の仕様書として書き、隠しテストの項目（権限・入力検証・境界値・時差・同時更新・エラー時の振る舞い）は書かない。手順は W2 と同じ（`run-trial.sh` の既定の手順。W10 用の分岐は無い）。
+- 介入は W2 以降の定型文（最大 2 回、`POC_MAX_NUDGES=2` を指定して実行する）。費用の上限は `POC_BUDGET_MODE=watch`、課題文の末尾は新文言（どちらもシナリオ名で決まる既定）。子セッションの許可リストは W6 以降と同じ。
+- 採点は `scripts/poc/grade_w10.py`（公開の受け入れテスト・隠しテスト・ミューテーション）・`blind_w10.py`（ブラインドレビュー）・`score_w10.py`（`docs/poc/answer-key/W10/grading.md`）。隠しテストは、時計をずらしたサーバー（`fake-clock.cjs`）に対して実行する。
+
+### W11 の決まり（実在する OSS の解決済み課題。2026-11-09 追加）
+
+- 設計・課題の一覧は [wf-W11-design.md](wf-W11-design.md)。課題の定義は `scripts/poc/oss/tasks.json`、課題文は `wf-W11-<課題ID>.md`（シナリオ名は `W11-<課題ID>`、試行 ID は `W11-<課題ID>-<候補>-<回>`）。
+- 準備: `python3 scripts/poc/oss/oss.py prepare <課題ID>` が、本家の修正の 1 つ前のソースを履歴なしで `/tmp/poc-oss/<課題ID>/template` に取り出し（node の課題は依存も入れる）、隠しテストの F2P・P2P を `docs/poc/answer-key/W11/<課題ID>.json` に書く。
+- `run-trial.sh` は初期状態を作業用コピーへ写し（node_modules はハードリンク）、python の課題は作業領域の `venv` に環境を作って子セッションの `PATH` に入れる。本家の履歴・修正後のコード・隠しテストは作業用コピーに置かない。
+- 手順: 不具合（`B*`）は W5、機能（`F*`）は W2 と同じ入口。課題文の末尾は新文言、費用の上限は付けない（2026-11-09 15:40 UTC ユーザー指示。歯止めは 1 ステップ 40 分のタイムアウトだけ。詳しくは wf-W11-design.md）、介入は最大 2 回。
+- 子セッションの許可リスト: `curl` と `npx next` を外し、課題のテストと再現用のスクリプトの実行（`python`・`pytest`・`node`・`npx vitest`・`npx tsx`・`npx tsc`・`pnpm test` など）を足す（2026-11-09 ユーザー承認）。依存のインストールは許可しない。開発サーバー・ブラウザの許可は足さない。
+- 採点: `python3 scripts/poc/grade_w11.py <試行ID>`（隠しテストを作業後のコードに上書きして実行し、終わったら取り除く）。外部サイト・依存のインストール・公開版のパッケージのソースへの参照は `isolation_suspects` として記録する。集計は `scripts/poc/report_w11.py`。まとめて流すときは `scripts/poc/oss/run_all.sh <試行ID>...`。
+
 ## 権限
 
 子セッションは `acceptEdits`（ファイル編集は許可）で起動し、Bash は次のコマンドだけを許可する。それ以外は自動で拒否され、拒否された操作は `permission_denials` として記録される。
@@ -78,7 +106,8 @@
 - `npm run typecheck` / `npm test` / `npm run build`
 - `git status` / `git diff` / `git log` / `git show` / `git add` / `git commit`
 - `ls` / `cat` / `grep` などの読み取り系
-- W6 以降だけ（2026-11-09 追加）: 開発サーバーの起動（`npm run dev` / `npm run start` / `npx next dev` / `npx next start`。`timeout` を付けた形も可）、Playwright MCP と Next.js DevTools MCP のツール、gstack の browse（`~/.claude/skills/gstack/browse/dist/`）。gstack のブラウザは Chrome for Testing を取得できないため、環境変数 `GSTACK_CHROMIUM_PATH` で事前インストール済みの Chromium（`/opt/pw-browsers/chromium`）を使わせる。子セッションが起動したサーバー・ブラウザは、結果が出た 30 秒後と試行の終了時に止める。W1〜W5 の許可リストは変えていない。
+- W11 は上の「W11 の決まり」のとおり（`curl` なし、テストと再現用のスクリプトの実行あり）。
+- W6 以降だけ（2026-11-09 追加。W8 にも効く）: 開発サーバーの起動（`npm run dev` / `npm run start` / `npx next dev` / `npx next start`。`timeout` を付けた形も可）、Playwright MCP と Next.js DevTools MCP のツール、gstack の browse（`~/.claude/skills/gstack/browse/dist/`）。gstack のブラウザは Chrome for Testing を取得できないため、環境変数 `GSTACK_CHROMIUM_PATH` で事前インストール済みの Chromium（`/opt/pw-browsers/chromium`）を使わせる。子セッションが起動したサーバー・ブラウザは、結果が出た 30 秒後と試行の終了時に止める。W1〜W5 の許可リストは変えていない。
 
 ## gstack の導入（試行ごと）
 

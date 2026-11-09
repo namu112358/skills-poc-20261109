@@ -1,0 +1,63 @@
+{
+ "scenario": "W11",
+ "task": "B1",
+ "kind": "bug",
+ "repo": "pytest-dev/pytest",
+ "trial": "W11-B1-gstack-1",
+ "candidate": "gstack",
+ "run": 1,
+ "resolved": true,
+ "quality": 100.0,
+ "hidden_tests": {
+  "f2p_total": 1,
+  "f2p_pass": 1,
+  "new_total": 1,
+  "new_pass": 1,
+  "existing_total": 56,
+  "existing_pass": 56,
+  "p2p_total": 56,
+  "p2p_pass": 56,
+  "f2p_failed": [],
+  "p2p_broken": [],
+  "seconds": 3.0,
+  "log_tail": ""
+ },
+ "diff": {
+  "src_added": 18,
+  "src_removed": 0,
+  "src_files": [
+   "src/_pytest/main.py"
+  ],
+  "test_added": 40,
+  "test_files": [
+   "testing/test_collection.py"
+  ],
+  "other_files": [
+   "changelog/14595.bugfix.rst"
+  ],
+  "upstream_src_added": 25,
+  "upstream_src_removed": 0
+ },
+ "facts": {
+  "cost_usd": 0.5896,
+  "elapsed_seconds": 155,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 1
+ },
+ "transcript": {
+  "cost_usd": 0.5896,
+  "turns": 23,
+  "tools": {
+   "Bash": 15,
+   "Read": 6,
+   "Edit": 1
+  },
+  "skills": [],
+  "subagents": 0,
+  "permission_denials": [],
+  "isolation_suspects": [],
+  "final_text": "es for the parent's subdirectories. A conftest's fixtures are registered once, against the first `Directory` node collected for that directory. A later argument such as `tests/comp/tts/test_init.py` landed on the new, unregistered `comp` node. The conftest fixtures there were then invisible, which gave the \"function uses no argument\" error.\n\n**Fix.** In `src/_pytest/main.py`, `_collect_one_node` now keeps the original `Directory` children when it re-collects a node. Only the file nodes are replaced.\n\n**Verification.**\n- I reproduced the failure in a small project outside Home Assistant (args `tests/comp/a tests/test_b.py tests/comp/tts/test_init.py`). It failed before the fix and collects cleanly after.\n- The new regression test is `test_conftest_fixtures_visible_when_parent_recollected` in `testing/test_collection.py`. It fails without the fix and passes with it.\n- Related test modules (collection, session, conftest, python, main, terminal) gave 1113 passed, 6 skipped, 4 xfailed. I did not run the full pytest suite, and I did not reproduce against Home Assistant itself, only the reduced case.\n\nI also added `changelog/14595.bugfix.rst`. The issue number 14595 is a guess, since the issue text doesn't give one; rename the file if the real number differs.\n\nThe browser-QA steps (health score, bootstrap) did not apply to a library with no URL, so I treated this as a functional target. The unattended instruction also meant skipping the cross-project learnings and telemetry prompts."
+ }
+}
