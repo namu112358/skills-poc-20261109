@@ -190,7 +190,8 @@ def acceptance():
         code, log = run(cmd)
         checks[name] = {"pass": code == 0, "log": log[-800:]}
     e2e, authz = [], []
-    if checks["build"]["pass"]:
+    # 隠しの E2E が無い W（W9 のレビューなど）は E2E を実行しない（W1〜W8 は従来どおり）
+    if checks["build"]["pass"] and (ROOT / "docs" / "poc" / "answer-key" / SCENARIO / "acceptance.cjs").exists():
         e2e = run_key("acceptance.cjs")
         # 認可プローブ（W4 以降。正解データに authz.cjs があるシナリオだけ、別に起動したサーバーで実行する）
         if (ROOT / "docs" / "poc" / "answer-key" / SCENARIO / "authz.cjs").exists():

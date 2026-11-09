@@ -1,0 +1,97 @@
+{
+  "scenario": "W9",
+  "trial": "W9-compound-engineering-2",
+  "candidate": "compound-engineering",
+  "run": 2,
+  "elapsed_seconds": 177,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": " type: 'test'\n      ...\n    1..4\nok 16 - validateTaskInput\n  ---\n  duration_ms: 988.755091\n  type: 'suite'\n  ...\n# Subtest: createTask / updateTask\n    # Subtest: creates a task and updates only the given fields\n    ok 1 - creates a task and updates only the given fields\n      ---\n      duration_ms: 107.588522\n      type: 'test'\n      ...\n    1..1\nok 17 - createTask / updateTask\n  ---\n  duration_ms: 107.842632\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.202239\n      type: 'test'\n      ...\n    1..1\nok 18 - isTaskStatus\n  ---\n  duration_ms: 0.282479\n  type: 'suite'\n  ...\n1..18\n# tests 26\n# suites 18\n# pass 26\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2368.861126\n"
+    },
+    "build": {
+      "pass": true,
+      "log": " 147ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /api/tasks/bulk-status\n├ ƒ /api/tasks/overdue\n├ ƒ /api/tasks/search\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:4793) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:4805) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:4799) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [],
+  "diff": {
+    "files": [
+      {
+        "path": "REVIEW.md",
+        "added": 118,
+        "deleted": 0,
+        "kind": "doc"
+      }
+    ],
+    "new_files": [
+      "REVIEW.md"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "459115a REVIEW.md: タスク検索・削除・一括変更・期限切れ一覧 PR のレビュー指摘を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 1.1812,
+    "tokens": {
+      "input": 56,
+      "output": 28971,
+      "cache_read": 1741442,
+      "cache_creation": 225288
+    },
+    "turns": 24,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W9-compound-engineering-2/plugins/compound-engineering/skills/ce-code-review; BASE=$(git merge-base HEAD master); PY=python3\\nSCRATCH_ROOT=\\\"/tmp/compound-engine"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W9-compound-engineering-2/app\\nSKILL_DIR=/tmp/poc-trials/W9-compound-engineering-2/plugins/compound-engineering/skills/ce-code-review\\nBASE=$(git merge-base HEAD master"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for c in codex grok antigravity npx node; do printf '%s: ' $c; command -v $c || echo none; done; cd /tmp/poc-trials/W9-compound-engineering-2/app; cat .compound-engineering/config.yaml .c"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"command -v codex grok antigravity; echo \\\"exit=$?\\\"; ls /tmp/poc-trials/W9-compound-engineering-2/app/.compound-engineering 2>&1; ls /tmp/poc-trials/W9-compound-engineering-2/plugins/comp"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"command -v codex\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 19,
+      "Read": 12,
+      "Agent": 4,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 4,
+    "subagent_types": {
+      "general-purpose": 4
+    },
+    "questions": 0,
+    "active_seconds": 168,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "レビューを `REVIEW.md` に書き、コミットしました（`459115a`）。コードは変更していません。判定は**マージ不可**で、指摘は高 8 件、中 4 件、低 3 件です。`npm test` などは実行していません。レビューはコードを読んだだけの結果です。\n\n**高（マージ前に必須）**\n- **H1:** `searchTasks` が `q` を SQL に文字列連結しています（`src/lib/tasks.ts:86`）。`users` や `sessions` の中身を読み出せます。\n- **H2:** ページ送りの offset が `page * limit` です（`src/lib/tasks.ts:90`）。1 ページ目が飛ばされます。\n- **H3:** `limit` の範囲検査がありません。0 や 100、`-1`、`abc` が通ってしまい、400 を返す仕様を満たしていません。\n- **H4:** 検索ルートの `catch` が、DB エラーを 200 の「0 件」に変えています。\n- **H5:** 一括変更は、存在しない ID があると 404 を返す一方で、存在する ID は先に更新済みです。「どのタスクも変えない」を守れていません。\n- **H6:** 期限切れの判定が UTC です。日本時間の 0〜9 時は前日の扱いになります。\n- **H7:** 適用済みのマイグレーション 1 を書き換えています（規約 7 違反）。ファイル DB を使う環境では、列が追加されずタスク API が 500 になります。\n- **H8:** 同時編集の検知にすき間があります。版の比較が `await` の前に取った値を使っており、UPDATE にも `AND version = ?` がありません。先の更新が消えることがあります。\n\n**中**\n- **M1:** 作成者のいないタスク（初期データなど）は、ログインしていれば誰でも削除できます。\n- **M2:** `version` の型を検証していません。\n- **M3:** 一括変更の入力検証がルートに直書きされています。\n- **M4:** テストが PR の説明どおりの動作を確かめていません。`deleteTask` のテストは常に通る内容で、境界値や権限、409 のテストもありません。\n\n**低**\n- **L1〜L3:** 一括変更に権限確認がない、`createTask` の引数の渡し方、検索語の長さに上限がない、の 3 点です。\n\n指摘ごとに、場所、どんな入力で何が起きるか、直し方を書いてあります。\n\n**手順を省いた点**\n- 外部モデルによる独立レビューは行っていません。この環境では送信先の CLI を確認できず、承認も取れなかったため、コードを外部へ送っていません。\n- 4 つの独立レビュー（正しさ、セキュリティ、敵対的、規約とテスト）は実施し、結果を私が重複排除してまとめました。スキルが定める専用の統合・出力の工程は通していません。\n- `data-migration` と `api-contract` の専用レビューは起動していません。マイグレーションの指摘（H7）はほかの 3 つのレビューと私の確認で拾っています。"
+  },
+  "w9": {
+    "review_md": "# コードレビュー: タスクの検索・削除・一括ステータス変更・期限切れ一覧・同時編集の検知\n\n対象: `master...HEAD`（1 コミット `a1fe86e`）。コードは変更していない。\n結論: **Not ready（マージ不可）**。高 8 件・中 4 件・低 3 件。高の指摘は、セキュリティ（SQL インジェクション）、PR の記述と食い違う動作（ページ送り・一括変更・期限切れ）、既存 DB の破損につながる。\n\n重要度の基準: 高 = マージ前に必ず直す（脆弱性・データ破損・仕様違反・本番障害）／中 = 直すべき（仕様のずれ・権限の抜け・テストの穴）／低 = 余裕があれば。\n\n---\n\n## 高\n\n### H1. 検索の SQL インジェクション\n- 場所: `src/lib/tasks.ts:86` `searchTasks`（`where` が 87・89 行でも使われる）\n- 問題: `` const where = `title LIKE '%${query}%'` `` で、利用者の `q` を SQL に文字列連結している（CLAUDE.md 規約 8 違反）。\n  - 例: `q=%' UNION SELECT … FROM users --` で `users.password_hash` や `sessions.token` を読み出せる。ログインした利用者なら誰でも実行できる。\n  - 例: `q=' OR '1'='1` は全件を返す。\n  - `%` と `_` が `LIKE` のワイルドカードとして働く。「部分一致」の仕様とずれる。\n- 直し方: プレースホルダにする。`WHERE title LIKE ? ESCAPE '\\'` とし、バインドする値は `` `%${q.replace(/[\\\\%_]/g, \"\\\\$&\")}%` ``。COUNT と SELECT の両方で同じ値をバインドする。`q=' OR 1=1 --` と `q=50%` のテストを追加する。\n\n### H2. 検索のページ送りが 1 ページずれている\n- 場所: `src/lib/tasks.ts:90` `.all(limit, page * limit)`\n- 問題: `page` は 1 始まりなのにオフセットが `page * limit`。`page=1&limit=20` は先頭 20 件を飛ばし、21 件目から返す。ヒットが 5 件なら `page=1` は `tasks: []` かつ `total: 5` になり、最初のページには決して到達できない。\n- 直し方: オフセットを `(page - 1) * limit` にする。20 件を超える件数を用意し、1 ページ目・2 ページ目の中身を検証するテストを追加する。\n\n### H3. `limit` の範囲検査が無く、400 を返す仕様を満たしていない\n- 場所: `src/app/api/tasks/search/route.ts:14`\n- 問題: `Number(params.get(\"limit\") ?? 20)` を検証せずに使っている。`SEARCH_LIMIT_MAX`（50）は定義されているだけで使われていない。\n  - `limit=0`・`limit=100`・`limit=1.5` はそのまま通る。`limit=-1` は SQLite で「無制限」になり全件が返る。`limit=abc` は `NaN` になる。\n  - 応答の `limit` にも不正な値がそのまま出る。\n- 直し方: `parsePageParam` と同様の `parseLimitParam`（`src/lib/tasks.ts`）を作る。未指定は 20、1〜50 の整数のみ受け付け、それ以外は 400 を返す（規約 2）。\n\n### H4. 検索ルートの `catch` が全エラーを「0 件」に変えている\n- 場所: `src/app/api/tasks/search/route.ts:17`\n- 問題: `catch { return NextResponse.json({ tasks: [], total: 0, page, limit }) }` で、DB エラーが 200 の空結果になる。`q=O'Brien` は SQL 構文エラーになるが、「該当なし」に見える。H1 の攻撃の失敗も、H3 の `NaN` による失敗も隠れる。\n- 直し方: `try/catch` を外す（H1 を直せば不要）。想定外のエラーは 500 として表に出す。\n\n### H5. 一括ステータス変更が「どのタスクも変えない」を守っていない\n- 場所: `src/lib/tasks.ts:191-197` `bulkUpdateStatus`、`src/app/api/tasks/bulk-status/route.ts:26-29`\n- 問題: ID を 1 件ずつ UPDATE し、存在しない ID は最後に `missing` として返すだけ。トランザクションも事前確認も無い。\n  - 例: `{\"ids\":[1, 999], \"status\":\"done\"}` は 404 を返すが、タスク 1 はすでに `done` になり `version` も増えている。\n  - クライアントは失敗と受け取って再送や表示を行うが、実際は一部が確定している。ほかの人が持つ `version` も古くなり、無関係な 409 が起きる。\n- 直し方: 先に `SELECT id FROM tasks WHERE id IN (…)` で全 ID の存在を確認し、欠けていれば何も更新せずに返す。あわせて更新を `src/lib/db/index.ts` の `transaction(db, …)` で包み、存在確認と更新の間に削除されても途中までの更新が残らないようにする。`[4, 999]` で「タスク 4 が変わっていない」ことを確かめるテストを追加する。\n\n### H6. 期限切れ判定が UTC で、日本時間になっていない\n- 場所: `src/lib/tasks.ts:96` `listOverdueTasks`（`const today = now.toISOString().slice(0, 10)`）\n- 問題: 仕様は「今日（日本時間）より前」だが、UTC の日付で比べている。日本時間の 0:00〜9:00 は「今日」が前日のままで、昨日が期限のタスクが期限切れに出ない。\n  - 例: `2026-11-14T16:00:00Z`（日本時間 11/15 01:00）で、期限 11/14 の未完了タスクが返らない。\n  - 既存テストの基準時刻 `2026-11-15T03:00:00Z`（日本時間 12:00）は UTC と日本時間の日付が同じなので、この不具合を検出できない。\n- 直し方: 日本時間の日付を求める。例: `new Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" }).format(now)`。`2026-11-14T16:00:00Z` と `2026-11-14T14:59:59Z` の境界のテストを追加する。\n\n### H7. 既存のマイグレーション 1 を書き換えている\n- 場所: `src/lib/db/migrations.ts:24-25`（`created_by`・`version` を version 1 の CREATE TABLE に追加）\n- 問題: 規約 7 違反。適用済みの DB（`user_version` が 1 以上）はマイグレーション 1 を再実行しないため、`created_by` と `version` 列が作られない。\n  - `DATABASE_PATH` にファイルを指定した環境では、`SELECT ${COLUMNS}`（`getTask`・`listTasks`・`searchTasks`・`listOverdueTasks`）と `createTask` の INSERT が「no such column」で失敗し、タスク API が 500 になる。\n  - 既定の `:memory:` とテスト（毎回空の DB から作る）では露呈しないため、検証結果の「テストが通る」では見つからない。\n- 直し方: マイグレーション 1 を元に戻し、末尾に version 3 を追加する: `ALTER TABLE tasks ADD COLUMN created_by TEXT REFERENCES users(id); ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1;`。version 2 まで適用済みの DB を移行するテストを追加する。\n\n### H8. 同時編集の検知に隙があり、先の更新が消えることがある\n- 場所: `src/app/api/tasks/[id]/route.ts:22-31`（`current` の取得は 22 行、`await readJson` の後の比較が 28 行）、`src/lib/tasks.ts:167`（`UPDATE … WHERE id = ?`）\n- 問題: PR の目的（先の変更を消さない）が守られない経路がある。\n  - `current` を本文の読み取り（`await`）の前に取得し、そのあとで版を比べている。`await` の間にほかのリクエストの PATCH が完了すると、古い `current.version` との比較をすり抜けて上書きする（409 にならない）。\n  - 比較と UPDATE が別の文で、UPDATE に `AND version = ?` が無い。プロセスが複数ある場合や、将来 `await` が入った場合も同じ抜けが起きる。\n- 直し方: 版の比較と更新を 1 つの SQL にまとめる。`UPDATE tasks SET …, version = version + 1 WHERE id = ? AND version = ?` を `src/lib/tasks.ts` の関数にし、`changes === 0` なら（タスクが無ければ 404、あれば）409 を返す。ルート側の事前比較は不要になる。409 の経路（古い版を送ったとき）のテストを追加する。\n\n---\n\n## 中\n\n### M1. 作成者のいないタスクを誰でも削除できる\n- 場所: `src/app/api/tasks/[id]/route.ts:40`\n- 問題: `if (task.createdBy && task.createdBy !== user.id && task.assignee !== user.id)` は `createdBy` が `null` だと 403 の判定を丸ごと飛ばす。この PR より前に作られたタスク（初期データを含む）は全部 `null` なので、ログインしていれば誰でも削除できる（例: `sato` が `tanaka` 担当のタスクを削除して 204）。仕様は「作成者か担当者だけ」。\n- 直し方: `if (task.createdBy !== user.id && task.assignee !== user.id) return 403`。`null` は誰にも一致しないので、作成者のいないタスクは担当者だけが削除できる。判定は `src/lib/` の関数に出し（規約 1）、「作成者のいないタスクを担当者以外が削除すると 403」のテストを追加する。\n\n### M2. `version` の型を検証していない\n- 場所: `src/app/api/tasks/[id]/route.ts:27-28`\n- 問題: `version` が `\"3\"`・`null`・`1.5` などでも `!==` で比べるだけで、409「ほかの人が先に更新しました」を返す。入力誤りなのに 400 にならない（規約 9）。\n- 直し方: `version` が指定されたときは正の整数であることを `src/lib/` の検証関数で確かめ、違えば 400。\n\n### M3. 一括変更の入力検証がルートの中にある\n- 場所: `src/app/api/tasks/bulk-status/route.ts:12-22`\n- 問題: 規約 9 は本文の検証を `src/lib/` の検証関数に置くことを求めているが、ids と status の検証がルートに直書きされている。`b.status as \"todo\" | \"in_progress\" | \"done\"` の型の重複もある。ロジックがテストされない（規約 5）。\n- 直し方: `validateBulkStatusInput` を `src/lib/tasks.ts` に作り、単体テストを追加する。\n\n### M4. テストが PR の説明どおりの動作を確かめていない（規約 5）\n- 場所: `tests/tasks-search.test.ts`\n- 問題:\n  - `deleteTask` のテスト（55 行）: `assert.ok(deleteTask(1, db) !== undefined)` は真偽値を返すので常に通る。`tasks` は削除の前に取得しており、`length === 7` は初期件数を数えているだけ。何もしない実装でも通る。\n  - 検索: 総数のみ。1 ページ目の中身・`limit`・`%`/`_`/`'` を含む検索語のテストが無い（H1〜H3 を見逃した）。\n  - 一括変更: `[999]` のみで、既存 ID と存在しない ID が混在するケースが無い（H5 を見逃した）。\n  - 期限切れ: UTC と日本時間がずれる時刻、`done` の除外、期限が今日ちょうどの境界が無い（H6 を見逃した）。\n  - 権限（403/204）・409 は一切テストされていない。`createTask` のテストが `tasks-search.test.ts` にあるのも置き場所が不適切。\n- 直し方: 上記の各ケースを追加する。特に H1・H2・H5・H6・H8・M1 は、修正前に落ちるテストを先に書く。\n\n---\n\n## 低\n\n### L1. 一括変更に権限の確認が無い\n- 場所: `src/app/api/tasks/bulk-status/route.ts:26`\n- 問題: ログインしていれば、他人のタスク最大 100 件のステータスを一度に変えられる（DELETE は作成者・担当者に限っているのとそろわない）。既存の PATCH にも権限確認は無いので現状の方針とは一致するが、一括で簡単に実行できる分、影響が広い。404 の本文で存在する ID も区別できる。\n- 直し方: 方針を決める。作成者・担当者に限るなら、権限の無い ID は 403 とし、全件の確認後にまとめて更新する。現状維持なら PR の説明に明記する。\n\n### L2. `createTask` の引数の渡し方\n- 場所: `src/lib/tasks.ts:155`（シグネチャ）、`src/app/api/tasks/route.ts:18` `createTask(…, undefined, user.id)`\n- 問題: 既定値を使うためだけに `undefined` を渡している。引数の順序を取り違えやすい。\n- 直し方: `createdBy` を `TaskInput` ではなくオプション引数のオブジェクトで渡す、または `db` の前に置く。\n\n### L3. 検索語の長さに上限が無い\n- 場所: `src/app/api/tasks/search/route.ts:11`\n- 問題: `q` の長さを制限していないので、非常に長い文字列で `LIKE` の走査が重くなる。\n- 直し方: タイトルの上限（200 文字）に合わせて `q` が 200 文字を超えたら 400 にする。\n\n---\n\n## レビューの範囲\n- 手順: 差分と周辺コードの一次確認のあと、独立した 4 つのレビュー（正しさ・セキュリティ・敵対的・規約とテスト）の結果を重複排除してまとめた。各指摘は、引用した行とコードに基づく。レビュアーはいずれも読み取り専用で、コードもテストも実行していない（`npm test` などは未実行）。\n- この環境では手順のとおりには進められなかった点: 外部モデルによる独立レビュー（クロスモデル）は、環境の制約により使えず、行っていない。レビュアーの結果の統合・検証・出力も、手順が定める専用の工程ではなく、この場で行った。\n- 問題が無いと判断した点（`GET /api/tasks/search` などの静的ルートが `/api/tasks/:id` より優先されること、認証の呼び出し、削除の 204/404、`overdue` のソート順）は書いていない。\n",
+    "review_committed": true,
+    "review_chars": 7230,
+    "code_changed": [],
+    "artifacts": []
+  }
+}

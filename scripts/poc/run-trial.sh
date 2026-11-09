@@ -54,6 +54,20 @@ git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
 # 試行は作業ブランチの上で始める（W2 以降。W1 で gstack の /review が master 直コミットのため差分なしで止まったため）
 #（W1 は master のまま。W1 の手順を同じ条件で再実行できるようにするため）
 [[ "$SCENARIO" != W1 ]] && git -C "$APP" switch -q -c "poc/wf/$CAND/$SCENARIO/$RUN"
+# W9（レビューで不具合を見つける）: レビュー対象の差分（正解データ docs/poc/answer-key/W9/review.patch）を
+# 作業ブランチにだけ当て、PR の説明（課題文の「# PR:」以降）をメッセージにしたコミットを作る。候補は master との差分をレビューする。
+# パッチファイル自体は作業用コピーに置かない。baseline-commit はレビュー対象のコミットにする（候補が書いた REVIEW.md などだけが成果の差分になる）。
+# W9 以外では何もしない。
+if [[ "$SCENARIO" == W9 ]]; then
+  REVIEW_PATCH="${POC_REVIEW_PATCH:-$ROOT/docs/poc/answer-key/W9/review.patch}"
+  git -C "$APP" apply "$REVIEW_PATCH"
+  sha256sum "$REVIEW_PATCH" | sed "s#$ROOT/##" > "$OUT/review-patch"
+  git -C "$APP" rev-parse HEAD > "$OUT/review-base-commit"
+  sed -n '/^# PR:/,$p' "$ROOT/docs/poc/tasks/wf-W9.md" | sed '1s/^# PR: //' > "$WORK/review-commit-msg"
+  ( cd "$APP" && git add -A && git commit -q -F "$WORK/review-commit-msg" )
+  rm -f "$WORK/review-commit-msg"
+  git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
+fi
 
 # 2) 必須プラグイン + 候補プラグイン（すべて固定コミット。scripts/poc/fetch-plugins.sh で取得）
 #    Skill が自分の参照ファイル（references/*.md など）を読めるよう、試行ごとの作業領域にコピーして
@@ -193,6 +207,19 @@ if [[ "$SCENARIO" == W5 ]]; then
     gstack) STEPS=("/qa $TASK") ;;
   esac
 fi
+if [[ "$SCENARIO" == W9 ]]; then
+  # W9 の手順（docs/poc/tasks/wf-procedures.md）。各候補のレビューの入口に課題を渡す。Feature Dev はレビュー用のコマンドが
+  # 無いため、code-reviewer エージェントを使うよう指示する。指摘は REVIEW.md に書かせる（課題文に明記）。
+  case "$CAND" in
+    baseline) STEPS=("$TASK") ;;
+    superpowers) STEPS=("/superpowers:requesting-code-review $TASK") ;;
+    feature-dev) STEPS=("Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。
+
+$TASK") ;;
+    compound-engineering) STEPS=("/ce-code-review $TASK") ;;
+    gstack) STEPS=("/review $TASK") ;;
+  esac
+fi
 
 # 1 試行の費用の上限（米ドル。空なら上限なし）。
 MAX_USD="${POC_MAX_TRIAL_USD:-}"
@@ -219,6 +246,7 @@ QA_CLOSE="質問はここまでで締め切ります。残りはお任せしま�
 [[ "$SCENARIO" == W3 ]] && NUDGE="お任せします。確認は不要なので、要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
 [[ "$SCENARIO" == W5 ]] && NUDGE="お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。"
 [[ "$SCENARIO" == W6 ]] && NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、PR.md を含めて変更を git にコミットしてください。"
+[[ "$SCENARIO" == W9 ]] && NUDGE="お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。"
 
 session_cost() {  # これまでの全ステップの最後の result の total_cost_usd（--resume では累計）
   python3 -c '
@@ -369,6 +397,8 @@ for _ in $(seq 1 "$MAX_NUDGES"); do
   if [[ "$SCENARIO" == W3 ]] && ! git -C "$APP" cat-file -e HEAD:REQUIREMENTS.md 2>/dev/null; then commits=0; fi
   # W6 は PR の本文（PR.md）がコミットされていることも完了の条件にする
   if [[ "$SCENARIO" == W6 ]] && ! git -C "$APP" cat-file -e HEAD:PR.md 2>/dev/null; then commits=0; fi
+  # W9 はレビューの指摘（REVIEW.md）がコミットされていることも完了の条件にする
+  if [[ "$SCENARIO" == W9 ]] && ! git -C "$APP" cat-file -e HEAD:REVIEW.md 2>/dev/null; then commits=0; fi
   [[ "$commits" -gt 0 && -z "$dirty" ]] && break
   if over_budget; then echo "nudge skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
   i=$((i+1))

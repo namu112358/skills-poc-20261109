@@ -1,0 +1,806 @@
+{
+ "R01": {
+  "findings": [
+   {
+    "summary": "1 既存マイグレーション 1 を書き換えている",
+    "class": "B10",
+    "specificity": 2,
+    "reason": "user_version=2 の DB に列が足されない点と version 3 の ALTER TABLE を示す。"
+   },
+   {
+    "summary": "2 searchTasks の SQL インジェクション",
+    "class": "B2",
+    "specificity": 2,
+    "reason": "埋め込みを述べ ESCAPE 付きプレースホルダを示す。"
+   },
+   {
+    "summary": "3 OFFSET が 1 ページずれる",
+    "class": "B3",
+    "specificity": 2,
+    "reason": "(page-1)*limit を示す。"
+   },
+   {
+    "summary": "4 limit を検証していない",
+    "class": "B4",
+    "specificity": 2,
+    "reason": "範囲外・負数・NaN を述べ 1〜50 の parseLimitParam で 400 を示す。"
+   },
+   {
+    "summary": "5 catch が全エラーを 0 件・200 にする",
+    "class": "B7",
+    "specificity": 2,
+    "reason": "try/catch 削除と 500 を示す。"
+   },
+   {
+    "summary": "6 今日が UTC",
+    "class": "B8",
+    "specificity": 2,
+    "reason": "JST とのずれと 9 時間加算または Intl を示す。"
+   },
+   {
+    "summary": "7 一括変更が原子的でない",
+    "class": "B6",
+    "specificity": 2,
+    "reason": "事前確認とトランザクションを示す。"
+   },
+   {
+    "summary": "8 作成者なしのタスクを全員に開放",
+    "class": "B1",
+    "specificity": 2,
+    "reason": "核心と正しい条件式を示す。"
+   },
+   {
+    "summary": "9-a deleteTask のテストが常に通る",
+    "class": "B9",
+    "specificity": 2,
+    "reason": "常に真の比較と削除前の長さを述べ、getTask が undefined の確認を示す。"
+   },
+   {
+    "summary": "9-b その他のテスト不足",
+    "class": "out",
+    "specificity": 0,
+    "reason": "テスト追加の一般的な提案。"
+   },
+   {
+    "summary": "10-a version を検証していない",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "不正な version が 400 でなく 409 になるのは実在する問題。"
+   },
+   {
+    "summary": "10-b 比較と UPDATE が別で版条件が無い",
+    "class": "B5",
+    "specificity": 2,
+    "reason": "版条件の無い UPDATE を述べ条件付き UPDATE を示すが、「await を挟まないので現状は競合しない」は事実と違う（await readJson がある）。"
+   },
+   {
+    "summary": "11 SEARCH_LIMIT_MAX 未使用／空の検索語が 400",
+    "class": "out",
+    "specificity": 0,
+    "reason": "4 の付随と仕様の好み。"
+   }
+  ]
+ },
+ "R02": {
+  "findings": [
+   {
+    "summary": "1 SQL インジェクションと catch による 0 件の 200",
+    "class": "B2,B7",
+    "specificity": 2,
+    "reason": "埋め込みと catch の握りつぶしの両方を述べ、プレースホルダ化と try/catch 削除を示す。"
+   },
+   {
+    "summary": "2 OFFSET が 1 ページずれる",
+    "class": "B3",
+    "specificity": 2,
+    "reason": "(page-1)*limit を示す。"
+   },
+   {
+    "summary": "3 既存マイグレーション 1 を書き換えている",
+    "class": "B10",
+    "specificity": 1,
+    "reason": "既存 DB に列が足されない核心は合うが、user_version を 1 とし「番号 2 を追加」とする直し方は既存の 2 と衝突し誤り。"
+   },
+   {
+    "summary": "4 一括変更が全件または 0 件になっていない",
+    "class": "B6",
+    "specificity": 2,
+    "reason": "トランザクションと事前確認を示す。"
+   },
+   {
+    "summary": "5-a 作成者なしのタスクを誰でも削除できる",
+    "class": "B1",
+    "specificity": 2,
+    "reason": "核心と正しい条件式を示す。"
+   },
+   {
+    "summary": "5-b deleteTask のテストが削除前の長さと比べている",
+    "class": "B9",
+    "specificity": 1,
+    "reason": "何も検証していない点を述べるが、この項目に直し方は無い（10 と重複）。"
+   },
+   {
+    "summary": "6 同時編集の検知が原子的でない",
+    "class": "B5",
+    "specificity": 2,
+    "reason": "await をまたいだ比較と版条件の無い UPDATE を述べ、条件付き UPDATE を示す。"
+   },
+   {
+    "summary": "7 version の入力検証が無い",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "不正な version が 400 でなく 409 になるのは実在する問題。"
+   },
+   {
+    "summary": "8 limit を検証していない",
+    "class": "B4",
+    "specificity": 2,
+    "reason": "範囲外・負数・NaN を述べ 1〜50 の parseLimitParam で 400 を示す。"
+   },
+   {
+    "summary": "9 今日が UTC",
+    "class": "B8",
+    "specificity": 2,
+    "reason": "JST とのずれと Intl Asia/Tokyo を示す。"
+   },
+   {
+    "summary": "10-a deleteTask のテストが常に通る",
+    "class": "B9",
+    "specificity": 2,
+    "reason": "削除後に getTask が undefined・無い ID で false の確認を示す。"
+   },
+   {
+    "summary": "10-b API Route のテストが無い",
+    "class": "out",
+    "specificity": 0,
+    "reason": "テスト追加の一般的な提案。"
+   },
+   {
+    "summary": "10-c PR の検証結果への言及",
+    "class": "out",
+    "specificity": 0,
+    "reason": "PR 記述への感想。"
+   },
+   {
+    "summary": "11 catch {} が想定外の失敗を隠す",
+    "class": "B7",
+    "specificity": 2,
+    "reason": "1 と重複するが握りつぶしを述べ try/catch 削除と 500 を示す。"
+   },
+   {
+    "summary": "補足 一括変更に権限確認が無い",
+    "class": "out",
+    "specificity": 0,
+    "reason": "範囲外とした上での確認の提案。"
+   }
+  ]
+ },
+ "R03": {
+  "findings": [
+   {
+    "summary": "1 searchTasks の SQL インジェクション",
+    "class": "B2",
+    "specificity": 2,
+    "reason": "埋め込みを述べ ESCAPE 付きプレースホルダを示す。"
+   },
+   {
+    "summary": "2 ページ送りがずれる",
+    "class": "B3",
+    "specificity": 2,
+    "reason": "(page-1)*limit を示す。"
+   },
+   {
+    "summary": "3 limit を検証していない",
+    "class": "B4",
+    "specificity": 2,
+    "reason": "範囲外・負数・NaN を述べ 1〜50 の parseLimitParam で 400 を示す。"
+   },
+   {
+    "summary": "4 検索のエラーを握りつぶして空結果",
+    "class": "B7",
+    "specificity": 2,
+    "reason": "catch を外す直し方を示す。"
+   },
+   {
+    "summary": "5 既存マイグレーションを書き換えている",
+    "class": "B10",
+    "specificity": 2,
+    "reason": "既存 DB に列が足されない点と version 3 の ALTER TABLE を示す。"
+   },
+   {
+    "summary": "6 一括変更がどれも変えないになっていない",
+    "class": "B6",
+    "specificity": 2,
+    "reason": "トランザクションまたは事前確認を示す。"
+   },
+   {
+    "summary": "7 今日が UTC",
+    "class": "B8",
+    "specificity": 2,
+    "reason": "JST とのずれと Intl Asia/Tokyo を示す。"
+   },
+   {
+    "summary": "8-a 同時編集の検知が不完全",
+    "class": "B5",
+    "specificity": 2,
+    "reason": "await をまたいだ比較と別文の UPDATE を述べ、条件付き UPDATE を示す。"
+   },
+   {
+    "summary": "8-b version の型検証が無い",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "不正な version が 409 になるのは実在する問題。"
+   },
+   {
+    "summary": "9 削除権限が古いタスクで素通り",
+    "class": "B1",
+    "specificity": 2,
+    "reason": "核心と、担当者か作成者のみ許可する正しい条件を示す。"
+   },
+   {
+    "summary": "10-a deleteTask のテストが削除を検証していない",
+    "class": "B9",
+    "specificity": 2,
+    "reason": "削除前の長さを見ている点を述べ、getTask が undefined・無い ID で false の確認を示す。"
+   },
+   {
+    "summary": "10-b 検索・ルートのテスト不足",
+    "class": "out",
+    "specificity": 0,
+    "reason": "テスト追加の一般的な提案。"
+   },
+   {
+    "summary": "10-c PR の検証結果が誤動作を検出できていない",
+    "class": "out",
+    "specificity": 0,
+    "reason": "PR 記述への感想。"
+   },
+   {
+    "summary": "11-a createTask の引数の並び",
+    "class": "out",
+    "specificity": 0,
+    "reason": "引数順の好みの問題。"
+   },
+   {
+    "summary": "11-b bulk-status の検証がルートに直書き（規約 9）",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "lib の検証関数に置く規約から外れている。"
+   }
+  ]
+ },
+ "R04": {
+  "findings": [
+   {
+    "summary": "1 searchTasks の SQL インジェクション",
+    "class": "B2",
+    "specificity": 2,
+    "reason": "埋め込みを述べ ESCAPE 付きプレースホルダを示す。"
+   },
+   {
+    "summary": "2 ページ位置が 1 ページずれる",
+    "class": "B3",
+    "specificity": 2,
+    "reason": "(page-1)*limit を示す。"
+   },
+   {
+    "summary": "3 limit を検証していない",
+    "class": "B4",
+    "specificity": 2,
+    "reason": "範囲外・負数・NaN を述べ 1〜50 以外を 400 とする。"
+   },
+   {
+    "summary": "4 catch が例外を握りつぶして 200",
+    "class": "B7",
+    "specificity": 2,
+    "reason": "try/catch 削除と 500 を示す。"
+   },
+   {
+    "summary": "5 一括変更が原子的でない",
+    "class": "B6",
+    "specificity": 2,
+    "reason": "トランザクション内の事前確認を示す。"
+   },
+   {
+    "summary": "6-a 版番号チェックが同時編集を防げない",
+    "class": "B5",
+    "specificity": 2,
+    "reason": "await をまたいだ比較と版条件の無い UPDATE を述べ、条件付き UPDATE を示す。"
+   },
+   {
+    "summary": "6-b version の型検証が無い",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "文字列の version が 409 になるのは実在する問題。"
+   },
+   {
+    "summary": "7 作成者なしで削除権限が素通り",
+    "class": "B1",
+    "specificity": 2,
+    "reason": "核心と正しい条件式を示す。"
+   },
+   {
+    "summary": "8 既存マイグレーションを書き換えている",
+    "class": "B10",
+    "specificity": 2,
+    "reason": "既存 DB に列が足されない点と新番号の ALTER TABLE を示す。"
+   },
+   {
+    "summary": "9 今日が日本時間になっていない",
+    "class": "B8",
+    "specificity": 2,
+    "reason": "JST とのずれと 9 時間加算または Intl を示す。"
+   },
+   {
+    "summary": "10 % と _ がワイルドカードとして働く",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "部分一致にならないのは実在する問題で正解リスト外。"
+   },
+   {
+    "summary": "11-a deleteTask のテストが削除を確認していない",
+    "class": "B9",
+    "specificity": 2,
+    "reason": "常に真の比較を述べ getTask が undefined の確認を示す。"
+   },
+   {
+    "summary": "11-b その他のテスト不足",
+    "class": "out",
+    "specificity": 0,
+    "reason": "テスト追加の一般的な提案。"
+   },
+   {
+    "summary": "12 検証と権限判定がルートに書かれている（規約 1・9）",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "lib の検証関数に置く規約から外れている。"
+   },
+   {
+    "summary": "13 createTask の引数順",
+    "class": "out",
+    "specificity": 0,
+    "reason": "引数順の好みの問題。"
+   }
+  ]
+ },
+ "R05": {
+  "findings": [
+   {
+    "summary": "1 searchTasks の SQL インジェクション",
+    "class": "B2",
+    "specificity": 2,
+    "reason": "埋め込みを述べ ESCAPE 付きプレースホルダを示す。"
+   },
+   {
+    "summary": "2 LIKE のワイルドカードがエスケープされていない",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "%・_ が全件に一致するのは実在する問題で正解リスト外。"
+   },
+   {
+    "summary": "3 OFFSET が誤り",
+    "class": "B3",
+    "specificity": 2,
+    "reason": "(page-1)*limit を示す。"
+   },
+   {
+    "summary": "4 limit の検証がない",
+    "class": "B4",
+    "specificity": 2,
+    "reason": "範囲外・負数・NaN を述べ 1〜50 の parseLimitParam で 400 を示す。"
+   },
+   {
+    "summary": "5 catch が全エラーを 0 件の 200 にする",
+    "class": "B7",
+    "specificity": 2,
+    "reason": "catch 削除を示す。"
+   },
+   {
+    "summary": "6 一括変更が原子的でない",
+    "class": "B6",
+    "specificity": 2,
+    "reason": "トランザクションと事前確認を示す。"
+   },
+   {
+    "summary": "7-a 楽観ロックが原子的でない",
+    "class": "B5",
+    "specificity": 2,
+    "reason": "await をまたいだ比較と版条件の無い UPDATE を述べ、条件付き UPDATE を示す。"
+   },
+   {
+    "summary": "7-b version なし PATCH が全列上書きで別項目の変更を巻き戻す",
+    "class": "out",
+    "specificity": 0,
+    "reason": "差分前からある updateTask の既存挙動への指摘で、同期処理のため差分内の問題とは言えない。"
+   },
+   {
+    "summary": "8 既存マイグレーションを書き換えている",
+    "class": "B10",
+    "specificity": 2,
+    "reason": "既存 DB に列が足されない点と version 3 の ALTER TABLE を示す。"
+   },
+   {
+    "summary": "9 今日が UTC",
+    "class": "B8",
+    "specificity": 2,
+    "reason": "JST とのずれと 9 時間加算または Intl を示す。"
+   },
+   {
+    "summary": "10 作成者なしのタスクを誰でも削除できる",
+    "class": "B1",
+    "specificity": 2,
+    "reason": "核心と正しい条件式を示す。"
+   },
+   {
+    "summary": "11-a deleteTask のテストが何も検証していない",
+    "class": "B9",
+    "specificity": 1,
+    "reason": "常に真の比較と削除前の長さを述べるが、具体的な直し方が無い。"
+   },
+   {
+    "summary": "11-b その他のテスト不足",
+    "class": "out",
+    "specificity": 0,
+    "reason": "テスト追加の一般的な提案。"
+   },
+   {
+    "summary": "12 一括変更の入力検証がルートに直書き（規約 1・9）",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "本文検証を lib の関数に置く規約から外れている。"
+   },
+   {
+    "summary": "13 PATCH の version が検証されていない",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "不正な version が 400 でなく 409 になるのは実在する問題。"
+   },
+   {
+    "summary": "14 存在しないタスクに不正な本文で 404",
+    "class": "out",
+    "specificity": 0,
+    "reason": "本人も問題とは言い切れないとする確認の提案。"
+   },
+   {
+    "summary": "15 COUNT と SELECT が別クエリ",
+    "class": "out",
+    "specificity": 0,
+    "reason": "同期実行で実害が小さいと認めた予防的提案。"
+   }
+  ]
+ },
+ "R06": {
+  "findings": [
+   {
+    "summary": "1 検索の SQL インジェクションと catch による 200 の握りつぶし",
+    "class": "B2,B7",
+    "specificity": 2,
+    "reason": "埋め込みと catch の握りつぶしの両方を述べ、プレースホルダ化と try/catch 削除を示す。"
+   },
+   {
+    "summary": "2 OFFSET が 1 ページずれる",
+    "class": "B3",
+    "specificity": 2,
+    "reason": "(page-1)*limit を示す。"
+   },
+   {
+    "summary": "3 limit を検証していない",
+    "class": "B4",
+    "specificity": 2,
+    "reason": "範囲外・NaN を述べ、1〜50 の parseLimitParam で 400 を示す。"
+   },
+   {
+    "summary": "4 一括変更が原子的でない",
+    "class": "B6",
+    "specificity": 2,
+    "reason": "事前確認または ROLLBACK を示す。"
+   },
+   {
+    "summary": "5 既存マイグレーションを書き換えている",
+    "class": "B10",
+    "specificity": 2,
+    "reason": "既存 DB に列が足されない点と新番号の ALTER TABLE を示す。"
+   },
+   {
+    "summary": "6 今日が UTC で計算されている",
+    "class": "B8",
+    "specificity": 2,
+    "reason": "JST とのずれと Intl Asia/Tokyo を示す。"
+   },
+   {
+    "summary": "7 作成者のいないタスクを誰でも削除できる",
+    "class": "B1",
+    "specificity": 2,
+    "reason": "核心と正しい条件式を示す。"
+   },
+   {
+    "summary": "8-a version の検証不足（400 でなく 409、null 本文で 500）",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "不正な version が 409 になるのは実在する問題。"
+   },
+   {
+    "summary": "8-b 版の比較と UPDATE が別操作",
+    "class": "B5",
+    "specificity": 2,
+    "reason": "UPDATE に版条件が無い点を述べ条件付き UPDATE を示すが、「間に await が無いので現状は通る」は事実と違う（await readJson がある）。"
+   },
+   {
+    "summary": "9 deleteTask のテストが何も検証していない",
+    "class": "B9",
+    "specificity": 2,
+    "reason": "常に真の比較を述べ、削除後に getTask が undefined かつ件数が 1 減ることの確認を示す。"
+   },
+   {
+    "summary": "10 createTask の呼び出しが読みにくい",
+    "class": "out",
+    "specificity": 0,
+    "reason": "引数順の好みの問題。"
+   },
+   {
+    "summary": "11 空の検索語が 400 になる",
+    "class": "out",
+    "specificity": 0,
+    "reason": "仕様の好み・確認の提案。"
+   }
+  ]
+ },
+ "R07": {
+  "findings": [
+   {
+    "summary": "1 検索の SQL インジェクションと catch による握りつぶし",
+    "class": "B2,B7",
+    "specificity": 2,
+    "reason": "埋め込みと catch が 200 の空結果にする点の両方を述べ、プレースホルダ化と try/catch 削除を示す。"
+   },
+   {
+    "summary": "2 OFFSET が 1 ページずれる",
+    "class": "B3",
+    "specificity": 2,
+    "reason": "(page-1)*limit を示す。"
+   },
+   {
+    "summary": "3 limit を検証していない",
+    "class": "B4",
+    "specificity": 2,
+    "reason": "NaN・負数・上限超過を述べ、1〜50 の parseLimitParam で 400 を示す。"
+   },
+   {
+    "summary": "4 一括変更が原子的でない",
+    "class": "B6",
+    "specificity": 2,
+    "reason": "事前存在確認と transaction を示す。"
+   },
+   {
+    "summary": "5 今日が UTC で計算されている",
+    "class": "B8",
+    "specificity": 2,
+    "reason": "JST とのずれを述べ 9 時間加算または Intl を示す。"
+   },
+   {
+    "summary": "6 作成者 null で削除権限が素通り",
+    "class": "B1",
+    "specificity": 2,
+    "reason": "核心と正しい条件式を示す。"
+   },
+   {
+    "summary": "7-a 楽観ロックが原子的でない",
+    "class": "B5",
+    "specificity": 2,
+    "reason": "await をまたいだ確認と無条件 UPDATE を述べ、条件付き UPDATE を示す。"
+   },
+   {
+    "summary": "7-b version の型検証が無く 409 になる",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "不正な version が 400 でなく 409 になるのは実在する問題。"
+   },
+   {
+    "summary": "8 既存マイグレーション 1 を書き換えている",
+    "class": "B10",
+    "specificity": 2,
+    "reason": "既存 DB に列が足されない点と version 3 の ALTER TABLE を示す。"
+   },
+   {
+    "summary": "9-a deleteTask のテストが削除前の長さを見ている",
+    "class": "B9",
+    "specificity": 2,
+    "reason": "削除失敗でも通る点を述べ、getTask が undefined・無い ID で false の確認を示す。"
+   },
+   {
+    "summary": "9-b その他のテスト不足",
+    "class": "out",
+    "specificity": 0,
+    "reason": "テスト追加の一般的な提案。"
+   }
+  ]
+ },
+ "R08": {
+  "findings": [
+   {
+    "summary": "1 searchTasks の SQL インジェクション",
+    "class": "B2",
+    "specificity": 2,
+    "reason": "検索語の埋め込みを述べ、ESCAPE 付きプレースホルダを COUNT と SELECT の両方に示す。"
+   },
+   {
+    "summary": "2 OFFSET が 1 ページずれる",
+    "class": "B3",
+    "specificity": 2,
+    "reason": "page*limit のずれを述べ (page-1)*limit を示す。"
+   },
+   {
+    "summary": "3-a limit を検証していない",
+    "class": "B4",
+    "specificity": 2,
+    "reason": "範囲外・負数・NaN の未検証を述べ、parseLimitParam で 1〜50 以外を 400 とする。"
+   },
+   {
+    "summary": "3-b catch が例外を 0 件の 200 にする",
+    "class": "B7",
+    "specificity": 2,
+    "reason": "握りつぶしの核心を述べ、try/catch 削除を示す。"
+   },
+   {
+    "summary": "4 一括変更が全部成功か全部失敗になっていない",
+    "class": "B6",
+    "specificity": 2,
+    "reason": "一部更新が残る点を述べ、事前確認とトランザクションを示す。"
+   },
+   {
+    "summary": "5 削除権限が作成者 null で素通り",
+    "class": "B1",
+    "specificity": 2,
+    "reason": "null で誰でも削除できる核心と正しい条件式を示す。"
+   },
+   {
+    "summary": "6 既存マイグレーションを書き換えている",
+    "class": "B10",
+    "specificity": 2,
+    "reason": "既存 DB に列が足されない点を述べ version 3 の ALTER TABLE を示す。"
+   },
+   {
+    "summary": "7 期限切れの今日が UTC",
+    "class": "B8",
+    "specificity": 2,
+    "reason": "UTC と JST のずれを述べ、9 時間加算または Intl を示す（「今日が期限」の記述はやや不正確だが核心は合う）。"
+   },
+   {
+    "summary": "8-ab 版の確認が await をまたぎ UPDATE に版条件が無い",
+    "class": "B5",
+    "specificity": 2,
+    "reason": "確認と更新が不可分でない核心を述べ、条件付き UPDATE と changes===0 で 409 を示す。"
+   },
+   {
+    "summary": "8-c version の型を検証せず 409 になる",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "不正な version が 400 でなく 409 になるのは実在する問題。"
+   },
+   {
+    "summary": "8-d 検証順序の仕様が揃っていない",
+    "class": "out",
+    "specificity": 0,
+    "reason": "内容が曖昧で具体的な問題になっていない。"
+   },
+   {
+    "summary": "9-a deleteTask のテストが削除を確認していない",
+    "class": "B9",
+    "specificity": 2,
+    "reason": "常に真の比較を述べ、削除後に getTask が undefined を確かめる直し方を示す。"
+   },
+   {
+    "summary": "9-b その他のテスト不足",
+    "class": "out",
+    "specificity": 0,
+    "reason": "テスト追加の一般的な提案。"
+   },
+   {
+    "summary": "10 createTask の引数の並び",
+    "class": "out",
+    "specificity": 0,
+    "reason": "引数順の好みの問題。"
+   }
+  ]
+ },
+ "R09": {
+  "findings": [
+   {
+    "summary": "H1 searchTasks の検索語を SQL に文字列連結（インジェクション）",
+    "class": "B2",
+    "specificity": 2,
+    "reason": "場所と埋め込みの核心が合い、ESCAPE 付きプレースホルダの直し方も正解と同等。"
+   },
+   {
+    "summary": "H2 OFFSET が page*limit で 1 ページずれる",
+    "class": "B3",
+    "specificity": 2,
+    "reason": "1 始まりの page に対する OFFSET のずれを述べ、(page-1)*limit を示している。"
+   },
+   {
+    "summary": "H3 limit の範囲を検証せず 400 にならない",
+    "class": "B4",
+    "specificity": 2,
+    "reason": "範囲・NaN・負数の未検証を述べ、1〜50 の整数のみ受け付け 400 とする直し方を示す。"
+   },
+   {
+    "summary": "H4 検索ルートの catch が全エラーを 200 の空結果にする",
+    "class": "B7",
+    "specificity": 2,
+    "reason": "握りつぶしの核心を述べ、try/catch を外して 500 にする直し方を示す。"
+   },
+   {
+    "summary": "H5 一括変更が途中までの更新を残す（原子性なし）",
+    "class": "B6",
+    "specificity": 2,
+    "reason": "[1,999] で一部更新が残る点を述べ、事前存在確認とトランザクションを示す。"
+   },
+   {
+    "summary": "H6 期限切れの今日を UTC で求めている",
+    "class": "B8",
+    "specificity": 2,
+    "reason": "UTC と JST の日付ずれを述べ、Intl.DateTimeFormat Asia/Tokyo を示す。"
+   },
+   {
+    "summary": "H7 既存マイグレーション 1 を書き換えている",
+    "class": "B10",
+    "specificity": 2,
+    "reason": "既存 DB に列が足されない核心を述べ、version 3 で ALTER TABLE を追加する直し方を示す。"
+   },
+   {
+    "summary": "H8 版番号の確認が await をまたぎ UPDATE に版条件がない",
+    "class": "B5",
+    "specificity": 2,
+    "reason": "確認と更新が不可分でない核心を述べ、WHERE id=? AND version=? と changes===0 で 409 を示す。"
+   },
+   {
+    "summary": "M1 作成者 null のタスクを誰でも削除できる",
+    "class": "B1",
+    "specificity": 2,
+    "reason": "createdBy が null で 403 判定が素通りする核心を述べ、正しい条件式を示す。"
+   },
+   {
+    "summary": "M2 PATCH の version の型を検証せず 409 になる",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "文字列や null の version が 400 でなく 409 になるのは差分上実在する問題。"
+   },
+   {
+    "summary": "M3 一括変更の入力検証がルートに直書き（規約 9）",
+    "class": "valid",
+    "specificity": 0,
+    "reason": "本文検証を lib の検証関数に置く規約から外れているのは差分で確認できる。"
+   },
+   {
+    "summary": "M4-a deleteTask のテストが常に通る",
+    "class": "B9",
+    "specificity": 1,
+    "reason": "常に真の比較と削除前の配列長を指摘しているが、具体的な検証内容の直し方が無い。"
+   },
+   {
+    "summary": "M4-b 検索・一括・期限切れ・権限のテストが不足",
+    "class": "out",
+    "specificity": 0,
+    "reason": "テスト追加の一般的な提案。"
+   },
+   {
+    "summary": "L1 一括変更に権限確認が無い",
+    "class": "out",
+    "specificity": 0,
+    "reason": "既存 PATCH と同じ方針と認めた上での方針確認の提案。"
+   },
+   {
+    "summary": "L2 createTask の引数の渡し方",
+    "class": "out",
+    "specificity": 0,
+    "reason": "引数順の好みの問題。"
+   },
+   {
+    "summary": "L3 検索語の長さに上限が無い",
+    "class": "out",
+    "specificity": 0,
+    "reason": "性能面の予防的な提案で明確な不具合ではない。"
+   }
+  ]
+ }
+}
