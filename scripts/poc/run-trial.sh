@@ -112,6 +112,10 @@ if [[ "$SCN_NUM" -ge 6 ]]; then
   ALLOWED+=(
     "Bash(npm run dev)" "Bash(npm run dev:*)" "Bash(npm run start)" "Bash(npm run start:*)"
     "Bash(timeout * npm run dev*)" "Bash(timeout * npm run start*)" "Bash(timeout * npx next *)"
+    # npm start（npm run start の別名）と、ポートを環境変数で渡す形（PORT=3100 npm run start など）。
+    # 2026-11-09 の最初の試行でこの形が漏れていて、2 試行がサーバーを起動できなかったため追加した
+    "Bash(npm start)" "Bash(npm start:*)" "Bash(PORT=* npm start*)" "Bash(PORT=* npm run start*)"
+    "Bash(PORT=* npm run dev*)" "Bash(PORT=* npx next *)"
     # ブラウザ: Playwright MCP（全候補共通。事前インストール済みの Chromium を使う）と Next.js DevTools MCP
     "mcp__playwright" "mcp__next-devtools"
   )
