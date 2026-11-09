@@ -9,7 +9,7 @@
 | W | 状態 | 担当セッション | ブランチ | 次にやること |
 |---|---|---|---|---|
 | W1〜W7、W9 | 完了（main にマージ済み。W4 #30、W6 #29、W7 #25・#33、W9 #31） | — | — | なし（W7 の 5 段階への延長はユーザーの判断待ち。`W7/report.md` の「次の対応」） |
-| W8 | 試行中（上限なし。採点済み: baseline・CE #2（$12.20、上限内扱いで完了）・gstack #2（上限なしでやり直し、実装まで到達）。実行中: SP #2 → 残り SP #1・gstack #1・CE #1 のやり直し。上限で止まった結果は `W8/capped/`。FD #1 は `W8/reference/`。draft PR #36） | session_019av74gE6n8bVet8JqQ3wCU | agent/poc-w8 | 残りの試行 → 採点 → report → PR #36 を Ready・自動マージ。16:18 UTC 時点で 7 日間の利用上限の警告（allowed_warning）が出ている |
+| W8 | 完了（#36 で main にマージ、2026-11-09 17:1x UTC。3 候補 × 2 回 + baseline、FD は参考値 1 回、上限なし。品質 gstack 100・baseline 100・CE 90.7・SP 83.7） | — | — | なし |
 | W10 | 完了（#38 で main にマージ、2026-11-09 16:1x UTC。上限で止まった試行なし。品質 SP 89.8 > baseline 79.7 > CE 77.8 > gstack 76.4 > FD 73.0） | — | — | なし |
 | W11 | 設計案のみ（実在する OSS の解決済み課題。`docs/poc/tasks/wf-W11-design.md`） | session_01QR8ZDNZtzSVekzVB1b1Dux | claude/beautiful-davinci-yorkf8 | PLAN.md に加えるかはユーザーの判断待ち |
 
@@ -28,6 +28,10 @@ PoC 以外: README のツール一覧の分類（PR #34、session_019av74iw5vC2m
 - W7 の 5 段階への延長、W11 を計画に加えるか。
 
 各担当セッションはアーカイブしていない。止めた後に再開するときは同じセッションに send_message で指示する（使えなければ新しいセッションを立てて各ブランチの RESUME.md から続ける）。試行の作業用コピー（`/tmp/poc-trials/<ID>`）はコンテナが入れ替わると消えるため、採点前の試行はやり直しになる。
+
+## ゴールの達成（2026-11-09 18:05 UTC 確認）
+
+W1〜W10 の report.md・report.html と PLAN.md §6 の更新が main に入り、§6 で W1〜W10 がすべて「完了」になった（`git log --oneline origin/main -4`: #36 W8、#38 W10、#33 W7、#32。`docs/poc/results/workflow/W1〜W10/report.md` がそろっている）。W7 の延長（W7c〜W7e）と W11 は、別のコーディネーター（session_01QR8ZDMUCQo5J82UtBYZdGD）の担当で、ここには含めない。
 
 ## 決まっている試行条件（W4 以降）
 
