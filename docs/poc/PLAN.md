@@ -292,6 +292,13 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 
 ## 6. スケジュールと体制
 
+> **実施方針（2026-11-09 更新）**: 週単位の日程は目安とし、週をまたいで待たずに、準備ができた検証から 1 つずつすぐに実施する。各検証が終わるたびに結果レポート（HTML）を `docs/poc/results/` にコミットする。
+>
+> | 検証 | 状態 | 結果 |
+> |---|---|---|
+> | W1 小さな変更 | 実施済み（2026-11-09。gstack は未実施） | [report.html](results/workflow/W1/report.html) |
+
+
 | 週 | 期間 | 内容 | 成果物 |
 |---|---|---|---|
 | Week 1 | 11/16〜11/20 | `poc-app` 作成、正解データ・PR・課題文・定型回答シート・候補ごとの手順の作成、シナリオの重みの確定、gstack 専用環境の用意、プロファイル動作確認、ゲート G1・G2 の確認（gstack・Compound Engineering・Ponytail を含む） | `poc-app/`、`docs/poc/tasks/`、正解ブランチ |

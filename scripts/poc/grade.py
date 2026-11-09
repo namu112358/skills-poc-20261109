@@ -44,24 +44,22 @@ def transcript_stats():
     skills = set()
     subagents = 0
     final_text = []
+    # 注意: --resume で続けたステップの result に入る total_cost_usd / modelUsage は、セッションの累計になっている。
+    # そのため費用・トークンは全 result の最後（累計）を使い、ターン数はステップごとの最後の result を足す。
+    last_result = None
     for step in sorted(RAW.glob("step*.jsonl")):
+        step_last = None
         for line in step.open():
             try:
                 d = json.loads(line)
             except ValueError:
                 continue
             if d.get("type") == "result":
-                cost += d.get("total_cost_usd") or 0
-                u = d.get("usage") or {}
-                tokens["input"] += u.get("input_tokens", 0)
-                tokens["output"] += u.get("output_tokens", 0)
-                tokens["cache_read"] += u.get("cache_read_input_tokens", 0)
-                tokens["cache_creation"] += u.get("cache_creation_input_tokens", 0)
-                turns += d.get("num_turns") or 0
+                step_last = d
                 for den in d.get("permission_denials") or []:
-                    denials.append({"tool": den.get("tool_name"), "input": json.dumps(den.get("tool_input"), ensure_ascii=False)[:200]})
-                if d.get("result"):
-                    final_text.append(d["result"][-1500:])
+                    item = {"tool": den.get("tool_name"), "input": json.dumps(den.get("tool_input"), ensure_ascii=False)[:200]}
+                    if item not in denials:
+                        denials.append(item)
             if d.get("type") == "assistant":
                 for c in (d.get("message") or {}).get("content") or []:
                     if c.get("type") == "tool_use":
@@ -71,6 +69,18 @@ def transcript_stats():
                             skills.add((c.get("input") or {}).get("skill", "?"))
                         if name in ("Agent", "Task"):
                             subagents += 1
+        if step_last:
+            turns += step_last.get("num_turns") or 0
+            if step_last.get("result"):
+                final_text.append(step_last["result"][-1500:])
+            last_result = step_last
+    if last_result:
+        cost = last_result.get("total_cost_usd") or 0
+        for m in (last_result.get("modelUsage") or {}).values():
+            tokens["input"] += m.get("inputTokens", 0)
+            tokens["output"] += m.get("outputTokens", 0)
+            tokens["cache_read"] += m.get("cacheReadInputTokens", 0)
+            tokens["cache_creation"] += m.get("cacheCreationInputTokens", 0)
     return {
         "cost_usd": round(cost, 4),
         "tokens": tokens,
