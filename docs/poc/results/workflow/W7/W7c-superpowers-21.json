@@ -1,0 +1,205 @@
+{
+  "scenario": "W7c",
+  "trial": "W7c-superpowers-21",
+  "candidate": "superpowers",
+  "run": 21,
+  "elapsed_seconds": 167,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "W7b-superpowers-21",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "n_ms: 110.120673\n      type: 'test'\n      ...\n    # Subtest: rejects a missing task and a done task\n    ok 3 - rejects a missing task and a done task\n      ---\n      duration_ms: 111.418007\n      type: 'test'\n      ...\n    # Subtest: lets only the author delete, scoped to the task\n    ok 4 - lets only the author delete, scoped to the task\n      ---\n      duration_ms: 111.993689\n      type: 'test'\n      ...\n    # Subtest: allows deleting a worklog after its task became done\n    ok 5 - allows deleting a worklog after its task became done\n      ---\n      duration_ms: 110.342287\n      type: 'test'\n      ...\n    1..5\nok 23 - worklogs\n  ---\n  duration_ms: 586.431846\n  type: 'suite'\n  ...\n1..23\n# tests 52\n# suites 23\n# pass 52\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2709.789428\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "sks\n├ ƒ /api/tasks/[id]\n├ ƒ /api/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /api/tasks/[id]/completion\n├ ƒ /api/tasks/[id]/worklogs\n├ ƒ /api/tasks/[id]/worklogs/[worklogId]\n├ ƒ /login\n├ ƒ /my/worklogs\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:29591) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:29586) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:29584) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは 401",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "記録の無い日は空配列と合計 0（200）、date をそのまま返す",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "今日の自分の作業記録が古い順に返り、タスクの名前と合計が付く（ほかの人の記録は含まない）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ほかの人は自分の記録だけが見える",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "date が無い・形式が違う・存在しない日付は 400",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "画面に見出し・日付・記録（タスクへのリンク・作業時間・メモ）と合計が表示される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "記録の無い日の画面は「この日の作業記録はありません。」",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "日付が無い・正しくないときの画面は「日付を YYYY-MM-DD の形で指定してください。」",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "未ログインで画面を開くとログイン画面へ移動する",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] タスクの作業記録の API は今までどおり使える",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/api/me/worklogs/route.ts",
+        "added": 14,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/my/worklogs/page.tsx",
+        "added": 40,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/datetime.ts",
+        "added": 13,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/worklogs.ts",
+        "added": 25,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "tests/my-worklogs.test.ts",
+        "added": 59,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/me/worklogs/route.ts",
+      "src/app/my/worklogs/page.tsx",
+      "tests/my-worklogs.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "7a6255d GET /api/me/worklogs: date が複数指定されたときは 400 にする",
+      "c428434 自分の作業記録を日付ごとに見られる API と画面を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.5755,
+    "tokens": {
+      "input": 60,
+      "output": 16362,
+      "cache_read": 1568192,
+      "cache_creation": 70860
+    },
+    "turns": 34,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > tests/my-worklogs.test.ts <<'EOF'\\nimport { describe, it } from \\\"node:test\\\";\\nimport assert from \\\"node:assert/strict\\\";\\nimport { jstDayRange, parseDateParam } from \\\"../src/lib/"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat >> src/lib/datetime.ts <<'EOF'\\n\\n/** 日付の指定（YYYY-MM-DD）を検証する。形が違う、または存在しない日付なら undefined。 */\\nexport function parseDateParam(value: unknown): string | undefined {\\n  if (typeof value "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 npx next start -p 3917 >/tmp/claude-0/srv.log 2>&1 &) ; sleep 5; B=http://localhost:3917; J=/tmp/claude-0/cj\\ncurl -s -o /dev/null -w \\\"unauth %{http_code}\\\\n\\\" \\\"$B/api/me/wor"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sleep 4; B=http://localhost:3917; J=/tmp/claude-0/cj\\ncurl -s -o /dev/null -w \\\"unauth %{http_code}\\\\n\\\" \\\"$B/api/me/worklogs?date=2026-11-10\\\"\\ncurl -s -c $J -o /dev/null -H 'content-typ"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"curl -s -c /tmp/claude-0/cj -o /dev/null -H 'content-type: application/json' -d '{\\\"userId\\\":\\\"sato\\\",\\\"password\\\":\\\"password\\\"}' http://localhost:3917/api/login\\ncurl -s -b /tmp/claude-0"
+      }
+    ],
+    "tool_calls": {
+      "Skill": 3,
+      "Bash": 20,
+      "Write": 3,
+      "Read": 1,
+      "Edit": 4,
+      "TaskStop": 1,
+      "Agent": 1
+    },
+    "skills_used": [
+      "superpowers:brainstorming",
+      "superpowers:requesting-code-review",
+      "superpowers:test-driven-development"
+    ],
+    "subagents": 1,
+    "subagent_types": {
+      "general-purpose": 1
+    },
+    "questions": 0,
+    "active_seconds": 162,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "自分の作業記録を日付ごとに見られる API と画面を追加し、git にコミットしました(2 コミット)。`npm test` は 52 件すべて成功、`npm run typecheck` と `npm run build` も通っています。\n\n実機でも確認しました。API は未ログインで 401、`date` が無い・`2026-02-30` のときは 400 でした。画面は未ログインで `/login` に移動しました。ログイン中の記録は、UTC 11/09 16:07 に記録したものが JST の 2026-11-10 に表示され、2026-11-09 には出ません。サーバーは確認後に止めてあります。\n\n## 変更内容\n- **API**: `GET /api/me/worklogs?date=YYYY-MM-DD` を追加しました。\n- **画面**: `/my/worklogs` を追加しました。\n- **判断**: 「日付」は日本時間の暦日として扱います。保存は UTC なので、`src/lib/datetime.ts` に日本時間の 1 日を UTC の範囲に変換する処理を足し、`recorded_at >= ? AND recorded_at < ?` で絞り込みます。日本時間の 0:00 ちょうどは当日、翌日 0:00 は翌日に入ります。\n- **テスト**: `tests/my-worklogs.test.ts` に、日付の検証、日またぎの境界、並び順、他ユーザーの除外、記録が無い場合を追加しました。\n\n既存の作業記録のデータと API は変えていません。\n\n## 工程\n- **設計**: brainstorming に沿って、質問せずに私の判断で設計を決めました。\n- **実装**: TDD で、先にテストが失敗することを確認してから実装しました。\n- **レビュー**: レビュー用のサブエージェントに見てもらい、重大な指摘はありませんでした。\n- **反映した指摘**: `date` を複数指定すると API が先頭だけを使う点は、画面と同じく 400 にそろえました。\n\n## 残した点\nAPI ルートと画面そのものの自動テストは足していません。ロジックは `src/lib/` の関数のテストで確認し、ルートと画面は上の実機確認で見ています。"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": true,
+        "P2": true,
+        "P1_reasons": [],
+        "P2_failed": []
+      }
+    ],
+    "check_seconds": 5,
+    "auto_memory_disabled": true,
+    "control": false,
+    "memory": {
+      "in_app": [],
+      "in_home": []
+    },
+    "memory_reads": [
+      {
+        "step": "step1.jsonl",
+        "tool": "Agent",
+        "match": "CLAUDE.md",
+        "input": "{\"description\": \"Review worklogs-by-date change\", \"subagent_type\": \"general-purpose\", \"prompt\": \"You are a Senior Code Reviewer. Review the latest commit in /tmp/poc-trials/W7a-superpowers-21/app (rea"
+      }
+    ]
+  }
+}
