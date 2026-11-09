@@ -73,6 +73,8 @@ scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
 
 既存のファイルは上書きしません。`--with-check` を付けると、PR 本文の必須見出しを検証する GitHub Actions も配置します。
 
+**このリポジトリにも `--with-check` 付きで適用済み**です（`.github/`、`docs/github-writing.md`）。
+
 ## 比較検討中ツールの PoC
 
 計画書: [docs/poc/PLAN.md](docs/poc/PLAN.md)
