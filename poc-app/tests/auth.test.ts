@@ -21,6 +21,12 @@ describe("authenticate", () => {
     assert.equal(authenticate("sato", "wrong", db), undefined);
     assert.equal(authenticate("nobody", SEED_PASSWORD, db), undefined);
   });
+
+  it("rejects users without a password hash", () => {
+    const db = openDb();
+    db.prepare("UPDATE users SET password_hash = '' WHERE id = 'sato'").run();
+    for (const pw of ["", SEED_PASSWORD, "dummy-password-for-timing"]) assert.equal(authenticate("sato", pw, db), undefined);
+  });
 });
 
 describe("sessions", () => {

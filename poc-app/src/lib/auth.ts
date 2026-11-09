@@ -8,7 +8,8 @@ export const SESSION_COOKIE = "poc_session";
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // 存在しないユーザーでも同じ計算量でパスワードを照合し、応答時間からユーザーの有無を推測されないようにする。
-const DUMMY_HASH = hashPassword("dummy-password-for-timing");
+// ダミーのパスワードは起動ごとにランダムにし、推測で一致させられないようにする。
+const DUMMY_HASH = hashPassword(randomBytes(32).toString("hex"));
 
 /** ID とパスワードが正しければユーザーを返す。 */
 export function authenticate(userId: string, password: string, db: Db = getDb()): User | undefined {
@@ -16,7 +17,8 @@ export function authenticate(userId: string, password: string, db: Db = getDb())
     | { id: string; name: string; password_hash: string }
     | undefined;
   const ok = verifyPassword(password, row?.password_hash || DUMMY_HASH);
-  if (!row || !ok) return undefined;
+  // パスワード未設定（ハッシュが空）のユーザーはログインさせない。
+  if (!row || !row.password_hash || !ok) return undefined;
   return { id: row.id, name: row.name };
 }
 
