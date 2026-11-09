@@ -9,8 +9,8 @@
 | W | 状態 | 担当セッション | ブランチ | 次にやること |
 |---|---|---|---|---|
 | W1〜W7、W9 | 完了（main にマージ済み。W4 #30、W6 #29、W7 #25・#33、W9 #31） | — | — | なし（W7 の 5 段階への延長はユーザーの判断待ち。`W7/report.md` の「次の対応」） |
-| W8 | 試行中（採点済み: baseline-1・superpowers-1・gstack-1・CE-1（上限 $10 で途中停止）。W8 の対象は PLAN §5.1 のシナリオ表どおり 3 候補（Superpowers・CE・gstack）+ baseline。Feature Dev #1 は参考値として `W8/reference/` に置き、#2 は行わない。実行中: CE-2 → gstack-2 → superpowers-2） | session_019av74gE6n8bVet8JqQ3wCU | agent/poc-w8 | `W8/RESUME.md`（W8 のブランチ）。残りの試行 → 採点 → report → draft PR |
-| W10 | 試行中（採点済み: baseline-1・superpowers-1・feature-dev-1・gstack-1・CE-1。実行中: CE-2 → gstack-2 → feature-dev-2 → superpowers-2） | session_019av74gC8xeeLG4NtmcmNsP | agent/poc-w10 | `W10/RESUME.md`（W10 のブランチ）。残りの試行 → ブラインドレビュー → 採点 → report → draft PR |
+| W8 | 試行中（上限なし。採点済み: baseline・CE #2（$12.20、上限内扱いで完了）・gstack #2（上限なしでやり直し、実装まで到達）。実行中: SP #2 → 残り SP #1・gstack #1・CE #1 のやり直し。上限で止まった結果は `W8/capped/`。FD #1 は `W8/reference/`。draft PR #36） | session_019av74gE6n8bVet8JqQ3wCU | agent/poc-w8 | 残りの試行 → 採点 → report → PR #36 を Ready・自動マージ。16:18 UTC 時点で 7 日間の利用上限の警告（allowed_warning）が出ている |
+| W10 | 完了（#38 で main にマージ、2026-11-09 16:1x UTC。上限で止まった試行なし。品質 SP 89.8 > baseline 79.7 > CE 77.8 > gstack 76.4 > FD 73.0） | — | — | なし |
 | W11 | 設計案のみ（実在する OSS の解決済み課題。`docs/poc/tasks/wf-W11-design.md`） | session_01QR8ZDNZtzSVekzVB1b1Dux | claude/beautiful-davinci-yorkf8 | PLAN.md に加えるかはユーザーの判断待ち |
 
 PoC 以外: README のツール一覧の分類（PR #34、session_019av74iw5vC2m1g7LPjPZkz）はユーザーの回答待ち。
