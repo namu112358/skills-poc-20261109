@@ -16,12 +16,12 @@ PR #6 の新規プロジェクト用テンプレート（`templates/rulesets/mai
 | `non_fast_forward` | 有効 | force push（履歴の書き換え）を禁止する |
 | `required_linear_history` | 有効 | main の履歴を一直線に保つ（merge commit を入れない） |
 | `pull_request` | 承認 0 人、squash のみ | main への直接 push を禁止し、PR 経由に限る。未解決のレビューコメントがあるとマージできない |
-| `required_status_checks` | `check`（GitHub Actions）、strict 有効 | 「PR body check」ワークフローの成功を必須にする。strict を有効にすると、main を取り込み済みのブランチでなければマージできない（「Require branches to be up to date before merging」と同じ） |
+| `required_status_checks` | `pr-body-check`（GitHub Actions）、strict 有効 | 「PR body check」ワークフローの成功を必須にする。strict を有効にすると、main を取り込み済みのブランチでなければマージできない（「Require branches to be up to date before merging」と同じ） |
 | `bypass_actors` | なし | 例外にするユーザーはいない。オーナー本人も PR 経由でしか main を変更できない |
 
 補足:
 
-- 必須チェックの名前は、ワークフロー `.github/workflows/pr-body-check.yml` のジョブ ID `check` です。`integration_id: 15368` は GitHub Actions を指します。ワークフローのジョブ名を変えたら、この Ruleset も合わせて変えてください。
+- 必須チェックの名前は、ワークフロー `.github/workflows/pr-body-check.yml` のジョブの表示名 `pr-body-check` です。`integration_id: 15368` は GitHub Actions を指します。ジョブの名前を変えたら、この Ruleset も合わせて変えてください。
 - Draft の PR では、このチェックはスキップされます。Draft の PR はもともとマージできないので問題ありません。Ready for review にするとチェックが再実行されます。
 
 ## 判断が必要な点
@@ -42,13 +42,23 @@ PR #6 の新規プロジェクト用テンプレート（`templates/rulesets/mai
 
 strict（main の取り込み必須）だけでは、古い変更が diff に出ることは防げません。strict の効果は、取り込みを忘れたまま古い main を前提にマージしてしまうことを防ぐことです。
 
+### 必須チェックの名前が重なる場合
+
+必須チェックは、チェックの名前（ジョブの `name`。`name` がなければジョブ ID）と発行元（GitHub Actions）で照合されます。どのワークフローのチェックかは区別されません。
+
+- **名前が重なると何が起きるか:** たとえば poc-app 用の CI のジョブも `check` という名前だと、どちらのチェックが必須チェックとして扱われるのかが曖昧になります。片方が失敗しても、もう片方の成功でマージできてしまうおそれがあります。
+- **対策:** PR 本文チェックのジョブには `name: pr-body-check` を付け、この Ruleset でもその名前を指定しています。ほかのワークフローを追加するときも、ジョブに一意の `name` を付けてください（例: `poc-app-check`）。
+- **`paths` で起動を絞ったワークフローを必須にしてはいけない:** `on.pull_request.paths` に当てはまらない PR では、ワークフローが起動しません。そのため必須チェックの結果がいつまでも届かず、その PR はマージできなくなります。poc-app の CI を必須にしたい場合は、次のどちらかにしてください。
+  - `paths` を外して PR のたびに起動するようにし、変更されたファイルの判定はジョブの中で行う。関係のない PR では、何もせずに成功で終える
+  - `paths` を残したまま必須チェックに加えない（失敗すると赤く表示されるが、マージは止まらない）
+
 ## インポート手順
 
 1. リポジトリの **Settings → Rules → Rulesets** を開く
 2. **New ruleset → Import a ruleset** を選び、`skills-poc-main.json` を選択する
-3. 表示された内容を確認する。特に **Require status checks to pass** の `check` の発行元が GitHub Actions になっているか見る
+3. 表示された内容を確認する。特に **Require status checks to pass** の `pr-body-check` の発行元が GitHub Actions になっているか見る
 4. **Create** を押す
-5. 確認: main に直接 push すると拒否されること、テスト用の PR で `check` が必須と表示されることを確かめる
+5. 確認: main に直接 push すると拒否されること、テスト用の PR で `pr-body-check` が必須と表示されることを確かめる
 
 あわせて **Settings → General → Pull Requests** で「Allow squash merging」だけを有効にし、「Automatically delete head branches」も有効にしておくと、Ruleset の設定と矛盾しません。
 
