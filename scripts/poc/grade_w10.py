@@ -282,8 +282,44 @@ def validate(app, base):
         print(f"mutation {m['killed']}/{m['mutants']} base_pass={m['baseline_tests_pass']}", file=sys.stderr)
 
 
+def recount(raw):
+    """ターン数・実際に動いた時間を、各ステップの result をすべて足して数え直す。
+
+    grade.py はステップごとに最後の result だけを数える。子セッションが裏で待機用の監視などを起動すると、
+    その終了通知のたびに 1 ステップの中に result が増える（W10 の Feature Dev で、最後の result が 1 ターン・4 秒だった）。
+    各 result の num_turns・duration_ms はその応答の分なので、すべて足すと全体になる。費用は累計なので数え直さない。
+    """
+    turns = ms = 0
+    for step in raw.glob("step*.jsonl"):
+        for line in step.open():
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if d.get("type") == "result":
+                turns += d.get("num_turns") or 0
+                ms += d.get("duration_ms") or 0
+    return turns, round(ms / 1000)
+
+
+def apply_recount(out_path, raw):
+    r = json.loads(out_path.read_text())
+    turns, active = recount(raw)
+    tr = r["transcript"]
+    tr["turns_last_result_only"], tr["active_seconds_last_result_only"] = tr["turns"], tr["active_seconds"]
+    tr["turns"], tr["active_seconds"] = turns, active
+    out_path.write_text(json.dumps(r, ensure_ascii=False, indent=2) + "\n")
+
+
 def main():
     args = sys.argv[1:]
+    if args and args[0] == "--recount":
+        # 採点済みの結果のターン数・時間だけを数え直す（採点はやり直さない）
+        for p in sorted((ROOT / "docs" / "poc" / "results" / "workflow" / "W10").glob("W10-*.json")):
+            if "turns_last_result_only" not in json.loads(p.read_text())["transcript"]:
+                apply_recount(p, ROOT / "docs" / "poc" / "results" / "workflow" / "raw" / p.stem)
+                print("recounted", p.stem)
+        return
     if args and args[0] == "--app":
         base = args[args.index("--base") + 1] if "--base" in args else None
         validate(args[1], base)
@@ -302,7 +338,8 @@ def main():
     w10["tests_changed"] = [f["path"] for f in result["diff"]["files"] if f["kind"] == "test"]
     result["w10"] = w10
     grade.OUT.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
-    hp = sum(1 for r in w10["hidden"] if r["pass"])
+    apply_recount(grade.OUT, grade.RAW)
+    hp =sum(1 for r in w10["hidden"] if r["pass"])
     m = w10["mutation"]
     print(f"{trial}: hidden {hp}/{len(w10['hidden'])} "
           f"{''.join('o' if r['pass'] else 'x' for r in w10['hidden'])} mutation {m['killed']}/{m['mutants']} "
