@@ -1,0 +1,262 @@
+{
+  "scenario": "W7a",
+  "trial": "W7a-gstack-22",
+  "candidate": "gstack",
+  "run": 22,
+  "elapsed_seconds": 313,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "type: 'test'\n      ...\n    1..4\nok 14 - validateTaskInput\n  ---\n  duration_ms: 1051.971855\n  type: 'suite'\n  ...\n# Subtest: createTask / updateTask\n    # Subtest: creates a task and updates only the given fields\n    ok 1 - creates a task and updates only the given fields\n      ---\n      duration_ms: 125.372973\n      type: 'test'\n      ...\n    1..1\nok 15 - createTask / updateTask\n  ---\n  duration_ms: 125.617202\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.278884\n      type: 'test'\n      ...\n    1..1\nok 16 - isTaskStatus\n  ---\n  duration_ms: 0.428996\n  type: 'suite'\n  ...\n1..16\n# tests 28\n# suites 16\n# pass 28\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2319.365212\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "oute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/me\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /api/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /api/tasks/[id]/completion\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:28235) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:28236) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:28229) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは GET・POST・DELETE とも 401",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告の無いタスクは { completion: null }（200）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "担当者が完了報告すると 201 で完了報告が返り、メモは前後の空白を除く",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告するとタスクのステータスが完了（done）になり、GET で同じ完了報告が返る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "すでに完了のタスクへの完了報告は 409（完了報告済み・初期データで完了の両方）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "担当者以外の完了報告は 403 で、ステータスは変わらない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "存在しないタスク・不正な ID は 404",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "メモが 500 文字を超える・文字列でない・本文がオブジェクトでないときは 400 で、ステータスは変わらない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "メモは省略でき（空文字）、500 文字ちょうどは受け付ける",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "詳細画面に「完了報告」と完了した人の名前・メモが表示される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告の無いタスクの詳細画面には完了報告を表示しない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告をした本人以外の取り消しは 403",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "本人が取り消すと 204 で、完了報告が消え、ステータスは進行中（in_progress）に戻る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告の無いタスクの取り消しは 409",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "取り消した後は、もう一度完了報告できる",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] タスクの更新（PATCH）とコメントは今までどおり使える",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/api/tasks/[id]/completion/route.ts",
+        "added": 35,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/tasks/[id]/page.tsx",
+        "added": 16,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/completions.ts",
+        "added": 91,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/db/migrations.ts",
+        "added": 12,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "tests/completions.test.ts",
+        "added": 58,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/tasks/[id]/completion/route.ts",
+      "src/lib/completions.ts",
+      "tests/completions.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "13e61d1 タスクの完了報告を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 2.6482,
+    "tokens": {
+      "input": 138,
+      "output": 41108,
+      "cache_read": 4472691,
+      "cache_creation": 605771
+    },
+    "turns": 28,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W7a-gstack-22/app/src && cat lib/errors.ts lib/comments.ts lib/tasks.ts lib/users.ts lib/datetime.ts \\\"app/api/tasks/[id]/comments/route.ts\\\" \\\"app/api/tasks/[id]/comme"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd src && cat lib/errors.ts lib/comments.ts lib/tasks.ts lib/users.ts lib/datetime.ts \\\"app/api/tasks/[id]/comments/route.ts\\\" \\\"app/api/tasks/[id]/comments/[commentId]/route.ts\\\" \\\"app/a"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for f in src/lib/errors.ts src/lib/comments.ts src/lib/tasks.ts src/lib/users.ts src/lib/datetime.ts \\\"src/app/api/tasks/[id]/comments/route.ts\\\" \\\"src/app/api/tasks/[id]/comments/[commen"
+      },
+      {
+        "tool": "Skill",
+        "input": "{\"skill\": \"verify\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 npm start >/tmp/claude-0/srv.log 2>&1 &) ; sleep 4\\nB=http://localhost:3917\\nlogin(){ curl -s -c /tmp/claude-0/$1.jar -H 'content-type: application/json' -d \\\"{\\\\\\\"username\\\\\\\""
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 npm start >/dev/null 2>&1 &) ; sleep 4; bash /tmp/claude-0/-tmp-poc-trials-W7a-gstack-22-app/92531e53-1544-4a81-a437-66f05bc7ad7c/scratchpad/e2e.sh; pkill -f \\\"next start\\\"; tr"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"PORT=3917 nohup npm start > /dev/null 2>&1 &\\nsleep 5; echo started\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm start --prefix /tmp/poc-trials/W7a-gstack-22/app -- -p 3917\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npx --prefix /tmp/poc-trials/W7a-gstack-22/app next start /tmp/poc-trials/W7a-gstack-22/app -p 3917\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Skill",
+        "input": "{\"skill\": \"review\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 43,
+      "Read": 29,
+      "Edit": 5,
+      "Write": 4,
+      "Skill": 2,
+      "Agent": 11,
+      "ReadNotifications": 1
+    },
+    "skills_used": [
+      "review",
+      "verify"
+    ],
+    "subagents": 11,
+    "subagent_types": {
+      "general-purpose": 11
+    },
+    "questions": 0,
+    "active_seconds": 184,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "a-migration、api-contract、design、simplification）は指摘なしです。simplification は「cut なし」でした。\n- Red Team（差分が 200 行超のため起動）が 3 件、敵対的レビューが 7 件を挙げました。\n- 判断で外したもの: キャンセル時に `in_progress` へ戻る点と、空本文の POST が 400 になる点は、どちらも仕様どおりなので外しました。PATCH 経由で `done` にできてしまう点は、仕様が「PATCH は変えない」と定めているため、指摘から外しました。\n\n**NEEDS INPUT（情報レベル、未対応）**\n- `[INFORMATIONAL] (confidence: 7/10) src/lib/completions.ts:66` — PATCH で `done` から戻されたタスクには完了報告の行が残ります。この状態で POST すると、`done` ではないのに 409 になります。担当者が完了報告できなくなり、解除できるのは完了した本人だけです。仕様が「PATCH は変えない」としているので、そのままにしています。直すなら、古い行を置き換えるか、409 のメッセージを分けます。\n- `[INFORMATIONAL] (confidence: 5/10) src/lib/completions.ts:62` — 複数プロセスで同じ DB ファイルを使うと、同時 POST の負け側が 409 ではなく 500 になります。単一プロセスでは起きません。\n- `[INFORMATIONAL] (confidence: 6/10) tests/completions.test.ts:27` — 判定順の確認が足りません。担当者でない人が完了済みタスクを報告する場合と、`done` だが完了報告の無いシードタスクを取り消す場合を足せます（2 行ずつ）。\n- `[INFORMATIONAL] (confidence: 6/10) route.ts` — ルート単体のテスト（401 / 404 / 400）がありません。`cookies()` が必要なためで、ロジックは `completions.ts` 側でテスト済みです。\n- `[INFORMATIONAL] (confidence: 4/10) completions.ts:21` — メモの長さを UTF-16 単位で数えるので、絵文字は 2 文字扱いです。コメントの上限と同じ扱いです。\n\n**ドキュメント:** `CLAUDE.md` の API 一覧に `/completion` が載っていません。依頼範囲外なので触っていません。必要なら `/document-release` で対応できます。\n\n**Gate edits:** none detected（1 件を一覧、うち読んだものは 0、unmatched 4）\n\n**QA と検証**\n- 型チェックと `npm test`（28 件）は通過しました。これは単体テストによる確認です。\n- サーバー起動が承認待ちになり、HTTP の確認は未実施です（ブロック）。Next の Route と画面の実動作は確認できていません。\n\n**外部レビュー:** Codex は未導入のため利用不可です。Claude の敵対的レビューは完了しました。\n\nテスト追加などを反映する場合は指示してください。編集すると、レビューをもう一度通し直す必要があります。"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": true,
+        "P2": true,
+        "P1_reasons": [],
+        "P2_failed": []
+      }
+    ],
+    "check_seconds": 5,
+    "auto_memory_disabled": true,
+    "control": false,
+    "memory": {
+      "in_app": [],
+      "in_home": [
+        ".gstack/.activated",
+        ".gstack/.completeness-intro-seen",
+        ".gstack/.feature-prompted-model-overlay",
+        ".gstack/.gbrain-local-status-cache.json",
+        ".gstack/.last-setup-version",
+        ".gstack/.welcome-seen",
+        ".gstack/config.yaml",
+        ".gstack/gbrain-detection.json",
+        ".gstack/installs.tsv",
+        ".gstack/projects/app/gate-diff/7458c3e5a244+a7aa8a69ca9b.jsonl",
+        ".gstack/projects/app/poc-wf-gstack-W7a-22-reviews.jsonl",
+        ".gstack/projects/app/timeline.jsonl",
+        ".gstack/sessions/25560",
+        ".gstack/slug-cache/_tmp_poc-trials_W7a-gstack-22_app",
+        ".gstack/slug-cache/_tmp_poc-trials_W7a-gstack-22_app_.git"
+      ]
+    },
+    "injected_patch": "a5dd7b7a25fd46b9f24dd3a076d8ea7127d68b9c42535e2b0a0e9bf3e03df28e  docs/poc/answer-key/W7/base.patch"
+  }
+}
