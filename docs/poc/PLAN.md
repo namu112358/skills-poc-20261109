@@ -184,7 +184,7 @@ W9・W10 は、W1〜W8 の受け入れテストがほぼ全員満点で品質の
 | W9 | 再現率 40 + 適合率 25 + 具体性 20 | 85 |
 | W10 | 公開の受け入れテスト 25 + 隠しテスト 40 + テストの強さ 20 + ブラインドレビュー 15 | 100 |
 
-**効率（100 点）**: 費用 50 + 時間 30 + 介入 20。その W に介入の仕組み（定型の「お任せします」で続けさせる）が無ければ 費用 60 + 時間 40（W1 が該当）。
+**効率（100 点）**: 費用 50 + 時間 30 + 介入 20。その W に介入の仕組み（定型の「お任せします」で続けさせる）が無ければ 費用 60 + 時間 40（W1 と、介入しないシナリオの W8 が該当）。
 
 - 費用・時間は最安比ではなく、その W の **baseline の実額（費用）・壁時計の時間** を基準にした倍率の段階で付ける: 基準の 2 倍以下 = 満点、3 倍以下 = 80%、5 倍以下 = 60%、10 倍以下 = 30%、10 倍超 = 0。baseline が 2 回以上あれば平均を基準にする。
 - W7 は W7b の費用・時間で計算する（W7a 比は参考値）。W3 の費用は候補のセッションの費用だけで、回答役の費用は含めない。
@@ -242,7 +242,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 | W4 | 通常の指示 | `/feature-dev` | `/autoplan` → 実装 → `/review` | `/ce-plan` → `/ce-work` → `/ce-code-review` |
 | W5 | 通常の指示（`systematic-debugging` の発火） | 通常の指示 | `/qa` | `/ce-debug` |
 | W6 | 通常の指示 → `finishing-a-development-branch` | `/feature-dev` → PR 作成の指示 | 実装 → `/qa` → `/ship` | `/ce-work` → `/ce-test-browser` → `/ce-commit-push-pr` |
-| W8 | `writing-plans` → `subagent-driven-development` | `/feature-dev` | `/autoplan` → `/ship` | `/ce-brainstorm` → `/lfg` |
+| W8 | `writing-plans` → `subagent-driven-development` | （対象外。参考値 1 回は `/feature-dev`） | `/autoplan` → `/ship` | `/ce-brainstorm` → `/lfg` |
 | W9 | `requesting-code-review` | code-reviewer エージェント（レビュー用のコマンドが無いため、エージェントを使うよう指示する） | `/review` | `/ce-code-review` |
 | W10 | 通常の指示（Skill の自動発火） | `/feature-dev <課題文>` | 実装の指示 → `/review` | `/ce-plan` → `/ce-work` → `/ce-code-review` |
 
@@ -255,6 +255,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 5. トランスクリプト、`/cost`、差分統計、各候補が作った成果物の一覧を `docs/poc/results/workflow/` に保存する。
 
 試行数: 10 シナリオ × 4 候補 × 2 回 = 80 回（W7 は W7a・W7b で 1 回と数える）+ `baseline` 10 シナリオ × 1 回 = 合計 90 回（うち W9・W10 の 18 回は 2026-11-09 の追加分）。実行者 2 名で Week 2（W1〜W4）と Week 3（W5〜W8）に分けて行い、W9・W10 は準備ができ次第行う。
+ただし W8 は Feature Dev を対象外とする（上のシナリオ表のとおり 3 候補 × 2 回 + `baseline`。Feature Dev は参考値 1 回）。W8 は 1 試行の費用の上限を設けない（ユーザー指示 2026-11-09。ほかの W は「規模係数 × W1 の候補平均 × 5、最大 $10」）。
 
 ### 5.2 セキュリティ監査（Week 4 前半）
 
@@ -343,7 +344,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 > | W5 バグ修正 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W5/report.md)・[report.html](results/workflow/W5/report.html) |
 > | W6 UI 実装からブラウザ検証・PR 作成まで | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W6/report.md)・[report.html](results/workflow/W6/report.html) |
 > | W7 続けて行う作業での学習効果 | 完了（2026-11-09。4 候補 × 2 回 + baseline、W7a → W7b の 2 段階。対照 4 本） | [report.md](results/workflow/W7/report.md)・[report.html](results/workflow/W7/report.html) |
-> | W8 人の介入なしでの自律実行 | 未着手 | — |
+> | W8 人の介入なしでの自律実行 | 完了（2026-11-09。3 候補 × 2 回 + baseline。Feature Dev は対象外で参考値 1 回。費用の上限なし） | [report.md](results/workflow/W8/report.md)・[report.html](results/workflow/W8/report.html) |
 > | W9 レビューで不具合を見つける | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W9/report.md)・[report.html](results/workflow/W9/report.html) |
 > | W10 仕様に書かれていない落とし穴がある機能追加 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W10/report.md)・[report.html](results/workflow/W10/report.html) |
 >
