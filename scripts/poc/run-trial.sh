@@ -98,9 +98,22 @@ if [[ "$SCENARIO" == W3 ]]; then
 
 この作業は無人で実行しています。質問には、依頼者の代わりに定型の回答シートから答えます（シートに無いことは「お任せします」と答えます）。"
 else
+  # 末尾の定型文（2026-11-09 変更）。旧文言では Feature Dev が「無人のため」と調査・設計・レビューの工程を省いたため、
+  # W4 以降は工程を省かないよう明記した新文言にする。W1・W2 は再現性のため旧文言が既定。
+  # POC_TASK_SUFFIX=old|new で明示的に切り替えられる（W1・W2 の新文言での再試行など）。
+  SUFFIX_MODE="${POC_TASK_SUFFIX:-}"
+  if [[ -z "$SUFFIX_MODE" ]]; then
+    case "$SCENARIO" in W1|W2) SUFFIX_MODE=old ;; *) SUFFIX_MODE=new ;; esac
+  fi
+  case "$SUFFIX_MODE" in
+    old) SUFFIX="この作業は無人で実行しています。確認の質問には答えられないので、課題文に書かれていないことはお任せします。作業が終わったら、変更内容を git にコミットしてください。" ;;
+    new) SUFFIX="この作業は無人で実行しています。確認の質問には答えられないので、課題文に書かれていないことの判断はお任せしますが、ツールの手順にある工程（調査・設計・レビューなど）は省かずに進めてください。作業が終わったら、変更内容を git にコミットしてください。" ;;
+    *) echo "POC_TASK_SUFFIX は old か new: $SUFFIX_MODE" >&2; exit 1 ;;
+  esac
+  echo "$SUFFIX_MODE" > "$OUT/task-suffix"
   TASK="$(cat "$ROOT/docs/poc/tasks/wf-$SCENARIO.md")
 
-この作業は無人で実行しています。確認の質問には答えられないので、課題文に書かれていないことはお任せします。作業が終わったら、変更内容を git にコミットしてください。"
+$SUFFIX"
 fi
 EXTRA=()
 if [[ "$SCENARIO" == W3 ]]; then
