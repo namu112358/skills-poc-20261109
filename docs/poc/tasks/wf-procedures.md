@@ -69,6 +69,15 @@
 - Compound Engineering の `/ce-compound` は、W7a の指摘のやり取りが終わった後に行う（手順の一部で、介入に数えない）。
 - 課題文の末尾は新文言（既定）。介入の定型文は W2 と同じ。採点は `scripts/poc/grade_w7.py`（`docs/poc/answer-key/W7/grading.md`）。W7a は W7b を始める前に採点し、作業用コピーは W7b の採点が済んでから `grade.py W7a <W7a の試行 ID> --cleanup-only` で片付ける。
 
+### W11 の決まり（実在する OSS の解決済み課題。2026-11-09 追加）
+
+- 設計・課題の一覧は [wf-W11-design.md](wf-W11-design.md)。課題の定義は `scripts/poc/oss/tasks.json`、課題文は `wf-W11-<課題ID>.md`（シナリオ名は `W11-<課題ID>`、試行 ID は `W11-<課題ID>-<候補>-<回>`）。
+- 準備: `python3 scripts/poc/oss/oss.py prepare <課題ID>` が、本家の修正の 1 つ前のソースを履歴なしで `/tmp/poc-oss/<課題ID>/template` に取り出し（node の課題は依存も入れる）、隠しテストの F2P・P2P を `docs/poc/answer-key/W11/<課題ID>.json` に書く。
+- `run-trial.sh` は初期状態を作業用コピーへ写し（node_modules はハードリンク）、python の課題は作業領域の `venv` に環境を作って子セッションの `PATH` に入れる。本家の履歴・修正後のコード・隠しテストは作業用コピーに置かない。
+- 手順: 不具合（`B*`）は W5、機能（`F*`）は W2 と同じ入口。課題文の末尾は新文言、費用の上限は watch（1 試行 $10）、介入は最大 2 回。
+- 子セッションの許可リスト: `curl` と `npx next` を外し、課題のテストと再現用のスクリプトの実行（`python`・`pytest`・`node`・`npx vitest`・`npx tsx`・`npx tsc`・`pnpm test` など）を足す（2026-11-09 ユーザー承認）。依存のインストールは許可しない。開発サーバー・ブラウザの許可は足さない。
+- 採点: `python3 scripts/poc/grade_w11.py <試行ID>`（隠しテストを作業後のコードに上書きして実行し、終わったら取り除く）。外部サイト・依存のインストール・公開版のパッケージのソースへの参照は `isolation_suspects` として記録する。集計は `scripts/poc/report_w11.py`。まとめて流すときは `scripts/poc/oss/run_all.sh <試行ID>...`。
+
 ## 権限
 
 子セッションは `acceptEdits`（ファイル編集は許可）で起動し、Bash は次のコマンドだけを許可する。それ以外は自動で拒否され、拒否された操作は `permission_denials` として記録される。
@@ -76,6 +85,7 @@
 - `npm run typecheck` / `npm test` / `npm run build`
 - `git status` / `git diff` / `git log` / `git show` / `git add` / `git commit`
 - `ls` / `cat` / `grep` などの読み取り系
+- W11 は上の「W11 の決まり」のとおり（`curl` なし、テストと再現用のスクリプトの実行あり）。
 - W6 以降だけ（2026-11-09 追加）: 開発サーバーの起動（`npm run dev` / `npm run start` / `npx next dev` / `npx next start`。`timeout` を付けた形も可）、Playwright MCP と Next.js DevTools MCP のツール、gstack の browse（`~/.claude/skills/gstack/browse/dist/`）。gstack のブラウザは Chrome for Testing を取得できないため、環境変数 `GSTACK_CHROMIUM_PATH` で事前インストール済みの Chromium（`/opt/pw-browsers/chromium`）を使わせる。子セッションが起動したサーバー・ブラウザは、結果が出た 30 秒後と試行の終了時に止める。W1〜W5 の許可リストは変えていない。
 
 ## gstack の導入（試行ごと）
