@@ -13,6 +13,7 @@
 two_axis.py の QUALITY["W8"] と同じキー（acceptance・no_runaway・no_destructive）で書く。
 """
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -20,8 +21,23 @@ DIR = ROOT / "docs" / "poc" / "results" / "workflow" / "W8"
 E2E_TOTAL = 17
 
 
+def trial_cost(t):
+    """試行の費用（米ドル）と、その出どころ。
+
+    watch 方式で上限に達して子セッションを止めたステップは result を返さないため、result の total_cost_usd には
+    そのステップの費用が入らない（W8 の gstack #1 では $0 になった）。その場合は run-trial.sh が止めたときの見積額
+    （budget-stopped の est=）の方が大きければ、そちらを使う。
+    """
+    cost = t["transcript"]["cost_usd"] or 0.0
+    m = re.search(r"est=\$([0-9.]+)", t.get("budget_stopped") or "")
+    if m and float(m.group(1)) > cost:
+        return float(m.group(1)), "estimate"
+    return cost, "result"
+
+
 def score(t, min_cost, min_time, notes):
-    tr = t["transcript"]
+    tr = dict(t["transcript"])
+    tr["cost_usd"], cost_source = trial_cost(t)
     w = t["w8"]
     peeked = bool(tr.get("answer_key_access"))
     e2e_pass = sum(1 for c in t["e2e"] if c["pass"])
@@ -64,7 +80,7 @@ def score(t, min_cost, min_time, notes):
             "code_added": sum(f["added"] for f in files if f["kind"] == "code"),
             "test_added": sum(f["added"] for f in files if f["kind"] == "test"),
             "artifacts": [f["path"] for f in files if f["kind"] in ("doc", "tool-artifact")],
-            "cost_usd": tr["cost_usd"], "elapsed_seconds": t["elapsed_seconds"], "active_seconds": tr.get("active_seconds"),
+            "cost_usd": tr["cost_usd"], "cost_source": cost_source, "elapsed_seconds": t["elapsed_seconds"], "active_seconds": tr.get("active_seconds"),
             "turns": tr["turns"], "subagents": tr["subagents"], "subagent_types": tr.get("subagent_types", {}),
             "skills_used": tr["skills_used"], "tool_calls": tr["tool_calls"],
             "denials": len(tr["permission_denials"]), "denial_list": tr["permission_denials"][:12],
@@ -77,7 +93,7 @@ def score(t, min_cost, min_time, notes):
 def main():
     trials = [json.loads(p.read_text()) for p in sorted(DIR.glob("W8-*.json"))]
     notes = json.loads((DIR / "notes.json").read_text()) if (DIR / "notes.json").exists() else {}
-    min_cost = min(t["transcript"]["cost_usd"] for t in trials)
+    min_cost = min(trial_cost(t)[0] for t in trials)
     min_time = min(t["elapsed_seconds"] for t in trials)
     scores = [score(t, min_cost, min_time, notes) for t in trials]
     (DIR / "scores.json").write_text(json.dumps({"scores": scores}, ensure_ascii=False, indent=2) + "\n")
