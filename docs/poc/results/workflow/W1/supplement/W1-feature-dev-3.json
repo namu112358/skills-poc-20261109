@@ -1,0 +1,118 @@
+{
+  "scenario": "W1",
+  "trial": "W1-feature-dev-3",
+  "candidate": "feature-dev",
+  "run": 3,
+  "elapsed_seconds": 75,
+  "errors": "",
+  "interventions": 0,
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "gnees\n    ok 1 - returns unique assignees\n      ---\n      duration_ms: 0.111943\n      type: 'test'\n      ...\n    1..1\nok 2 - listAssignees\n  ---\n  duration_ms: 0.195583\n  type: 'suite'\n  ...\n# Subtest: isAssignee\n    # Subtest: accepts known assignees only\n    ok 1 - accepts known assignees only\n      ---\n      duration_ms: 0.152746\n      type: 'test'\n      ...\n    1..1\nok 3 - isAssignee\n  ---\n  duration_ms: 0.412496\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.163519\n      type: 'test'\n      ...\n    1..1\nok 4 - isTaskStatus\n  ---\n  duration_ms: 0.258197\n  type: 'suite'\n  ...\n1..4\n# tests 7\n# suites 4\n# pass 7\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 96.874589\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 build\n> next build\n\n▲ Next.js 16.4.3 (Turbopack)\n✓ Running next.config.ts took 21ms\n\n  Creating an optimized production build ...\n✓ Compiled successfully in 1817ms\n  Running TypeScript ...\n  Finished TypeScript in 381ms ...\n  Collecting page data using 3 workers ...\n  Generating static pages using 3 workers (0/4) ...\n  Generating static pages using 3 workers (1/4) \n  Generating static pages using 3 workers (2/4) \n  Generating static pages using 3 workers (3/4) \n✓ Generating static pages using 3 workers (4/4) in 109ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ○ /\n├ ○ /_not-found\n└ ƒ /tasks\n\n\n○  (Static)   prerendered as static content\nƒ  (Dynamic)  server-rendered on demand\n\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "担当者で絞り込める（?assignee=sato → 3 件、全件 sato）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ステータスと担当者を同時に指定できる（sato + todo → 1 件）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "存在しない担当者は指定なしとして扱う（→ 7 件）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "選択欄 select[name=assignee] に「すべて」と担当者 3 名（重複なし）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "画面から担当者を選んで送信すると URL と一覧が変わる（tanaka → 2 件）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "既存の動作が壊れていない（指定なし 7 件、status=done 2 件、担当者の選択状態が保持される）",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/tasks/page.tsx",
+        "added": 22,
+        "deleted": 3,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/tasks.ts",
+        "added": 14,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "tests/tasks.test.ts",
+        "added": 27,
+        "deleted": 1,
+        "kind": "test"
+      }
+    ],
+    "new_files": [],
+    "package_json_changed": false,
+    "commits": [
+      "717f58b タスク一覧に担当者での絞り込みフィルタを追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.2865,
+    "tokens": {
+      "input": 36,
+      "output": 8284,
+      "cache_read": 640268,
+      "cache_creation": 39151
+    },
+    "turns": 3,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/tasks.ts'\\ns=open(p).read()\\ns=s.replace('''export type TaskFilter = {\\n  status?: TaskStatus;\\n};\\n\\nexport function listTasks(filter: TaskFilter = {}): Tas"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5,
+      "Agent": 2,
+      "Read": 6,
+      "ReadNotifications": 1,
+      "Edit": 7,
+      "Grep": 1,
+      "Glob": 1
+    },
+    "skills_used": [],
+    "subagents": 2,
+    "subagent_types": {
+      "feature-dev:code-architect": 1,
+      "feature-dev:code-reviewer": 1
+    },
+    "questions": 0,
+    "active_seconds": 13,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`/tasks` に担当者フィルタを追加し、コミットしました（717f58b）。`npm run typecheck` と `npm test`（7 件）は通りました。`npm run build` と、実際のブラウザでの表示確認は行っていません。\n\n- **フォーム**: ステータスと同じフォームに `<select name=\"assignee\">` を追加しました。選択肢は「すべて」と、タスクに登場する担当者（`sato` / `suzuki` / `tanaka`、重複なし）です。\n- **絞り込み**: `?assignee=<ID>` で絞り込めます。ステータスと同時に指定した場合は、両方を満たすタスクだけを表示します。\n- **不正な値**: 存在しない担当者や配列の指定は「指定なし」として扱います。\n- **担当者の表示名**: データに担当者の名前がなく ID（`sato` など）だけなので、選択肢にはその ID をそのまま表示しています。\n- **コードの置き場所**: 抽出と検証の処理は `src/lib/tasks.ts` に置き、`src/app/tasks/page.tsx` は表示だけにしました。\n- **テスト**: `tests/tasks.test.ts` に、担当者のみ、ステータスとの AND、重複排除、型ガード（配列入力を含む）のテストを追加しました。\n\n進め方は次のとおりです。探索は小さなコードベースを自分で読み切り、エージェントは使いませんでした。設計は `code-architect` に最小変更案を出させ、無人実行の指定があったので確認なしで採用しました。レビューは `code-reviewer` 1 つで行い、確度の高い指摘はありませんでした。補足の配列入力テストは追加しました。予算の都合で、規約どおりの 2〜3 体並列にはしていません。"
+  }
+}
