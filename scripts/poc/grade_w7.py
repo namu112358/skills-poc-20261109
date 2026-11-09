@@ -61,8 +61,10 @@ def memory():
         elif p.is_dir():
             for f in sorted(p.rglob("*")):
                 rel = str(f.relative_to(home))
-                # セッションの記録（再開用の .jsonl）は新しいセッションに読み込まれないので除く
-                if f.is_file() and not rel.endswith(".jsonl") and "/analytics/" not in rel:
+                # Claude Code のセッションの記録（再開用の .jsonl、サブエージェントの記録）は新しいセッションに読み込まれないので除く。
+                # 候補の学習データ（gstack の learnings.jsonl など）は残す
+                session = rel.startswith(".claude/projects/") and "/memory/" not in rel
+                if f.is_file() and not session and "/analytics/" not in rel:
                     in_home.append(rel)
     return {"in_app": in_app, "in_home": in_home[:200]}
 

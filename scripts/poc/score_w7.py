@@ -21,6 +21,7 @@ W7/scores.json に書き出す。
   control:     前の段階を引き継がない対照（W7b を新しい作業用コピー + W7a の参照実装で実行。run-trial.sh の POC_W7_CONTROL=1）
 """
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,6 +46,13 @@ def e2e(t):
     return sum(1 for c in t["e2e"] if c["pass"]), len(t["e2e"])
 
 
+def cost(t):
+    """費用。watch の上限で止めたステップの費用は result に入らないため、止めたときは見積額（budget_stopped）との大きい方を使う。"""
+    c = t["transcript"]["cost_usd"]
+    m = re.search(r"est=\$([0-9.]+)", t.get("budget_stopped") or "")
+    return max(c, float(m.group(1))) if m else c
+
+
 def half_facts(t):
     tr = t["transcript"]
     files = t["diff"]["files"]
@@ -54,7 +62,7 @@ def half_facts(t):
         "checks": {k: t["checks"][k]["pass"] for k in ("typecheck", "test", "build")},
         "pitfalls_first": first_pitfalls(t), "pitfalls_final": final_pitfalls(t),
         "nudges": t.get("interventions", 0), "feedback": t.get("feedback_rounds", 0),
-        "cost_usd": tr["cost_usd"], "elapsed_seconds": t["elapsed_seconds"], "active_seconds": tr.get("active_seconds"),
+        "cost_usd": round(cost(t), 4), "cost_usd_result": tr["cost_usd"], "elapsed_seconds": t["elapsed_seconds"], "active_seconds": tr.get("active_seconds"),
         "check_seconds": t["w7"].get("check_seconds", 0),
         "turns": tr["turns"], "subagents": tr["subagents"], "skills_used": tr["skills_used"], "questions": tr.get("questions", 0),
         "denials": len(tr["permission_denials"]), "commits": len(t["diff"]["commits"]),
