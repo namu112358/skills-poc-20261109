@@ -12,7 +12,7 @@
 | W4 | 試行中に停止（完了: baseline-1・superpowers-1・feature-dev-1・gstack-1・CE-1（flag）・CE-2（watch）。止めた: gstack-2。残り: gstack-2・feature-dev-2・superpowers-2（watch）） | session_01BDZ8Pk6ruHYwYEabNVG5Uu | agent/poc-w4 | `W4/RESUME.md`（W4 のブランチ）を読んで残りの試行 → 採点 → report（2 本立てを主表示）→ PR |
 | W5 | 完了（#23。2 本立て #27） | — | — | なし |
 | W6 | 試行中に停止（9 本中 8 本採点済み。止めた: CE#2 のやり直し） | session_01BDZ8PoepMKJHnrdZUGq8jE | agent/poc-w6 | `W6/RESUME.md`（W6 のブランチ）を読んで残りの試行 → 採点 → report → PR |
-| W7 | 試行中に停止（初期状態 v2。完了: baseline・SP#1・FD#1・gstack#1。止めた: CE#1・#2（W7a 途中）。未着手: gstack#2・FD#2・SP#2・対照。PR #25 は自動マージなし） | session_01BDZ8PmFB12zTZKhufY52Lb | agent/poc-w7 | `W7/RESUME.md`（W7 のブランチ）を読んで残りの試行 → 採点 → report → PR。結果を見て 5 段階への延長を秘書経由でユーザーに提案する |
+| W7 | 完了（2026-11-09 引き継ぎ先のセッションで対照 3 本を実行し、report を作成。PR #25） | 引き継ぎ先 | agent/poc-w7 | なし（5 段階への延長はユーザーの判断待ち。`W7/report.md` の「次の対応」） |
 | W8 | 未着手 | — | agent/poc-w8（予定） | 新しいセッションを立てる（下の「W8 の要点」） |
 
 各担当セッションはアーカイブしていない。再開時は同じセッションに send_message で再開を指示する（セッションが使えなければ、新しいセッションを立てて各ブランチの RESUME.md から続ける）。試行の作業用コピー（`/tmp/poc-trials/<ID>`）はコンテナが入れ替わると消えるため、採点前の試行はやり直しになる可能性がある。
