@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 開発ワークフローの試行を 1 回実行する。
 # 使い方: scripts/poc/run-trial.sh <シナリオ> <候補> <回>
-#   候補: baseline | superpowers | feature-dev | compound-engineering
-#   （gstack は外部の setup スクリプトを実行する必要があるため、別途承認を得てから追加する）
+#   候補: baseline | superpowers | feature-dev | compound-engineering | gstack
+#   （gstack の setup 実行は 2026-11-09 にユーザーの許可を得た。専用 HOME の中だけで実行する）
 # 作業用コピー（.poc-work/trials/...）で、専用の HOME を使って Claude Code をヘッドレスで起動する。
 # 子セッションの権限は docs/poc/tasks/wf-procedures.md の「権限」のとおり（全許可にはしない）。
 set -euo pipefail
@@ -38,6 +38,7 @@ git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
 #    Skill が自分の参照ファイル（references/*.md など）を読めるよう、試行ごとの作業領域にコピーして
 #    --add-dir で読み取りを許可する（コピーなので、書き換えられても他の試行には影響しない）。
 PLUG="$WORK/plugins"; mkdir -p "$PLUG"
+PLUG_EXTRA=()
 CPO="$CACHE/claude-plugins-official/plugins"
 copy_plugin() { cp -a "$1" "$PLUG/$2"; rm -rf "$PLUG/$2/.git"; PLUGINS+=(--plugin-dir "$PLUG/$2"); }
 PLUGINS=()
@@ -50,6 +51,20 @@ case "$CAND" in
   superpowers) copy_plugin "$CACHE/superpowers" superpowers ;;
   feature-dev) copy_plugin "$CPO/feature-dev" feature-dev ;;
   compound-engineering) copy_plugin "$CACHE/compound-engineering" compound-engineering ;;
+  gstack)
+    # gstack は marketplace 配布ではないため、試行ごとの専用 HOME の ~/.claude/skills/gstack に固定コミットを置き、
+    # setup を実行する（チーム用の自動更新フックなし・plan-tune フックなし）。
+    # ブラウザ（Chrome for Testing）は環境のネットワーク制限で取得できないため --no-browser。
+    GSTACK="$HOME_DIR/.claude/skills/gstack"
+    mkdir -p "$HOME_DIR/.claude/skills"
+    cp -a "$CACHE/gstack" "$GSTACK"
+    ( cd "$GSTACK" && HOME="$HOME_DIR" ./setup --host claude --no-team --no-plan-tune-hooks --no-browser --quiet ) > "$OUT/gstack-setup.log" 2>&1
+    # 外部送信を止める（更新確認、Codex への外部レビュー）。テレメトリーは初期値 off のまま
+    HOME="$HOME_DIR" "$GSTACK/bin/gstack-config" set update_check false >> "$OUT/gstack-setup.log" 2>&1
+    HOME="$HOME_DIR" "$GSTACK/bin/gstack-config" set codex_reviews disabled >> "$OUT/gstack-setup.log" 2>&1
+    HOME="$HOME_DIR" "$GSTACK/bin/gstack-config" get telemetry >> "$OUT/gstack-setup.log" 2>&1
+    PLUG_EXTRA=(--add-dir "$GSTACK")
+    ;;
   *) echo "unknown candidate: $CAND" >&2; exit 1 ;;
 esac
 
@@ -64,6 +79,10 @@ ALLOWED=(
   # 候補プラグイン自身のスクリプト（試行ごとのコピー）
   "Bash(python3 $PLUG/:*)" "Bash(bash $PLUG/:*)" "Bash(node $PLUG/:*)"
 )
+if [[ "$CAND" == gstack ]]; then
+  # gstack 自身のコマンド（~/.claude/skills/gstack/bin/*）
+  ALLOWED+=("Bash($GSTACK/bin/:*)" "Bash(~/.claude/skills/gstack/bin/:*)" "Bash(bun $GSTACK/:*)")
+fi
 
 # 4) 手順（docs/poc/tasks/wf-procedures.md）
 TASK="$(cat "$ROOT/docs/poc/tasks/wf-$SCENARIO.md")
@@ -73,6 +92,7 @@ case "$CAND" in
   baseline|superpowers) STEPS=("$TASK") ;;
   feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
   compound-engineering) STEPS=("/ce-plan $TASK" "/ce-work" "/ce-code-review") ;;
+  gstack) STEPS=("$TASK" "/review") ;;
 esac
 
 START=$(date +%s); SESSION=""; i=0
@@ -81,7 +101,7 @@ for step in "${STEPS[@]}"; do
   RESUME=(); [[ -n "$SESSION" ]] && RESUME=(--resume "$SESSION")
   ( cd "$APP" && HOME="$HOME_DIR" timeout "${POC_STEP_TIMEOUT:-2400}" claude -p "$step" \
       --model "$MODEL" --permission-mode acceptEdits --allowedTools "${ALLOWED[@]}" \
-      --mcp-config "$APP/.mcp.json" --strict-mcp-config --add-dir "$PLUG" \
+      --mcp-config "$APP/.mcp.json" --strict-mcp-config --add-dir "$PLUG" "${PLUG_EXTRA[@]}" \
       "${PLUGINS[@]}" "${RESUME[@]}" \
       --output-format stream-json --verbose < /dev/null ) > "$OUT/step$i.jsonl" 2> "$OUT/step$i.stderr" \
     || echo "step$i exit=$?" >> "$OUT/errors.log"
@@ -103,4 +123,8 @@ echo $(( $(date +%s) - START )) > "$OUT/elapsed-seconds"
 ( cd "$APP" && git add -A && git commit -qm "poc: uncommitted leftovers" ) || true
 git -C "$APP" diff "$(cat "$OUT/baseline-commit")" HEAD -- . ':!package-lock.json' > "$OUT/diff.patch"
 git -C "$APP" log --oneline "$(cat "$OUT/baseline-commit")"..HEAD > "$OUT/commits.txt"
+if [[ "$CAND" == gstack ]]; then
+  # 外部送信の記録（G2 の確認用）
+  HOME="$HOME_DIR" "$GSTACK/bin/gstack-egress" list > "$OUT/gstack-egress.txt" 2>&1 || true
+fi
 echo "done $ID ($(cat "$OUT/elapsed-seconds")s)"
