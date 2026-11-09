@@ -1,0 +1,103 @@
+{
+ "scenario": "W11",
+ "task": "B1",
+ "kind": "bug",
+ "repo": "pytest-dev/pytest",
+ "trial": "W11-B1-feature-dev-1",
+ "candidate": "feature-dev",
+ "run": 1,
+ "resolved": true,
+ "quality": 100.0,
+ "hidden_tests": {
+  "f2p_total": 1,
+  "f2p_pass": 1,
+  "new_total": 1,
+  "new_pass": 1,
+  "existing_total": 56,
+  "existing_pass": 56,
+  "p2p_total": 56,
+  "p2p_pass": 56,
+  "f2p_failed": [],
+  "p2p_broken": [],
+  "seconds": 1.9,
+  "log_tail": ""
+ },
+ "diff": {
+  "src_added": 11,
+  "src_removed": 0,
+  "src_files": [
+   "src/_pytest/fixtures.py"
+  ],
+  "test_added": 47,
+  "test_files": [
+   "testing/python/fixtures.py"
+  ],
+  "other_files": [
+   "changelog/14600.bugfix.rst"
+  ],
+  "upstream_src_added": 25,
+  "upstream_src_removed": 0
+ },
+ "facts": {
+  "cost_usd": 0.5751,
+  "elapsed_seconds": 346,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 1
+ },
+ "transcript": {
+  "cost_usd": 0.5751,
+  "turns": 3,
+  "tools": {
+   "Skill": 1,
+   "Bash": 24,
+   "Write": 3,
+   "Edit": 4,
+   "Agent": 1,
+   "ReadNotifications": 1,
+   "Grep": 3,
+   "Read": 4
+  },
+  "skills": [
+   "feature-dev:feature-dev"
+  ],
+  "subagents": 1,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W11-B1-feature-dev-1-app/14dff868-a3e1-42d8-a550-f44b68c9ffa3/scratchpad && rm -rf $S/r && mkdir -p $S/r/tests/comp/tts $S/r/tests/comp/wh && cd $S/r && to"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W11-B1-feature-dev-1-app/14dff868-a3e1-42d8-a550-f44b68c9ffa3/scratchpad/r && ls -R | head -20; for a in \\\"tests/comp/wh tests/test_c.py tests/comp/tts/te"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W11-B1-feature-dev-1-app/14dff868-a3e1-42d8-a550-f44b68c9ffa3/scratchpad/r && ls -R | head -20 && PYTHONPATH=/tmp/poc-trials/W11-B1-feature-dev-1/app/src "
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W11-B1-feature-dev-1-app/14dff868-a3e1-42d8-a550-f44b68c9ffa3/scratchpad && python setup.py r && cd r && PYTHONPATH=/tmp/poc-trials/W11-B1-feature-dev-1/a"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W11-B1-feature-dev-1-app/14dff868-a3e1-42d8-a550-f44b68c9ffa3/scratchpad/r && PYTHONPATH=/tmp/poc-trials/W11-B1-feature-dev-1/app/src python -m pytest -q "
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W11-B1-feature-dev-1-app/14dff868-a3e1-42d8-a550-f44b68c9ffa3/scratchpad/r && PYTHONPATH=/tmp/poc-trials/W11-B1-feature-dev-1/app/src python -m pytest --c"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cat >> testing/python/fixtures.py <<'E'\\n\\n\\ndef test_conftest_fixtures_visible_when_parent_dir_recollected(\\n    pytester: Pytester,\\n) -> None:\\n    \\\"\\\"\\\"A file argument makes the pare"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python -m pytest testing/python/fixtures.py -q -k recollected 2>&1 | tail -3; git stash -q -- src && python -m pytest testing/python/fixtures.py -q -k recollected 2>&1 | tail -3; git stas"
+   }
+  ],
+  "isolation_suspects": [],
+  "final_text": "Issue の収集エラーは直り、修正は git にコミットしました（8110e8f）。テスト一式の結果は、4248 件が通過し、エラー 1 件（`test_legacypath.py::test_cache_makedir`）でした。このエラーは `-p no:cacheprovider` を付けて実行したためです。\n\n**原因**: `pytest_make_collect_report` は、`conftest.py` を最初に見つかった Directory ノードにだけ登録していました。`tests/test_c.py` のようにファイルを直接指定した引数があると、親の `tests` ディレクトリが再収集され、`tests/comp` などの Directory が別ノードとして作り直されます。後続の `tests/comp/tts/test_init.py` はその新しい `comp` ノードの配下になります。ところが `comp/conftest.py` のフィクスチャは古いノードにしか登録されていないため、見えなくなっていました。これが「引数の順序で結果が変わる」ように見えた正体です。issue の推測にあった上書き順序の改修（#14566）とは関係ありませんでした。Home Assistant 環境は使わず、小さな再現ケースで確認しています。\n\n**修正**（`src/_pytest/fixtures.py`）: パスごとに conftest を保持し、Directory ノードごとにフィクスチャを一度だけ登録するようにしました。同じノードの二重登録は避けています。\n\n**その他の変更**:\n- 回帰テスト `test_conftest_fixtures_visible_when_parent_dir_recollected` を `testing/python/fixtures.py` に追加しました。issue と同じ引数順で収集します。\n- 変更履歴の `changelog/14600.bugfix.rst` を追加しました。番号 14600 は、実際の issue 番号が分からないため私が仮に付けたものです。差し替えてください。\n- 修正を外した状態で回帰テストが落ちることは、実行して確かめられませんでした。ただし、同じ引数順の再現ケースでは、修正前に収集エラーが出て、修正後は出ないことを確認しています。\n\n作業は無人で進めたため、確認が必要な工程（質問・アーキテクチャ案の選択・修正方針の承認）は、実際に質問せず私の判断で進めました。調査、設計、実装、レビューの工程自体は省いていません。コードレビュー担当のエージェントによる指摘はありませんでした。"
+ }
+}
