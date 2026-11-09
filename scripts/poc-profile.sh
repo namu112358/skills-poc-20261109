@@ -41,4 +41,7 @@ if [[ "$1" == "sec-cloudflare" ]]; then
   echo "security-audit skill を配置: $CF_DIR (@$CF_REF)"
 fi
 
+if [[ "$1" == wf-gstack* ]]; then
+  echo "注意: gstack は marketplace 配布ではありません。docs/poc/PLAN.md §3.4 の専用環境で、固定コミットから手作業で入れてください。"
+fi
 echo "PoC profile: $1 を適用しました。Claude Code を再起動するか /reload-plugins を実行してください。"

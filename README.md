@@ -71,13 +71,15 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 |---|---|---|---|---|
 | 開発ワークフロー | 第一候補 | Superpowers | Jesse Vincent（obra） | [obra/superpowers](https://github.com/obra/superpowers) |
 | 開発ワークフロー | 対抗候補 | Feature Dev | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/feature-dev) |
+| 開発ワークフロー | 対抗候補 | gstack | Garry Tan | [garrytan/gstack](https://github.com/garrytan/gstack) |
+| 開発ワークフロー | 対抗候補 | Compound Engineering | Every | [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin) |
 | 開発ワークフロー | 併用検証（§5.5） | Ponytail | Dietrich Gebert | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) |
 | セキュリティ監査 | 第一候補 | Claude Security | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security) |
 | セキュリティ監査 | 対抗候補 | Cloudflare Security Audit | Cloudflare | [cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) |
 | PR レビュー | 第一候補 | Code Review | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-review) |
 | PR レビュー | 対抗候補 | PR Review Toolkit | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit) |
 
-ワークフローは勝者を決めた後、Ponytail を併用した場合の効果も検証します（計画書 §5.5）。
+開発ワークフローは 4 候補の得意範囲を比べるため、8 つのシナリオ（小さな変更、要件定義、大きな変更、バグ修正、UI の検証と PR 作成、学習効果、自律実行など）で全候補を試します（計画書 §5.1）。勝者を決めた後、Ponytail を併用した場合の効果も検証します（§5.5）。
 
 候補の切り替えは `scripts/poc-profile.sh <profile>` で行います（`.claude/settings.local.json` に書き込むため、チーム共有の設定は変わりません）。
 

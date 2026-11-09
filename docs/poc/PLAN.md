@@ -1,7 +1,7 @@
 # 比較検討中 Skills / Plugins PoC 計画書
 
 - 作成日: 2026-11-09
-- 対象期間: 2026-11-16（月）〜 2026-12-11（金）の 4 週間
+- 対象期間: 2026-11-16（月）〜 2026-12-18（金）の 5 週間
 - 前提: 必須ツール（⭐）は本リポジトリに導入済み（[README](../../README.md#導入済みの必須ツール) 参照）。PoC は必須ツールが有効な状態で行う。
 
 ## 1. 目的
@@ -10,11 +10,11 @@
 
 | カテゴリ | 第一候補（A） | 対抗候補（B） | 主な判断軸 |
 |---|---|---|---|
-| 開発ワークフロー | Superpowers（`superpowers@claude-plugins-official`） | Feature Dev（`feature-dev@claude-plugins-official`） | 完成度・手戻り・介入回数・コスト |
+| 開発ワークフロー | Superpowers（`superpowers@claude-plugins-official`） | Feature Dev（`feature-dev@claude-plugins-official`）、gstack（[garrytan/gstack](https://github.com/garrytan/gstack)）、Compound Engineering（`compound-engineering@compound-engineering-plugin`） | 得意範囲ごとの成果（§5.1 の 8 シナリオ）・コスト |
 | セキュリティ監査 | Claude Security（`claude-security@claude-plugins-official`） | Cloudflare Security Audit（`cloudflare/security-audit-skill`） | 検出率・誤検知率・修正提案の質 |
 | PR レビュー | Code Review（`code-review@claude-plugins-official`） | PR Review Toolkit（`pr-review-toolkit@claude-plugins-official`） | 有効指摘率・ノイズ・GitHub 連携 |
 
-**追加検証（開発ワークフロー）**: Superpowers / Feature Dev の比較で勝者を決めた後、**Ponytail（`ponytail@ponytail`、[DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)）を併用したときの効果**を検証する（§5.5）。Ponytail は候補の置き換えではなく、勝者に足すアドオンとして扱う。
+**追加検証（開発ワークフロー）**: 4 候補の比較で勝者を決めた後、**Ponytail（`ponytail@ponytail`、[DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)）を併用したときの効果**を検証する（§5.5）。Ponytail は候補の置き換えではなく、勝者に足すアドオンとして扱う。
 
 ### 既定の判断ルール
 
@@ -22,11 +22,12 @@
 2. 対抗候補（B）を採用するのは、次のどちらかを満たす場合のみ。
    - B の総合スコアが A を **10 点以上（100 点満点）** 上回る。
    - A が **必須ゲート**（§4.1）を 1 つでも満たさない。
-3. 両者が明確に補完関係にある場合（例: ローカルの事前レビューと PR 上の自動レビュー）は「**標準 1 つ + 任意導入 1 つ**」と判断してよい。ただし標準は必ず 1 つに絞る。
+3. 開発ワークフローは候補が 4 つあり、それぞれ得意範囲が異なるため、§4.3 の「開発ワークフローの判断」を適用する（標準 1 つ + 用途別の推奨）。
+4. 両者が明確に補完関係にある場合（例: ローカルの事前レビューと PR 上の自動レビュー）は「**標準 1 つ + 任意導入 1 つ**」と判断してよい。ただし標準は必ず 1 つに絞る。
 
 ## 2. スコープ
 
-**対象**: 上記 6 ツールの導入性、出力品質、コスト、運用性、必須ツールとの共存。
+**対象**: 上記 8 ツールの導入性、出力品質、コスト、運用性、必須ツールとの共存。
 
 **対象外**: 推奨（Supabase MCP / Vercel MCP / TypeScript LSP / React Best Practices）の評価、本番環境・本番データでの実行、モデル間比較。
 
@@ -43,7 +44,8 @@
 | セッション | 試行ごとに新規セッション。前試行の会話・メモリを持ち込まない |
 | 入力 | 試行ごとのプロンプトは `docs/poc/tasks/` に固定した文面を使い、両候補で同一 |
 | 試行回数 | 出力のぶれを吸収するため、各シナリオ × 各候補を **2 回** 実行し平均を取る |
-| 実行順 | 学習効果を避けるため A→B と B→A を交互にする |
+| 実行順 | 順番による有利不利を避けるため、候補の実行順をシナリオごとにずらす（開発ワークフローは 4 候補をラテン方格で並べる） |
+| 成果物の扱い | 各ツールが作る計画書・設計書・学習メモ（`docs/plans/`、`docs/solutions/` など）はコード量の集計から除く。W7 以外は試行ごとに消し、次の試行に持ち込まない |
 | 実施場所 | 開発用ブランチ / 開発用リソースのみ。本番の認証情報は渡さない |
 
 ### 3.2 PoC 用テスト対象アプリ（Week 1 に作成）
@@ -61,7 +63,7 @@
 | 既知脆弱性 12 件 | IDOR / 認可漏れ、SQL インジェクション、XSS（`dangerouslySetInnerHTML`）、SSRF、パストラバーサル、ハードコード秘密情報、オープンリダイレクト、CSRF、安全でないデシリアライズ、過剰なエラー情報露出、レート制限なしのログイン、JWT 検証不備。うち 4 件は複数ファイルにまたがるデータフローで成立するもの |
 | 誤検知の罠 3 件 | 一見危険だが実際は安全なコード（サニタイズ済みの innerHTML、テスト専用の固定トークンなど） |
 | レビュー用 PR 7 本 | ロジックバグ、型の誤用、例外の握りつぶし（silent failure）、CLAUDE.md 違反、テスト不足、不要なコメント・冗長実装、**問題のないクリーンな PR 1 本** |
-| 機能追加課題 3 件 | S: 一覧のフィルタ追加 / M: タスクへのコメント機能（DB + API + UI）/ L: チーム共有機能（権限モデル変更を伴う） |
+| 開発ワークフロー用の素材 | §5.1 の 8 シナリオ（W1〜W8）の課題文、定型回答シート、シナリオごとの正解データ（W3 の隠れ要件 10 項目、W4 の影響箇所リスト、W5 の仕込みバグ 3 件、W6 の UI チェックリスト 8 項目、W7 のプロジェクト固有の落とし穴 2 件） |
 
 ### 3.3 プロファイル（候補の切り替え）
 
@@ -70,10 +72,11 @@
 | プロファイル | 有効化される候補 |
 |---|---|
 | `baseline` | なし（必須ツールのみ。比較の基準線） |
-| `wf-superpowers` / `wf-feature-dev` | 開発ワークフロー候補 |
+| `wf-superpowers` / `wf-feature-dev` / `wf-compound-engineering` | 開発ワークフロー候補（marketplace から配布されるもの） |
+| `wf-gstack` | 候補プラグインをすべて無効にする。gstack 本体は §3.4 の専用環境に手作業で入れる |
 | `sec-claude-security` / `sec-cloudflare` | セキュリティ監査候補（Cloudflare は Skill を固定コミットから配置） |
 | `rv-code-review` / `rv-pr-review-toolkit` | PR レビュー候補 |
-| `wf-superpowers-ponytail` / `wf-feature-dev-ponytail` | ワークフロー勝者 + Ponytail（§5.5。勝者側のみ使用） |
+| `wf-superpowers-ponytail` / `wf-feature-dev-ponytail` / `wf-compound-engineering-ponytail` | ワークフロー勝者 + Ponytail（§5.5。勝者側のみ使用。gstack が勝者の場合は `baseline-ponytail` + gstack 専用環境） |
 | `baseline-ponytail` | Ponytail のみ（Ponytail 単体の効果を切り分ける参照用） |
 
 ```bash
@@ -82,6 +85,18 @@ scripts/poc-profile.sh wf-superpowers
 
 適用後は Claude Code を再起動するか `/reload-plugins` を実行し、`/plugin` で有効状態を確認してから試行を始める。
 
+### 3.4 gstack と Compound Engineering の導入条件
+
+**gstack** は marketplace 経由ではなく、`~/.claude/skills/gstack` に clone して `./setup` を実行する方式で、ユーザー全体の `~/.claude/settings.json` にフックを登録する。ほかの候補の試行に混ざらないよう、次の条件で行う。
+
+- **専用の実行環境**（PoC 用の VM・コンテナ、または専用の OS ユーザー）を用意し、gstack の試行はそこだけで行う。必須ツールと `poc-app` の構成はほかの環境と同じにする。
+- PoC 開始時のコミット（`b615592`、v1.98.0.0）で固定して clone し、`./setup --no-team` で入れる（チーム用の自動更新フックを入れない）。必要なもの: Bun 1.4.2 以上。
+- 外部送信を止める: `gstack-config set update_check false`（更新確認）、`gstack-config set codex_reviews disabled`（初期状態で有効な「外部レビュー」で Codex にコードが送られるのを止める）、テレメトリーは初回の質問で拒否する。各試行の後に `gstack-egress list` で外部送信の記録が無いことを確かめる。
+- gstack が覚えた内容（`/learn` の学習データ、状態ディレクトリ）は、W7 以外は試行ごとに消す。
+- `/cso`（セキュリティ監査）はネイティブのツールチェーンが必要で、セキュリティ監査は §5.2 で別に評価するため、本 PoC では使わない。
+
+**Compound Engineering** は marketplace（`EveryInc/compound-engineering-plugin`）から入れる。PoC 開始時のバージョン（v3.37.0、コミット `18c2be5`）を記録する。初回に `/ce-setup` を実行して `.compound-engineering/config.yaml` を作り、これは `poc-app` の `main` にコミットしておく（全候補で同じ状態から始めるため、他候補の試行では無視される）。学習メモ（`docs/solutions/`）と計画（`docs/plans/`）は試行ブランチにだけ作られるので、W7 以外は次の試行に持ち込まれない。
+
 ## 4. 評価基準
 
 ### 4.1 必須ゲート（1 つでも不合格なら不採用）
@@ -89,7 +104,7 @@ scripts/poc-profile.sh wf-superpowers
 | # | ゲート | 確認方法 |
 |---|---|---|
 | G1 | 提供元が公式または信頼できる組織で、ライセンスが社内利用可能 | リポジトリ・LICENSE の確認 |
-| G2 | フック・スクリプトの挙動を読んで説明でき、外部送信先が把握できる | コードリーディング（hooks / scripts） |
+| G2 | フック・スクリプトの挙動を読んで説明でき、外部送信先が把握できる（外部送信は止められること） | コードリーディング（hooks / scripts）、gstack は `gstack-egress list` |
 | G3 | 必須ツール（security-guidance、Impeccable、各 Skill、GitHub / Playwright MCP）と共存し、フックの競合や二重実行で作業が止まらない | §5.4 の共存テスト |
 | G4 | 認証情報・トークンを Git にコミットする操作を誘発しない | 全試行後の `git log -p` と secret scanning |
 | G5 | 承認なしで破壊的操作（強制 push、削除、マージ、本番反映）を行わない | 全試行のトランスクリプト確認 |
@@ -104,15 +119,29 @@ scripts/poc-profile.sh wf-superpowers
 
 ### 4.3 カテゴリ別スコア（70 点）
 
-#### 開発ワークフロー（Superpowers vs Feature Dev）
+#### 開発ワークフロー（Superpowers / Feature Dev / gstack / Compound Engineering）
 
-| 観点 | 配点 | 測り方 |
+4 候補は得意範囲が異なるため、**§5.1 の 8 シナリオごとに 100 点満点で採点**し、想定する利用頻度で重み付けして 70 点に換算する。各シナリオの採点方法は §5.1 の表のとおり。どのシナリオでも、**使った機能ではなく成果（テスト合格・正解データとの一致・介入回数・費用）で採点**する。
+
+| シナリオ | 重み | 理由 |
 |---|---|---|
-| 完成度 | 25 | 採点者が用意した受け入れテスト（非公開）の合格率、CI が通るか |
-| 介入回数 | 15 | 人の追加指示・修正依頼の回数（少ないほど高得点）。計画承認など仕様上の確認は別集計 |
-| 設計・テストの質 | 15 | 2 名のレビュアーがブラインド（どちらの候補か伏せる）で 5 段階評価。テスト追加の有無・妥当性を含む |
-| 手戻り | 10 | 実装後にやり直したコミット数・差分量 |
-| 過剰さ | 5 | S 課題で不要な計画・ドキュメント・抽象化を作らないか |
+| W1 小さな変更 | 10% | 日常的に最も多いが、差が出にくい |
+| W2 仕様が明確な機能追加 | 20% | 標準的な開発作業の中心 |
+| W3 曖昧な要望から要件を固める | 10% | 新規開発の初期に発生 |
+| W4 既存コードを横断する大きな変更 | 15% | 手戻りが大きく、失敗の影響が大きい |
+| W5 バグ修正 | 15% | 頻度が高い |
+| W6 UI 実装からブラウザ検証・PR 作成まで | 10% | フロントエンドを含む機能で発生 |
+| W7 続けて行う作業での学習効果 | 10% | 長期運用での生産性に効く |
+| W8 人の介入なしでの自律実行 | 10% | 任せられる範囲の広さ |
+
+重みは Week 1 に PoC オーナーが確定し、試行開始後は変えない。
+
+#### 開発ワークフローの判断
+
+1. **標準**: 総合点（カテゴリ別 70 点 + 共通 30 点）の 1 位を標準にする。ただし 1 位と第一候補（Superpowers）の差が 10 点未満なら Superpowers を標準にする。
+2. **用途別の推奨**: あるシナリオで標準より **15 点以上** 高い候補がある場合、その用途に限って「推奨（任意）」として記載する（例: 「UI の QA は gstack の `/qa`」「長期運用のプロジェクトでは Compound Engineering の `/ce-compound`」）。ただし §5.4 で標準と同時に有効にして問題が無いこと、または必要なときだけ有効にできることが条件。干渉する場合は記載しない。
+3. **得意範囲マップ**: 候補 × シナリオの点数表（ヒートマップ）を判定記録に残し、推奨一覧に「どの用途に向くか」を書く根拠にする。
+4. gstack と Compound Engineering は PR レビュー・セキュリティ監査・QA の機能も持つ（gstack の `/review`・`/cso`、Compound Engineering の `/ce-code-review`・`/ce-simplify-code` など）。どちらかを標準にする場合は、§5.2・§5.3 の勝者との重複をどう扱うか（どちらを使うか）を判定記録に残す。
 
 #### セキュリティ監査（Claude Security vs Cloudflare Security Audit）
 
@@ -136,17 +165,56 @@ scripts/poc-profile.sh wf-superpowers
 
 ## 5. シナリオと手順
 
-### 5.1 開発ワークフロー（Week 2）
+### 5.1 開発ワークフロー（Week 2〜3）
 
-1. `poc-app` の `main` から試行用ブランチ `poc/wf/<候補>/<課題>/<回>` を作成する。
-2. プロファイルを適用し、新規セッションで `docs/poc/tasks/wf-<S|M|L>.md` のプロンプトを入力する。
-   - Superpowers: 通常のプロンプト入力（Skill の自動発火に任せる）
-   - Feature Dev: `/feature-dev <課題文>`
-3. 候補側の確認質問には `docs/poc/tasks/wf-answers.md` の定型回答で応じる（回答のぶれを防ぐ）。
+#### 各候補が得意とする範囲（各リポジトリの説明による）
+
+| 候補 | 提供元 | 得意とする範囲 | 主な入口 |
+|---|---|---|---|
+| Superpowers | Jesse Vincent（obra） | 要件の掘り下げ（brainstorming）、計画、TDD の徹底、サブエージェントでの長い実装、体系的なデバッグ、完了前の検証 | Skill の自動発火（`brainstorming` → `writing-plans` → `subagent-driven-development` など） |
+| Feature Dev | Anthropic | 既存コードの読み込み（code-explorer の並列実行）、複数の設計案の比較（code-architect）、機能追加を 1 コマンド・7 フェーズで進める。構成が軽い（エージェント 3 つ + コマンド 1 つ） | `/feature-dev` |
+| gstack | Garry Tan | プロダクト視点での要件の見直し（`/office-hours`、`/plan-ceo-review`、`/autoplan`）、実ブラウザでの QA（`/qa`）、リリース作業（`/ship`）、デザインレビュー、破壊的操作のガード（`/careful`、`/freeze`） | 役割ごとのスラッシュコマンド（23 個以上） |
+| Compound Engineering | Every | 計画とレビューに比重を置く進め方、複数エージェントによるレビュー、学んだことを `docs/solutions/` に残して次の作業に活かす（`/ce-compound`）、全工程の自動実行（`/lfg`） | `/ce-brainstorm` → `/ce-plan` → `/ce-work` → `/ce-code-review` → `/ce-compound` |
+
+#### シナリオ
+
+各候補の得意範囲を比べられるよう、**どのシナリオも 4 候補すべてで実行する**。得意でない範囲での振る舞いも結果として記録する。
+
+| ID | シナリオ | 想定される得意候補 | 課題 | 採点（100 点） |
+|---|---|---|---|---|
+| W1 | 小さな変更 | （差の確認） | 一覧画面にフィルタを 1 つ追加 | 受け入れテスト 50、所要時間・費用 30、過剰さ（不要な計画書・抽象化を作らないか）20 |
+| W2 | 仕様が明確な機能追加 | （共通の基準） | タスクへのコメント機能（DB + API + UI）。仕様書を渡す | 受け入れテスト 40、介入回数 20、設計・テストの質（ブラインドレビュー）25、費用 15 |
+| W3 | 曖昧な要望から要件を固める | gstack、Superpowers、Compound Engineering | 「チームの進捗が見えにくいので何とかしたい」程度の要望だけを渡す。質問には定型回答シートで答える | 隠れ要件 10 項目のうち引き出せた数 40、要件文書の質 25、スコープ判断の妥当性 20、質問の負担（数・重複）15 |
+| W4 | 既存コードを横断する大きな変更 | Feature Dev、Compound Engineering | チーム共有機能（権限モデルの変更を伴う） | 影響箇所リストの網羅率 30、受け入れテスト 30、認可の正しさ（security-guidance と採点者確認）20、設計案の比較の有無と質 20 |
+| W5 | バグ修正 | Superpowers、Compound Engineering、gstack | 再現手順だけを渡したバグ 3 件（うち 1 件は症状の出る場所と原因が離れている） | 根本原因を正しく直せた数 50、回帰テストの追加 25、既存テストの維持 10、所要時間 15 |
+| W6 | UI 実装からブラウザ検証・PR 作成まで | gstack、Compound Engineering | 空状態・エラー表示・レスポンシブ対応を含む画面の追加。PR 作成まで | UI チェックリスト 8 項目の残存不具合 40、検証の証跡（スクリーンショット・操作記録）15、PR の完成度（説明・テスト・CI 成功）30、費用 15 |
+| W7 | 続けて行う作業での学習効果 | Compound Engineering、gstack | W7a と W7b を順番に行う。W7a にはプロジェクト固有の落とし穴 2 件（例: 日時は UTC で保存し JST で表示する、独自のエラー型を使う）を含め、作業中に気づける形にする。W7b は別の機能だが同じ落とし穴を含む。W7b は新しいセッションで始める | W7b で同じ落とし穴を避けられた数 50、W7b の所要時間・介入回数の W7a 比 30、W7b の受け入れテスト 20 |
+| W8 | 人の介入なしでの自律実行 | Superpowers、Compound Engineering、gstack | W2 と同程度の機能を、最初の指示と定型回答以外は介入せずに完了させる | 受け入れテスト 45、所要時間・費用 20、暴走の有無（同じ失敗の繰り返し・ループ・途中停止）20、承認なしの破壊的操作が無いこと 15 |
+
+W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solutions/`、gstack の学習データ）を W7a から W7b の間だけ残す。人が `CLAUDE.md` に追記することは禁止する（候補自身が書き込むのは可）。記憶の仕組みを持たない候補は、何も残らない状態で W7b を行う（それも比較の結果とする）。
+
+#### 候補ごとの手順
+
+候補ごとの使い方は、各リポジトリが推奨する入口に合わせて Week 1 に `docs/poc/tasks/wf-procedures.md` に固定し、試行中は変えない。案は次のとおり。専用の機能が無いシナリオでは、その候補の一般的な入口を使う。
+
+| シナリオ | Superpowers | Feature Dev | gstack | Compound Engineering |
+|---|---|---|---|---|
+| W1・W2・W7 | 通常の指示（Skill の自動発火） | `/feature-dev <課題文>` | 実装の指示 → `/review` | `/ce-plan` → `/ce-work` → `/ce-code-review`（W7a の後は `/ce-compound`） |
+| W3 | 通常の指示（`brainstorming` の発火） | `/feature-dev`（確認質問のフェーズまで） | `/office-hours` → `/plan-ceo-review` | `/ce-brainstorm` |
+| W4 | 通常の指示 | `/feature-dev` | `/autoplan` → 実装 → `/review` | `/ce-plan` → `/ce-work` → `/ce-code-review` |
+| W5 | 通常の指示（`systematic-debugging` の発火） | 通常の指示 | `/qa` | `/ce-debug` |
+| W6 | 通常の指示 → `finishing-a-development-branch` | `/feature-dev` → PR 作成の指示 | 実装 → `/qa` → `/ship` | `/ce-work` → `/ce-test-browser` → `/ce-commit-push-pr` |
+| W8 | `writing-plans` → `subagent-driven-development` | `/feature-dev` | `/autoplan` → `/ship` | `/ce-brainstorm` → `/lfg` |
+
+#### 実行手順
+
+1. `poc-app` の `main` から試行用ブランチ `poc/wf/<候補>/<シナリオ>/<回>` を作る（gstack は §3.4 の専用環境で行う）。
+2. プロファイルを適用し、新規セッションで `docs/poc/tasks/wf-<シナリオ>.md` の課題文を、上の手順どおりに入力する。
+3. 候補からの確認質問には `docs/poc/tasks/wf-answers.md` の定型回答で応じる。シートに無い質問には「お任せします」と答え、その回数を記録する。
 4. 完了宣言まで進め、CI と非公開の受け入れテストを実行する。
-5. トランスクリプト、`/cost`、差分統計を `docs/poc/results/workflow/` に保存する。
+5. トランスクリプト、`/cost`、差分統計、各候補が作った成果物の一覧を `docs/poc/results/workflow/` に保存する。
 
-試行数: 3 課題 × 2 候補 × 2 回 = 12 回（+ `baseline` 3 回で、そもそもの上積み効果を確認）
+試行数: 8 シナリオ × 4 候補 × 2 回 = 64 回（W7 は W7a・W7b で 1 回と数える）+ `baseline` 8 シナリオ × 1 回 = 合計 72 回。実行者 2 名で Week 2（W1〜W4）と Week 3（W5〜W8）に分けて行う。
 
 ### 5.2 セキュリティ監査（Week 3 前半）
 
@@ -180,18 +248,18 @@ scripts/poc-profile.sh wf-superpowers
 - 各 Skill の起動（frontend-design / web-design-guidelines / webapp-testing / skill-creator / UI/UX Pro Max / Vercel の React 系 Skills）
 - GitHub MCP / Playwright MCP / Next.js DevTools MCP のツール呼び出し
 
-特に Superpowers（SessionStart フックで Skill 利用を強く促す）と Claude Security（独自フック）が、既存フックやほかの Skill の発火を妨げないかを確認する。Ponytail 併用時は、SessionStart / SubagentStart / UserPromptSubmit で注入される指示が勝者の手順（計画・テスト作成など）を止めていないかも確認する。
+用途別の推奨（§4.3）の候補になった組み合わせは、標準と同時に有効にした状態でも確認する。特に Superpowers（SessionStart フックで Skill 利用を強く促す）、gstack（ユーザー全体の設定に登録するフックと、ブラウザ操作は `/browse` を使うよう `CLAUDE.md` に指示を足す手順）、Compound Engineering（多数の Skill の自動発火）、Claude Security（独自フック）が、既存フックやほかの Skill の発火を妨げないかを確認する。Ponytail 併用時は、SessionStart / SubagentStart / UserPromptSubmit で注入される指示が勝者の手順（計画・テスト作成など）を止めていないかも確認する。
 
-### 5.5 Ponytail 併用効果の検証（Week 3、ワークフロー勝者の確定後）
+### 5.5 Ponytail 併用効果の検証（Week 4、ワークフロー勝者の確定後）
 
-**背景**: Ponytail は「動く範囲で最も小さい解」を強制するプラグイン（YAGNI、標準ライブラリ優先、頼まれていない抽象化をしない）。公開ベンチマークではコード量 −53%、時間 −41%、費用 −26%、トークン −45%、リスクのあるロジックへのテスト付与率 98%（なし: 68%）とされている。これが当プロジェクトの条件でも再現するか、勝者のワークフローと**打ち消し合わないか**（Superpowers の計画・TDD・ドキュメント作成、Feature Dev の設計フェーズと、Ponytail の最小化方針がぶつかる可能性）を確かめる。
+**背景**: Ponytail は「動く範囲で最も小さい解」を強制するプラグイン（YAGNI、標準ライブラリ優先、頼まれていない抽象化をしない）。公開ベンチマークではコード量 −53%、時間 −41%、費用 −26%、トークン −45%、リスクのあるロジックへのテスト付与率 98%（なし: 68%）とされている。これが当プロジェクトの条件でも再現するか、勝者のワークフローと**打ち消し合わないか**（Superpowers の計画・TDD、Feature Dev の設計フェーズ、gstack の計画レビュー、Compound Engineering の計画・学習メモ作成と、Ponytail の最小化方針がぶつかる可能性）を確かめる。
 
 **事前ゲート（Week 1 に実施）**
 
 - G1・G2 を Ponytail にも適用する。MIT ライセンス、フックは `node` で実行される JavaScript（`hooks/`）であることを確認済み。PoC 開始時のコミット（`96608e0`、v5.3.3）で固定し、フックのコードを読む。
 - Ponytail のタスクボード機能は、ターンごとに `~/.config/ponytail/band/<project>.csv` へ費用・トークン等を書き出す（ローカルのみ）。**`webhookUrl` は空のまま**にし、外部送信が無いことを確認する。CSV は計測の補助データとして使ってよいが、正式な値は `/cost` とする。
 
-**比較条件**（3 課題 × 各 2 回。勝者単体の結果は §5.1 のものを再利用し、同じ Claude Code バージョンで行う）
+**比較条件**（§5.1 の W1・W2・W4 の 3 シナリオ × 各 2 回。勝者単体の結果は §5.1 のものを再利用し、同じ Claude Code バージョンで行う）
 
 | 条件 | プロファイル | 目的 |
 |---|---|---|
@@ -200,14 +268,14 @@ scripts/poc-profile.sh wf-superpowers
 | ③ Ponytail のみ | `baseline-ponytail` | Ponytail 単体の効果を切り分け、②の差が相乗か単純加算かを見る |
 | ④ 何もなし | `baseline` | 基準線（§5.1 の結果） |
 
-試行数: 新規は ②③ の 2 条件 × 3 課題 × 2 回 = 12 回
+試行数: 新規は ②③ の 2 条件 × 3 シナリオ × 2 回 = 12 回
 
 **評価指標**
 
 | 指標 | 内容 | 採用の目安 |
 |---|---|---|
-| 受け入れテスト合格率 | §4.3 と同じ非公開テスト | ① 以上（**下がったら不採用**） |
-| セキュリティ | security-guidance が出した高深刻度の指摘数、L 課題の権限モデルの正しさ | ① より悪化しない（**悪化したら不採用**） |
+| 受け入れテスト合格率 | §5.1 と同じ非公開テスト | ① 以上（**下がったら不採用**） |
+| セキュリティ | security-guidance が出した高深刻度の指摘数、W4 の権限モデルの正しさ | ① より悪化しない（**悪化したら不採用**） |
 | リスクのあるロジックへのテスト付与 | 認可・入力検証・DB 更新など、採点者が事前に決めた箇所にテストがあるか | ① 以上 |
 | 仕込みバグの検出 | 実装後に採点者がバグを 3 件注入し、エージェント自身のテストで何件落ちるか | ① 以上 |
 | コード量 | 追加・変更行数（テスト・生成物を除く） | ① 比 −15% 以上で加点 |
@@ -226,17 +294,17 @@ scripts/poc-profile.sh wf-superpowers
 
 | 週 | 期間 | 内容 | 成果物 |
 |---|---|---|---|
-| Week 1 | 11/16〜11/20 | `poc-app` 作成、正解データ・PR・課題文の作成、プロファイル動作確認、ゲート G1・G2 の確認（Ponytail を含む） | `poc-app/`、`docs/poc/tasks/`、正解ブランチ |
-| Week 2 | 11/23〜11/27 | 開発ワークフロー比較（12 + 3 回） | `results/workflow/` |
-| Week 2 末 | 11/27 | ワークフロー比較の暫定判定（勝者を決め、§5.5 の条件を確定） | 暫定判定メモ |
-| Week 3 | 11/30〜12/04 | セキュリティ監査比較（8 回）、PR レビュー比較（28 回）、Ponytail 併用検証（12 回、別の実行者が並行実施） | `results/security/`、`results/review/`、`results/workflow-ponytail/` |
-| Week 4 | 12/07〜12/11 | 採点、集計、判定会、標準ドキュメントへの反映 | 判定記録（ADR）、推奨一覧の更新 PR |
+| Week 1 | 11/16〜11/20 | `poc-app` 作成、正解データ・PR・課題文・定型回答シート・候補ごとの手順の作成、シナリオの重みの確定、gstack 専用環境の用意、プロファイル動作確認、ゲート G1・G2 の確認（gstack・Compound Engineering・Ponytail を含む） | `poc-app/`、`docs/poc/tasks/`、正解ブランチ |
+| Week 2 | 11/23〜11/27 | 開発ワークフロー比較 W1〜W4（32 回 + `baseline` 4 回、実行者 2 名） | `results/workflow/` |
+| Week 3 | 11/30〜12/04 | 開発ワークフロー比較 W5〜W8（32 回 + `baseline` 4 回、実行者 2 名）。週末に暫定判定（勝者と用途別の推奨を決め、§5.5 の条件を確定） | `results/workflow/`、暫定判定メモ |
+| Week 4 | 12/07〜12/11 | セキュリティ監査比較（8 回）、PR レビュー比較（28 回）、Ponytail 併用検証（12 回、別の実行者が並行実施） | `results/security/`、`results/review/`、`results/workflow-ponytail/` |
+| Week 5 | 12/14〜12/18 | 採点、集計、判定会、標準ドキュメントへの反映 | 判定記録（ADR）、得意範囲マップ、推奨一覧の更新 PR |
 
 | 役割 | 人数 | 担当 |
 |---|---|---|
 | PoC オーナー | 1 | 計画・進行・最終判定の取りまとめ |
-| 実行者 | 2 | 試行の実施と記録（正解リストは見ない）。Week 3 は 1 名がセキュリティ・レビュー、1 名が Ponytail 併用検証を担当 |
-| 採点者 | 2 | 正解リストを使った採点、ブラインドレビュー |
+| 実行者 | 2 | 試行の実施と記録（正解リストは見ない）。Week 2〜3 は 2 名とも開発ワークフロー（うち 1 名が gstack 専用環境を担当）、Week 4 は 1 名がセキュリティ・レビュー、1 名が Ponytail 併用検証を担当 |
+| 採点者 | 2 | 正解リストを使った採点、ブラインドレビュー。W3 の隠れ要件と W6 の UI チェックリストの判定 |
 | セキュリティ担当 | 1 | 脆弱性の仕込み、G2 のコードリーディング、セキュリティ監査の採点 |
 
 ## 7. 記録と集計
@@ -256,6 +324,9 @@ scripts/poc-profile.sh wf-superpowers
 | 脆弱性入りコードの誤用・流出 | `poc-app` は PoC 専用。デプロイ・公開をしない。リポジトリは private |
 | GitHub MCP の権限過多 | PoC 用リポジトリに限定した Fine-grained PAT を使い、期間終了後に失効させる |
 | コスト超過 | 試行あたりの上限を事前に決め、超えたら打ち切って記録する（上限は Week 1 に決定） |
+| シナリオが特定の候補に有利すぎる | シナリオ・重み・採点方法を Week 1 に確定して試行中は変えない。採点は使った機能ではなく成果で行う |
+| gstack のフックや外部送信がほかの試行に混ざる | §3.4 の専用環境で行い、自動更新・外部レビュー・更新確認を止める。各試行後に `gstack-egress list` を確認する |
+| 試行数が多く（開発ワークフローだけで 72 回）費用と工数が膨らむ | 1 回あたりの費用上限を決める。Week 2 の結果で明らかに下位の候補（全シナリオで 1 位から 20 点以上低い）は、Week 3 の試行を 1 回に減らしてよい |
 | Ponytail の最小化方針が勝者の手順と衝突する | §5.5 の「手順の衝突」を記録し、衝突が続く場合は併用を任意導入にとどめる |
 | Ponytail が外部へデータを送る | `webhookUrl` を空にし、期間中に設定されていないことを各試行前に確認する |
 
@@ -263,6 +334,6 @@ scripts/poc-profile.sh wf-superpowers
 
 1. カテゴリごとに判定記録（ADR）を `docs/adr/` に残す（スコア、ゲート結果、判断理由、不採用側の扱い）。
 2. 採用ツールを `.claude/settings.json` の `enabledPlugins`（または `.claude/skills/`）に追加し、PR でチームレビューを受ける。
-3. 推奨一覧の「比較検討中」を更新し、採用ツールを「⭐ 必須」または「推奨」へ移す。Ponytail は §5.5 の判断に従い、「勝者との併用を標準」「推奨（任意）」「不採用」のいずれかで記載する。
+3. 推奨一覧の「比較検討中」を更新し、採用ツールを「⭐ 必須」または「推奨」へ移す。用途別の推奨（§4.3）は「推奨（任意）」として用途とあわせて記載する。Ponytail は §5.5 の判断に従い、「勝者との併用を標準」「推奨（任意）」「不採用」のいずれかで記載する。
 4. 不採用ツールのプロファイルとスクリプト内の参照を削除する。
 5. 3〜6 か月後に再評価する（候補の大幅更新、新モデル登場時）。
