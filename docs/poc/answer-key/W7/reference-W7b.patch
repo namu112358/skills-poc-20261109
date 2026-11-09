@@ -1,0 +1,211 @@
+diff --git a/src/app/api/tasks/[id]/worklogs/[worklogId]/route.ts b/src/app/api/tasks/[id]/worklogs/[worklogId]/route.ts
+new file mode 100644
+index 0000000..ff47694
+--- /dev/null
++++ b/src/app/api/tasks/[id]/worklogs/[worklogId]/route.ts
+@@ -0,0 +1,18 @@
++// DELETE /api/tasks/:id/worklogs/:worklogId — 自分の作業記録を削除する。ログインが必要。
++import { NextResponse } from "next/server";
++import { currentApiUser, withApi } from "@/lib/api";
++import { NotFoundError } from "@/lib/errors";
++import { parseTaskId } from "@/lib/tasks";
++import { deleteWorklog } from "@/lib/worklogs";
++
++type Context = { params: Promise<{ id: string; worklogId: string }> };
++
++export const DELETE = withApi(async (_request, { params }: Context) => {
++  const user = await currentApiUser();
++  const p = await params;
++  const taskId = parseTaskId(p.id);
++  const worklogId = parseTaskId(p.worklogId);
++  if (taskId === undefined || worklogId === undefined) throw new NotFoundError("作業記録が見つかりません");
++  deleteWorklog(taskId, worklogId, user.id);
++  return new NextResponse(null, { status: 204 });
++});
+diff --git a/src/app/api/tasks/[id]/worklogs/route.ts b/src/app/api/tasks/[id]/worklogs/route.ts
+new file mode 100644
+index 0000000..fccbaea
+--- /dev/null
++++ b/src/app/api/tasks/[id]/worklogs/route.ts
+@@ -0,0 +1,25 @@
++// GET /api/tasks/:id/worklogs — 作業記録（新しい順）と合計 / POST — 作業記録を追加する。ログインが必要。
++import { NextResponse } from "next/server";
++import { currentApiUser, readJson, withApi } from "@/lib/api";
++import { NotFoundError, ValidationError } from "@/lib/errors";
++import { getTask, parseTaskId } from "@/lib/tasks";
++import { createWorklog, listWorklogs, totalMinutes, validateWorklogInput } from "@/lib/worklogs";
++
++type Context = { params: Promise<{ id: string }> };
++
++export const GET = withApi(async (_request, { params }: Context) => {
++  await currentApiUser();
++  const taskId = parseTaskId((await params).id);
++  if (taskId === undefined || !getTask(taskId)) throw new NotFoundError("タスクが見つかりません");
++  const worklogs = listWorklogs(taskId);
++  return NextResponse.json({ worklogs, totalMinutes: totalMinutes(worklogs) });
++});
++
++export const POST = withApi(async (request, { params }: Context) => {
++  const user = await currentApiUser();
++  const taskId = parseTaskId((await params).id);
++  if (taskId === undefined || !getTask(taskId)) throw new NotFoundError("タスクが見つかりません");
++  const result = validateWorklogInput(await readJson(request));
++  if (!result.ok) throw new ValidationError(result.errors);
++  return NextResponse.json({ worklog: createWorklog({ taskId, author: user.id, ...result.value }) }, { status: 201 });
++});
+diff --git a/src/app/tasks/[id]/page.tsx b/src/app/tasks/[id]/page.tsx
+index e565a2f..94dc1b7 100644
+--- a/src/app/tasks/[id]/page.tsx
++++ b/src/app/tasks/[id]/page.tsx
+@@ -5,6 +5,7 @@ import { formatJst } from "@/lib/datetime";
+ import { requireUser } from "@/lib/session";
+ import { STATUS_LABELS, getTask, parseTaskId } from "@/lib/tasks";
+ import { getUser } from "@/lib/users";
++import { listWorklogs, totalMinutes } from "@/lib/worklogs";
+ import { Comments } from "./comments";
+ 
+ type Props = {
+@@ -18,6 +19,7 @@ export default async function TaskDetailPage({ params }: Props) {
+   if (!task) notFound();
+   const assignee = getUser(task.assignee);
+   const completion = getCompletion(task.id);
++  const worklogs = listWorklogs(task.id);
+ 
+   return (
+     <main>
+@@ -48,6 +50,25 @@ export default async function TaskDetailPage({ params }: Props) {
+           </dl>
+         </section>
+       )}
++      <section>
++        <h2>作業記録</h2>
++        {worklogs.length === 0 ? (
++          <p>作業記録はまだありません。</p>
++        ) : (
++          <>
++            <p data-testid="worklog-total">合計 {totalMinutes(worklogs)} 分</p>
++            <ul>
++              {worklogs.map((w) => (
++                <li key={w.id} data-testid="worklog">
++                  <strong>{w.authorName}</strong> {w.minutes} 分{" "}
++                  <time dateTime={w.recordedAt}>{formatJst(w.recordedAt)}</time>
++                  {w.note && <p style={{ whiteSpace: "pre-wrap" }}>{w.note}</p>}
++                </li>
++              ))}
++            </ul>
++          </>
++        )}
++      </section>
+       <Comments taskId={task.id} currentUserId={user.id} comments={listComments(task.id)} />
+     </main>
+   );
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index f148a34..098d670 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -64,4 +64,19 @@ export const MIGRATIONS: readonly Migration[] = [
+       );
+     `,
+   },
++  {
++    version: 5,
++    name: "worklogs",
++    sql: `
++      CREATE TABLE worklogs (
++        id          INTEGER PRIMARY KEY AUTOINCREMENT,
++        task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
++        author      TEXT NOT NULL REFERENCES users(id),
++        minutes     INTEGER NOT NULL,
++        note        TEXT NOT NULL DEFAULT '',
++        recorded_at TEXT NOT NULL -- ISO 8601（UTC）
++      );
++      CREATE INDEX worklogs_task ON worklogs(task_id, recorded_at);
++    `,
++  },
+ ];
+diff --git a/src/lib/worklogs.ts b/src/lib/worklogs.ts
+new file mode 100644
+index 0000000..7cae191
+--- /dev/null
++++ b/src/lib/worklogs.ts
+@@ -0,0 +1,80 @@
++import { toUtcIso } from "./datetime.ts";
++import { getDb, type Db } from "./db/index.ts";
++import { ConflictError, ForbiddenError, NotFoundError } from "./errors.ts";
++import { getTask, type ValidationResult } from "./tasks.ts";
++
++export type Worklog = {
++  id: number;
++  taskId: number;
++  author: string;
++  authorName: string;
++  minutes: number;
++  note: string;
++  recordedAt: string; // ISO 8601（UTC）
++};
++
++export const WORKLOG_MAX_MINUTES = 1440;
++export const WORKLOG_NOTE_MAX_LENGTH = 200;
++
++type Row = { id: number; task_id: number; author: string; author_name: string; minutes: number; note: string; recorded_at: string };
++
++const SELECT =
++  "SELECT w.id, w.task_id, w.author, u.name AS author_name, w.minutes, w.note, w.recorded_at FROM worklogs w JOIN users u ON u.id = w.author";
++
++function toWorklog(r: Row): Worklog {
++  return { id: r.id, taskId: r.task_id, author: r.author, authorName: r.author_name, minutes: r.minutes, note: r.note, recordedAt: r.recorded_at };
++}
++
++/** 新しい順（記録日時の新しい順、同じなら ID の大きい順）。 */
++export function listWorklogs(taskId: number, db: Db = getDb()): Worklog[] {
++  return (db.prepare(`${SELECT} WHERE w.task_id = ? ORDER BY w.recorded_at DESC, w.id DESC`).all(taskId) as Row[]).map(toWorklog);
++}
++
++export function totalMinutes(worklogs: Worklog[]): number {
++  return worklogs.reduce((sum, w) => sum + w.minutes, 0);
++}
++
++export function getWorklog(id: number, db: Db = getDb()): Worklog | undefined {
++  const r = db.prepare(`${SELECT} WHERE w.id = ?`).get(id) as Row | undefined;
++  return r && toWorklog(r);
++}
++
++export function validateWorklogInput(body: unknown): ValidationResult<{ minutes: number; note: string }> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  const minutes = b.minutes;
++  if (typeof minutes !== "number" || !Number.isInteger(minutes) || minutes < 1 || minutes > WORKLOG_MAX_MINUTES) {
++    errors.push(`作業時間は 1〜${WORKLOG_MAX_MINUTES} の整数（分）で入力してください`);
++  }
++  const note = b.note ?? "";
++  if (typeof note !== "string" || note.trim().length > WORKLOG_NOTE_MAX_LENGTH) {
++    errors.push(`メモは ${WORKLOG_NOTE_MAX_LENGTH} 文字以内の文字列で入力してください`);
++  }
++  if (errors.length > 0) return { ok: false, errors };
++  return { ok: true, value: { minutes: minutes as number, note: (note as string).trim() } };
++}
++
++export function createWorklog(
++  input: { taskId: number; author: string; minutes: number; note: string },
++  db: Db = getDb(),
++  now: Date = new Date(),
++): Worklog {
++  const task = getTask(input.taskId, db);
++  if (!task) throw new NotFoundError("タスクが見つかりません");
++  if (task.status === "done") throw new ConflictError("完了したタスクには作業記録を追加できません");
++  const { lastInsertRowid } = db
++    .prepare("INSERT INTO worklogs (task_id, author, minutes, note, recorded_at) VALUES (?, ?, ?, ?, ?)")
++    .run(input.taskId, input.author, input.minutes, input.note, toUtcIso(now));
++  return getWorklog(Number(lastInsertRowid), db)!;
++}
++
++/** taskId の作業記録 worklogId を、記録した本人（userId）のときだけ削除する。 */
++export function deleteWorklog(taskId: number, worklogId: number, userId: string, db: Db = getDb()): void {
++  const w = getWorklog(worklogId, db);
++  if (!w || w.taskId !== taskId) throw new NotFoundError("作業記録が見つかりません");
++  if (w.author !== userId) throw new ForbiddenError("自分の作業記録だけを削除できます");
++  db.prepare("DELETE FROM worklogs WHERE id = ?").run(worklogId);
++}

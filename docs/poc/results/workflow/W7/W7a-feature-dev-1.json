@@ -1,0 +1,295 @@
+{
+  "scenario": "W7a",
+  "trial": "W7a-feature-dev-1",
+  "candidate": "feature-dev",
+  "run": 1,
+  "elapsed_seconds": 263,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 1,
+  "continued_from": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": " type: 'test'\n      ...\n    1..4\nok 14 - validateTaskInput\n  ---\n  duration_ms: 1071.86087\n  type: 'suite'\n  ...\n# Subtest: createTask / updateTask\n    # Subtest: creates a task and updates only the given fields\n    ok 1 - creates a task and updates only the given fields\n      ---\n      duration_ms: 130.470253\n      type: 'test'\n      ...\n    1..1\nok 15 - createTask / updateTask\n  ---\n  duration_ms: 130.710851\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.226459\n      type: 'test'\n      ...\n    1..1\nok 16 - isTaskStatus\n  ---\n  duration_ms: 0.314138\n  type: 'suite'\n  ...\n1..16\n# tests 29\n# suites 16\n# pass 29\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2837.836832\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "oute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/me\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /api/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /api/tasks/[id]/completion\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:18001) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:17994) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:18000) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは GET・POST・DELETE とも 401",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告の無いタスクは { completion: null }（200）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "担当者が完了報告すると 201 で完了報告が返り、メモは前後の空白を除く",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告するとタスクのステータスが完了（done）になり、GET で同じ完了報告が返る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "すでに完了のタスクへの完了報告は 409（完了報告済み・初期データで完了の両方）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "担当者以外の完了報告は 403 で、ステータスは変わらない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "存在しないタスク・不正な ID は 404",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "メモが 500 文字を超える・文字列でない・本文がオブジェクトでないときは 400 で、ステータスは変わらない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "メモは省略でき（空文字）、500 文字ちょうどは受け付ける",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "詳細画面に「完了報告」と完了した人の名前・メモが表示される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告の無いタスクの詳細画面には完了報告を表示しない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告をした本人以外の取り消しは 403",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "本人が取り消すと 204 で、完了報告が消え、ステータスは進行中（in_progress）に戻る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告の無いタスクの取り消しは 409",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "取り消した後は、もう一度完了報告できる",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] タスクの更新（PATCH）とコメントは今までどおり使える",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/api/tasks/[id]/completion/route.ts",
+        "added": 37,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/tasks/[id]/page.tsx",
+        "added": 15,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/completions.ts",
+        "added": 95,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/db/migrations.ts",
+        "added": 12,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "tests/completions.test.ts",
+        "added": 68,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/tasks/[id]/completion/route.ts",
+      "src/lib/completions.ts",
+      "tests/completions.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "fab8e65 完了報告 API のエラーを AppError と withApi の形式にそろえる",
+      "fa9e219 タスクの完了報告（API と詳細画面の表示）を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 1.5214,
+    "tokens": {
+      "input": 128,
+      "output": 55862,
+      "cache_read": 3500700,
+      "cache_creation": 189488
+    },
+    "turns": 13,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W7a-feature-dev-1/app/src && for f in lib/comments.ts lib/db/migrations.ts lib/db/seed.ts lib/api.ts lib/errors.ts lib/session.ts lib/tasks.ts lib/users.ts lib/datetime"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"timeout 90 bash -c 'until [ $(ls /tmp/claude-0/-tmp-poc-trials-W7a-feature-dev-1-app/*/tasks/ 2>/dev/null | wc -l) -ge 0 ]; do :; done'; echo waiting-done\", \"description\": \"Brief wait\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 npm start >/tmp/claude-0/srv.log 2>&1 &) ; sleep 5\\nB=http://localhost:3917; J=/tmp/claude-0/j\\nlogin(){ curl -s -c $J.$1 -H 'content-type: application/json' -d \\\"{\\\\\\\"id\\\\\\\":\\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 npm start >/tmp/claude-0/srv.log 2>&1 &) ; sleep 6; bash /tmp/claude-0/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/scratchpad/e2e.sh; pkill -f \\\""
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"PORT=3917 nohup npm start > /tmp/claude-0/srv.log 2>&1 &\\nsleep 6; echo started\", \"description\": \"Start production server in background\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"PORT=3917 npm start\", \"description\": \"Start production server\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/completions.ts'\\ns=open(p).read()\\ni=s.index('export type CreateCompletionResult')\\ns=s[:i]+'''/**\\n * 担当者（userId）の完了報告を保存し、タスクを完了（done）にする。\\n * 検査の順: タスクが無い"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 14,
+      "Agent": 7,
+      "Read": 83,
+      "ReadNotifications": 10,
+      "Glob": 6,
+      "Grep": 5,
+      "Edit": 5,
+      "Write": 7
+    },
+    "skills_used": [],
+    "subagents": 7,
+    "subagent_types": {
+      "feature-dev:code-explorer": 2,
+      "feature-dev:code-architect": 2,
+      "feature-dev:code-reviewer": 3
+    },
+    "questions": 0,
+    "active_seconds": 81,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "完了報告 API のエラー処理を、決まりどおりの形に直してコミットしました（`fab8e65`）。型チェックとビルドは通り、単体テスト 29 件も成功しています。ただし、実サーバーを起動しての HTTP 応答の確認はしていません。\n\n- **`src/lib/completions.ts`**: 結果を文字列で返すのをやめ、`NotFoundError`・`ForbiddenError`・`ValidationError`・`ConflictError` を投げるようにしました。\n  - `completeTask` が `createCompletion` の後継で、リクエスト本文の検証までここで行います。\n  - `cancelCompletion` が `deleteCompletion` の後継です。\n  - 検査の順は前回と同じです。POST は 404、403、400、409、DELETE は 404、409、403 の順です。\n- **ルート**: 3 つのハンドラーを `withApi` で包み、ログインの確認は `currentApiUser` に変えました。`jsonError` と `requireApiUser` は使っていません。\n  - エラー応答は `{ error, code, details? }` の形になります。\n  - 不正な ID は `NotFoundError` で 404 です。\n  - 成功時のステータスと本文は前回のままです（GET は 200、POST は 201、DELETE は 204）。\n- **テスト**: 新しい関数と、投げられるエラーの種類・検査順に合わせて書き直しました。\n\nエラー応答に `code` が付くようになったので、前回と形が変わります。"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": true,
+        "P2": false,
+        "P1_reasons": [],
+        "P2_failed": [
+          {
+            "label": "未ログイン",
+            "expected": 401,
+            "status": 401,
+            "body": "{\"error\":\"ログインしてください\"}",
+            "pass": false
+          },
+          {
+            "label": "存在しないタスク",
+            "expected": 404,
+            "status": 404,
+            "body": "{\"error\":\"タスクが見つかりません\"}",
+            "pass": false
+          },
+          {
+            "label": "担当者以外の完了報告",
+            "expected": 403,
+            "status": 403,
+            "body": "{\"error\":\"担当者だけが完了報告できます\"}",
+            "pass": false
+          },
+          {
+            "label": "メモが長すぎる",
+            "expected": 400,
+            "status": 400,
+            "body": "{\"error\":\"入力内容に誤りがあります\",\"details\":[\"メモは 500 文字以内で入力してください\"]}",
+            "pass": false
+          },
+          {
+            "label": "完了済みのタスク",
+            "expected": 409,
+            "status": 409,
+            "body": "{\"error\":\"このタスクはすでに完了しています\"}",
+            "pass": false
+          }
+        ]
+      },
+      {
+        "round": 2,
+        "build": true,
+        "error": "",
+        "P1": true,
+        "P2": true,
+        "P1_reasons": [],
+        "P2_failed": []
+      }
+    ],
+    "check_seconds": 10,
+    "auto_memory_disabled": true,
+    "control": false,
+    "memory": {
+      "in_app": [],
+      "in_home": [
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-a19d2fddca0441d3c.meta.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-a19d2fddca0441d3c.prefix.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-a2095413192aa3c31.meta.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-a2095413192aa3c31.prefix.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-a522b6ab72d8e6ee5.meta.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-a522b6ab72d8e6ee5.prefix.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-a55115b18bc658d34.meta.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-a55115b18bc658d34.prefix.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-aa0f1572adc70c5e6.meta.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-aa0f1572adc70c5e6.prefix.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-ab52ddef11f540202.meta.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-ab52ddef11f540202.prefix.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-abdbda4ae3a473248.meta.json",
+        ".claude/projects/-tmp-poc-trials-W7a-feature-dev-1-app/b4d90c2e-f98b-4e24-b400-e9ef1683ad41/subagents/agent-abdbda4ae3a473248.prefix.json"
+      ]
+    },
+    "injected_patch": "a5dd7b7a25fd46b9f24dd3a076d8ea7127d68b9c42535e2b0a0e9bf3e03df28e  docs/poc/answer-key/W7/base.patch"
+  }
+}
