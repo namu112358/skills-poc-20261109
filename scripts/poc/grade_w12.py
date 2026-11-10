@@ -235,21 +235,54 @@ def aliases_for(static):
     return out
 
 
+SUITE_RETRIES = []  # 採点の途中で候補のサーバーが消えて、やり直した記録（[(名前, 理由)]）
+
+
 def suite(app, work, name, script, adapter, aliases, extra=None):
+    """新しい DB・偽の通知サービスでサーバーを起動し、テストを実行する。
+
+    採点の途中で候補のサーバーが前触れなく消える（ログにエラーが無く、接続が拒否される）ことが 2 回あった（2026-11-10。
+    原因は特定できず、同じ試行で再現しない）。サーバーが消えていたら、新しい作業場所で 1 回だけやり直し、SUITE_RETRIES に記録する。
+    """
+    res, log, state, dead = _suite_once(app, work, name, script, adapter, aliases, extra)
+    if dead:
+        SUITE_RETRIES.append({"suite": name, "reason": dead})
+        res, log, state, dead2 = _suite_once(app, work, name + "-retry", script, adapter, aliases, extra)
+        if dead2:
+            SUITE_RETRIES.append({"suite": name + "-retry", "reason": dead2})
+    return res, log, state
+
+
+def _suite_once(app, work, name, script, adapter, aliases, extra=None):
     e = Env(app, work, name, aliases=aliases)
     e.start_notify()
     try:
         if not e.start_server():
-            return [{"id": "X", "name": "サーバーの起動", "pass": False, "detail": e.log.read_text()[-500:]}], e.log.read_text(), {}
+            return [{"id": "X", "name": "サーバーの起動", "pass": False, "detail": e.log.read_text()[-500:]}], e.log.read_text(), {}, ""
         res = e.run_cjs(script, adapter, extra)
         state = e.notify_state()
+        dead = ""
+        if e.server and e.server.poll() is not None:
+            dead = f"サーバーが終了していた（終了コード {e.server.returncode}）"
+        elif "ECONNREFUSED" in json.dumps(res, ensure_ascii=False):
+            dead = "サーバーへの接続が拒否された"
     finally:
         e.stop()
-    return res, e.log.read_text(), state
+    return res, e.log.read_text(), state, dead
 
 
 def discover_adapter(app, work, routes, aliases, override):
-    e = Env(app, work, "adapt", aliases=aliases)
+    adapter = _discover_once(app, work, "adapt", routes, aliases)
+    if "ECONNREFUSED" in json.dumps(adapter):
+        SUITE_RETRIES.append({"suite": "adapt", "reason": "サーバーへの接続が拒否された"})
+        adapter = _discover_once(app, work, "adapt-retry", routes, aliases)
+    if override:
+        adapter = {**adapter, **override, "overridden": sorted(override)}
+    return adapter
+
+
+def _discover_once(app, work, name, routes, aliases):
+    e = Env(app, work, name, aliases=aliases)
     e.start_notify()
     try:
         if not e.start_server():
@@ -262,8 +295,6 @@ def discover_adapter(app, work, routes, aliases, override):
             adapter = {"error": (p.stdout + p.stderr)[-500:], "needs_review": True}
     finally:
         e.stop()
-    if override:
-        adapter = {**adapter, **override, "overridden": sorted(override)}
     return adapter
 
 
@@ -488,6 +519,7 @@ def evaluate(app, base, work, override=None, mutation=True):
         out["migration"] = migration_checks(app, work, adapter, aliases, static)
         all_requests = {"requests": [r for st in (pstate, hstate, rstate) for r in st.get("requests", [])]}
         out["ops"] = ops_checks(static, logs, aliases, all_requests)
+        out["suite_retries"] = list(SUITE_RETRIES)
         for k, v in logs.items():
             (work / f"{k}.log.txt").write_text(v)
     else:
