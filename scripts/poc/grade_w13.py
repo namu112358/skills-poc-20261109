@@ -218,14 +218,35 @@ def parse_results(p, name):
         return [{"id": "X", "name": f"{name} の実行", "pass": False, "detail": (p.stdout + p.stderr)[-800:]}]
 
 
-def suite(app, work, name, adapter, phase):
+SUITE_RETRIES = []  # 採点の途中で候補のサーバーが消えて、やり直した記録
+
+
+def _suite_once(app, work, name, adapter, phase):
     s = Server(app, work, name, Path(work) / f"{name}.db", "2026-11-09T22:30:00.000Z")
     try:
         if not s.start():
-            return [{"id": "X", "name": "サーバーの起動", "pass": False, "detail": s.log.read_text()[-500:]}]
-        return parse_results(s.node("tests.cjs", adapter, phase), name)
+            return [{"id": "X", "name": "サーバーの起動", "pass": False, "detail": s.log.read_text()[-500:]}], ""
+        res = parse_results(s.node("tests.cjs", adapter, phase), name)
+        dead = ""
+        if s.proc and s.proc.poll() is not None:
+            dead = f"サーバーが終了していた（終了コード {s.proc.returncode}）"
+        elif "ECONNREFUSED" in json.dumps(res, ensure_ascii=False):
+            dead = "サーバーへの接続が拒否された"
+        return res, dead
     finally:
         s.stop()
+
+
+def suite(app, work, name, adapter, phase):
+    """新しい DB でサーバーを起動してテストする。W12 で採点の途中に候補のサーバーが前触れなく消えたことがあったため、
+    消えていたら新しい DB で 1 回だけやり直し、SUITE_RETRIES に記録する（W12 の grade_w12.py d327e7e と同じ扱い）。"""
+    res, dead = _suite_once(app, work, name, adapter, phase)
+    if dead:
+        SUITE_RETRIES.append({"suite": name, "reason": dead})
+        res, dead2 = _suite_once(app, work, name + "-retry", adapter, phase)
+        if dead2:
+            SUITE_RETRIES.append({"suite": name + "-retry", "reason": dead2})
+    return res
 
 
 # ---- マイグレーション（本番の DB） ----
@@ -330,6 +351,7 @@ def evaluate(app, base, v1, work, adapters, mutation=True):
         sys.path.insert(0, str(HERE))
         import grade_w10  # noqa: E402
         out["mutation"] = grade_w10.mutation(str(app), base, str(work / "mutation"))
+    out["suite_retries"] = list(SUITE_RETRIES)
     for k in ("v1_checks", "checks"):
         out[k] = {n: v["pass"] for n, v in out[k].items()} | {"logs": {n: v["log"] for n, v in out[k].items() if not v["pass"]}}
     return out

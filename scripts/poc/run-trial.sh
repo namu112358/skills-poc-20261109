@@ -63,7 +63,14 @@ if [[ "$SCENARIO" == W11-* ]]; then
   OSS_TASK="${SCENARIO#W11-}"
   python3 "$ROOT/scripts/poc/oss/oss.py" copy-app "$OSS_TASK" "$APP" "$WORK" > "$OUT/oss-setup.log" 2>&1
 else
+if [[ "$SCENARIO" == W13 ]]; then
+  # W13: ディスクの割り当てを使い切らないよう、node_modules はハードリンクで写す（依存の追加は許可していないので中身は同じ。
+  # W12 で容量が尽きて試行が止まったため。2026-11-10）
+  ( cd "$APP_SRC" && tar --exclude=./node_modules --exclude=./.next -cf - . ) | ( cd "$APP" && tar -xf - )
+  cp -al "$APP_SRC/node_modules" "$APP/node_modules"
+else
 cp -a "$APP_SRC/." "$APP/"
+fi
 rm -rf "$APP/.next" "$APP"/*.tsbuildinfo
 fi
 mkdir -p "$APP/.claude/skills"
