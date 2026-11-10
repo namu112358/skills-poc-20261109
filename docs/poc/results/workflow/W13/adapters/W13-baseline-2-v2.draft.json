@@ -1,0 +1,71 @@
+{
+  "phase": "v2",
+  "commit": "HEAD",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/decision-error.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "approve": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/approve"
+    },
+    "reject": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/reject",
+      "body": {
+        "reason": "検証のため"
+      }
+    },
+    "fields": {
+      "id": "id",
+      "status": "status",
+      "start": "startOn",
+      "end": "endOn",
+      "user": "reserverId"
+    },
+    "status": {
+      "pending": [
+        "pending"
+      ],
+      "approved": [
+        "active"
+      ],
+      "rejected": [
+        "rejected"
+      ],
+      "cancelled": [
+        "cancelled"
+      ]
+    },
+    "jobs": [],
+    "notes": "状態は DB の status をそのまま返し、承認済み（確定）は 'active'。期限切れ（expired）は状態の更新をせず、日付（pending は開始日が今日より前、active は終了日が今日より前）から API 側で判断する仕組みで、一覧の status には 'expired' という値は出ない。そのため status の expired は書いていない。'fulfilled'（貸出済み）は loans API 経由で発生する別状態で、共通の状態名には対応させていない。ジョブは無い。"
+  },
+  "cost_usd": 0.0752372
+}

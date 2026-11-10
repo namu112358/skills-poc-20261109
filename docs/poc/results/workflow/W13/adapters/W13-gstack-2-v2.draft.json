@@ -1,0 +1,72 @@
+{
+  "phase": "v2",
+  "commit": "HEAD",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/app/instruments/[id]/reservation-controls.tsx",
+    "src/lib/calibrations.ts",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations?scope=all",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "approve": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/approve"
+    },
+    "reject": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/reject",
+      "body": {
+        "reason": "検証のため"
+      }
+    },
+    "fields": {
+      "id": "id",
+      "status": "state",
+      "start": "startOn",
+      "end": "endOn",
+      "user": "userId"
+    },
+    "status": {
+      "pending": [
+        "pending"
+      ],
+      "approved": [
+        "approved"
+      ],
+      "rejected": [
+        "rejected"
+      ],
+      "expired": [
+        "expired"
+      ]
+    },
+    "jobs": [],
+    "notes": "一覧は既定だと仮予約・承認済みだけなので ?scope=all を付けた。取り消した予約は cancelled_at が入るだけで、一覧（listReservations）には出ない（取り消し後は一覧から消える）ため cancelled は status に書いていない。status は期限切れを表せる state（pending/approved/rejected/expired）を使った。API の status 項目は expired を返さない。期限切れは開始日の翌日になった未承認の仮予約で、定期ジョブの API は無く表示時に算出される。cancelReservation の実装は提示コードの末尾が切れていて確認できていない。予約者がログイン中の本人なので create に {user} は不要。承認者（管理者本人）が予約すると自動で approved になる。"
+  },
+  "cost_usd": 0.0935652
+}

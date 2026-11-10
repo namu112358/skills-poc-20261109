@@ -1,0 +1,49 @@
+{
+  "phase": "v1",
+  "commit": "545567563f1cb9f3ce70d90813f4bc277748501f",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "fields": {
+      "id": "id",
+      "status": "cancelledAt",
+      "start": "startOn",
+      "end": "endOn",
+      "user": "reserverId"
+    },
+    "status": {
+      "active": [
+        "null"
+      ],
+      "cancelled": []
+    },
+    "jobs": [],
+    "notes": "v1。状態は専用の項目が無く、cancelledAt が null なら有効（active）。取り消した予約は一覧（listReservations）に含まれないため、取消後は一覧から消える（cancelled の値は一覧には現れない）。取消の応答（reservation.cancelledAt）には日時が入る。承認・却下・期限切れ・定期ジョブは無い。予約者はログイン中の利用者で本文に不要。"
+  },
+  "cost_usd": 0.0526716
+}

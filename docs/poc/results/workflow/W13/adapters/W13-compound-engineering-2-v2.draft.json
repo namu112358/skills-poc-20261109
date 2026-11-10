@@ -1,0 +1,79 @@
+{
+  "phase": "v2",
+  "commit": "HEAD",
+  "files": [
+    "src/app/api/instruments/[id]/calibrations/route.ts",
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/api/reservations/pending/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/app/instruments/page.tsx",
+    "src/lib/calibrations.ts",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservation-overlap.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations?cancelled=1",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "approve": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/approve"
+    },
+    "reject": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/reject",
+      "body": {
+        "note": "検証のため"
+      }
+    },
+    "fields": {
+      "id": "id",
+      "status": [
+        "status",
+        "cancelledAt"
+      ],
+      "start": "startOn",
+      "end": "endOn",
+      "user": "reserverId"
+    },
+    "status": {
+      "pending": [
+        "\"pending\"|null"
+      ],
+      "approved": [
+        "\"approved\"|null"
+      ],
+      "rejected": [
+        "\"rejected\"|null"
+      ],
+      "cancelled": [
+        "\"pending\"|@notnull",
+        "\"approved\"|@notnull"
+      ]
+    },
+    "jobs": [],
+    "notes": "状態は status と cancelledAt の組み合わせ。取り消しは cancelledAt が非 null（元の status は pending か approved のまま残る）。却下済みの予約は取り消せないので rejected|@notnull は無い。expired は保存されず、開始日の翌日以降の未承認の仮予約が一覧から消えるだけなので status には書いていない（期限切れの予約は一覧に出ない）。list は取り消し済み・却下済みも見えるよう ?cancelled=1 を付けた。ただし一覧は終了日が今日以降の予約だけ。期限切れ処理のジョブは無い。reject の本文は note（reason ではない）。管理者自身の予約は最初から approved になる。"
+  },
+  "cost_usd": 0.0957752
+}

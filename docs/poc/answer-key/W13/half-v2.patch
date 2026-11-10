@@ -1,0 +1,117 @@
+diff --git a/src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts b/src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts
+new file mode 100644
+index 0000000..03ac6c4
+--- /dev/null
++++ b/src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts
+@@ -0,0 +1,13 @@
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { approveReservation } from "@/lib/reservations";
++
++type Context = { params: Promise<{ id: string; reservationId: string }> };
++
++export async function POST(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const p = await params;
++  if (!approveReservation(Number(p.id), Number(p.reservationId), user.id)) return jsonError(400, "できません");
++  return NextResponse.json({ ok: true });
++}
+diff --git a/src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts b/src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts
+new file mode 100644
+index 0000000..dd3e0b6
+--- /dev/null
++++ b/src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts
+@@ -0,0 +1,13 @@
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { rejectReservation } from "@/lib/reservations";
++
++type Context = { params: Promise<{ id: string; reservationId: string }> };
++
++export async function POST(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const p = await params;
++  if (!rejectReservation(Number(p.id), Number(p.reservationId), user.id)) return jsonError(400, "できません");
++  return NextResponse.json({ ok: true });
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 253e733..92a0bcb 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -103,4 +103,9 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX reservations_instrument ON reservations(instrument_id, start_on);
+     `,
+   },
++  {
++    version: 6,
++    name: "reservation_approval",
++    sql: `ALTER TABLE reservations ADD COLUMN approved INTEGER NOT NULL DEFAULT 0;`,
++  },
+ ];
+diff --git a/src/lib/reservations.ts b/src/lib/reservations.ts
+index b4687c2..95ba9cf 100644
+--- a/src/lib/reservations.ts
++++ b/src/lib/reservations.ts
+@@ -22,6 +22,7 @@ export type Reservation = {
+   startOn: string;
+   endOn: string;
+   status: ReservationStatus;
++  approved: number; // 1 = 承認済み（確定）
+   createdAt: string;
+   cancelledAt: string | null;
+   cancelledBy: string | null;
+@@ -34,12 +35,13 @@ type Row = {
+   start_on: string;
+   end_on: string;
+   status: ReservationStatus;
++  approved: number;
+   created_at: string;
+   cancelled_at: string | null;
+   cancelled_by: string | null;
+ };
+ 
+-const COLUMNS = "id, instrument_id, user_id, start_on, end_on, status, created_at, cancelled_at, cancelled_by";
++const COLUMNS = "id, instrument_id, user_id, start_on, end_on, status, approved, created_at, cancelled_at, cancelled_by";
+ 
+ function toReservation(r: Row): Reservation {
+   return {
+@@ -49,6 +51,7 @@ function toReservation(r: Row): Reservation {
+     startOn: r.start_on,
+     endOn: r.end_on,
+     status: r.status,
++    approved: r.approved,
+     createdAt: r.created_at,
+     cancelledAt: r.cancelled_at,
+     cancelledBy: r.cancelled_by,
+@@ -102,6 +105,7 @@ export function validateReservationInput(body: unknown, today: string): Validati
+   if (errors.length === 0) {
+     if ((b.startOn as string) < today) errors.push("過去の日からは予約できません");
+     if ((b.endOn as string) < (b.startOn as string)) errors.push("終了日は開始日以降にしてください");
++    else if ((Date.parse(b.endOn as string) - Date.parse(b.startOn as string)) / 86_400_000 + 1 > 14) errors.push("予約は 14 日までです");
+   }
+   return errors.length > 0
+     ? { ok: false, errors }
+@@ -171,3 +175,21 @@ export function cancelUpcomingReservations(instrumentId: number, cancelledBy: st
+     .run(now.toISOString(), cancelledBy, instrumentId, todayJst(now));
+   return Number(changes);
+ }
++
++/** 管理者が承認する。 */
++export function approveReservation(instrumentId: number, id: number, userId: string, db: Db = getDb()): boolean {
++  const r = getReservation(instrumentId, id, db);
++  const instrument = getInstrument(instrumentId, db);
++  if (!r || !instrument || instrument.managerId !== userId || r.status !== "active" || r.approved) return false;
++  db.prepare("UPDATE reservations SET approved = 1 WHERE id = ?").run(id);
++  return true;
++}
++
++/** 管理者が却下する（取消として扱う）。 */
++export function rejectReservation(instrumentId: number, id: number, userId: string, db: Db = getDb()): boolean {
++  const r = getReservation(instrumentId, id, db);
++  const instrument = getInstrument(instrumentId, db);
++  if (!r || !instrument || instrument.managerId !== userId || r.status !== "active") return false;
++  db.prepare("UPDATE reservations SET status = 'cancelled' WHERE id = ?").run(id);
++  return true;
++}

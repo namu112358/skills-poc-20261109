@@ -1,0 +1,69 @@
+{
+  "phase": "v2",
+  "commit": "HEAD",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/actions.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservation-conflicts.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "DELETE",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}"
+    },
+    "approve": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/approve"
+    },
+    "reject": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/reject",
+      "body": {
+        "reason": "検証のため"
+      }
+    },
+    "fields": {
+      "id": "id",
+      "status": "status",
+      "start": "startOn",
+      "end": "endOn",
+      "user": "reserverId"
+    },
+    "status": {
+      "pending": [
+        "pending"
+      ],
+      "approved": [
+        "approved"
+      ],
+      "rejected": [
+        "rejected"
+      ]
+    },
+    "jobs": [],
+    "notes": "取消は DELETE で、status は変わらず cancelledAt が入る。一覧は取消済み・却下済み・期限切れ（開始日を過ぎても承認されない仮予約）を返さないため、cancelled・expired に対応する status の値は無く、書いていない。rejected も一覧には出ず、承認・却下の応答でだけ見える。期限切れは一覧から消えるだけで、定期実行のジョブは無い。予約者はログイン中のユーザーで、予約者本人が承認者（管理者。無効なら部署の代表者）のときは、作成時点で approved になる。承認・却下は承認者本人だけができる。"
+  },
+  "cost_usd": 0.092146
+}

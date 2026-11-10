@@ -64,7 +64,14 @@ if [[ "$SCENARIO" == W11-* ]]; then
   OSS_TASK="${SCENARIO#W11-}"
   python3 "$ROOT/scripts/poc/oss/oss.py" copy-app "$OSS_TASK" "$APP" "$WORK" > "$OUT/oss-setup.log" 2>&1
 else
+if [[ "$SCENARIO" == W13 ]]; then
+  # W13: ディスクの割り当てを使い切らないよう、node_modules はハードリンクで写す（依存の追加は許可していないので中身は同じ。
+  # W12 で容量が尽きて試行が止まったため。2026-11-10）
+  ( cd "$APP_SRC" && tar --exclude=./node_modules --exclude=./.next -cf - . ) | ( cd "$APP" && tar -xf - )
+  cp -al "$APP_SRC/node_modules" "$APP/node_modules"
+else
 cp -a "$APP_SRC/." "$APP/"
+fi
 rm -rf "$APP/.next" "$APP"/*.tsbuildinfo
 fi
 mkdir -p "$APP/.claude/skills"
@@ -127,9 +134,9 @@ if [[ "${POC_STANDARD:-}" == generic && "$SCENARIO" == W12 ]]; then
 elif [[ -n "${POC_STANDARD:-}" ]]; then
   echo "POC_STANDARD は W12 で generic のときだけ使える: ${POC_STANDARD} ($SCENARIO)" >&2; exit 1
 fi
-# W14・W15: W13 と同じく、全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準を足す
-# （2026-11-10 コーディネーターの連絡・ユーザー承認。W13 の分岐とぶつからないよう別に足した）
-if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 ]]; then
+# W13・W14・W15: 全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準（docs/poc/standards/generic-dev-standard.md の
+# 区切りのコメントより下。全 W 同じ文面）を足す（2026-11-10 コーディネーター・ユーザー承認）。初期状態の一部なので候補からは差分に見えない
+if [[ "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 ]]; then
   STD="$ROOT/docs/poc/standards/generic-dev-standard.md"
   { echo; sed '1,/^-->$/d' "$STD"; } >> "$APP/CLAUDE.md"
   sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/dev-standard"

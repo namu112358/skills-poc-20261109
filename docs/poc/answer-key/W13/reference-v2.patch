@@ -1,0 +1,620 @@
+diff --git a/src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts b/src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts
+new file mode 100644
+index 0000000..918cd82
+--- /dev/null
++++ b/src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts
+@@ -0,0 +1,8 @@
++// POST /api/instruments/:id/reservations/:reservationId/approve — 仮予約を承認する（計測器の管理者。無効なら部署の代表者）。
++import { handleReservationChange } from "@/lib/reservation-route";
++
++type Context = { params: Promise<{ id: string; reservationId: string }> };
++
++export async function POST(request: Request, { params }: Context) {
++  return handleReservationChange("approve", request, params);
++}
+diff --git a/src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts b/src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts
+index f33b7da..5dae720 100644
+--- a/src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts
++++ b/src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts
+@@ -1,23 +1,8 @@
+ // POST /api/instruments/:id/reservations/:reservationId/cancel — 予約を取り消す（予約した本人か、計測器の管理者）。
+-import { NextResponse } from "next/server";
+-import { jsonError, requireApiUser } from "@/lib/api";
+-import { parseId } from "@/lib/instruments";
+-import { cancelReservation } from "@/lib/reservations";
++import { handleReservationChange } from "@/lib/reservation-route";
+ 
+ type Context = { params: Promise<{ id: string; reservationId: string }> };
+ 
+-export async function POST(_request: Request, { params }: Context) {
+-  const user = await requireApiUser();
+-  if (user instanceof NextResponse) return user;
+-  const p = await params;
+-  const id = parseId(p.id);
+-  const reservationId = parseId(p.reservationId);
+-  if (id === undefined || reservationId === undefined) return jsonError(404, "予約が見つかりません");
+-  const result = cancelReservation(id, reservationId, user.id);
+-  if (!result.ok) {
+-    if (result.reason === "not_found") return jsonError(404, "予約が見つかりません");
+-    if (result.reason === "forbidden") return jsonError(403, "予約を取り消せるのは、予約した本人と計測器の管理者です");
+-    return jsonError(409, "この予約はすでに取り消されています");
+-  }
+-  return NextResponse.json({ reservation: result.reservation });
++export async function POST(request: Request, { params }: Context) {
++  return handleReservationChange("cancel", request, params);
+ }
+diff --git a/src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts b/src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts
+new file mode 100644
+index 0000000..93de933
+--- /dev/null
++++ b/src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts
+@@ -0,0 +1,8 @@
++// POST /api/instruments/:id/reservations/:reservationId/reject — 仮予約を却下する（本文 { reason? }。承認と同じ人）。
++import { handleReservationChange } from "@/lib/reservation-route";
++
++type Context = { params: Promise<{ id: string; reservationId: string }> };
++
++export async function POST(request: Request, { params }: Context) {
++  return handleReservationChange("reject", request, params);
++}
+diff --git a/src/app/api/reservations/pending-approvals/route.ts b/src/app/api/reservations/pending-approvals/route.ts
+new file mode 100644
+index 0000000..33eff0c
+--- /dev/null
++++ b/src/app/api/reservations/pending-approvals/route.ts
+@@ -0,0 +1,10 @@
++// GET /api/reservations/pending-approvals — ログイン中の人が承認する、承認待ちの仮予約。
++import { NextResponse } from "next/server";
++import { requireApiUser } from "@/lib/api";
++import { listPendingApprovals } from "@/lib/reservations";
++
++export async function GET() {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  return NextResponse.json({ reservations: listPendingApprovals(user.id) });
++}
+diff --git a/src/app/instruments/[id]/page.tsx b/src/app/instruments/[id]/page.tsx
+index 75fc95f..3ca61f4 100644
+--- a/src/app/instruments/[id]/page.tsx
++++ b/src/app/instruments/[id]/page.tsx
+@@ -20,7 +20,9 @@ export default async function InstrumentDetailPage({ params }: Props) {
+   const loans = listLoans(instrument.id);
+   const calibrations = listCalibrations(instrument.id);
+   const today = todayJst();
+-  const reservations = listReservations(instrument.id).filter((r) => r.status !== "cancelled" && r.endOn >= today);
++  const reservations = listReservations(instrument.id).filter(
++    (r) => (r.status === "pending" || r.status === "approved") && r.endOn >= today,
++  );
+   const nameOf = (userId: string) => getUser(userId)?.name ?? userId;
+ 
+   return (
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 253e733..41cd329 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -103,4 +103,37 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX reservations_instrument ON reservations(instrument_id, start_on);
+     `,
+   },
++  {
++    // 予約の承認制（仮予約 → 確定）。version 5 は本番に出ているので書き換えず、表を作り直して移す。
++    // 状態の CHECK を変えるには表を作り直す必要がある（SQLite は CHECK 制約を変更できない）。
++    // 本番に出てから入った有効な予約（active）は、予定を組んでいるので確定（approved）として移す（依頼者の確認済み）。
++    version: 6,
++    name: "reservation_approval",
++    sql: `
++      CREATE TABLE reservations_v6 (
++        id            INTEGER PRIMARY KEY AUTOINCREMENT,
++        instrument_id INTEGER NOT NULL REFERENCES instruments(id),
++        user_id       TEXT NOT NULL REFERENCES users(id),
++        start_on      TEXT NOT NULL,
++        end_on        TEXT NOT NULL,
++        status        TEXT NOT NULL DEFAULT 'pending'
++                      CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
++        created_at    TEXT NOT NULL,
++        cancelled_at  TEXT,
++        cancelled_by  TEXT REFERENCES users(id),
++        decided_at    TEXT,              -- 承認・却下の日時（ISO 8601、UTC）
++        decided_by    TEXT REFERENCES users(id),
++        reject_reason TEXT NOT NULL DEFAULT ''
++      );
++      INSERT INTO reservations_v6 (id, instrument_id, user_id, start_on, end_on, status, created_at, cancelled_at, cancelled_by)
++        SELECT id, instrument_id, user_id, start_on, end_on,
++               CASE status WHEN 'active' THEN 'approved' ELSE status END,
++               created_at, cancelled_at, cancelled_by
++        FROM reservations;
++      DROP TABLE reservations;
++      ALTER TABLE reservations_v6 RENAME TO reservations;
++      CREATE INDEX reservations_instrument ON reservations(instrument_id, start_on);
++      CREATE INDEX reservations_status ON reservations(status, start_on);
++    `,
++  },
+ ];
+diff --git a/src/lib/loans.ts b/src/lib/loans.ts
+index aa8fec5..5210442 100644
+--- a/src/lib/loans.ts
++++ b/src/lib/loans.ts
+@@ -76,7 +76,7 @@ export function lendInstrument(instrumentId: number, input: LoanInput, db: Db =
+     const instrument = getInstrument(instrumentId, db);
+     if (!instrument) return { ok: false, reason: "not_found" } as const;
+     if (instrument.status !== "in_use") return { ok: false, reason: "not_available" } as const;
+-    if (conflictingReservation(instrumentId, todayJst(now), input.dueOn, db, { userId: input.borrowerId })) {
++    if (conflictingReservation(instrumentId, todayJst(now), input.dueOn, todayJst(now), db, { userId: input.borrowerId })) {
+       return { ok: false, reason: "reserved" } as const;
+     }
+     const { lastInsertRowid } = db
+diff --git a/src/lib/reservation-route.ts b/src/lib/reservation-route.ts
+new file mode 100644
+index 0000000..4689dee
+--- /dev/null
++++ b/src/lib/reservation-route.ts
+@@ -0,0 +1,41 @@
++// 予約の承認・却下・取消の API Route の共通部分。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "./api.ts";
++import { parseId } from "./instruments.ts";
++import { changeReservation, type ReservationAction } from "./reservations.ts";
++
++const FORBIDDEN: Record<ReservationAction, string> = {
++  approve: "承認できるのは計測器の管理者（管理者が無効なら部署の代表者）です",
++  reject: "却下できるのは計測器の管理者（管理者が無効なら部署の代表者）です",
++  cancel: "予約を取り消せるのは、予約した本人と計測器の管理者です",
++};
++const INVALID_STATE: Record<ReservationAction, string> = {
++  approve: "承認できるのは承認待ちの仮予約だけです",
++  reject: "却下できるのは承認待ちの仮予約だけです",
++  cancel: "仮予約か確定した予約だけを取り消せます",
++};
++
++export async function handleReservationChange(
++  action: ReservationAction,
++  request: Request,
++  params: Promise<{ id: string; reservationId: string }>,
++): Promise<NextResponse> {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const p = await params;
++  const id = parseId(p.id);
++  const reservationId = parseId(p.reservationId);
++  if (id === undefined || reservationId === undefined) return jsonError(404, "予約が見つかりません");
++  const body = action === "reject" ? await readJson(request) : undefined;
++  const reason =
++    typeof body === "object" && body !== null && typeof (body as { reason?: unknown }).reason === "string"
++      ? (body as { reason: string }).reason
++      : undefined;
++  const result = changeReservation(action, id, reservationId, user.id, undefined, undefined, { reason });
++  if (!result.ok) {
++    if (result.reason === "not_found") return jsonError(404, "予約が見つかりません");
++    if (result.reason === "forbidden") return jsonError(403, FORBIDDEN[action]);
++    return jsonError(409, INVALID_STATE[action]);
++  }
++  return NextResponse.json({ reservation: result.reservation });
++}
+diff --git a/src/lib/reservations.ts b/src/lib/reservations.ts
+index b4687c2..cdbe687 100644
+--- a/src/lib/reservations.ts
++++ b/src/lib/reservations.ts
+@@ -1,18 +1,46 @@
+ // 計測器の貸出の予約。予約は日単位（開始日・終了日を含む。日本時間の暦日）。
+-// - 同じ計測器で期間が 1 日でも重なる有効な予約は作れない。貸出中なら返却予定日の翌日から予約できる。
+-// - 使用停止・廃棄の計測器は予約できない。
+-// - 取り消せるのは予約した本人と、その計測器の管理者。
+-// - 他人の予約の期間にかかる貸出はしない（loans.ts の lendInstrument が conflictingReservation で確かめる）。
++// 状態と遷移（承認制。2026-11 の変更依頼）:
++//   作成 → pending（仮予約）→ approved（確定）/ rejected（却下）
++//   pending・approved → cancelled（取消。予約した本人か計測器の管理者）
++//   pending のまま開始日を過ぎたものは expired（期限切れ）として扱う（保存はせず、読むときに決める）。
++// - 有効な予約（期限切れでない仮予約と確定）は枠を押さえる。期間が 1 日でも重なる予約は作れない。
++// - 承認・却下するのは計測器の管理者。管理者が無効なら、その部署の代表者。
++// - 1 回の予約は開始日と終了日を含めて MAX_RESERVATION_DAYS 日まで（変更前に入った予約はそのまま有効）。
++// - 他人の有効な予約の期間にかかる貸出はしない（loans.ts の lendInstrument が conflictingReservation で確かめる）。
+ import { getDb, transaction, type Db } from "./db/index.ts";
+ import { isValidDate, todayJst } from "./dates.ts";
+-import { getInstrument, type ValidationResult } from "./instruments.ts";
++import { getInstrument, type Instrument, type ValidationResult } from "./instruments.ts";
+ import { currentLoan } from "./loans.ts";
++import { getDepartment, getUserDetail } from "./users.ts";
+ 
+-export type ReservationStatus = "active" | "cancelled";
++/** DB に保存する状態 */
++export type StoredReservationStatus = "pending" | "approved" | "rejected" | "cancelled";
++/** API・画面に出す状態（期限切れを含む） */
++export type ReservationStatus = StoredReservationStatus | "expired";
+ 
+ export const RESERVATION_STATUS_LABELS: Record<ReservationStatus, string> = {
+-  active: "予約中",
++  pending: "仮予約（承認待ち）",
++  approved: "確定",
++  rejected: "却下",
+   cancelled: "取消",
++  expired: "期限切れ",
++};
++
++export const MAX_RESERVATION_DAYS = 14;
++
++/** 操作ごとに、元の状態として許されるもの（ここ以外で状態を変えない） */
++const TRANSITIONS = {
++  approve: ["pending"],
++  reject: ["pending"],
++  cancel: ["pending", "approved"],
++} as const satisfies Record<string, readonly ReservationStatus[]>;
++
++export type ReservationAction = keyof typeof TRANSITIONS;
++
++const NEXT_STATUS: Record<ReservationAction, StoredReservationStatus> = {
++  approve: "approved",
++  reject: "rejected",
++  cancel: "cancelled",
+ };
+ 
+ export type Reservation = {
+@@ -25,6 +53,9 @@ export type Reservation = {
+   createdAt: string;
+   cancelledAt: string | null;
+   cancelledBy: string | null;
++  decidedAt: string | null;
++  decidedBy: string | null;
++  rejectReason: string;
+ };
+ 
+ type Row = {
+@@ -33,60 +64,81 @@ type Row = {
+   user_id: string;
+   start_on: string;
+   end_on: string;
+-  status: ReservationStatus;
++  status: StoredReservationStatus;
+   created_at: string;
+   cancelled_at: string | null;
+   cancelled_by: string | null;
++  decided_at: string | null;
++  decided_by: string | null;
++  reject_reason: string;
+ };
+ 
+-const COLUMNS = "id, instrument_id, user_id, start_on, end_on, status, created_at, cancelled_at, cancelled_by";
++const COLUMNS =
++  "id, instrument_id, user_id, start_on, end_on, status, created_at, cancelled_at, cancelled_by, decided_at, decided_by, reject_reason";
+ 
+-function toReservation(r: Row): Reservation {
++/** 保存した状態と今日の日付から、今の状態を決める（開始日を過ぎた仮予約は期限切れ）。 */
++export function effectiveStatus(status: StoredReservationStatus, startOn: string, today: string): ReservationStatus {
++  return status === "pending" && startOn < today ? "expired" : status;
++}
++
++function toReservation(r: Row, today: string): Reservation {
+   return {
+     id: r.id,
+     instrumentId: r.instrument_id,
+     userId: r.user_id,
+     startOn: r.start_on,
+     endOn: r.end_on,
+-    status: r.status,
++    status: effectiveStatus(r.status, r.start_on, today),
+     createdAt: r.created_at,
+     cancelledAt: r.cancelled_at,
+     cancelledBy: r.cancelled_by,
++    decidedAt: r.decided_at,
++    decidedBy: r.decided_by,
++    rejectReason: r.reject_reason,
+   };
+ }
+ 
+-/** 計測器の予約（取消を含む）を開始日の順に返す。 */
+-export function listReservations(instrumentId: number, db: Db = getDb()): Reservation[] {
++/** 計測器の予約（取消・却下を含む）を開始日の順に返す。 */
++export function listReservations(instrumentId: number, db: Db = getDb(), now: Date = new Date()): Reservation[] {
+   const rows = db
+     .prepare(`SELECT ${COLUMNS} FROM reservations WHERE instrument_id = ? ORDER BY start_on, id`)
+     .all(instrumentId) as Row[];
+-  return rows.map(toReservation);
++  return rows.map((r) => toReservation(r, todayJst(now)));
+ }
+ 
+-export function getReservation(instrumentId: number, id: number, db: Db = getDb()): Reservation | undefined {
++export function getReservation(instrumentId: number, id: number, db: Db = getDb(), now: Date = new Date()): Reservation | undefined {
+   const row = db.prepare(`SELECT ${COLUMNS} FROM reservations WHERE id = ? AND instrument_id = ?`).get(id, instrumentId) as
+     | Row
+     | undefined;
+-  return row && toReservation(row);
++  return row && toReservation(row, todayJst(now));
+ }
+ 
++/** 有効な予約（確定と、期限切れでない仮予約）の条件。today は日本時間の今日。 */
++const ACTIVE_CONDITION = "(status = 'approved' OR (status = 'pending' AND start_on >= :today))";
++
+ /** [from, to] と 1 日でも重なる有効な予約（except の利用者のものは除く）。 */
+ export function conflictingReservation(
+   instrumentId: number,
+   from: string,
+   to: string,
++  today: string,
+   db: Db = getDb(),
+   except?: { userId?: string },
+ ): Reservation | undefined {
+   const row = db
+     .prepare(
+       `SELECT ${COLUMNS} FROM reservations
+-       WHERE instrument_id = ? AND status = 'active' AND start_on <= ? AND end_on >= ?
+-         AND (? IS NULL OR user_id <> ?)
++       WHERE instrument_id = :instrument AND ${ACTIVE_CONDITION} AND start_on <= :to AND end_on >= :from
++         AND (:except IS NULL OR user_id <> :except)
+        ORDER BY start_on LIMIT 1`,
+     )
+-    .get(instrumentId, to, from, except?.userId ?? null, except?.userId ?? null) as Row | undefined;
+-  return row && toReservation(row);
++    .get({ instrument: instrumentId, today, to, from, except: except?.userId ?? null }) as Row | undefined;
++  return row && toReservation(row, today);
++}
++
++/** 開始日と終了日を含めた日数 */
++export function reservationDays(startOn: string, endOn: string): number {
++  return Math.round((Date.parse(`${endOn}T00:00:00Z`) - Date.parse(`${startOn}T00:00:00Z`)) / 86_400_000) + 1;
+ }
+ 
+ export type ReservationInput = { startOn: string; endOn: string };
+@@ -100,8 +152,13 @@ export function validateReservationInput(body: unknown, today: string): Validati
+   if (!isValidDate(b.startOn)) errors.push("開始日は YYYY-MM-DD 形式で入力してください");
+   if (!isValidDate(b.endOn)) errors.push("終了日は YYYY-MM-DD 形式で入力してください");
+   if (errors.length === 0) {
+-    if ((b.startOn as string) < today) errors.push("過去の日からは予約できません");
+-    if ((b.endOn as string) < (b.startOn as string)) errors.push("終了日は開始日以降にしてください");
++    const startOn = b.startOn as string;
++    const endOn = b.endOn as string;
++    if (startOn < today) errors.push("過去の日からは予約できません");
++    if (endOn < startOn) errors.push("終了日は開始日以降にしてください");
++    else if (reservationDays(startOn, endOn) > MAX_RESERVATION_DAYS) {
++      errors.push(`予約できる期間は、開始日と終了日を含めて ${MAX_RESERVATION_DAYS} 日までです`);
++    }
+   }
+   return errors.length > 0
+     ? { ok: false, errors }
+@@ -112,7 +169,7 @@ export type ReserveResult =
+   | { ok: true; reservation: Reservation }
+   | { ok: false; reason: "not_found" | "not_reservable" | "on_loan" | "conflict" };
+ 
+-/** 予約を作る。期間の検証（validateReservationInput）は済んでいること。 */
++/** 予約（仮予約）を作る。期間の検証（validateReservationInput）は済んでいること。 */
+ export function createReservation(
+   instrumentId: number,
+   userId: string,
+@@ -120,6 +177,7 @@ export function createReservation(
+   db: Db = getDb(),
+   now: Date = new Date(),
+ ): ReserveResult {
++  const today = todayJst(now);
+   return transaction(db, () => {
+     const instrument = getInstrument(instrumentId, db);
+     if (!instrument) return { ok: false, reason: "not_found" } as const;
+@@ -128,46 +186,88 @@ export function createReservation(
+     }
+     const loan = currentLoan(instrumentId, db);
+     if (loan && input.startOn <= loan.dueOn) return { ok: false, reason: "on_loan" } as const;
+-    if (conflictingReservation(instrumentId, input.startOn, input.endOn, db)) return { ok: false, reason: "conflict" } as const;
++    if (conflictingReservation(instrumentId, input.startOn, input.endOn, today, db)) return { ok: false, reason: "conflict" } as const;
+     const { lastInsertRowid } = db
+-      .prepare("INSERT INTO reservations (instrument_id, user_id, start_on, end_on, created_at) VALUES (?, ?, ?, ?, ?)")
++      .prepare("INSERT INTO reservations (instrument_id, user_id, start_on, end_on, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)")
+       .run(instrumentId, userId, input.startOn, input.endOn, now.toISOString());
+     const row = db.prepare(`SELECT ${COLUMNS} FROM reservations WHERE id = ?`).get(Number(lastInsertRowid)) as Row;
+-    return { ok: true, reservation: toReservation(row) } as const;
++    return { ok: true, reservation: toReservation(row, today) } as const;
+   });
+ }
+ 
+-export type CancelResult = { ok: true; reservation: Reservation } | { ok: false; reason: "not_found" | "forbidden" | "not_active" };
++/** 承認・却下する人: 計測器の管理者。管理者が無効なら、その部署の代表者。 */
++export function approverOf(instrument: Instrument, db: Db = getDb()): string | undefined {
++  const manager = getUserDetail(instrument.managerId, db);
++  if (!manager) return undefined;
++  if (manager.active) return manager.id;
++  return getDepartment(manager.departmentId, db)?.representativeId ?? undefined;
++}
++
++export type ChangeResult =
++  | { ok: true; reservation: Reservation }
++  | { ok: false; reason: "not_found" | "forbidden" | "invalid_state" };
+ 
+-/** 予約を取り消す。取り消せるのは予約した本人と、その計測器の管理者。 */
+-export function cancelReservation(
++/** 予約の状態を変える（承認・却下・取消）。誰が操作できるか・元の状態は TRANSITIONS と下の判定だけで決める。 */
++export function changeReservation(
++  action: ReservationAction,
+   instrumentId: number,
+   id: number,
+-  userId: string,
++  actorId: string,
+   db: Db = getDb(),
+   now: Date = new Date(),
+-): CancelResult {
++  options: { reason?: string } = {},
++): ChangeResult {
+   return transaction(db, () => {
+-    const r = getReservation(instrumentId, id, db);
++    const r = getReservation(instrumentId, id, db, now);
+     const instrument = getInstrument(instrumentId, db);
+     if (!r || !instrument) return { ok: false, reason: "not_found" } as const;
+-    if (r.userId !== userId && instrument.managerId !== userId) return { ok: false, reason: "forbidden" } as const;
+-    if (r.status !== "active") return { ok: false, reason: "not_active" } as const;
+-    db.prepare("UPDATE reservations SET status = 'cancelled', cancelled_at = ?, cancelled_by = ? WHERE id = ?").run(
+-      now.toISOString(),
+-      userId,
+-      id,
+-    );
+-    return { ok: true, reservation: getReservation(instrumentId, id, db)! } as const;
++    const allowed =
++      action === "cancel" ? r.userId === actorId || instrument.managerId === actorId : approverOf(instrument, db) === actorId;
++    if (!allowed) return { ok: false, reason: "forbidden" } as const;
++    if (!(TRANSITIONS[action] as readonly ReservationStatus[]).includes(r.status)) return { ok: false, reason: "invalid_state" } as const;
++    const at = now.toISOString();
++    if (action === "cancel") {
++      db.prepare("UPDATE reservations SET status = 'cancelled', cancelled_at = ?, cancelled_by = ? WHERE id = ?").run(at, actorId, id);
++    } else {
++      db.prepare("UPDATE reservations SET status = ?, decided_at = ?, decided_by = ?, reject_reason = ? WHERE id = ?").run(
++        NEXT_STATUS[action],
++        at,
++        actorId,
++        action === "reject" ? (options.reason ?? "").slice(0, 500) : "",
++        id,
++      );
++    }
++    return { ok: true, reservation: getReservation(instrumentId, id, db, now)! } as const;
+   });
+ }
+ 
+-/** 使用停止になった計測器の、これから（終了日が今日以降）の予約を取り消す。トランザクションの中で呼ぶ。 */
++export type PendingApproval = Reservation & { managementNo: string; instrumentName: string };
++
++/** userId が承認する、承認待ち（期限切れでない仮予約）の予約。 */
++export function listPendingApprovals(userId: string, db: Db = getDb(), now: Date = new Date()): PendingApproval[] {
++  const today = todayJst(now);
++  const rows = db
++    .prepare(
++      `SELECT r.${COLUMNS.split(", ").join(", r.")}, i.management_no, i.name AS instrument_name
++       FROM reservations r JOIN instruments i ON i.id = r.instrument_id
++       WHERE r.status = 'pending' AND r.start_on >= ? ORDER BY r.start_on, r.id`,
++    )
++    .all(today) as (Row & { management_no: string; instrument_name: string })[];
++  return rows
++    .filter((r) => {
++      const inst = getInstrument(r.instrument_id, db);
++      return inst !== undefined && approverOf(inst, db) === userId;
++    })
++    .map((r) => ({ ...toReservation(r, today), managementNo: r.management_no, instrumentName: r.instrument_name }));
++}
++
++/** 使用停止になった計測器の、これから（終了日が今日以降）の有効な予約を取り消す。トランザクションの中で呼ぶ。 */
+ export function cancelUpcomingReservations(instrumentId: number, cancelledBy: string, db: Db, now: Date = new Date()): number {
+   const { changes } = db
+     .prepare(
+-      "UPDATE reservations SET status = 'cancelled', cancelled_at = ?, cancelled_by = ? WHERE instrument_id = ? AND status = 'active' AND end_on >= ?",
++      `UPDATE reservations SET status = 'cancelled', cancelled_at = :at, cancelled_by = :by
++       WHERE instrument_id = :instrument AND ${ACTIVE_CONDITION} AND end_on >= :today`,
+     )
+-    .run(now.toISOString(), cancelledBy, instrumentId, todayJst(now));
++    .run({ at: now.toISOString(), by: cancelledBy, instrument: instrumentId, today: todayJst(now) });
+   return Number(changes);
+ }
+diff --git a/tests/reservations.test.ts b/tests/reservations.test.ts
+index 959be0b..3123787 100644
+--- a/tests/reservations.test.ts
++++ b/tests/reservations.test.ts
+@@ -4,13 +4,20 @@ import { openDb } from "../src/lib/db/index.ts";
+ import { recordCalibration } from "../src/lib/calibrations.ts";
+ import { listInstruments, updateInstrument } from "../src/lib/instruments.ts";
+ import { lendInstrument } from "../src/lib/loans.ts";
++import { DatabaseSync } from "node:sqlite";
++import { MIGRATIONS } from "../src/lib/db/migrations.ts";
++import { migrate } from "../src/lib/db/index.ts";
+ import {
+-  cancelReservation,
++  changeReservation,
+   createReservation,
++  listPendingApprovals,
+   listReservations,
+   validateReservationInput,
+ } from "../src/lib/reservations.ts";
+ 
++const cancelReservation = (instrumentId: number, id: number, actor: string, db: ReturnType<typeof openDb>) =>
++  changeReservation("cancel", instrumentId, id, actor, db, NOW);
++
+ const byNo = (db: ReturnType<typeof openDb>, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!;
+ const NOW = new Date("2026-11-10T01:00:00Z"); // 日本時間 2026-11-10
+ 
+@@ -70,7 +77,7 @@ describe("cancelReservation", () => {
+     assert.deepEqual(cancelReservation(inst.id, a.reservation.id, "tanaka", db), { ok: false, reason: "forbidden" });
+     assert.equal(cancelReservation(inst.id, a.reservation.id, "suzuki", db).ok, true);
+     assert.equal(cancelReservation(inst.id, b.reservation.id, "sato", db).ok, true);
+-    assert.deepEqual(cancelReservation(inst.id, b.reservation.id, "sato", db), { ok: false, reason: "not_active" });
++    assert.deepEqual(cancelReservation(inst.id, b.reservation.id, "sato", db), { ok: false, reason: "invalid_state" });
+   });
+ });
+ 
+@@ -84,7 +91,9 @@ describe("reservations and loans", () => {
+     assert.equal(short.ok, true);
+     const db2 = openDb();
+     const id2 = byNo(db2, "MI-0001").id;
+-    assert.ok(createReservation(id2, "suzuki", { startOn: "2026-11-10", endOn: "2026-11-12" }, db2, NOW).ok);
++    const own = createReservation(id2, "suzuki", { startOn: "2026-11-10", endOn: "2026-11-12" }, db2, NOW);
++    assert.ok(own.ok);
++    assert.equal(changeReservation("approve", id2, own.reservation.id, "sato", db2, NOW).ok, true);
+     assert.equal(lendInstrument(id2, { borrowerId: "suzuki", dueOn: "2026-11-12" }, db2, NOW).ok, true);
+   });
+ 
+@@ -97,3 +106,76 @@ describe("reservations and loans", () => {
+     updateInstrument(id, { status: "in_use" }, db);
+   });
+ });
++
++describe("approval (2026-11 change)", () => {
++  it("creates a pending reservation that the instrument manager approves", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001"); // 管理者 sato
++    const r = createReservation(inst.id, "suzuki", { startOn: "2026-11-20", endOn: "2026-11-22" }, db, NOW);
++    assert.ok(r.ok);
++    assert.equal(r.reservation.status, "pending");
++    assert.deepEqual(changeReservation("approve", inst.id, r.reservation.id, "suzuki", db, NOW), { ok: false, reason: "forbidden" });
++    assert.deepEqual(changeReservation("approve", inst.id, r.reservation.id, "tanaka", db, NOW), { ok: false, reason: "forbidden" });
++    assert.deepEqual(listPendingApprovals("sato", db, NOW).map((x) => x.id), [r.reservation.id]);
++    const ok = changeReservation("approve", inst.id, r.reservation.id, "sato", db, NOW);
++    assert.equal(ok.ok && ok.reservation.status, "approved");
++    assert.deepEqual(changeReservation("approve", inst.id, r.reservation.id, "sato", db, NOW), { ok: false, reason: "invalid_state" });
++  });
++
++  it("lets the department representative decide when the manager is inactive", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0004"); // 管理者 inoue（退職）→ 製造部の代表者 yamada
++    const r = createReservation(inst.id, "suzuki", { startOn: "2026-11-20", endOn: "2026-11-22" }, db, NOW);
++    assert.ok(r.ok);
++    assert.deepEqual(changeReservation("approve", inst.id, r.reservation.id, "ito", db, NOW), { ok: false, reason: "forbidden" });
++    assert.equal(changeReservation("approve", inst.id, r.reservation.id, "yamada", db, NOW).ok, true);
++  });
++
++  it("holds the period while pending, and frees it when rejected or expired", () => {
++    const db = openDb();
++    const id = byNo(db, "MI-0001").id;
++    const a = createReservation(id, "suzuki", { startOn: "2026-11-20", endOn: "2026-11-22" }, db, NOW);
++    assert.ok(a.ok);
++    assert.deepEqual(createReservation(id, "tanaka", { startOn: "2026-11-21", endOn: "2026-11-21" }, db, NOW), { ok: false, reason: "conflict" });
++    assert.equal(changeReservation("reject", id, a.reservation.id, "sato", db, NOW, { reason: "点検予定" }).ok, true);
++    assert.equal(createReservation(id, "tanaka", { startOn: "2026-11-21", endOn: "2026-11-21" }, db, NOW).ok, true);
++    const b = createReservation(id, "suzuki", { startOn: "2026-11-12", endOn: "2026-11-14" }, db, NOW);
++    assert.ok(b.ok);
++    const later = new Date("2026-11-12T15:30:00Z"); // 日本時間 11-13（開始日の翌日）
++    assert.deepEqual(changeReservation("approve", id, b.reservation.id, "sato", db, later), { ok: false, reason: "invalid_state" });
++    assert.equal(createReservation(id, "tanaka", { startOn: "2026-11-13", endOn: "2026-11-14" }, db, later).ok, true);
++    const c = createReservation(id, "kato", { startOn: "2026-11-28", endOn: "2026-11-28" }, db, NOW);
++    assert.ok(c.ok);
++    const onStartDay = new Date("2026-11-28T00:30:00Z"); // 開始日の当日なら承認できる
++    assert.equal(changeReservation("approve", id, c.reservation.id, "sato", db, onStartDay).ok, true);
++  });
++
++  it("limits a new reservation to 14 days including both ends", () => {
++    assert.equal(validateReservationInput({ startOn: "2026-12-01", endOn: "2026-12-14" }, "2026-11-10").ok, true);
++    assert.equal(validateReservationInput({ startOn: "2026-12-01", endOn: "2026-12-15" }, "2026-11-10").ok, false);
++  });
++
++  it("does not let rejected reservations block loans, but pending ones do", () => {
++    const db = openDb();
++    const id = byNo(db, "MI-0001").id;
++    const a = createReservation(id, "suzuki", { startOn: "2026-11-11", endOn: "2026-11-12" }, db, NOW);
++    assert.ok(a.ok);
++    assert.deepEqual(lendInstrument(id, { borrowerId: "tanaka", dueOn: "2026-11-11" }, db, NOW), { ok: false, reason: "reserved" });
++    changeReservation("reject", id, a.reservation.id, "sato", db, NOW);
++    assert.equal(lendInstrument(id, { borrowerId: "tanaka", dueOn: "2026-11-11" }, db, NOW).ok, true);
++  });
++
++  it("migrates reservations made before the change as approved, keeping cancelled ones", () => {
++    const db = new DatabaseSync(":memory:");
++    migrate(db, MIGRATIONS.filter((m) => m.version <= 5));
++    db.exec(`INSERT INTO departments VALUES ('qa', '品質保証部', NULL); INSERT INTO users (id, name, department_id) VALUES ('sato', '佐藤', 'qa');
++      INSERT INTO instruments (management_no, name, manager_id, interval_months, last_calibrated_on) VALUES ('MI-0001', 'x', 'sato', 12, '2026-01-01');
++      INSERT INTO reservations (instrument_id, user_id, start_on, end_on, status, created_at) VALUES (1, 'sato', '2026-12-01', '2026-12-20', 'active', 't');
++      INSERT INTO reservations (instrument_id, user_id, start_on, end_on, status, created_at) VALUES (1, 'sato', '2026-12-24', '2026-12-25', 'cancelled', 't');`);
++    migrate(db);
++    assert.deepEqual(listReservations(1, db, NOW).map((r) => [r.startOn, r.endOn, r.status]), [
++      ["2026-12-01", "2026-12-20", "approved"],
++      ["2026-12-24", "2026-12-25", "cancelled"],
++    ]);
++  });
++});

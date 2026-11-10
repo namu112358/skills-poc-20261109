@@ -1,0 +1,70 @@
+{
+  "phase": "v2",
+  "commit": "HEAD",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "DELETE",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}"
+    },
+    "approve": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/approve"
+    },
+    "reject": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/reject",
+      "body": {
+        "reason": "検証のため"
+      }
+    },
+    "fields": {
+      "id": "id",
+      "status": [
+        "status",
+        "cancelledAt"
+      ],
+      "start": "startOn",
+      "end": "endOn",
+      "user": "userId"
+    },
+    "status": {
+      "pending": [
+        "\"pending\"|null"
+      ],
+      "approved": [
+        "\"approved\"|null"
+      ],
+      "rejected": [
+        "\"rejected\"|null"
+      ]
+    },
+    "jobs": [],
+    "notes": "取消は DELETE で、取り消した予約は一覧に出なくなる（cancelledAt が入った予約は一覧に含まれない）。そのため cancelled の状態値は一覧からは観測できず、status には書いていない。期限切れ（expired）は状態としては保存されず、開始日を過ぎた未承認の仮予約が一覧から消えるだけ。定期実行ジョブは無い。却下された予約は本人にだけ一覧に出る。予約者はログイン中の本人で、計測器の管理者本人の予約は最初から approved になる。"
+  },
+  "cost_usd": 0.07444
+}
