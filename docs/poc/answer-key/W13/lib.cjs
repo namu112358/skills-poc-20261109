@@ -155,9 +155,17 @@ function harness(base, prefix, adapterJson) {
     const a = adapter.list;
     if (!a) throw new Error("予約の一覧の API が見つからない（アダプター）");
     const vars = { instrumentId: inst.id, managementNo: inst.no };
-    const r = await call(await as(viewer), a.method || "GET", fill(a.path, vars));
-    if (!is2xx(r.status)) throw new Error(`一覧: ${r.status}`);
-    const items = pick(r.json, a.items) || [];
+    // 状態ごとに一覧が分かれている実装（compound-engineering-1）のため、paths で複数の一覧を足し合わせられる（ID で重複を除く）
+    const items = [];
+    const seen = new Set();
+    for (const path of a.paths || [a.path]) {
+      const r = await call(await as(viewer), a.method || "GET", fill(path, vars));
+      if (!is2xx(r.status)) throw new Error(`一覧: ${r.status}`);
+      for (const x of pick(r.json, a.items) || []) {
+        const k = JSON.stringify(pick(x, adapter.fields?.id || "id"));
+        if (!seen.has(k)) { seen.add(k); items.push(x); }
+      }
+    }
     const f = adapter.fields || {};
     return items
       .filter((x) => !a.filterInstrument || String(pick(x, a.filterInstrument)) === String(inst.id))
