@@ -1,0 +1,39 @@
+{
+  "trial": "W20-cr-low-c1-1",
+  "scenario": "W20",
+  "config": "cr-low",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# コードレビュー結果\n\n## 1. 【高】`searchTasks` が SQL インジェクションを起こす\n\n- 場所: `src/lib/tasks.ts:82`（`searchTasks`）、`src/app/api/tasks/search/route.ts:16`（bare `catch`）\n- 問題: `query` を `title LIKE '%${query}%'` のように SQL へ直接埋め込んでいる。`q=' OR 1=1 --` のような入力でクエリの意味が変わる。シングルクォートを含む `q` では SQL が不正になり、ルートの bare `catch` がそれを握りつぶして空の結果を 200 で返すため、エラーに気づけない。規約 8（SQL は文字列連結で組み立てない）にも反する。\n- 直し方: `LIKE ?` のプレースホルダを使い、`%${query}%` はバインド値として渡す（必要なら `%` `_` をエスケープ）。ルートの bare `catch` は握りつぶさず、想定外のエラーは 500 として返す（または catch を外す）。\n\n## 2. 【高】ページネーションのオフセットが誤っており、`limit` が未検証\n\n- 場所: `src/lib/tasks.ts:85`（`searchTasks` のオフセット計算）、`src/app/api/tasks/search/route.ts`（`limit` / `page` の処理）\n- 問題:\n  - `page` は 1 始まりなのにオフセットが `page * limit` になっており、1 ページ目で先頭 `limit` 件が飛ばされる。\n  - ルートが `limit` を検証していない。`limit=abc` は NaN になり、負の値や非常に大きな値もそのまま SQLite に渡る。定数 `SEARCH_LIMIT_MAX` は定義されているが使われていない。PR の仕様（`limit` は 1〜50、範囲外は 400）に反する。\n- 直し方: オフセットを `(page - 1) * limit` にする。`page` と `limit` を `src/lib/` の検証関数で整数・範囲（`page` ≥ 1、1 ≤ `limit` ≤ `SEARCH_LIMIT_MAX`）として検証し、不正なら 400 を返す。\n\n## 3. 【中】期限切れ判定の「今日」が UTC で、日本時間になっていない\n\n- 場所: `src/lib/tasks.ts:97`（期限切れ一覧の取得処理）\n- 問題: `now.toISOString().slice(0, 10)` は UTC の日付になる。コメントとルートは「今日（日本時間）」としているが、JST の 00:00〜09:00 には日付が 1 日遅れ、前日が期限のタスクが午後まで期限切れとして出ない。\n- 直し方: 日本時間の日付を算出する（例: `now` に 9 時間を足してから日付部分を取る、または `Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' })` を使う）。時刻をまたぐ境界（UTC 15:00 前後）のテストも追加する。\n\n## 4. 【高】既存のマイグレーション 1 を書き換えている\n\n- 場所: `src/lib/db/migrations.ts:23`\n- 問題: 差分が既存のマイグレーション 1 に `created_by` と `version` を追加している。すでに `user_version` が 1 のデータベースではマイグレーションが再実行されず、これらの列が存在しないままになる。そのため `created_by` / `version` を参照するクエリが \"no such column\" で失敗する。既存マイグレーションは書き換えないという規約 7 にも反する。\n- 直し方: マイグレーション 1 を元に戻し、`migrations.ts` の末尾に新しい番号（2）のマイグレーションとして `ALTER TABLE tasks ADD COLUMN created_by ...` と `ADD COLUMN version INTEGER NOT NULL DEFAULT 1` を追加する。既存行（作成者なし）を考慮して `created_by` は NULL 許可にする。\n",
+  "review_chars": 1898,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2693,
+    "tokens": {
+      "input": 12,
+      "output": 3051,
+      "cache_read": 169466,
+      "cache_creation": 71749
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W20-cr-low-c1-1/app; git diff @{upstream}...HEAD 2>/dev/null; git diff HEAD\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 3,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 36,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` に指摘を4件書き、`REVIEW.md` だけをコミットしました。コードは直していません。\n\n1. **【高】SQL インジェクション** (`src/lib/tasks.ts:82` の `searchTasks`): 検索語を SQL に直接埋め込んでいます。ルートの bare `catch` が SQL エラーを握りつぶして空の 200 を返す点も、あわせて書きました。\n2. **【高】ページネーション** (`src/lib/tasks.ts:85`): オフセットが `page * limit` になっていて、1 ページ目が飛ばされます。`limit` も検証されていません。\n3. **【中】期限切れの「今日」** (`src/lib/tasks.ts:97`): 日付が UTC で、日本時間になっていません。\n4. **【高】マイグレーションの書き換え** (`src/lib/db/migrations.ts:23`): 既存のマイグレーション 1 を書き換えています。新しい番号のマイグレーションとして末尾に追加する必要があります。\n\n重要度の高・中は私が付けました。1・2・4 を高、3 を中としています。指摘の追加や削除はしていません。"
+  },
+  "interventions": 0
+}

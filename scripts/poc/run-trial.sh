@@ -87,6 +87,15 @@ INJECT="${POC_INJECT_PATCH:-}"
 [[ -z "$INJECT" && "$SCENARIO" == W13 ]] && INJECT="$ROOT/docs/poc/answer-key/W13/base.patch"
 # W14・W15: 同じ題材に、その W に必要なものを足した初期状態（docs/poc/tasks/wf-W14-design.md・wf-W15-design.md）
 [[ -z "$INJECT" && ( "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 ) ]] && INJECT="$ROOT/docs/poc/answer-key/$SCENARIO/base.patch"
+# W20（レビューの組み合わせの評価。docs/poc/tasks/wf-W20-design.md）: 回の名前は <題材>-<繰り返し>（例 c2-1）。
+# 題材（answer-key/W20/cases/<題材>/）の base に書いた W の初期状態を当てる（base が無ければ poc-app のまま）
+E2_DIR=""
+if [[ "$SCENARIO" == W20 ]]; then
+  E2_CASE="${RUN%-*}"; E2_DIR="$ROOT/docs/poc/answer-key/W20/cases/$E2_CASE"
+  [[ -f "$E2_DIR/review.patch" && -f "$E2_DIR/pr.md" ]] || { echo "W20: 題材が無い: $E2_DIR" >&2; exit 1; }
+  echo "$E2_CASE" > "$OUT/e2-case"
+  [[ -z "$INJECT" && -f "$E2_DIR/base" ]] && INJECT="$ROOT/docs/poc/answer-key/$(cat "$E2_DIR/base")/base.patch"
+fi
 # W7 の対照: 初期状態 + 前の段階までの参照実装（例: W7b なら base.patch:reference-W7a.patch）。POC_INJECT_PATCH は : 区切りで複数書ける
 if [[ -z "$INJECT" && -n "$W7_CONTROL" ]]; then
   INJECT="$ROOT/docs/poc/answer-key/W7/base.patch"
@@ -112,7 +121,7 @@ if [[ "$CAND" == baseline-conventions ]]; then
 fi
 # W14・W15: W13 と同じく、全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準を足す
 # （2026-11-10 コーディネーターの連絡・ユーザー承認。W13 の分岐とぶつからないよう別に足した）
-if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 ]]; then
+if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 || ( "$SCENARIO" == W20 && -f "$E2_DIR/standard" ) ]]; then
   STD="$ROOT/docs/poc/standards/generic-dev-standard.md"
   { echo; sed '1,/^-->$/d' "$STD"; } >> "$APP/CLAUDE.md"
   sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/dev-standard"
@@ -138,6 +147,13 @@ if [[ "$SCENARIO" == W9 ]]; then
   rm -f "$WORK/review-commit-msg"
   git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
 fi
+# W20: レビュー対象の差分を、作業ブランチの未コミットの変更として置く（/code-review の「今の差分」と、PR Review Toolkit の
+# git diff の両方に出るよう、新しいファイルも intent-to-add で登録する）。パッチ自体は作業用コピーに置かない
+if [[ "$SCENARIO" == W20 ]]; then
+  git -C "$APP" apply "$E2_DIR/review.patch"
+  git -C "$APP" add -N .
+  sha256sum "$E2_DIR/review.patch" | sed "s#$ROOT/##" > "$OUT/review-patch"
+fi
 fi
 
 # 2) 必須プラグイン + 候補プラグイン（すべて固定コミット。scripts/poc/fetch-plugins.sh で取得）
@@ -159,6 +175,10 @@ case "$CAND" in
   baseline|baseline-conventions) ;;
   superpowers) copy_plugin "$CACHE/superpowers" superpowers ;;
   feature-dev) copy_plugin "$CPO/feature-dev" feature-dev ;;
+  # W20 のレビューの設定: cr-low・cr-high は組み込みの /code-review、review-pr・combo は PR Review Toolkit、sp-review は Superpowers
+  cr-low|cr-high) ;;
+  review-pr|combo) copy_plugin "$CPO/pr-review-toolkit" pr-review-toolkit ;;
+  sp-review) copy_plugin "$CACHE/superpowers" superpowers ;;
   compound-engineering) copy_plugin "$CACHE/compound-engineering" compound-engineering ;;
   gstack)
     # gstack は marketplace 配布ではないため、試行ごとの専用 HOME の ~/.claude/skills/gstack に固定コミットを置き、
@@ -301,6 +321,16 @@ else
 
 $SUFFIX"
 fi
+# W20: 課題文（レビューの依頼の形式）のあとに題材の PR の説明を付ける（定型文は最後）
+if [[ "$SCENARIO" == W20 ]]; then
+  TASK="$(cat "$ROOT/docs/poc/tasks/wf-W20.md")
+
+---
+
+$(cat "$E2_DIR/pr.md")
+
+$SUFFIX"
+fi
 EXTRA=()
 if [[ "$SCENARIO" == W3 ]]; then
   # 質問はメッセージ本文で受け、回答役（answer_w3.py）が次のステップで返す。質問ツールは無人では答えられないので外す。
@@ -374,6 +404,22 @@ $TASK") ;;
     gstack) STEPS=("/review $TASK") ;;
   esac
 fi
+if [[ "$SCENARIO" == W20 ]]; then
+  # W20 の手順（docs/poc/tasks/wf-W20-design.md）: ① 依頼（PR の説明）を渡すだけ → ② レビューの道具 → ③ 出た指摘を REVIEW.md に書き写す。
+  # 道具ごとの差を測るため、③ では新しい指摘を足させない
+  INTRO="$TASK
+
+（この最初のメッセージでは、まだレビューを始めないでください。依頼の内容を読んだら「了解」とだけ返してください。次のメッセージでレビューの道具を指定します。）"
+  WRITE="直前のレビューで出た指摘を、最初の依頼の形式（場所・何が問題か・直し方・重要度）で REVIEW.md に書き写し、REVIEW.md だけを git にコミットしてください。新しい指摘は足さず、出た指摘は削らないでください（同じ指摘はまとめてよい）。コードは直さないでください。"
+  case "$CAND" in
+    cr-low) STEPS=("$INTRO" "/code-review low" "$WRITE") ;;
+    cr-high) STEPS=("$INTRO" "/code-review high" "$WRITE") ;;
+    review-pr) STEPS=("$INTRO" "/pr-review-toolkit:review-pr all（対象は未コミットの差分。git diff HEAD で見られる）" "$WRITE") ;;
+    combo) STEPS=("$INTRO" "/code-review high" "/pr-review-toolkit:review-pr all（対象は未コミットの差分。git diff HEAD で見られる）" "${WRITE/直前のレビュー/直前の 2 つのレビュー}") ;;
+    sp-review) STEPS=("$INTRO" "/superpowers:requesting-code-review 未コミットの差分（git diff HEAD）を、最初の依頼の PR の説明に照らしてレビューする" "$WRITE") ;;
+    *) echo "W20 の候補ではない: $CAND" >&2; exit 1 ;;
+  esac
+fi
 
 # 1 試行の費用の上限（米ドル。空なら上限なし）。
 MAX_USD="${POC_MAX_TRIAL_USD:-}"
@@ -411,7 +457,7 @@ if [[ "${POC_DISABLE_AUTO_MEMORY:-}" == 1 ]] || [[ -z "${POC_DISABLE_AUTO_MEMORY
   echo 1 > "$OUT/auto-memory-disabled"
 fi
 [[ "$SCENARIO" == W6 ]] && NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、PR.md を含めて変更を git にコミットしてください。"
-[[ "$SCENARIO" == W9 ]] && NUDGE="お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。"
+[[ "$SCENARIO" == W9 || "$SCENARIO" == W20 ]] && NUDGE="お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。"
 # W19 の代理人ありの試行は「お任せ」と言わない（代理人の判断 D7。代理人なしの対照は従来の文）
 [[ "$SCENARIO" == W19 && "${POC_PROXY:-1}" != 0 ]] && NUDGE="ここまでの回答のとおりに進めてください。課題を最後まで実装し、変更を git にコミットしてください。"
 
@@ -603,12 +649,14 @@ for _ in $(seq 1 "$MAX_NUDGES"); do
   # AGENTS.md は next dev が自動で書き出すファイルなので、未コミットの変更に数えない
   # W6 以降の Playwright MCP が自動で書き出すページの記録（.playwright-mcp/）も数えない（W5 までは出ない）
   dirty="$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' ':!.playwright-mcp' | head -1)"
+  # W20 はレビュー対象の差分を未コミットで置くので、未コミットの変更は見ない（REVIEW.md のコミットだけで判定する）
+  [[ "$SCENARIO" == W20 ]] && dirty=""
   # W3 は要件文書（REQUIREMENTS.md）がコミットされていることも完了の条件にする
   if [[ "$SCENARIO" == W3 ]] && ! git -C "$APP" cat-file -e HEAD:REQUIREMENTS.md 2>/dev/null; then commits=0; fi
   # W6 は PR の本文（PR.md）がコミットされていることも完了の条件にする
   if [[ "$SCENARIO" == W6 ]] && ! git -C "$APP" cat-file -e HEAD:PR.md 2>/dev/null; then commits=0; fi
   # W9 はレビューの指摘（REVIEW.md）がコミットされていることも完了の条件にする
-  if [[ "$SCENARIO" == W9 ]] && ! git -C "$APP" cat-file -e HEAD:REVIEW.md 2>/dev/null; then commits=0; fi
+  if [[ ( "$SCENARIO" == W9 || "$SCENARIO" == W20 ) ]] && ! git -C "$APP" cat-file -e HEAD:REVIEW.md 2>/dev/null; then commits=0; fi
   [[ "$commits" -gt 0 && -z "$dirty" ]] && break
   if over_budget; then echo "nudge skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
   i=$((i+1))

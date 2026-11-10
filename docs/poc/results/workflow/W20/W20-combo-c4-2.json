@@ -1,0 +1,40 @@
+{
+  "trial": "W20-combo-c4-2",
+  "scenario": "W20",
+  "config": "combo",
+  "case": "c4",
+  "rep": 2,
+  "review_md": "# レビュー: 西日本校正センターの CSV 取込\n\n対象: 未コミットの差分（`git diff HEAD`）。コードは変更していない。\n実際に動かして確かめた指摘には「確認済み」と付けた。\n\n## 高\n\n### 1. BOM 付きの西日本校正センターの CSV が取り込めない（要件 3 に反する）\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の `isNishinihonCsv`（先頭の BOM 判定、21 行目付近）。`tests/calib-import-nishinihon.test.ts` の `isNishinihonCsv` のテスト（BOM 付きは `false` と確認している行）。`docs/calibration-import.md` の追記（「BOM なし」と限定している）。\n- 問題: BOM 付きの UTF-8 だと `isNishinihonCsv` が `false` を返す。ルートは A 社用の `importCalibrationCsv` に回し、`1 行目に「管理番号」の列がありません` で 400 になる。要件 3 は「保存のしかた（BOM の有無・改行コード）の違いで取り込めなくならないように」と求めている。月初にスクリプトから CSV をそのまま送る運用なので、先方か担当者が Excel で開いて保存し直すだけで BOM が付き、取込が止まる。メッセージも原因（BOM）を示さない。\n  - 確認済み: サンプルに BOM を付けると、`isNishinihonCsv` が `false` になり、旧取込が上記のエラーを返す。\n  - テストが BOM 付きを `false` と確認しているので、要件違反をテストが固定している。\n  - `/code-review` の指摘（3）も同じ点を挙げている。BOM 付き、または Excel で Shift_JIS に保存し直した B 社のファイルは A 社用に回り、原因と無関係な「管理番号の列がありません」というメッセージで拒否される。データは取り込まれず失われもしないが、メッセージが BOM や文字コードを示さない。\n- 直し方:\n  - 判定でも本体でも先頭の BOM（EF BB BF）を取り除いてから UTF-8 として扱う。`isNishinihonCsv` と `importNishinihonCsv` で同じ処理を共有する。\n  - テストを「BOM 付き・BOM なし・CRLF・LF の組み合わせで取り込める」に直す。\n  - `docs/calibration-import.md` の「BOM なし」の限定も外す。\n  - Shift_JIS で `機器番号` が見出しにあるファイルも、A 社用の「管理番号の列がありません」ではなく、B 社の形式として「UTF-8 で保存し直してください」と分かるメッセージで 400 にする（`/code-review` の指摘 3）。\n  - 見分けは「UTF-8 としてデコードでき、最初の見出し行に `機器番号` がある」で足りる。A 社の Shift_JIS や BOM 付きの CSV は、`機器番号` が見出しに無いので今までどおり A 社に回る。\n\n### 2. ファイル内の重複の判定が A 社と違う（要件 7 に反する）\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv`、重複判定のキー（`const key = \\`${no}|${date}|${cert}\\``）。比較先は `src/lib/legacy/calib-import.ts:110-114`。\n- 問題: 要件 7 は「同じファイルの中の重複も、A 社と同じ決まりで後の行を読み飛ばす」。A 社のキーは `管理番号|校正日` で、証明書番号を含まない。この PR は証明書番号まで含めている。同じ機器・同じ校正日で証明書番号だけ違う 2 行は、A 社なら後の行が「同じファイルの中で重複」で読み飛ばされる。この PR では 2 行とも取り込まれ、校正記録が二重になる。\n  - 確認済み: `MI0003,…,2026-11-04,PASS,W1` と `MI0003,…,2026-11-04,PASS,W2` の 2 行（`END,2`）が `imported: 2` になる。\n  - 既存 DB に対する「取込済み」は A 社も証明書番号を含めるので、そこは同じ。違うのはファイル内の判定だけ。\n- 直し方:\n  - ファイル内の重複のキーを `${no}|${date}` にする（正規化後の管理番号を使う現状のままでよい）。\n  - 「証明書番号だけ違う同日 2 行は後の行が読み飛ばされる」テストを足す。\n  - 現在の「同じファイル内の重複」のテストは、証明書番号まで同じ行を使っているので、この違いを検出できない。\n\n## 中\n\n### 3. 依頼に無い行の誤りを足している（要件 8・CLAUDE.md の規約 6 に反する）\n\n- 場所: `importNishinihonCsv` の未来日チェック（`date > today`）、証明書番号が空・51 文字以上のチェック。`docs/calibration-import.md` の対応する記述。\n- 問題:\n  - 要件 8 で誤りにするのは「台帳に無い機器番号」「読めない判定」だけ。この PR はさらに「校正実施日が今日より未来」「成績書番号が空」「成績書番号が 51 文字以上」を誤りにして取り込まない。\n  - 依頼者に確認していない業務ルールで、行を取り込まない。たとえば校正日が来月の日付で届いた行や、成績書番号の無い行は取り込まれなくなる。A 社の取込にはこの制限が無い（証明書番号が空でも取り込む）。\n  - 「今日」の基準が日本時間という判断も、依頼されていない。\n  - 成績書番号が 51 文字以上のチェックは、DB 側の制約と関係があるなら根拠を書く。\n- 直し方:\n  - 依頼者に確認が取れない限り、これらのチェックは外す。\n  - 残すなら、置いた仮定として PR の説明に書き、依頼者の承認を得る。その場合も、成績書番号が空だと「取込済み」の判定（機器・校正日・成績書番号）が効かなくなるため、その理由を明記する。\n  - どちらにしても、PR の説明に「依頼外の誤りの追加」として載せる。\n\n### 4. 取り込まなかったファイルと行がログに残らない（開発標準 15）\n\n- 場所: `importNishinihonCsv` の `return { ok: false, … }` の各所、最後の `logger.info(\"calibration.imported\", …)`、`src/app/api/calibrations/import/route.ts`。\n- 問題:\n  - END の件数が合わない・END が無い・見出しが違うなどでファイル全体を止めても、ログが 1 行も出ない。件数の不一致は「転送が途中で切れたことがある」ために作った検査で、運用で一番調べたくなる場面なのに、いつ・誰が送ったファイルが止まったかを後から追えない。\n  - 成功時のログも件数だけで、`recordedBy` や、備考に追記した計測器の管理番号が無い。COND の備考は台帳を直接書き換えるので、誰がいつ送った行で書き足したかを追えるようにしたい。\n  - `/code-review` の指摘（6）: 計測器が先に FAIL で使用停止になっていて、その後に古い日付の COND 行が届く場合も、備考は追記され、使用停止のままになる。この振る舞い自体は許容できるが、備考を追記したことがログにもレスポンスにも出ず、運用で追えない（開発標準 15）。\n- 直し方:\n  - 止めたときに `logger.warn(\"calibration.import_rejected\", { agency, reason, declared, actual, recordedBy })` のような行を出す。\n  - COND で備考を書き足した行は、管理番号と校正日を載せたログ（`calibration.note_appended` など）を出す。\n  - 成功時のログに `recordedBy` を足す。\n\n### 5. 備考の追記が重複している（開発標準 3）と、`recordCalibration` の例外が行の誤りにならない\n\n- 場所: `importNishinihonCsv` の備考の事前チェック（`appendToNote(current.note, appendNote)`、`/code-review` の指摘 2 は 148 行目付近）と `recordCalibration`（`calibrations.ts` の `appendNote` の分岐、125-128 行目）。取込ルート `src/app/api/calibrations/import/route.ts`（`/code-review` の指摘 1 は 14 行目）。\n- 問題:\n  - `/code-review` の指摘 1: ルートに例外処理が無い。`recordCalibration` が「備考に追記できません」を投げる、または SQLITE_BUSY などの DB エラーが起きると、それまでの行は取り込まれたまま、素の 500 が返る。どの行まで取り込まれたかの報告も、`calibration.imported` のログも出ない。ドキュメントの約束は「200 で errors を返す」か「400 で 1 件も取り込まない」のどちらか。やり直しが安全なのは「取込済み」の読み飛ばしがあるため。\n  - `/code-review` の指摘 2: 備考の上限チェックが事前チェックと `recordCalibration` の 2 回あり、例外の出方もメッセージも別。間で備考が変わると食い違い、2 回目の失敗は行の誤りではなく上記の 500 になる。COND の行ごとに余分な SELECT も 1 回増える。\n  - 事前チェックで備考を読み直し、`recordCalibration` が同じ上限チェックをもう一度する。2 か所に同じ判断があり、メッセージも別。\n  - `recordCalibration` 側のチェックに失敗すると例外になる。取込ルートに捕捉が無いので、それまでの行が取り込まれたまま 500 になる。同期処理のため、通常の運用では事前チェックを通ればこの例外には届かない（同じプロセスの中で間に別の処理が入らない）。\n  - 将来、別の経路から `appendNote` を渡したときに、同じ事故が起きる。\n- 直し方:\n  - 判断を 1 か所にする。事前チェックを外して `recordCalibration` が「備考に入りきらない」ことを型付きの結果（または専用のエラークラス）で返し、取込側が行の誤りに変換する。\n  - または、事前チェックを残して `recordCalibration` の例外を取込側で捕捉し、その行の誤りにする。\n\n## 低\n\n### 6. 管理番号の正規化と CSV の分割が A 社の取込と複製になっている（開発標準 3）\n\n- 場所: `src/lib/csv.ts`（`parseCsvLine`、`/code-review` の指摘 4 は 2 行目）、`src/lib/calib-import-nishinihon.ts` の `normalizeManagementNo`。複製元は `src/lib/legacy/calib-import.ts:29-49, 64-65`。\n- 問題: 同じ処理が 2 か所になり、片方だけ直すと A 社と B 社で同じ管理番号の照合結果が変わる。A 社の取込は触りたくない（過去 3 年分の取り直しがある）事情は分かる。\n- 直し方:\n  - 次の改修で A 社側も `src/lib/csv.ts` と共通の正規化に寄せる。\n  - その場合は、A 社の既存のテストで挙動が変わらないことを確かめる。\n  - 今回見送るなら、PR の説明に「A 社側は未統合」と書く。\n\n### 7. テストの不足\n\n- 場所: `tests/calib-import-nishinihon.test.ts`。\n- 足りないもの（指摘 1・2 の直しに合わせて足す）:\n  - BOM 付き・CRLF の B 社の CSV が取り込めること（指摘 1）。\n  - 同じ機器・同じ日付で成績書番号だけ違う 2 行（指摘 2）。\n  - ルートの振り分け（B 社と A 社の CSV が同じ送り先で取り込めること、A 社の和暦・○×・保留・参考の読み飛ばしが変わらないこと）。\n  - 日本時間の日付の境界（指摘 3 のチェックを残す場合）。`now=2026-11-09T16:00Z` のとき日本時間では 11-10 なので、11-10 の行が受け付けられること（`/code-review` の指摘 7）。\n  - `recordCalibration` の `appendNote` の経路。備考が入りきらないときにトランザクションごと取り消されること。今は取込側の事前チェックを通る経路でしか試していない（`/code-review` の指摘 7）。\n  - ルートが B 社用と A 社用の取込をどう選ぶか、`ok: false` が 400 になること（`/code-review` の指摘 7）。\n  - BOM 付き・Shift_JIS の B 社のファイルの扱い（`/code-review` の指摘 7）。\n\n### 8. 同じ内容を二度デコードしている\n\n- 場所: `isNishinihonCsv` と `importNishinihonCsv`。\n- 問題: 判定と本体で同じファイルを 2 回 UTF-8 デコードして行に分けている（`/code-review` の指摘 8。`isNishinihonCsv` は先頭の 1 行を読むためだけに全体をデコードする）。処理の無駄だけで、業務上の影響は小さい。指摘 1 の直しで BOM 処理を共通化するときに、デコードを 1 回にまとめるとよい。ルートで 1 回だけデコードする、または判定は先頭の部分だけを見る形にする。\n\n### 9. `recordCalibration` の戻り値を見ずに `imported` を数えている\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv`（`recordCalibration(...)` の呼び出しと直後の `res.imported++`、154 行目付近）。`/code-review` の指摘 5。\n- 問題: `recordCalibration` は計測器が無いと何も登録せず `undefined` を返す。戻り値を見ないので、その場合も `imported` が増え、応答の件数が実際より多くなる。直前の `SELECT id` の後に計測器が消えたときに起きる。同期処理のため通常の運用ではほぼ起きない。\n- 直し方: 戻り値が `undefined` のときは `imported` を増やさず、その行を誤りにする。\n",
+  "review_chars": 6533,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.7313,
+    "tokens": {
+      "input": 46,
+      "output": 21957,
+      "cache_read": 1281368,
+      "cache_creation": 111403
+    },
+    "turns": 21,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -50; echo ---; git diff HEAD | wc -l\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 16,
+      "Write": 1,
+      "Edit": 7
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 242,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`/code-review` の 8 件を `REVIEW.md` に書き写し、`REVIEW.md` だけをコミットしました（118ee9f）。コードは変更していません。\n\n| `/code-review` の指摘 | 載せた場所 |\n|---|---|\n| 1 ルートに例外処理が無く 500 になる | 指摘 5 に統合 |\n| 2 備考の上限チェックが 2 回ある | 指摘 5 に統合 |\n| 3 BOM・Shift_JIS のファイルのメッセージが的外れ | 指摘 1 に統合（高） |\n| 4 CSV 分割と正規化の複製 | 指摘 6 に統合 |\n| 5 `recordCalibration` の戻り値を見ずに件数を数える | 新しい指摘 9（低） |\n| 6 COND の追記がログにもレスポンスにも出ない | 指摘 4 に統合 |\n| 7 テストの不足 | 指摘 7 に統合 |\n| 8 同じ内容を二度デコードしている | 指摘 8 に統合 |\n\n指摘 5 と 9 には、「同期処理なので通常はほぼ起きない」という注記を残しています。\n\n前に載せた私の指摘は削っていません。また、新しい指摘は足していません。"
+  },
+  "interventions": 0
+}

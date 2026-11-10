@@ -1,0 +1,40 @@
+{
+  "trial": "W20-cr-high-c2-1",
+  "scenario": "W20",
+  "config": "cr-high",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# コードレビュー: 計測器ごとの定期点検（担当者・周期・点検記録）\n\nマージ前に直すべき指摘を、重要度の高い順に並べる。\n\n## 1. 【高】計画フォームの保存で、移行済みの旧点検者（legacy_inspector）が消える\n\n- 場所: `src/lib/inspections.ts:177`（`updateInspectionPlan`）、`src/app/instruments/[id]/inspection-forms.tsx`\n- 問題: フォームは `inspectorId` と `intervalMonths` を常に両方送る。MI-0009 のように、移行で `legacy_inspector='外部委託'`・`inspector_id` が NULL になった計測器で、周期だけを 3 → 6 に変えて保存したとする。このとき `inspectorId: null` が送られ、`UPDATE ... SET inspector_id = NULL, legacy_inspector = NULL` が走る。移行した値が instruments 行からも詳細画面からも消える。旧データに点検者だけで日付が無い場合は、コピーを持つ点検記録も無い。さらにページは `extra.inspector` を隠すので、利用者から見て値が失われる。「黙って捨てない」という要件に反する。\n- 直し方: 担当者が実際に変わったときだけ `legacy_inspector` を消す。または、フォームから変更した項目だけを送る。「担当者を未設定のまま周期だけ変更」するテストを足す。\n\n## 2. 【高】詳細画面が `extra.inspector` / `extra.last_inspected` を全計測器で非表示にするが、移行は一部しか変換しない\n\n- 場所: `src/app/instruments/[id]/page.tsx:62`、`src/lib/inspections-legacy.ts`（`importLegacyInspections`）、一覧 `src/app/instruments/page.tsx`\n- 問題: 移行は一度だけ（マイグレーション 6 またはシード時）動く。文字列でない値（数値の `last_inspected`、オブジェクトの `inspector`）や、`extra` の JSON が読めない行は取り込まれない。移行後も `POST /api/instruments` と `PATCH /api/instruments/:id` は `extra: {inspector, last_inspected}` を受け付ける。この値は担当者にも記録にも変換されない。表示からも除外されるので、データは残っていても、どの画面にも出ない。\n- 直し方: 移行が扱わなかったキーは、これまでどおり「その他の項目」に表示する。または、API でこれらのキーを拒否するか、点検の API へ振り替える。いずれも `extra` の書き方（dept を含む）は変えない。\n\n## 3. 【高】「要修理」の記録で、貸出中の計測器まで使用停止になる。古い日付の記録でも停止する\n\n- 場所: `src/lib/inspections.ts:235`（点検記録の追加）\n- 問題: CLAUDE.md は「貸出中は貸出・返却の操作でだけ変わる」としている。ところが `UPDATE ... SET status='suspended' WHERE status <> 'disposed'` は `on_loan` の計測器にも効く。貸出の行は残ったまま、状態だけが `on_loan` でなくなる。また、点検日を過去にした要修理の記録でも停止する。後に良好の記録があっても、古い記録で停止する。\n- 直し方: 貸出中は状態を変えない。変えないときは、利用者に分かる形で知らせる（返却後に対応するなど）。停止の条件は「最後の点検日の記録が要修理」かどうかで決める。テストを足す。\n\n## 4. 【中】「点検した人」の選択肢に、在籍していない現担当者が出るが、API は在籍中の人しか受け付けない\n\n- 場所: `src/app/instruments/[id]/inspection-forms.tsx:104`、`src/app/instruments/[id]/page.tsx`（`planChoices`）\n- 問題: 現担当者が退職・休職中のとき、page.tsx は表示用に「（在籍していません）」の選択肢を `planChoices` に足す。同じ一覧が記録フォームにも渡される。その人を選ぶと `validateInspectionInput` が 400「点検した人は、在籍中の利用者から選んでください」を返す。失敗すると分かっている選択肢が画面に出る。\n- 直し方: 記録フォームには在籍中の利用者だけを渡す。退職者の選択肢は計画フォームだけに出す。\n\n## 5. 【中】一覧画面が絞り込みに関係なく全計測器（約 5 万件）の計画を計算する\n\n- 場所: `src/lib/inspections.ts:130`（`listInspectionPlans`）、`src/app/instruments/page.tsx`\n- 問題: ページは `listInstruments({status, dept})` で絞り込んでいる。それでも `PLAN_SELECT`（相関サブクエリの MAX）を全行に対して実行する。さらに 5 万件の Map を作り、1 件ずつ `addMonths` を呼ぶ。毎朝開く画面なので無駄が大きい。\n- 直し方: 表示する id だけを対象に計画を取得する。または、絞り込みのクエリに結合する。最後の点検日は、(instrument_id, inspected_on) の索引か、集計済みの列で取れるようにする。担当者の絞り込み・並べ替え、担当者ごとの遅れ台数の集計も、SQL 側で行い、全件をアプリに読み込まない。\n\n## 6. 【中】移行が壊れた JSON を黙って飛ばす。名前の照合にも不備がある\n\n- 場所: `src/lib/inspections-legacy.ts:49` 付近（`importLegacyInspections`、`normalizeInspectorName`、`findUsers`）\n- 問題:\n  - `extra` の JSON が読めない行は、ログも残さず `continue` で飛ばされる。どの計測器が移行されなかったか、運用で分からない（「エラーを握りつぶさない」「黙って捨てない」に反する）。\n  - `normalizeInspectorName` は旧データ側の空白だけを除く。`users.name` はそのまま比較する。そのため「佐藤 花子」のように空白入りで登録された利用者は、「佐藤花子」とも「佐藤 花子」とも一致せず、`legacy_inspector` に回る。\n  - `findUsers` は無効な利用者にも一致する。退職者が `inspector_id` になり、「担当者は在籍中の利用者」という要件と合わない。\n- 直し方: 読めない行は、計測器 ID と理由をログに出す（または元の値を残す）。両側で同じ正規化をして比較する。担当者にするのは在籍中の利用者だけにし、退職者に一致した場合は `legacy_inspector` に残す（要件上「すでに担当になっているものは表示してよい」の扱いは、この点を決めてから適用する）。同姓同名が複数いるときの扱いも決める。\n\n## 7. 【中】移行した旧日付が「未来日不可」の規則に通っていない。年月日形式を読めない日付にしてしまう\n\n- 場所: `src/lib/inspections-legacy.ts:68` 付近\n- 問題: `validateInspectionInput` は未来の点検日を拒否する。移行は、読める日付ならそのまま `inspected_on` に入れる。たとえば「2027-05-01」や、打ち間違えた和暦の日付が入ると、最後の点検日が未来になる。その計測器は「期限内」と表示され、次の予定日もずっと先になる。一方「2026年9月1日」のような年月日形式は西暦の正規表現に合わず、`legacy_date` に回る。記録があるのに「未点検」と表示される。\n- 直し方: 未来日は取り込まずに元の書き方を残す。または、拒否の理由を残す。年月日形式も読めるようにする。境界の値（今日・明日・実在しない日付）のテストを足す。\n\n## 8. 【中】出荷済みのマイグレーション 6 が、変更されうるアプリのコードを呼んでいる\n\n- 場所: `src/lib/db/migrations.ts:124`、`src/lib/inspections-legacy.ts`（`seed()` からも呼ばれる）\n- 問題: CLAUDE.md の開発標準 10 は「出荷済みの変更は書き換えない」。マイグレーション 6 は共有のアプリコードを呼ぶ。そのため、パーサや照合の規則を後で変えると、バージョン 6 に達していない DB での移行結果が黙って変わる。マイグレーションが再現できなくなる。\n- 直し方: 移行の処理をマイグレーションの中に固定する（または版つきの複製を置く）。アプリ側の変更の影響を受けないようにする。なお、アプリを前の版に戻すときは DB をそのまま使うので、マイグレーション 6 で足した列・テーブルは、前の版が無視できる形（追加のみ・NOT NULL でない）であることも確認する。\n\n## 9. 【低】一覧の行に即時実行関数があり、期限表示が 2 つのページで重複している\n\n- 場所: `src/app/instruments/page.tsx:71`、`src/app/instruments/[id]/page.tsx`\n- 問題: `(() => { const plan = plans.get(i.id)!; ... })()` は読みにくい。非null アサーション（`!`）は、計画が無いときの失敗を隠す。`dueStatus === 'ok' ? ... : <strong>` の表示が 2 つのページにコピーされていて、文言や書式を変えるたびに 2 か所を直す必要がある（開発標準 3「同じ処理を複製しない」）。\n- 直し方: 小さな共通部品かヘルパーにまとめる。計画の取得は JSX の前に行い、無いときの扱いを決める。\n\n## 10. 【低】`addMonths` が 0〜99 年を 1900 年代に変換する。入力の検証も無い\n\n- 場所: `src/lib/dates.ts:18`（`addMonths`）\n- 問題: `Date.UTC(year, ...)` は 0〜99 の年を 1900〜1999 年として扱う。「0050-01-31」のような日付は、4 桁の年として `isValidDate` を通る。次の予定日が 1950 年代になる。また、`intervalMonths` が小数や NaN のときは Invalid Date になり、`toISOString` が RangeError を出す。発生はまれ。\n- 直し方: `setUTCFullYear` を使って年を設定する。または、年の範囲（例: 1900 以降）を検証する。周期は整数かつ 1 以上かを検証してから使う。境界値のテストを足す。\n",
+  "review_chars": 4860,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4936,
+    "tokens": {
+      "input": 22,
+      "output": 12606,
+      "cache_read": 457263,
+      "cache_creation": 108022
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; git diff HEAD --stat\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 8,
+      "Read": 2,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 127,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` に10件の指摘を書いて、そのファイルだけをコミットしました。コードは直していません。PR の変更は、これまでどおり未コミットの差分として残っています。\n\n各指摘に、場所、何が問題か、直し方、重要度を付けています。\n\n- **高（3件）**\n  - 計画フォームの保存で、移行済みの旧点検者が消える。\n  - 詳細画面が `extra` の点検者と最終点検日を隠すのに、移行はその一部しか変換しない。\n  - 「要修理」の記録が、貸出中の計測器や古い日付の記録でも使用停止にする。\n- **中（5件）**\n  - 「点検した人」の選択肢に、API が拒否する退職済みの担当者が出る。\n  - 一覧が絞り込みに関係なく約5万件の計画を計算する。\n  - 移行が壊れた JSON を黙って飛ばし、名前の照合にも不備がある。\n  - 移行した旧日付が「未来日不可」の規則を通っていない。\n  - マイグレーション 6 が、変更されうるアプリのコードを呼んでいる。\n- **低（2件）**\n  - 一覧の行に即時実行関数があり、期限表示が2つのページで重複している。\n  - `addMonths` が0〜99年を1900年代に変換する。\n\nレビュー結果の元の順番と内容は変えていません。ただし、次の点だけ補足を足しています。\n\n- 指摘5に、担当者での絞り込み・並べ替えと、遅れ台数の集計も SQL 側で行うことを足しました。\n- 指摘8に、前の版に戻すときも DB が使えるかの確認を足しました。\n- 指摘6に、同姓同名の扱いを決めることを足しました。"
+  },
+  "interventions": 0
+}

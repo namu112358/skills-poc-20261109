@@ -1,0 +1,64 @@
+{
+  "trial": "W20-cr-high-c3-2",
+  "scenario": "W20",
+  "config": "cr-high",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# コードレビュー: 設置場所を場所マスタから選べるようにする\n\n重要度は、指摘の並び順（レビューの重大度順）をもとに付けた。\n\n## 指摘一覧\n\n| # | 重要度 | 場所 | 概要 |\n|---|--------|------|------|\n| 1 | 高 | `src/lib/instruments.ts:694` | `locationId` 指定の登録で `locationOriginal` が未設定のまま INSERT され 500 になる |\n| 2 | 高 | `src/lib/instruments.ts:276` | `locationId` だけの PATCH で、古い元の書き方が `location` 列に残る |\n| 3 | 高 | `src/app/instruments/[id]/LocationForm.tsx:125` | 確認中の計測器で何も選ばず保存すると、元の文字が消える |\n| 4 | 高 | `src/lib/instruments.ts:717` | 古い形式の PATCH `location` で確定済みの場所が確認中に戻る |\n| 5 | 中 | `src/lib/instruments.ts:593` | SQL と JS で「空白」の判定が違い、絞り込み・件数・表示がずれる |\n| 6 | 低 | `src/lib/locations.ts:962` | `matchLocationName` が呼ぶたびに全場所の正規化をやり直す |\n| 7 | 中 | `src/lib/locations.ts:921` | `ALIASES`（大阪営・名古屋営）が推測で寄せている |\n| 8 | 低 | `src/app/locations/LocationManager.tsx:342` | 状態変更後の表示が更新されず、メッセージが古い名称になる |\n| 9 | 中 | `src/app/api/handheld/inventory/route.ts:17` | ハンディ応答の `location` の意味が変わった |\n| 10 | 低 | `src/lib/instruments.ts:705` | 現在の場所なら使用終了後でも PATCH で設定でき、文字列の `locationId` は理由が分からないまま拒否される |\n\n---\n\n## 1. 【高】`locationId` 指定の登録・更新で `locationOriginal` が設定されず 500 になる\n\n- **場所**: `src/lib/instruments.ts:694`（`validateLocation`）、`createInstrument`、`POST /api/instruments`\n- **問題**: `locationId` が与えられたとき、`validateLocation` は `locationOriginal` を設定しない。\n  - `POST /api/instruments` に `{..., locationId: 1}` を送ると、検証結果は `{locationId: 1}` だけになる。\n  - ルートはこれを `InstrumentInput` にキャストする。`createInstrument` は `.run(..., input.locationOriginal /* undefined */, ...)` を実行する。\n  - `node:sqlite` は `undefined` のバインドを受け付けない。`location` 列は NOT NULL のテキストでもある。\n  - その結果 API は 500 を返す。仕様にある「場所マスタの ID で登録する」方法が動かない。\n  - テストは `locationOriginal: ''` を手で書いた `InstrumentInput` を使っているため、これを検出できない。\n  - 注記: レビュー時には実行できず、コードからの推論である。\n- **直し方**:\n  - `validateLocation` が、`locationId` 指定時に `locationOriginal` を必ず確定する（後述の #2 の方針に合わせる）。\n  - 登録・更新の入力型を、検証後の型として `locationOriginal` を必須にする。キャストをやめる。\n  - 検証関数から API 経由で `POST` する形のテスト（`locationId` のみの本文）を追加する。\n\n## 2. 【高】`locationId` だけの PATCH で、古い元の書き方が `location` 列に残る\n\n- **場所**: `src/lib/instruments.ts:276`（`updateInstrument`）\n- **問題**: `updateInstrument` は `{...current, ...changes}` で統合し、`locationOriginal` も書き戻す。`locationId` だけの PATCH では、既存の元の文字がそのまま残る。\n  - 例: 「確認中」で `location='倉庫'` の計測器に、利用者が LocationForm で正式な場所を選ぶ。\n  - `location_id` は設定されるが、`location` 列は '倉庫' のままになる。\n  - 要件 7（経理部が `location` 列を直接読む。場所の名前が入った状態を保つ）と矛盾する。\n  - 後で `locationId` が `locationOriginal` をリセットしない経路でクリアされると、「確認中・倉庫」として再び現れる。\n  - API 出力の `locationOriginal` も古いデータになる。\n- **直し方**:\n  - `locationId` が確定するときは、`location` 列を場所マスタの現在の名前で更新する。\n  - 名前変更時にも `location` 列を同期させる（要件 5・7）。\n  - 上記の組み合わせ（確認中 → 確定、確定 → 未設定）をテストする。\n\n## 3. 【高】確認中の計測器で何も選ばずに保存すると、元の文字が消える\n\n- **場所**: `src/app/instruments/[id]/LocationForm.tsx:125`\n- **問題**: `locationId` が null で元の文字がある「確認中」の計測器では、select の初期値が「未設定」になる。\n  - 例: `location='倉庫'`、`location_id` NULL で、「倉庫（確認中）」と表示されている。\n  - 品質保証部の担当者が詳細ページを開くと、「未設定」が選ばれている。何も変えずに「保存する」を押す。\n  - PATCH `{locationId: null}` が送られ、検証が `locationOriginal = ''` にする。\n  - 確認中の運用が残そうとしていた唯一の記録が消える。誰も決めていないのに、「確認中」から「未設定」に移る。\n- **直し方**:\n  - 確認中の計測器は、初期値を「確認中（元の書き方: 倉庫）」のような別の選択肢にする。\n  - 場所を変更しないとき、`locationId` を送らない（または送信しない）ようにする。\n  - 「未設定」への変更は、利用者が選んだときだけ許す。必要なら確認表示を出す。\n  - 確認中の計測器で何も選ばず保存しても、元の文字が保たれることをテストする。\n\n## 4. 【高】古い形式の PATCH `location` で、確定済みの場所が確認中に戻る\n\n- **場所**: `src/lib/instruments.ts:717`（`validateLocation` の `location` 文字列の扱い）\n- **問題**: 確定済みの計測器に、古い形式の PATCH `{location: '<分からない文字>'}` を送ると、`locationId` が null になり、確認中になる。\n  - 例: 品質保証部が「製造部 第 1 ライン」に確定した計測器に、旧システムやスクリプトが `{location: '倉庫'}` を送る。\n  - `matchLocationName` が undefined を返し、`locationId = null`、`locationOriginal = '倉庫'` になる。\n  - 品質保証部の確定が上書きされる。\n  - ハンディ端末の `recordInventory` は「確定済みの場所は、分からない文字では書き換えない」としているのに、PATCH の経路はそうなっていない。\n  - 変更内容にある「使用終了の場所の計測器を、古い形式の location で確認中に戻さない」の趣旨にも反する。\n- **直し方**:\n  - 確定済みの計測器に対して、分からない文字が来たときは書き換えない（または 400 を返す）。`recordInventory` と判断を共通の関数にする。\n  - 確定済みの計測器へ分からない `location` を送るテストを追加する。\n\n## 5. 【中】SQL と JS で「空白」の判定が違う\n\n- **場所**: `src/lib/instruments.ts:593`（SQL の `BLANK`）、`locationLabel`、`toInstrument`、`normalizeLocationKey`\n- **問題**: SQL の `BLANK` が除くのは、空白、タブ、LF、CR、U+3000 だけである。JS の `trim()` や NFKC は、NBSP、改ページ、その他の Unicode 空白も扱う。\n  - 例: 旧 `location` が NBSP（U+00A0）や垂直タブだけの値（Excel からの貼り付けで本番の約 5 万件にありうる）。\n  - 画面は「未設定」と表示し、`locationUnconfirmed` は false になる。\n  - 一方で `?location=none` ではその行が除かれ、`?location=unconfirmed` では含まれる。\n  - 移行ログの件数（`unset` / `unconfirmed`）は、改ページを含まない第三の SQL の trim 集合を使うため、一覧の件数とも画面表示とも一致しない。\n- **直し方**:\n  - 「空白」の定義を 1 か所にまとめ、SQL・JS・移行で同じ文字集合を使う。\n  - 移行時に、location の空白だけの値を正規化（空文字へ）するか、判定を JS 側に統一する。\n  - NBSP、垂直タブ、改ページだけの値でのテストを追加する。\n\n## 6. 【低】`matchLocationName` が呼ぶたびに正規化をやり直す\n\n- **場所**: `src/lib/locations.ts:962`（`matchLocationName`）\n- **問題**: 呼び出しごとに、マスタの全場所について `normalizeLocationKey`（NFKC と複数の正規表現）を再計算する。移行とシードは計測器 1 件ごとに呼ぶ。\n  - 本番の約 5 万件 × 16 か所で、約 80 万回の正規化が、起動時の 1 つの書き込みトランザクションの中で走る。\n  - 要件 9（起動して使えるまで何分も止めない）の余裕を食う。\n- **直し方**:\n  - 場所のキーを一度だけ計算して（Map などに）保持し、移行では計測器の値の種類ごとに結果をまとめる（重複する値をキャッシュする）。\n  - 約 5 万件規模での移行時間を測り、PR に書く。\n\n## 7. 【中】`ALIASES`（大阪営・名古屋営）が推測で寄せている\n\n- **場所**: `src/lib/locations.ts:921`（`ALIASES`）\n- **問題**: 「大阪営 → 大阪営業所」「名古屋営 → 名古屋営業所」を固定で持つ。これは切れた文字についての推測である。\n  - ファイルの冒頭と CLAUDE.md の方針は、「同じ場所と分かるものだけ。推測で寄せない」。\n  - この別名はマスタ名にも、API とハンディ端末のすべての入力にも適用される。\n  - 営業所の名前が変わる、または「大阪営…」が別の意味だった場合、「確認中」の印が付かないまま、別の場所に黙って結び付く。\n  - マスタのデータが、切れた別名に依存するべきではない。\n- **直し方**:\n  - 推測の別名を外し、完全一致または合意した表記ゆれ（全角・半角、第1／第一、空白、品証・品保、号車など）だけにする。\n  - どうしても必要なら、依頼者に確認して根拠を PR に書き、本番値の照合テストで確かめる。\n\n## 8. 【低】状態変更後の表示が更新されず、メッセージが古い名称になる\n\n- **場所**: `src/app/locations/LocationManager.tsx:342`（`setActive`、`instrumentCount`）\n- **問題**: 状態を変えても、ローカルの `instrumentCount` や計測器のページは更新されない。`setActive` の成功メッセージは、更新前のクロージャの `l.name` から作られる。\n  - 2 人が同時にマスタを編集すると、2 人目の名称変更は受け付けられるが、ローカルの一覧とメッセージ（「旧名称」を使用終了にしました）には古い名前が出る。\n  - `replace(r.location)` で行は更新されるが、メッセージは古い値を使う。\n  - 表示のずれにとどまる。\n- **直し方**:\n  - メッセージは API の応答（`r.location.name`）から作る。\n  - 変更後に一覧を再取得するか、`router.refresh()` を呼ぶ。\n\n## 9. 【中】ハンディ端末の応答 `location` の意味が変わった\n\n- **場所**: `src/app/api/handheld/inventory/route.ts:17`、`docs/handheld-api.md`\n- **問題**: 応答の `location` は、これまで送られた文字をそのまま返していた。今はマスタ名を返す。`unmatched_kept` のときは、保存済みの古い場所を返す。\n  - 仕様書には「端末が読むのは `ok` だけ」とあるが、それを保証するものはない。\n  - 応答の `location` を送った値と比べる端末や下流のシステムは、違う文字列を受け取る。\n  - `unmatched_kept` のときは、利用者がスキャンしていない場所が `ok=true` で返る。\n  - 要件 6（応答の形は変えない）と開発標準 11（既存の応答を変えるときの確認）に反する。\n- **直し方**:\n  - 応答の `location` は従来どおり、送られた文字を返す。マスタ名や結果は別の項目に出す（追加は互換）。\n  - 変えるなら、協力会社に確認して、`docs/handheld-api.md` と PR に移行の手順を書く。\n  - 応答の形を固定するテストを追加する。\n\n## 10. 【低】現在の場所なら使用終了後でも PATCH で設定でき、文字列の `locationId` は理由が分からないまま拒否される\n\n- **場所**: `src/lib/instruments.ts:705`（`validateLocation` の `id !== options.currentLocationId`）\n- **問題**:\n  - **使用終了の扱い**: 画面を開いた後で使用終了になった場所でも、現在の場所と同じなら PATCH で設定できる。これは要件 4（すでにその場所の計測器はそのまま表示する）の範囲に収まり、ほぼ意図どおりでもあるが、確認されていない。\n  - **型の扱い**: `typeof id === 'number'` だけを受け付ける。文字列の `'3'` は、型が違うという手がかりのない「設置場所は一覧から選んでください」で拒否される。フォーム形式の呼び出しではこの項目を使えない。\n  - JSON の `1.0` は数として受け付けられる。\n- **直し方**:\n  - 現在の場所を許す条件をコードのコメントとテストで明示する。\n  - 型が違うときは「設置場所の ID は数値で指定してください」のように、利用者が直せるメッセージにする。\n",
+  "review_chars": 7073,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.5414,
+    "tokens": {
+      "input": 32,
+      "output": 18101,
+      "cache_read": 833239,
+      "cache_creation": 89265
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -50; git diff HEAD --stat\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/t.test.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W20-cr-high-c3-2/app/src/lib/db/index.ts\\\";\\nimport { validateInstrumentInput, createInstrument, updateInst"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W20-cr-high-c3-2-app/de0dfa4d-901f-4643-aba6-ef80e883b1cb/scratchpad; mkdir -p $S; cat > $S/t.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W20-cr-h"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/sp && cat > /tmp/claude-0/sp/t.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W20-cr-high-c3-2/app/src/lib/db/index.ts\\\";\\nimport { validateInstrumentInput, c"
+      },
+      {
+        "tool": "Write",
+        "input": "{\"file_path\": \"/tmp/claude-0/sp/t.ts\", \"content\": \"import { openDb } from \\\"/tmp/poc-trials/W20-cr-high-c3-2/app/src/lib/db/index.ts\\\";\\nimport { validateInstrumentInput, createInstrument, updateInstr"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --experimental-strip-types /tmp/claude-0/sp/t.ts 2>&1 | grep -v Warning | tail -20\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --experimental-strip-types /tmp/claude-0/-tmp-poc-trials-W20-cr-high-c3-2-app/de0dfa4d-901f-4643-aba6-ef80e883b1cb/scratchpad/t.ts 2>&1 | tail -20\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Read": 1,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 170,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューで出た 10 件を `REVIEW.md` に書き写し、`REVIEW.md` だけをコミットしました（a73b73f）。コードは直していません。指摘の追加も削除もしていません。\n\n各指摘に、場所、何が問題か、直し方、重要度を書きました。重要度は、レビューの重大度順（1〜4 が高）を目安に私が付けました。\n\n| 重要度 | 指摘 |\n|---|---|\n| 高 | #1〜#4 |\n| 中 | #5、#7、#9 |\n| 低 | #6、#8、#10 |\n\n**#1** は、`locationId` を指定した登録が 500 になる問題です。ただしこれはコードからの推論で、レビュー時には実行して確かめられていません。\n\n指摘ごとの「直し方」は、レビュー結果から私が補った部分があります。たとえば #2 の「`location` 列を場所マスタの名前で更新する」は、要件 7 から導いた案です。実際に直すときは、あらためて確認してください。"
+  },
+  "interventions": 0
+}

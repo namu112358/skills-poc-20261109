@@ -1,0 +1,50 @@
+{
+  "trial": "W20-sp-review-c1-1",
+  "scenario": "W20",
+  "config": "sp-review",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスクの検索・削除・一括ステータス変更・期限切れ一覧・同時編集の検知\n\n結論: **このままではマージ不可**。高 7 件・中 2 件・低 2 件。以下はいずれも差分（`git diff HEAD`）を読んで確認した内容です。\n`npm run typecheck`・`npm test`（26 件）は通りますが、下記の不具合は既存テスト・追加テストのどれにも捕まりません。\n\n## 高\n\n### 1. 検索が SQL を文字列連結で組み立てている（SQL インジェクション）\n- 場所: `src/lib/tasks.ts` `searchTasks`（`const where = \\`title LIKE '%${query}%'\\``）\n- 問題: `q` をそのまま SQL に埋め込んでいる（CLAUDE.md 規約 8 違反）。\n  - `q=' UNION SELECT …` で `users`・`sessions` など他テーブルの内容を `tasks` として返せる（パスワードハッシュやセッショントークンの漏えい）。ログインしていれば誰でも実行できる。\n  - `q=it's` のように `'` を含むと SQL が壊れる。\n  - `%` `_` がワイルドカードとして働き、「部分一致」にならない。\n- 直し方: `title LIKE ? ESCAPE '\\'` とし、値は `'%' + q.replace(/[\\\\%_]/g, '\\\\$&') + '%'` をバインドする。COUNT と SELECT で同じ条件・同じ値を使う。\n\n### 2. 検索のエラーを握りつぶして 200 を返す\n- 場所: `src/app/api/tasks/search/route.ts` の `try { … } catch { return … tasks: [], total: 0 … }`\n- 問題: 1 の SQL エラーなど、あらゆる例外が「0 件ヒット」の 200 になり、障害や攻撃に気づけない。\n- 直し方: `try/catch` を外す（想定外の例外は 500 のままでよい）。入力誤りは事前の検証で 400 にする。\n\n### 3. ページ位置（OFFSET）がずれ、1 ページ目が返らない\n- 場所: `src/lib/tasks.ts` `searchTasks`（`.all(limit, page * limit)`）\n- 問題: `page` は 1 始まりなのに OFFSET が `page * limit`。`page=1` で先頭 `limit` 件が飛ばされ、該当が `limit` 件以下なら `tasks` は空なのに `total` だけ正しい。\n- 直し方: `(page - 1) * limit`。返却行を検証するテストを足す（現状のテストは `total` しか見ていない）。\n\n### 4. `limit` の検証がない（範囲外が 400 にならない）\n- 場所: `src/app/api/tasks/search/route.ts`（`const limit = Number(params.get(\"limit\") ?? SEARCH_LIMIT_DEFAULT)`）、`src/lib/tasks.ts`（`SEARCH_LIMIT_MAX` は定義だけで未使用）\n- 問題: `limit=0`・`51`・`1000`・`abc`（NaN）・`1.5` がそのまま通る。`limit=-1` は SQLite で「無制限」になり全件が返る。応答の `limit` に NaN などがそのまま出る。仕様は 1〜50 の整数で、範囲外は 400。\n- 直し方: `parsePageParam` と同様に `parseLimitParam`（未指定は 20、整数 1〜50 以外は `undefined`）を `src/lib/tasks.ts` に作り、`undefined` なら 400。単体テストを追加する。\n\n### 5. 期限切れの「今日」が UTC で、日本時間になっていない\n- 場所: `src/lib/tasks.ts` `listOverdueTasks`（`now.toISOString().slice(0, 10)`）\n- 問題: 日本時間の 0:00〜9:00 は UTC ではまだ前日。例: 日本時間 2026-11-15 08:00（= 2026-11-14T23:00Z）に、期限 2026-11-14 の未完了タスクが「今日が期限」扱いで、期限切れに出ない。追加テストは 03:00Z（日本時間 12:00）で、UTC と JST が同じ日付なのでこのずれを検出できない。\n- 直し方: `new Date(now.getTime() + 9 * 3600_000).toISOString().slice(0, 10)`、または `Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" })` で日付を作る。15:00Z 前後（日付が変わる境目）のテストを追加する。\n\n### 6. 既存のマイグレーションを書き換えている\n- 場所: `src/lib/db/migrations.ts` の v1（`CREATE TABLE tasks` に `created_by`・`version` を追加）\n- 問題: CLAUDE.md 規約 7 違反。`DATABASE_PATH` で永続化した DB（`user_version >= 1`）は v1 が再実行されないため、列が追加されず、`tasks` を読む全クエリが「no such column」で失敗する。テストは毎回新しいインメモリ DB なので気づけない。\n- 直し方: v1 を元に戻し、末尾に新しい番号（v3 相当）のマイグレーションを追加する: `ALTER TABLE tasks ADD COLUMN created_by TEXT REFERENCES users(id);` と `ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1;`。既存行は作成者 NULL・版 1 になり、PR の説明と一致する。\n\n### 7. 同時編集の検知が「読んでから書く」ため競合を防げない\n- 場所: `src/app/api/tasks/[id]/route.ts` PATCH（`expected !== current.version` の比較）、`src/lib/tasks.ts` `updateTask`（`WHERE id = ?` のみ）\n- 問題: 版の比較を JS 側で行い、UPDATE に版の条件がない。2 つのリクエストが同じ版で同時に来ると、両方が比較を通り、後の更新が先の更新を上書きする（この PR の目的が達成されない）。そのほか:\n  - `version` の型検証がない。`\"1\"`・`1.5`・`null` は 400 ではなく 409 になる。\n  - 比較と UPDATE が別操作で、その間にタスクが削除されると `updateTask` が `undefined` を返し、`{ task: undefined }` の 200 になる。\n- 直し方: `updateTask` に `expectedVersion` を渡し、`UPDATE … WHERE id = ? AND version = ?` の `changes` で判定する。`changes === 0` のときだけ再取得し、無ければ 404、あれば 409。`version` は 1 以上の整数でなければ 400（`src/lib/` の検証関数で行う）。競合・409 のテストを追加する。\n\n## 中\n\n### 8. 一括変更が途中まで反映される（「どれも変えない」に反する）\n- 場所: `src/lib/tasks.ts` `bulkUpdateStatus`、`src/app/api/tasks/bulk-status/route.ts`\n- 問題: ID を 1 件ずつ UPDATE し、存在しない ID は `missing` に溜めるだけ。route は後から 404 を返すが、存在した ID はすでに更新（コミット）済み。`ids: [1, 999]` で 404 が返るのにタスク 1 は変わり `version` も上がる。\n- 直し方: 1 つのトランザクションにして、先に全 ID の存在を確認（プレースホルダ付きの `WHERE id IN (?, …)` で重複除去後の件数と比較）し、欠けていれば何も書かずに `missing` を返す。「404 のときタスクが変わっていない」ことを確認するテストを追加する（現状は `missing` しか見ていない）。\n\n### 9. 作成者なしのタスクを誰でも削除できる\n- 場所: `src/app/api/tasks/[id]/route.ts` DELETE（`if (task.createdBy && task.createdBy !== user.id && task.assignee !== user.id)`）\n- 問題: `createdBy` が NULL（この PR より前に作られたタスク。初期データも該当）だと条件全体が偽になり、担当者でない人も削除できる。仕様は「作成者か担当者だけ」。\n- 直し方: `if (task.createdBy !== user.id && task.assignee !== user.id) return jsonError(403, …)`。作成者 NULL のタスクは担当者だけが削除できる。\n\n## 低\n\n### 10. 削除・認可・競合まわりのテストが空虚／不足\n- 場所: `tests/tasks-search.test.ts`\n- 問題: `deleteTask` のテストは `deleteTask(1, db) !== undefined`（boolean なので常に真）と、削除前に取得した配列の長さを見ているだけで、削除を検証していない。次のテストもない: 403／204／404、版の競合、`page`・`limit` の境界、`%` `_` のエスケープ、一括変更の原子性、検索で返る行の内容。route 層のテストも無い。\n- 直し方: 削除後の `getTask` が `undefined`・`deleteTask` の戻り値が `true`/`false` を検証する。上記の各項目のテストを追加する（規約 5）。\n\n### 11. 一括変更でステータスが変わらない ID も版番号が上がる\n- 場所: `src/lib/tasks.ts` `bulkUpdateStatus`\n- 問題: すでに同じステータスのタスクも `version` が増え、無関係な編集中の人に不要な 409 を起こす。仕様は「更新のたびに 1 増やす」なので許容範囲だが、気になるなら `WHERE id = ? AND status != ?` で変更があった行だけ増やし、存在確認は別に行う。\n\n### 12. 検索語 `q` を trim しており、空の `q` は 400 になる（仕様に記載なし）\n- 場所: `src/app/api/tasks/search/route.ts`（`(params.get(\"q\") ?? \"\").trim()` と `q === \"\"` の 400）\n- 問題: PR の説明に空の `q` の扱いが書かれていない。前後の空白を削るため、空白を含む語（例: `\"API \"`）の部分一致の意味が少し変わる。400 にすること自体は妥当。\n- 直し方: 仕様として「空の `q` は 400」「`q` は trim する」をテストと説明に明記する。空白を含めて検索したいなら trim をやめる。\n",
+  "review_chars": 5083,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.542,
+    "tokens": {
+      "input": 34,
+      "output": 13898,
+      "cache_read": 703111,
+      "cache_creation": 100630
+    },
+    "turns": 9,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W20-sp-review-c1-1-app/98d3ccb1-6806-49b8-b3a0-9c9b02ae3c50/scratchpad && cat > $S/t.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W20-sp-review-c1-"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --experimental-strip-types /tmp/claude-0/-tmp-poc-trials-W20-sp-review-c1-1-app/98d3ccb1-6806-49b8-b3a0-9c9b02ae3c50/scratchpad/t.ts 2>&1 | grep -v Warning\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --experimental-strip-types /tmp/claude-0/-tmp-poc-trials-W20-sp-review-c1-1-app/98d3ccb1-6806-49b8-b3a0-9c9b02ae3c50/scratchpad/t.ts\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Agent": 1,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 1,
+    "subagent_types": {
+      "general-purpose": 1
+    },
+    "questions": 0,
+    "active_seconds": 126,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘は、すでに前のターンで `REVIEW.md` に書いてありました。場所・問題・直し方・重要度の形式です。今回は、そこから漏れていた指摘を 1 件追記して、`REVIEW.md` だけをコミットしました(07144c8)。コードは直していません。\n\n- **追記した指摘:** 検索語 `q` を trim していることと、空の `q` を 400 にすることです。PR の説明に書かれていない扱いなので、低で入れています(12 番)。\n- **前のターンのまとめ方:** サブエージェントの指摘のうち、「問題なし」と判断されていたものは書いていません。`bulkUpdateStatus` が重複 ID をまとめて数える点などです。\n- **現在の内容:** 高 7 件、中 2 件、低 3 件です。削った指摘はありません。\n\nPR 本体の未コミット変更は、そのまま残しています。"
+  },
+  "interventions": 0
+}
