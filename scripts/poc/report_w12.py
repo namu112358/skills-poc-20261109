@@ -23,6 +23,116 @@ PARTS = [("business", "業務", 30), ("migration", "マイグレーション", 2
          ("ops", "運用", 10), ("design", "設計", 15), ("test_strength", "テスト", 10)]
 
 
+BASES = ["superpowers", "feature-dev", "compound-engineering", "gstack", "baseline"]
+GROUPS = [("", "標準なし（Sonnet・きれいな初期状態）"), ("+std", "汎用の開発標準あり"), ("@haiku", "Haiku（標準なし）"),
+          ("+messy", "乱れた初期状態（標準なし）")]
+BL = {"superpowers": "Superpowers", "feature-dev": "Feature Dev", "compound-engineering": "Compound Engineering",
+      "gstack": "gstack", "baseline": "baseline"}
+
+
+def group_tables(by, mean):
+    """条件のまとまり（標準の有無・モデル・初期状態）ごとの比較表。"""
+    L = ["## 条件のまとまりごとの比較（品質の平均）", ""]
+    L += ["| 候補 | " + " | ".join(g for _, g in GROUPS) + " |", "|---|" + "---|" * len(GROUPS)]
+    for b in BASES:
+        L.append(f"| {BL[b]} | " + " | ".join(str(mean(b + suf, "total")) if b + suf in by else "—" for suf, _ in GROUPS) + " |")
+    L += ["", "### プラグインの上乗せ（各候補 − 同じまとまりの baseline、品質の平均の差）", ""]
+    L += ["| 候補 | " + " | ".join(g for _, g in GROUPS) + " |", "|---|" + "---|" * len(GROUPS)]
+    for b in BASES[:-1]:
+        row = []
+        for suf, _ in GROUPS:
+            if b + suf in by and "baseline" + suf in by:
+                row.append(f"{mean(b + suf, 'total') - mean('baseline' + suf, 'total'):+.1f}")
+            else:
+                row.append("—")
+        L.append(f"| {BL[b]} | " + " | ".join(row) + " |")
+    L += ["", "### 汎用の開発標準の効果（標準あり − 標準なし、内訳ごと）", ""]
+    L += ["| 候補 | 品質 | " + " | ".join(lab for _, lab, _ in PARTS) + " |", "|---|---|" + "---|" * len(PARTS)]
+    for b in BASES:
+        if b in by and b + "+std" in by:
+            L.append(f"| {BL[b]} | {mean(b + '+std', 'total') - mean(b, 'total'):+.1f} | "
+                     + " | ".join(f"{mean(b + '+std', k) - mean(b, k):+.1f}" for k, _, _ in PARTS) + " |")
+    L += ["", "### 乱れた初期状態の影響（乱れ − きれい、内訳ごと）", ""]
+    L += ["| 候補 | 品質 | " + " | ".join(lab for _, lab, _ in PARTS) + " |", "|---|---|" + "---|" * len(PARTS)]
+    for b in BASES:
+        if b in by and b + "+messy" in by:
+            L.append(f"| {BL[b]} | {mean(b + '+messy', 'total') - mean(b, 'total'):+.1f} | "
+                     + " | ".join(f"{mean(b + '+messy', k) - mean(b, k):+.1f}" for k, _, _ in PARTS) + " |")
+    L.append("")
+    return L
+
+
+def messy_breakdown(by):
+    """乱れた初期状態で落ちた点を、乱れの種類に分ける（採点項目との対応は notes の説明）。"""
+    rows = []
+    for b in BASES:
+        for suf in ("", "+messy"):
+            c = b + suf
+            if c not in by:
+                continue
+            ss = by[c]
+            n = len(ss)
+            log_ok = sum(1 for s in ss if s["ops_facts"].get("logger_used") and not s["ops_facts"].get("console_lines")) 
+            old_log = sum(1 for s in ss if any("log(" in l for l in s["facts"]["static"].get("console_lines") or []) or s["ops_detail"].get("O1_logger", 0) == 0)
+            jst = sum(1 for s in ss if s["hidden_items"]["H05"])
+            tests = statistics.mean(s["test_strength"] for s in ss)
+            design = statistics.mean((s.get("review_detail") or {}).get("items", {}).get("a", [0, 0])[0] + (s.get("review_detail") or {}).get("items", {}).get("a", [0, 0])[1] for s in ss) / 2
+            reuse = statistics.mean(sum((s.get("review_detail") or {}).get("items", {}).get("b", [0, 0])) for s in ss) / 2
+            rows.append(f"| {LABEL.get(c, c)} | {log_ok} / {n} | {old_log} / {n} | {jst} / {n} | {fmt(design)} / {fmt(reuse)} | {fmt(tests)} |")
+    if not rows:
+        return []
+    return ["## 乱れた初期状態で落ちた点の内訳（乱れの種類ごと）", "",
+            "| 条件 | 既存の logger を使った（ログの見本） | logger を使わなかった | 日本時間で判断（H05、日付の関数） | 層の分け方 / 既存の抽象の再利用（ブラインド a / b、3 点満点の 2 名平均）（業務の判断の置き場所） | テストの強さ（テストの少なさ） |",
+            "|---|---|---|---|---|---|"] + rows + [""]
+
+
+def models_table(scores):
+    rows = []
+    for s in sorted(scores, key=lambda s: s["trial"]):
+        mu = s.get("models_used") or {}
+        if len(mu) > 1 or s.get("model", "").find("haiku") >= 0:
+            rows.append(f"| {s['trial']} | {s.get('model')} | " + "、".join(f"{m} ${c:.2f}" for m, c in sorted(mu.items(), key=lambda x: -x[1])) + " |")
+    return ["## 実際に使われたモデルと費用（試行する側のモデル以外も使われた試行、Haiku の試行）", "",
+            "| 試行 | 試行のモデル | 実際に使われたモデルと費用 |", "|---|---|---|"] + rows + [""] if rows else []
+
+
+def sensitivity(by, mean):
+    L = ["## 測り方の版による違い（堅牢さのテストの旧版 v1 との比較）", ""]
+    L += ["| 条件 | 品質（最終版） | 品質（旧版 v1 で計算） | 堅牢さ（最終版） | 堅牢さ（v1） |", "|---|---|---|---|---|"]
+    order = []
+    for c in by:
+        ss = by[c]
+        if any(s.get("total_v1") is None for s in ss):
+            continue
+        t1 = round(statistics.mean(s["total_v1"] for s in ss), 1)
+        r1 = round(statistics.mean(s["robustness_v1"] for s in ss), 1)
+        order.append((c, mean(c, "total"), t1))
+        L.append(f"| {LABEL.get(c, c)} | {mean(c, 'total')} | {t1} | {mean(c, 'robustness')} | {r1} |")
+    rank = lambda i: [c for c, *_ in sorted(order, key=lambda x: -x[i])]
+    L += ["", f"順位（最終版）: {' > '.join(LABEL.get(c, c) for c in rank(1))}", "",
+          f"順位（v1）: {' > '.join(LABEL.get(c, c) for c in rank(2))}", ""]
+    return L
+
+
+def audit_section():
+    p = DIR / "audit.json"
+    if not p.exists():
+        return []
+    a = json.loads(p.read_text())
+    keys = ["repo", "other_trial", "answerer_home", "proc", "web", "tmp_other", "home_other"]
+    L = ["## 試行間の独立性・不正の点検", "",
+         "| 試行 | 条件 | ツール呼び出し（うちサブエージェント） | リポジトリ | 他の試行 | 依頼者役の作業場所 | /proc | Web | /tmp のほか | そのほか | answer_key_access | isolation_suspects | 依頼者役が聞かれていない項目を明かした質問 |",
+         "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for t, r in sorted(a.items()):
+        lk = r["leaks"]
+        p_ = r.get("persona") or {}
+        L.append(f"| {t} | {LABEL.get(r['condition'], r['condition'])} | {lk['tool_calls']}（{lk['subagent_tool_calls']}） | "
+                 + " | ".join(str(lk.get(k, 0)) for k in keys) + f" | {r['answer_key_access']} | {r['isolation_suspects']} | "
+                 f"{p_.get('items_with_unasked', '—')} / {p_.get('items', '—')}（{'、'.join(p_.get('unasked_ids') or []) or 'なし'}） |")
+    L.append("")
+    return L
+
+
 def fmt(x, d=1):
     return "—" if x is None else f"{x:.{d}f}"
 
@@ -123,6 +233,11 @@ def build_md():
         L.append("補正した試行はない（すべて自動で検出できた）。")
     L += [""] + [f"- {x}" for x in notes.get("adapter_notes", [])] + [""]
 
+    L += group_tables(by, mean)
+    L += messy_breakdown(by)
+    L += models_table(scores)
+    L += sensitivity(by, mean)
+    L += audit_section() + [f"- {x}" for x in notes.get("audit_notes", [])] + [""]
     L += two_axis.md_section("W12")
     L += ["## 所見", ""] + [f"- {x}" for x in notes["findings"]] + [""]
     if notes.get("review_notes"):
