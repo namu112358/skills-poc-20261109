@@ -1,0 +1,944 @@
+{
+ "round": "1",
+ "commit": "b5c56d4071ce5a98d7cd2c00d4b74126f1bf19f2",
+ "adapter": {
+  "f1": {
+   "key": "importance",
+   "levels": [
+    "A",
+    "B",
+    "C"
+   ],
+   "set": "post",
+   "filter": {
+    "param": "importance"
+   },
+   "job": {
+    "method": "POST",
+    "path": "/api/jobs/calibration-reminders"
+   }
+  },
+  "f2": {
+   "create": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/reservations",
+    "body": {
+     "startOn": "{start}",
+     "endOn": "{end}"
+    },
+    "id": "reservation.id"
+   },
+   "list": {
+    "path": "/api/instruments/{instrumentId}/reservations",
+    "items": "reservations"
+   },
+   "cancel": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+   },
+   "fields": {
+    "id": "id",
+    "status": "status",
+    "start": "startOn",
+    "end": "endOn",
+    "user": "userId"
+   },
+   "status": {
+    "active": [
+     "active"
+    ],
+    "cancelled": [
+     "cancelled"
+    ]
+   }
+  },
+  "f3": {
+   "list": {
+    "path": "/api/locations",
+    "items": "locations"
+   },
+   "create": {
+    "method": "POST",
+    "path": "/api/locations",
+    "body": {
+     "name": "{name}"
+    },
+    "id": "location.id"
+   },
+   "rename": {
+    "method": "PATCH",
+    "path": "/api/locations/{locationId}",
+    "body": {
+     "name": "{name}"
+    }
+   },
+   "delete": {
+    "method": "DELETE",
+    "path": "/api/locations/{locationId}"
+   },
+   "fields": {
+    "id": "id",
+    "name": "name"
+   },
+   "instrumentSet": {
+    "locationId": "{locationId:n}"
+   },
+   "instrumentIdField": "locationId",
+   "filter": {
+    "param": "locationId",
+    "value": "id"
+   }
+  },
+  "f4": {
+   "create": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/calibration-orders",
+    "body": {},
+    "id": "order.id"
+   },
+   "list": {
+    "path": "/api/instruments/{instrumentId}/calibration-orders",
+    "items": "orders"
+   },
+   "fields": {
+    "id": "id",
+    "status": "status",
+    "externalId": "agencyOrderId",
+    "returnOn": "estimatedReturnOn"
+   },
+   "status": {
+    "pending": [
+     "pending"
+    ],
+    "accepted": [
+     "accepted"
+    ],
+    "completed": [
+     "completed"
+    ],
+    "failed": [
+     "failed"
+    ]
+   },
+   "job": {
+    "method": "POST",
+    "path": "/api/jobs/calibration-orders"
+   }
+  },
+  "f5": {
+   "list": {
+    "path": "/api/instruments/{instrumentId}/history",
+    "items": "history"
+   },
+   "fields": {
+    "id": "id"
+   }
+  },
+  "f6": {},
+  "h1": {
+   "field": "subManagerId",
+   "set": {
+    "method": "PATCH",
+    "path": "/api/instruments/{instrumentId}",
+    "body": {
+     "subManagerId": "{subManager}"
+    }
+   }
+  },
+  "h2": {}
+ },
+ "checks": {
+  "typecheck": true,
+  "test": true,
+  "tests_pass": 52,
+  "tests_fail": 0,
+  "build": true
+ },
+ "static": {
+  "inProcessScheduler": [],
+  "migrations": {
+   "readable": false
+  },
+  "new_dependencies": []
+ },
+ "suites": {
+  "base": [
+   {
+    "id": "B01",
+    "name": "既存の API の応答の形（一覧・詳細の各項目、詳細の currentLoan）が変わらない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "B02",
+    "name": "既存の機能（登録・編集・貸出・返却・校正記録・不合格で使用停止・既存のジョブとその認証）が従来どおり動く",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "base_seconds": 2,
+  "f1": [
+   {
+    "id": "P01",
+    "name": "重要度を付けられ、付けた重要度が API で読める",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "P02",
+    "name": "重要度が最も高い計測器の校正期限が近づくと、管理者に通知サービスで知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H01",
+    "name": "重要度は 3 段階で、既存の計測器は真ん中（B）になる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H02",
+    "name": "一覧を重要度で絞り込める（API）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H03",
+    "name": "校正期限は「前回校正日 + 周期」の月の末日",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H04",
+    "name": "期限の 30 日前から知らせる（31 日前は知らせない）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H05",
+    "name": "「今日」は日本時間で判断する",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H06",
+    "name": "重要度が最も高いもの（A）だけを知らせる（B・C は知らせない）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H07",
+    "name": "校正中・使用停止・廃棄・不合格で使用停止になったものには知らせない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H08",
+    "name": "貸出中なら、管理者に加えて借りている人にも知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H09",
+    "name": "同じ期限について、期限が近いお知らせは 1 回だけ",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H10",
+    "name": "校正記録で期限が変わったら、新しい期限について改めて知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H11",
+    "name": "期限を過ぎたら「期限切れ」を 1 回だけ知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H12",
+    "name": "管理者が無効（退職など）なら、管理者の部署の代表者に知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H13",
+    "name": "定期実行は運用の cron から API を呼ぶ形（JOBS_TOKEN で認証し、アプリの中で定期実行しない）",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "f1_seconds": 34
+ },
+ "metrics": {
+  "files": 31,
+  "lines": 1709,
+  "size": {
+   "maxFileLines": 238,
+   "filesOver300": [],
+   "largest": [
+    {
+     "file": "src/lib/instruments.ts",
+     "lines": 238
+    },
+    {
+     "file": "src/lib/calibrations.ts",
+     "lines": 125
+    },
+    {
+     "file": "src/lib/calibration-reminders.ts",
+     "lines": 117
+    },
+    {
+     "file": "src/app/instruments/[id]/page.tsx",
+     "lines": 112
+    },
+    {
+     "file": "src/lib/db/migrations.ts",
+     "lines": 112
+    }
+   ],
+   "maxFunctionLines": 99
+  },
+  "complexity": {
+   "functions": 106,
+   "mean": 3.17,
+   "p90": 6,
+   "max": 37,
+   "over10": 3,
+   "worst": [
+    {
+     "file": "src/lib/instruments.ts",
+     "name": "validateInstrumentInput",
+     "line": 127,
+     "lines": 62,
+     "complexity": 37
+    },
+    {
+     "file": "src/lib/calibrations.ts",
+     "name": "validateCalibrationInput",
+     "line": 60,
+     "lines": 24,
+     "complexity": 14
+    },
+    {
+     "file": "src/lib/notify-client.ts",
+     "name": "send",
+     "line": 58,
+     "lines": 39,
+     "complexity": 14
+    },
+    {
+     "file": "src/app/api/instruments/[id]/route.ts",
+     "name": "PATCH",
+     "line": 18,
+     "lines": 17,
+     "complexity": 10
+    },
+    {
+     "file": "src/app/api/login/route.ts",
+     "name": "POST",
+     "line": 8,
+     "lines": 35,
+     "complexity": 9
+    },
+    {
+     "file": "src/app/instruments/[id]/page.tsx",
+     "name": "InstrumentDetailPage",
+     "line": 13,
+     "lines": 99,
+     "complexity": 9
+    },
+    {
+     "file": "src/lib/loans.ts",
+     "name": "validateLoanInput",
+     "line": 57,
+     "lines": 12,
+     "complexity": 8
+    },
+    {
+     "file": "src/app/api/instruments/[id]/loans/route.ts",
+     "name": "POST",
+     "line": 17,
+     "lines": 15,
+     "complexity": 7
+    }
+   ]
+  },
+  "duplication": {
+   "clones": 6,
+   "duplicatedLines": 42,
+   "lines": 1750,
+   "percentage": 2.4,
+   "examples": [
+    "src/app/api/instruments/[id]/loans/route.ts:17 = src/app/api/instruments/[id]/loans/route.ts:9 (6 行)",
+    "src/app/api/instruments/[id]/calibrations/route.ts:6 = src/app/api/instruments/[id]/loans/route.ts:5 (10 行)",
+    "src/app/api/instruments/[id]/calibrations/route.ts:15 = src/app/api/instruments/[id]/loans/route.ts:14 (9 行)",
+    "src/app/api/instruments/[id]/route.ts:5 = src/app/api/instruments/[id]/loans/route.ts:5 (9 行)",
+    "src/lib/instruments.ts:131 = src/lib/loans.ts:57 (7 行)",
+    "src/lib/calibrations.ts:60 = src/lib/loans.ts:57 (7 行)"
+   ]
+  },
+  "lint": {
+   "warnings": 5,
+   "errors": 0,
+   "byRule": {
+    "complexity": 4,
+    "max-lines-per-function": 1
+   }
+  },
+  "tests": {
+   "files": 9,
+   "cases": 52
+  }
+ },
+ "mutation": {
+  "baseline_tests_pass": true,
+  "baseline_fails": 0,
+  "baseline_log": "",
+  "mutants": 60,
+  "killed": 48,
+  "kill_rate": 0.8,
+  "files": [
+   "src/lib/calibration-due.ts",
+   "src/lib/calibration-reminders.ts",
+   "src/lib/db/migrations.ts",
+   "src/lib/instruments.ts",
+   "src/lib/notify-client.ts"
+  ],
+  "survivors": [
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 20,
+    "old": "60",
+    "new": "61",
+    "snippet": "const STALE_CLAIM_MS = 10 * 60 * 1000;"
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 20,
+    "old": "1000",
+    "new": "1001",
+    "snippet": "const STALE_CLAIM_MS = 10 * 60 * 1000;"
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 109,
+    "old": ".trim()",
+    "new": "",
+    "snippet": ").run(result.attempts, `${result.status ?? \"\"} ${result.error}`.trim(), key);"
+   },
+   {
+    "file": "src/lib/db/migrations.ts",
+    "line": 89,
+    "old": "5",
+    "new": "6",
+    "snippet": "version: 5,"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 10,
+    "old": "true",
+    "new": "false",
+    "snippet": "| { ok: true; id: string; attempts: number }"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 32,
+    "old": ".trim()",
+    "new": "",
+    "snippet": "if (/^\\d+$/.test(value.trim())) return Number(value.trim()) * 1000;"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 49,
+    "old": "500",
+    "new": "501",
+    "snippet": "baseDelayMs = 500,"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 59,
+    "old": "true",
+    "new": "false",
+    "snippet": "let last: SendResult = { ok: false, retryable: true, error: \"未送信\", attempts: 0 };"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 59,
+    "old": "0",
+    "new": "1",
+    "snippet": "let last: SendResult = { ok: false, retryable: true, error: \"未送信\", attempts: 0 };"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 77,
+    "old": "0",
+    "new": "1",
+    "snippet": "const text = (await res.text().catch(() => \"\")).slice(0, 200);"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 77,
+    "old": "200",
+    "new": "201",
+    "snippet": "const text = (await res.text().catch(() => \"\")).slice(0, 200);"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 92,
+    "old": "0",
+    "new": "1",
+    "snippet": "await sleep(Math.max(retryAfterMs ?? 0, backoffDelay(attempt, baseDelayMs, maxDelayMs, random)));"
+   }
+  ],
+  "details": [
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 7,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 9,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 9,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 9,
+    "old": "10",
+    "new": "11",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 15,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 15,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 19,
+    "old": "30",
+    "new": "31",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 25,
+    "old": " > ",
+    "new": " >= ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 26,
+    "old": " >= ",
+    "new": " > ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 20,
+    "old": "60",
+    "new": "61",
+    "killed": false
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 20,
+    "old": "1000",
+    "new": "1001",
+    "killed": false
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 30,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 39,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 41,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 41,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 53,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 55,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 72,
+    "old": " AND ",
+    "new": " OR ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 75,
+    "old": " > ",
+    "new": " >= ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 75,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 84,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 84,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 85,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 85,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 85,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 94,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 109,
+    "old": ".trim()",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/db/migrations.ts",
+    "line": 89,
+    "old": "5",
+    "new": "6",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 29,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 93,
+    "old": " AND ",
+    "new": " OR ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 182,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 184,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 10,
+    "old": "true",
+    "new": "false",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 31,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 32,
+    "old": ".trim()",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 32,
+    "old": ".trim()",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 34,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 39,
+    "old": "2",
+    "new": "3",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 39,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 49,
+    "old": "500",
+    "new": "501",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 59,
+    "old": "true",
+    "new": "false",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 59,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 60,
+    "old": " <= ",
+    "new": " < ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 60,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 75,
+    "old": "true",
+    "new": "false",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 77,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 77,
+    "old": "200",
+    "new": "201",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 78,
+    "old": " >= ",
+    "new": " > ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 78,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 78,
+    "old": "429",
+    "new": "430",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 79,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 79,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 81,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 81,
+    "old": "429",
+    "new": "430",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 85,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 87,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 91,
+    "old": " < ",
+    "new": " <= ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 92,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 102,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 102,
+    "old": "!",
+    "new": "",
+    "killed": true
+   }
+  ]
+ },
+ "points": {
+  "current": 1.0,
+  "all": 1.0,
+  "passed": {
+   "base:B01": true,
+   "base:B02": true,
+   "f1:P01": true,
+   "f1:P02": true,
+   "f1:H01": true,
+   "f1:H02": true,
+   "f1:H03": true,
+   "f1:H04": true,
+   "f1:H05": true,
+   "f1:H06": true,
+   "f1:H07": true,
+   "f1:H08": true,
+   "f1:H09": true,
+   "f1:H10": true,
+   "f1:H11": true,
+   "f1:H12": true,
+   "f1:H13": true
+  },
+  "mutation": 0.8
+ },
+ "adapter_drafted": false
+}
