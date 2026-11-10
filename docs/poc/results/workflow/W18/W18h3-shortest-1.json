@@ -1,0 +1,797 @@
+{
+ "round": "h3",
+ "commit": "107fd7d4017dc7c6bcdceea1f2558c87d35c1145",
+ "adapter": {
+  "f1": {
+   "key": "priority",
+   "levels": [
+    "high",
+    "normal"
+   ],
+   "set": "post",
+   "filter": {},
+   "job": {
+    "method": "POST",
+    "path": "/api/notify-due"
+   }
+  },
+  "f2": {
+   "create": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/reservations",
+    "body": {
+     "startOn": "{start}",
+     "endOn": "{end}"
+    },
+    "id": "reservation.id"
+   },
+   "list": {
+    "path": "/api/instruments/{instrumentId}/reservations",
+    "items": "reservations"
+   },
+   "cancel": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+   },
+   "fields": {
+    "id": "id",
+    "status": "status",
+    "start": "startOn",
+    "end": "endOn",
+    "user": "userId"
+   },
+   "status": {
+    "active": [
+     "reserved"
+    ],
+    "cancelled": [
+     "cancelled"
+    ]
+   }
+  },
+  "f3": {
+   "list": {
+    "path": "/api/locations",
+    "items": "locations"
+   },
+   "create": {
+    "method": "POST",
+    "path": "/api/locations",
+    "body": {
+     "name": "{name}"
+    },
+    "id": "location.id"
+   },
+   "rename": {
+    "method": "PATCH",
+    "path": "/api/locations/{locationId}",
+    "body": {
+     "name": "{name}"
+    }
+   },
+   "delete": {
+    "method": "DELETE",
+    "path": "/api/locations/{locationId}"
+   },
+   "fields": {
+    "id": "id",
+    "name": "name"
+   },
+   "instrumentSet": {
+    "location": "{name}"
+   },
+   "filter": {
+    "param": "location",
+    "value": "name"
+   }
+  },
+  "f4": {
+   "create": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/order",
+    "body": {},
+    "id": "order.id"
+   },
+   "list": {
+    "path": "/api/instruments/{instrumentId}/order",
+    "items": "orders"
+   },
+   "fields": {
+    "id": "id",
+    "status": "status",
+    "externalId": "order_id",
+    "returnOn": "return_on"
+   },
+   "status": {
+    "accepted": [
+     "ordered"
+    ]
+   }
+  },
+  "f5": {
+   "list": {
+    "path": "/api/instruments/{instrumentId}/history",
+    "items": "history"
+   },
+   "fields": {
+    "id": "id"
+   }
+  },
+  "f6": {}
+ },
+ "checks": {
+  "typecheck": true,
+  "test": true,
+  "tests_pass": 33,
+  "tests_fail": 0,
+  "build": true
+ },
+ "static": {
+  "inProcessScheduler": [],
+  "migrations": {
+   "readable": true,
+   "prev_versions": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ],
+   "versions": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "rewritten": [],
+   "added": [
+    9
+   ]
+  },
+  "new_dependencies": []
+ },
+ "suites": {
+  "base": [
+   {
+    "id": "B01",
+    "name": "既存の API の応答の形（一覧・詳細の各項目、詳細の currentLoan）が変わらない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "B02",
+    "name": "既存の機能（登録・編集・貸出・返却・校正記録・不合格で使用停止・既存のジョブとその認証）が従来どおり動く",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "base_seconds": 1,
+  "f1": [
+   {
+    "id": "P01",
+    "name": "重要度を付けられ、付けた重要度が API で読める",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "P02",
+    "name": "重要度が最も高い計測器の校正期限が近づくと、管理者に通知サービスで知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H01",
+    "name": "重要度は 3 段階で、既存の計測器は真ん中（B）になる",
+    "pass": false,
+    "detail": "段階の数: [\"high\",\"normal\"]"
+   },
+   {
+    "id": "H02",
+    "name": "一覧を重要度で絞り込める（API）",
+    "pass": false,
+    "detail": "絞り込みの項目が見つからない（アダプター）"
+   },
+   {
+    "id": "H03",
+    "name": "校正期限は「前回校正日 + 周期」の月の末日",
+    "pass": false,
+    "detail": "期限（02-28）の 8 日前に届いていない"
+   },
+   {
+    "id": "H04",
+    "name": "期限の 30 日前から知らせる（31 日前は知らせない）",
+    "pass": false,
+    "detail": "31 日前: 0 件、30 日前: 0 件"
+   },
+   {
+    "id": "H05",
+    "name": "「今日」は日本時間で判断する",
+    "pass": false,
+    "detail": "日本時間 02-28: 0 件、日本時間 03-01 00:30: 0 件"
+   },
+   {
+    "id": "H06",
+    "name": "重要度が最も高いもの（A）だけを知らせる（B・C は知らせない）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H07",
+    "name": "校正中・使用停止・廃棄・不合格で使用停止になったものには知らせない",
+    "pass": false,
+    "detail": "calibrating: 1 件、suspended: 1 件、disposed: 1 件、不合格: 1 件"
+   },
+   {
+    "id": "H08",
+    "name": "貸出中なら、管理者に加えて借りている人にも知らせる",
+    "pass": false,
+    "detail": "管理者 tanaka: 1 件、借りている人 matsumoto: 0 件"
+   },
+   {
+    "id": "H09",
+    "name": "同じ期限について、期限が近いお知らせは 1 回だけ",
+    "pass": false,
+    "detail": "0 件"
+   },
+   {
+    "id": "H10",
+    "name": "校正記録で期限が変わったら、新しい期限について改めて知らせる",
+    "pass": false,
+    "detail": "最初: 0 件、校正の翌日: 0 件、新しい期限の 21 日前: 1 件"
+   },
+   {
+    "id": "H11",
+    "name": "期限を過ぎたら「期限切れ」を 1 回だけ知らせる",
+    "pass": false,
+    "detail": "件数の推移（09-20, 10-01, 10-02, 10-20）: [1,1,1,1]（期待 [1,2,2,2]）"
+   },
+   {
+    "id": "H12",
+    "name": "管理者が無効（退職など）なら、管理者の部署の代表者に知らせる",
+    "pass": false,
+    "detail": "代表者 yamada: 0 件、無効な inoue: 0 件"
+   },
+   {
+    "id": "H13",
+    "name": "定期実行は運用の cron から API を呼ぶ形（JOBS_TOKEN で認証し、アプリの中で定期実行しない）",
+    "pass": false,
+    "detail": "トークンなしで 200"
+   }
+  ],
+  "f1_seconds": 33,
+  "f2": [
+   {
+    "id": "P01",
+    "name": "予約を作れて、一覧で誰が・いつからいつまでかが読める",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K01",
+    "name": "過去の日からは予約できず、今日からはできる。終了日が開始日より前は不可",
+    "pass": false,
+    "detail": "昨日から予約できた"
+   },
+   {
+    "id": "K02",
+    "name": "期間が 1 日でも重なる予約はできない（端の日が同じでも）。隣り合う期間はできる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K03",
+    "name": "取り消した予約は枠を空ける",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K04",
+    "name": "貸出中の計測器は、返却予定日までと重なる予約はできず、翌日からはできる",
+    "pass": false,
+    "detail": "返却予定日と重なる予約ができた"
+   },
+   {
+    "id": "K05",
+    "name": "他人の予約の期間にかかる貸出はしない。予約した本人には予約の期間に貸し出せる",
+    "pass": false,
+    "detail": "他人への貸出（予約と重なる）ができた"
+   },
+   {
+    "id": "K06",
+    "name": "使用停止・廃棄の計測器は予約できない",
+    "pass": false,
+    "detail": "suspended: 201"
+   },
+   {
+    "id": "K07",
+    "name": "取り消せるのは予約した本人と計測器の管理者で、ほかの人はできない",
+    "pass": false,
+    "detail": "ほかの人が取り消せた"
+   },
+   {
+    "id": "K08",
+    "name": "校正で不合格になり使用停止になったら、これからの予約は取り消しになる",
+    "pass": false,
+    "detail": "予約の状態: active"
+   },
+   {
+    "id": "K09",
+    "name": "校正期限を過ぎる日は予約できない（期限当日まではできる）",
+    "pass": false,
+    "detail": "期限の翌日から: 201"
+   }
+  ],
+  "f2_seconds": 1,
+  "f3": [
+   {
+    "id": "L01",
+    "name": "場所の一覧を API で取れ、場所を追加できる（表記ゆれで同じになる名前は追加できない）",
+    "pass": false,
+    "detail": "表記ゆれの重複: 201 {\"location\":{\"id\":3,\"name\":\"検査棟　第１室342957\"}}"
+   },
+   {
+    "id": "L02",
+    "name": "計測器に場所を設定でき、一覧・詳細の location（既存の項目名）は場所の名前",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "L03",
+    "name": "古い形（location に名前の文字列）での登録・編集も、一覧にある名前（空白・全角半角の違いを含む）なら受け付け、無い名前は断る",
+    "pass": false,
+    "detail": "旧形式の登録: 400 {\"error\":\"入力内容に誤りがあります\",\"details\":[\"設置場所が一覧にありません\"]}"
+   },
+   {
+    "id": "L04",
+    "name": "場所の名前を変えると、その場所の計測器の location も新しい名前になる",
+    "pass": false,
+    "detail": "計測器の location: 仮置き場 342957"
+   },
+   {
+    "id": "L05",
+    "name": "計測器が置かれている場所は削除できない（置かれていない場所は削除できる）",
+    "pass": false,
+    "detail": "置かれている場所の削除: 200 {\"ok\":true}"
+   },
+   {
+    "id": "L06",
+    "name": "一覧を場所で絞り込める（API）",
+    "pass": false,
+    "detail": "絞り込み（location=%E7%B5%9E%E3%82%8A%E8%BE%BC%E3%81%BF%E5%AE%A4%20342957）: 200 {\"instruments\":[{\"id\":11,\"managementNo\":\"BS-0001\",\"name\":\"検証用計測器 BS-0001\",\"model\":\"T-1\",\"location\":\"検証室\",\"managerId\":\"sato\",\"intervalMonths\":12,\"lastCalibratedOn\":\"2026-10-01\",\"status\":\"suspended\",\"no"
+   },
+   {
+    "id": "L07",
+    "name": "校正期限のお知らせの設置場所は、場所の今の名前",
+    "pass": false,
+    "detail": "お知らせの本文: 検証用計測器 LC-0006 の校正期限は 2027-03-31 です"
+   }
+  ],
+  "f3_seconds": 2,
+  "f4": [
+   {
+    "id": "O01",
+    "name": "使用中の計測器を発注でき、受付システムに 1 件届き（管理番号・名称・型式・発注者）、計測器は校正中、受付番号と返却予定日が読める",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "O02",
+    "name": "貸出中・校正中・廃棄の計測器は発注できず、使用停止の計測器はできる",
+    "pass": false,
+    "detail": "貸出中: 201、校正中: 201、廃棄: 201"
+   },
+   {
+    "id": "O03",
+    "name": "受付システムが止まっていても発注は受け付けて未送信で残り、戻った後のジョブで送られる",
+    "pass": false,
+    "detail": "止まっている間の発注: 502 {\"error\":\"発注できませんでした\"}"
+   },
+   {
+    "id": "O04",
+    "name": "受付システムが受け付けた後に応答が返らなくても、送り直しで二重に発注しない",
+    "pass": false,
+    "detail": "ジョブの API が見つからない（アダプター）"
+   },
+   {
+    "id": "O05",
+    "name": "発注すると、その計測器のこれからの予約が取り消され、予約した人に通知サービスで知らせる",
+    "pass": false,
+    "detail": "予約の状態: active"
+   },
+   {
+    "id": "O06",
+    "name": "1 台に進行中の発注は 1 件だけ",
+    "pass": false,
+    "detail": "2 件目: 201 {\"order\":{\"id\":7,\"orderId\":\"AG-00008\"}}"
+   },
+   {
+    "id": "O07",
+    "name": "校正記録を登録すると発注は完了になり、再び発注できる",
+    "pass": false,
+    "detail": "校正の後の発注: [\"accepted\"]"
+   },
+   {
+    "id": "O08",
+    "name": "発注の送り直しのジョブは JOBS_TOKEN で認証し、受付システムの 400 は送り直さない",
+    "pass": false,
+    "detail": "ジョブの API が無い"
+   }
+  ],
+  "f4_seconds": 94,
+  "f5": [
+   {
+    "id": "A01",
+    "name": "台帳の項目を編集すると、誰が・どの項目を・何から何に変えたかが残る",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "A02",
+    "name": "登録と、重要度・設置場所の変更が残る（設置場所は名前で）",
+    "pass": false,
+    "detail": "登録の履歴: []"
+   },
+   {
+    "id": "A03",
+    "name": "貸出と返却が残る（借りた人が分かる）",
+    "pass": false,
+    "detail": "貸出: []"
+   },
+   {
+    "id": "A04",
+    "name": "校正記録の登録と、それによる状態の変化（不合格で使用停止）が残る",
+    "pass": false,
+    "detail": "校正記録: []"
+   },
+   {
+    "id": "A05",
+    "name": "予約の作成と取消が残る（予約した人・取り消した人が分かる）",
+    "pass": false,
+    "detail": "予約: []"
+   },
+   {
+    "id": "A06",
+    "name": "発注と、受付システムが受け付けたことが残る",
+    "pass": false,
+    "detail": "発注: []"
+   },
+   {
+    "id": "A07",
+    "name": "失敗した操作（入力誤り・状態の誤り）は履歴に残らない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "A08",
+    "name": "履歴は API で変更・削除できない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "A09",
+    "name": "設置場所の変更は当時の名前で残り、後で場所の名前を変えても変わらない。新しい順に返す",
+    "pass": false,
+    "detail": "新しい順でない（備考 0 番目、設置場所 0 番目）"
+   }
+  ],
+  "f5_seconds": 3,
+  "f6": [
+   {
+    "id": "G01",
+    "name": "台帳の編集は、管理部署（管理者の部署）の人と品質保証部の人だけ",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "G02",
+    "name": "計測器の登録は品質保証部だけ",
+    "pass": false,
+    "detail": "製造部が登録できた"
+   },
+   {
+    "id": "G03",
+    "name": "校正記録の登録と校正の発注は、管理部署と品質保証部だけ",
+    "pass": false,
+    "detail": "他部署が校正記録を登録できた"
+   },
+   {
+    "id": "G04",
+    "name": "貸出・返却は、管理部署と品質保証部だけ",
+    "pass": false,
+    "detail": "他部署が貸し出せた"
+   },
+   {
+    "id": "G05",
+    "name": "閲覧（一覧・詳細・履歴）と、予約（作成・自分の予約の取消）は全員ができる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "G06",
+    "name": "設置場所の一覧の追加・名前の変更は品質保証部だけ",
+    "pass": false,
+    "detail": "製造部が場所を追加できた"
+   },
+   {
+    "id": "G07",
+    "name": "管理部署は管理者の部署で決まる（管理者が無効でもその部署。管理者を変えると管理部署も変わる）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "G08",
+    "name": "権限が無い操作は 403 で断り、定期実行のジョブは JOBS_TOKEN で今までどおり動く",
+    "pass": false,
+    "detail": "403 以外: [[\"製造部の登録\",201],[\"他部署の校正記録\",201],[\"他部署の貸出\",201],[\"製造部の場所の追加\",201]]"
+   }
+  ],
+  "f6_seconds": 1,
+  "h3": [
+   {
+    "id": "R01",
+    "name": "使用中・使用停止から修理中にでき、戻せる。API で読め、一覧を修理中で絞り込める",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R02",
+    "name": "修理中の計測器は貸し出せず、予約もできない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R03",
+    "name": "修理中にすると、これからの予約（今日を含む）が取り消される",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R04",
+    "name": "修理中の計測器には校正期限のお知らせを送らない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R05",
+    "name": "修理中の計測器は校正機関に発注できない（受付システムに送らない）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R06",
+    "name": "修理中にする・戻すが、変更した人つきで履歴に残る",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R07",
+    "name": "修理中にできるのは台帳を編集できる人だけ（他部署は 403）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R08",
+    "name": "修理から戻すと、また貸出・予約・発注ができる",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "h3_seconds": 3,
+  "f3-upgrade": [
+   {
+    "id": "L08",
+    "name": "前の版で入っていた設置場所が、表記ゆれをまとめて場所の一覧に移り、計測器の location は名前で読める",
+    "pass": false,
+    "detail": "表記ゆれの 3 台の location: [\"第7工場 第1ライン\",\"第7工場　第１ライン\",\"第7工場第1ライン\"]"
+   }
+  ]
+ },
+ "metrics": {
+  "files": 35,
+  "lines": 1668,
+  "size": {
+   "maxFileLines": 237,
+   "filesOver300": [],
+   "largest": [
+    {
+     "file": "src/lib/instruments.ts",
+     "lines": 237
+    },
+    {
+     "file": "src/lib/db/migrations.ts",
+     "lines": 161
+    },
+    {
+     "file": "src/lib/calibrations.ts",
+     "lines": 125
+    },
+    {
+     "file": "src/lib/loans.ts",
+     "lines": 112
+    },
+    {
+     "file": "src/lib/db/index.ts",
+     "lines": 109
+    }
+   ],
+   "maxFunctionLines": 95
+  },
+  "complexity": {
+   "functions": 104,
+   "mean": 3.12,
+   "p90": 6,
+   "max": 39,
+   "over10": 3,
+   "worst": [
+    {
+     "file": "src/lib/instruments.ts",
+     "name": "validateInstrumentInput",
+     "line": 126,
+     "lines": 62,
+     "complexity": 39
+    },
+    {
+     "file": "src/app/api/instruments/[id]/route.ts",
+     "name": "PATCH",
+     "line": 21,
+     "lines": 39,
+     "complexity": 14
+    },
+    {
+     "file": "src/lib/calibrations.ts",
+     "name": "validateCalibrationInput",
+     "line": 60,
+     "lines": 24,
+     "complexity": 14
+    },
+    {
+     "file": "src/app/api/login/route.ts",
+     "name": "POST",
+     "line": 8,
+     "lines": 35,
+     "complexity": 9
+    },
+    {
+     "file": "src/app/instruments/[id]/page.tsx",
+     "name": "InstrumentDetailPage",
+     "line": 12,
+     "lines": 95,
+     "complexity": 9
+    },
+    {
+     "file": "src/lib/loans.ts",
+     "name": "validateLoanInput",
+     "line": 57,
+     "lines": 12,
+     "complexity": 8
+    },
+    {
+     "file": "src/app/api/instruments/[id]/loans/route.ts",
+     "name": "POST",
+     "line": 17,
+     "lines": 15,
+     "complexity": 7
+    },
+    {
+     "file": "src/lib/db/index.ts",
+     "name": "(無名)",
+     "line": 49,
+     "lines": 29,
+     "complexity": 7
+    }
+   ]
+  },
+  "duplication": {
+   "clones": 7,
+   "duplicatedLines": 48,
+   "lines": 1693,
+   "percentage": 2.84,
+   "examples": [
+    "src/app/api/instruments/[id]/loans/route.ts:17 = src/app/api/instruments/[id]/loans/route.ts:9 (6 行)",
+    "src/app/api/instruments/[id]/history/route.ts:3 = src/app/api/instruments/[id]/order/route.ts:4 (7 行)",
+    "src/app/api/instruments/[id]/calibrations/route.ts:6 = src/app/api/instruments/[id]/loans/route.ts:5 (10 行)",
+    "src/app/api/instruments/[id]/calibrations/route.ts:15 = src/app/api/instruments/[id]/loans/route.ts:14 (9 行)",
+    "src/app/api/instruments/[id]/route.ts:8 = src/app/api/instruments/[id]/loans/route.ts:5 (9 行)",
+    "src/lib/instruments.ts:130 = src/lib/loans.ts:57 (7 行)",
+    "src/lib/calibrations.ts:60 = src/lib/loans.ts:57 (7 行)"
+   ]
+  },
+  "lint": {
+   "warnings": 6,
+   "errors": 0,
+   "byRule": {
+    "complexity": 4,
+    "no-console": 1,
+    "max-lines-per-function": 1
+   }
+  },
+  "tests": {
+   "files": 7,
+   "cases": 33
+  }
+ },
+ "points": {
+  "current": 1.0,
+  "all": 0.353,
+  "passed": {
+   "base:B01": true,
+   "base:B02": true,
+   "f1:P01": true,
+   "f1:P02": true,
+   "f1:H01": false,
+   "f1:H02": false,
+   "f1:H03": false,
+   "f1:H04": false,
+   "f1:H05": false,
+   "f1:H06": true,
+   "f1:H07": false,
+   "f1:H08": false,
+   "f1:H09": false,
+   "f1:H10": false,
+   "f1:H11": false,
+   "f1:H12": false,
+   "f1:H13": false,
+   "f2:P01": true,
+   "f2:K01": false,
+   "f2:K02": true,
+   "f2:K03": true,
+   "f2:K04": false,
+   "f2:K05": false,
+   "f2:K06": false,
+   "f2:K07": false,
+   "f2:K08": false,
+   "f2:K09": false,
+   "f3:L01": false,
+   "f3:L02": true,
+   "f3:L03": false,
+   "f3:L04": false,
+   "f3:L05": false,
+   "f3:L06": false,
+   "f3:L07": false,
+   "f4:O01": true,
+   "f4:O02": false,
+   "f4:O03": false,
+   "f4:O04": false,
+   "f4:O05": false,
+   "f4:O06": false,
+   "f4:O07": false,
+   "f4:O08": false,
+   "f5:A01": true,
+   "f5:A02": false,
+   "f5:A03": false,
+   "f5:A04": false,
+   "f5:A05": false,
+   "f5:A06": false,
+   "f5:A07": true,
+   "f5:A08": true,
+   "f5:A09": false,
+   "f6:G01": true,
+   "f6:G02": false,
+   "f6:G03": false,
+   "f6:G04": false,
+   "f6:G05": true,
+   "f6:G06": false,
+   "f6:G07": true,
+   "f6:G08": false,
+   "h3:R01": true,
+   "h3:R02": true,
+   "h3:R03": true,
+   "h3:R04": true,
+   "h3:R05": true,
+   "h3:R06": true,
+   "h3:R07": true,
+   "h3:R08": true,
+   "f3-upgrade:L08": false
+  },
+  "mutation": null
+ },
+ "adapter_drafted": false
+}
