@@ -1,0 +1,1299 @@
+{
+ "round": "5",
+ "commit": "80c6d3007e40557123ec9d72745b393ba911b7da",
+ "adapter": {
+  "f1": {
+   "key": "importance",
+   "levels": [
+    "A",
+    "B",
+    "C"
+   ],
+   "set": "post",
+   "filter": {
+    "param": "importance"
+   },
+   "job": {
+    "method": "POST",
+    "path": "/api/jobs/calibration-reminders"
+   }
+  },
+  "f2": {
+   "create": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/reservations",
+    "body": {
+     "startOn": "{start}",
+     "endOn": "{end}"
+    },
+    "id": "reservation.id"
+   },
+   "list": {
+    "path": "/api/instruments/{instrumentId}/reservations",
+    "items": "reservations"
+   },
+   "cancel": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+   },
+   "fields": {
+    "id": "id",
+    "status": "status",
+    "start": "startOn",
+    "end": "endOn",
+    "user": "userId"
+   },
+   "status": {
+    "active": [
+     "active"
+    ],
+    "cancelled": [
+     "cancelled"
+    ]
+   }
+  },
+  "f3": {
+   "list": {
+    "path": "/api/locations",
+    "items": "locations"
+   },
+   "create": {
+    "method": "POST",
+    "path": "/api/locations",
+    "body": {
+     "name": "{name}"
+    },
+    "id": "location.id"
+   },
+   "rename": {
+    "method": "PATCH",
+    "path": "/api/locations/{locationId}",
+    "body": {
+     "name": "{name}"
+    }
+   },
+   "delete": {
+    "method": "DELETE",
+    "path": "/api/locations/{locationId}"
+   },
+   "fields": {
+    "id": "id",
+    "name": "name"
+   },
+   "instrumentSet": {
+    "locationId": "{locationId:n}"
+   },
+   "instrumentIdField": "locationId",
+   "filter": {
+    "param": "locationId",
+    "value": "id"
+   }
+  },
+  "f4": {
+   "create": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/calibration-orders",
+    "body": {},
+    "id": "order.id"
+   },
+   "list": {
+    "path": "/api/instruments/{instrumentId}/calibration-orders",
+    "items": "orders"
+   },
+   "fields": {
+    "id": "id",
+    "status": "status",
+    "externalId": "agencyOrderId",
+    "returnOn": "estimatedReturnOn"
+   },
+   "status": {
+    "pending": [
+     "pending"
+    ],
+    "accepted": [
+     "accepted"
+    ],
+    "completed": [
+     "completed"
+    ],
+    "failed": [
+     "failed"
+    ]
+   },
+   "job": {
+    "method": "POST",
+    "path": "/api/jobs/calibration-orders"
+   }
+  },
+  "f5": {
+   "list": {
+    "path": "/api/instruments/{instrumentId}/history",
+    "items": "history"
+   },
+   "fields": {
+    "id": "id"
+   }
+  },
+  "f6": {},
+  "h1": {
+   "field": "subManagerId",
+   "set": {
+    "method": "PATCH",
+    "path": "/api/instruments/{instrumentId}",
+    "body": {
+     "subManagerId": "{subManager}"
+    }
+   }
+  },
+  "h2": {}
+ },
+ "checks": {
+  "typecheck": true,
+  "test": true,
+  "tests_pass": 83,
+  "tests_fail": 0,
+  "build": true
+ },
+ "static": {
+  "inProcessScheduler": [],
+  "migrations": {
+   "readable": true,
+   "prev_versions": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+   ],
+   "versions": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "rewritten": [],
+   "added": [
+    9
+   ]
+  },
+  "new_dependencies": []
+ },
+ "suites": {
+  "base": [
+   {
+    "id": "B01",
+    "name": "既存の API の応答の形（一覧・詳細の各項目、詳細の currentLoan）が変わらない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "B02",
+    "name": "既存の機能（登録・編集・貸出・返却・校正記録・不合格で使用停止・既存のジョブとその認証）が従来どおり動く",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "base_seconds": 1,
+  "f1": [
+   {
+    "id": "P01",
+    "name": "重要度を付けられ、付けた重要度が API で読める",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "P02",
+    "name": "重要度が最も高い計測器の校正期限が近づくと、管理者に通知サービスで知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H01",
+    "name": "重要度は 3 段階で、既存の計測器は真ん中（B）になる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H02",
+    "name": "一覧を重要度で絞り込める（API）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H03",
+    "name": "校正期限は「前回校正日 + 周期」の月の末日",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H04",
+    "name": "期限の 30 日前から知らせる（31 日前は知らせない）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H05",
+    "name": "「今日」は日本時間で判断する",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H06",
+    "name": "重要度が最も高いもの（A）だけを知らせる（B・C は知らせない）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H07",
+    "name": "校正中・使用停止・廃棄・不合格で使用停止になったものには知らせない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H08",
+    "name": "貸出中なら、管理者に加えて借りている人にも知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H09",
+    "name": "同じ期限について、期限が近いお知らせは 1 回だけ",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H10",
+    "name": "校正記録で期限が変わったら、新しい期限について改めて知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H11",
+    "name": "期限を過ぎたら「期限切れ」を 1 回だけ知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H12",
+    "name": "管理者が無効（退職など）なら、管理者の部署の代表者に知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H13",
+    "name": "定期実行は運用の cron から API を呼ぶ形（JOBS_TOKEN で認証し、アプリの中で定期実行しない）",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "f1_seconds": 36,
+  "f2": [
+   {
+    "id": "P01",
+    "name": "予約を作れて、一覧で誰が・いつからいつまでかが読める",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K01",
+    "name": "過去の日からは予約できず、今日からはできる。終了日が開始日より前は不可",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K02",
+    "name": "期間が 1 日でも重なる予約はできない（端の日が同じでも）。隣り合う期間はできる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K03",
+    "name": "取り消した予約は枠を空ける",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K04",
+    "name": "貸出中の計測器は、返却予定日までと重なる予約はできず、翌日からはできる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K05",
+    "name": "他人の予約の期間にかかる貸出はしない。予約した本人には予約の期間に貸し出せる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K06",
+    "name": "使用停止・廃棄の計測器は予約できない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K07",
+    "name": "取り消せるのは予約した本人と計測器の管理者で、ほかの人はできない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K08",
+    "name": "校正で不合格になり使用停止になったら、これからの予約は取り消しになる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K09",
+    "name": "校正期限を過ぎる日は予約できない（期限当日まではできる）",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "f2_seconds": 1,
+  "f3": [
+   {
+    "id": "L01",
+    "name": "場所の一覧を API で取れ、場所を追加できる（表記ゆれで同じになる名前は追加できない）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "L02",
+    "name": "計測器に場所を設定でき、一覧・詳細の location（既存の項目名）は場所の名前",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "L03",
+    "name": "古い形（location に名前の文字列）での登録・編集も、一覧にある名前（空白・全角半角の違いを含む）なら受け付け、無い名前は断る",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "L04",
+    "name": "場所の名前を変えると、その場所の計測器の location も新しい名前になる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "L05",
+    "name": "計測器が置かれている場所は削除できない（置かれていない場所は削除できる）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "L06",
+    "name": "一覧を場所で絞り込める（API）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "L07",
+    "name": "校正期限のお知らせの設置場所は、場所の今の名前",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "f3_seconds": 2,
+  "f4": [
+   {
+    "id": "O01",
+    "name": "使用中の計測器を発注でき、受付システムに 1 件届き（管理番号・名称・型式・発注者）、計測器は校正中、受付番号と返却予定日が読める",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "O02",
+    "name": "貸出中・校正中・廃棄の計測器は発注できず、使用停止の計測器はできる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "O03",
+    "name": "受付システムが止まっていても発注は受け付けて未送信で残り、戻った後のジョブで送られる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "O04",
+    "name": "受付システムが受け付けた後に応答が返らなくても、送り直しで二重に発注しない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "O05",
+    "name": "発注すると、その計測器のこれからの予約が取り消され、予約した人に通知サービスで知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "O06",
+    "name": "1 台に進行中の発注は 1 件だけ",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "O07",
+    "name": "校正記録を登録すると発注は完了になり、再び発注できる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "O08",
+    "name": "発注の送り直しのジョブは JOBS_TOKEN で認証し、受付システムの 400 は送り直さない",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "f4_seconds": 30,
+  "f5": [
+   {
+    "id": "A01",
+    "name": "台帳の項目を編集すると、誰が・どの項目を・何から何に変えたかが残る",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "A02",
+    "name": "登録と、重要度・設置場所の変更が残る（設置場所は名前で）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "A03",
+    "name": "貸出と返却が残る（借りた人が分かる）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "A04",
+    "name": "校正記録の登録と、それによる状態の変化（不合格で使用停止）が残る",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "A05",
+    "name": "予約の作成と取消が残る（予約した人・取り消した人が分かる）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "A06",
+    "name": "発注と、受付システムが受け付けたことが残る",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "A07",
+    "name": "失敗した操作（入力誤り・状態の誤り）は履歴に残らない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "A08",
+    "name": "履歴は API で変更・削除できない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "A09",
+    "name": "設置場所の変更は当時の名前で残り、後で場所の名前を変えても変わらない。新しい順に返す",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "f5_seconds": 3,
+  "f3-upgrade": [
+   {
+    "id": "L08",
+    "name": "前の版で入っていた設置場所が、表記ゆれをまとめて場所の一覧に移り、計測器の location は名前で読める",
+    "pass": true,
+    "detail": ""
+   }
+  ]
+ },
+ "metrics": {
+  "files": 46,
+  "lines": 3026,
+  "size": {
+   "maxFileLines": 299,
+   "filesOver300": [],
+   "largest": [
+    {
+     "file": "src/lib/instruments.ts",
+     "lines": 299
+    },
+    {
+     "file": "src/lib/calibration-orders.ts",
+     "lines": 276
+    },
+    {
+     "file": "src/app/instruments/[id]/page.tsx",
+     "lines": 206
+    },
+    {
+     "file": "src/lib/db/migrations.ts",
+     "lines": 202
+    },
+    {
+     "file": "src/lib/reservations.ts",
+     "lines": 201
+    }
+   ],
+   "maxFunctionLines": 189
+  },
+  "complexity": {
+   "functions": 181,
+   "mean": 3.19,
+   "p90": 6,
+   "max": 46,
+   "over10": 4,
+   "worst": [
+    {
+     "file": "src/lib/instruments.ts",
+     "name": "validateInstrumentInput",
+     "line": 140,
+     "lines": 77,
+     "complexity": 46
+    },
+    {
+     "file": "src/lib/http-retry.ts",
+     "name": "postJsonWithRetry",
+     "line": 38,
+     "lines": 53,
+     "complexity": 15
+    },
+    {
+     "file": "src/lib/calibrations.ts",
+     "name": "validateCalibrationInput",
+     "line": 64,
+     "lines": 24,
+     "complexity": 14
+    },
+    {
+     "file": "src/app/instruments/[id]/page.tsx",
+     "name": "InstrumentDetailPage",
+     "line": 17,
+     "lines": 189,
+     "complexity": 12
+    },
+    {
+     "file": "src/app/api/instruments/[id]/calibration-orders/route.ts",
+     "name": "POST",
+     "line": 21,
+     "lines": 21,
+     "complexity": 10
+    },
+    {
+     "file": "src/app/api/instruments/[id]/route.ts",
+     "name": "PATCH",
+     "line": 18,
+     "lines": 17,
+     "complexity": 10
+    },
+    {
+     "file": "src/lib/reservations.ts",
+     "name": "validateReservationInput",
+     "line": 110,
+     "lines": 16,
+     "complexity": 10
+    },
+    {
+     "file": "src/app/api/login/route.ts",
+     "name": "POST",
+     "line": 8,
+     "lines": 35,
+     "complexity": 9
+    }
+   ]
+  },
+  "duplication": {
+   "clones": 14,
+   "duplicatedLines": 101,
+   "lines": 3152,
+   "percentage": 3.2,
+   "examples": [
+    "src/app/api/instruments/[id]/loans/[loanId]/return/route.ts:7 = src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts:7 (8 行)",
+    "src/app/api/instruments/[id]/reservations/route.ts:25 = src/app/api/instruments/[id]/reservations/route.ts:10 (6 行)",
+    "src/app/api/instruments/[id]/loans/route.ts:5 = src/app/api/instruments/[id]/reservations/route.ts:6 (10 行)",
+    "src/app/api/instruments/[id]/loans/route.ts:17 = src/app/api/instruments/[id]/reservations/route.ts:25 (6 行)",
+    "src/app/api/instruments/[id]/history/route.ts:5 = src/app/api/instruments/[id]/reservations/route.ts:6 (10 行)",
+    "src/app/api/instruments/[id]/calibrations/route.ts:5 = src/app/api/instruments/[id]/history/route.ts:4 (11 行)",
+    "src/app/api/instruments/[id]/calibrations/route.ts:15 = src/app/api/instruments/[id]/loans/route.ts:14 (9 行)",
+    "src/app/api/instruments/[id]/calibration-orders/route.ts:9 = src/app/api/instruments/[id]/reservations/route.ts:6 (10 行)",
+    "src/app/api/instruments/[id]/calibration-orders/route.ts:18 = src/app/api/instruments/[id]/loans/route.ts:14 (9 行)",
+    "src/app/api/locations/[id]/route.ts:26 = src/app/api/locations/[id]/route.ts:15 (6 行)",
+    "src/app/api/instruments/[id]/route.ts:5 = src/app/api/instruments/[id]/loans/route.ts:5 (9 行)",
+    "src/lib/loans.ts:59 = src/lib/reservations.ts:110 (7 行)",
+    "src/lib/instruments.ts:144 = src/lib/reservations.ts:110 (7 行)",
+    "src/lib/calibrations.ts:64 = src/lib/reservations.ts:110 (7 行)"
+   ]
+  },
+  "lint": {
+   "warnings": 7,
+   "errors": 0,
+   "byRule": {
+    "complexity": 5,
+    "max-lines-per-function": 2
+   }
+  },
+  "tests": {
+   "files": 13,
+   "cases": 83
+  }
+ },
+ "mutation": {
+  "baseline_tests_pass": true,
+  "baseline_fails": 0,
+  "baseline_log": "",
+  "mutants": 60,
+  "killed": 40,
+  "kill_rate": 0.667,
+  "files": [
+   "src/lib/agency-client.ts",
+   "src/lib/calibration-due.ts",
+   "src/lib/calibration-orders.ts",
+   "src/lib/calibration-reminders.ts",
+   "src/lib/calibrations.ts",
+   "src/lib/db/migrations.ts",
+   "src/lib/http-retry.ts",
+   "src/lib/instruments.ts",
+   "src/lib/location-key.ts",
+   "src/lib/locations.ts",
+   "src/lib/notify-client.ts",
+   "src/lib/reservations.ts"
+  ],
+  "survivors": [
+   {
+    "file": "src/lib/agency-client.ts",
+    "line": 15,
+    "old": "true",
+    "new": "false",
+    "snippet": "| { ok: true; orderId: string; estimatedReturnOn: string | null; attempts: number }"
+   },
+   {
+    "file": "src/lib/agency-client.ts",
+    "line": 29,
+    "old": " >= ",
+    "new": " > ",
+    "snippet": "isSuccess: (status, data) => (status >= 200 && status < 300) || (status === 409 && typeof (data as { orderId?: unknown })?.orderId === \"string\"),"
+   },
+   {
+    "file": "src/lib/agency-client.ts",
+    "line": 29,
+    "old": "200",
+    "new": "201",
+    "snippet": "isSuccess: (status, data) => (status >= 200 && status < 300) || (status === 409 && typeof (data as { orderId?: unknown })?.orderId === \"string\"),"
+   },
+   {
+    "file": "src/lib/agency-client.ts",
+    "line": 45,
+    "old": "!",
+    "new": "",
+    "snippet": "if (!env.AGENCY_API_URL || !env.AGENCY_API_KEY) return undefined;"
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 26,
+    "old": "60",
+    "new": "61",
+    "snippet": "const STALE_CLAIM_MS = 10 * 60 * 1000;"
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 100,
+    "old": "!==",
+    "new": "===",
+    "snippet": "if (typeof note !== \"string\" || note.length > 500) return { ok: false, errors: [\"備考は 500 文字以内で入力してください\"] };"
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 101,
+    "old": "true",
+    "new": "false",
+    "snippet": "return { ok: true, value: { note: note.trim() } };"
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 118,
+    "old": "false",
+    "new": "true",
+    "snippet": "if (!instrument) return { ok: false, reason: \"not_found\" } as const;"
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 227,
+    "old": "&&",
+    "new": "||",
+    "snippet": "else if (after?.status === \"pending\" && after.attempts === before.attempts) summary.skipped++;"
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 20,
+    "old": "60",
+    "new": "61",
+    "snippet": "const STALE_CLAIM_MS = 10 * 60 * 1000;"
+   },
+   {
+    "file": "src/lib/db/migrations.ts",
+    "line": 156,
+    "old": "8",
+    "new": "9",
+    "snippet": "version: 8,"
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 18,
+    "old": "true",
+    "new": "false",
+    "snippet": "| { ok: true; status: number; data: unknown; attempts: number }"
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 46,
+    "old": "5",
+    "new": "6",
+    "snippet": "maxAttempts = 5,"
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 52,
+    "old": "200",
+    "new": "201",
+    "snippet": "isSuccess = (status: number) => status >= 200 && status < 300,"
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 73,
+    "old": "0",
+    "new": "1",
+    "snippet": "last = { ok: false, retryable, status: res.status, data, error: text.slice(0, 200) || `HTTP ${res.status}`, attempts: attempt };"
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 86,
+    "old": "0",
+    "new": "1",
+    "snippet": "await sleep(Math.max(retryAfterMs ?? 0, backoffDelay(attempt, baseDelayMs, maxDelayMs, random)));"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 178,
+    "old": ".trim()",
+    "new": "",
+    "snippet": "else if (v.trim() === \"\") value.locationId = null;"
+   },
+   {
+    "file": "src/lib/location-key.ts",
+    "line": 18,
+    "old": "9",
+    "new": "10",
+    "snippet": "for (let d = 0; d <= 9; d++) expr = `REPLACE(${expr}, '${FULLWIDTH_DIGITS[d]}', '${d}')`;"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 39,
+    "old": "false",
+    "new": "true",
+    "snippet": "return { ok: false, errors: [\"リクエストの形式が正しくありません\"] };"
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 112,
+    "old": "false",
+    "new": "true",
+    "snippet": "return { ok: false, errors: [\"リクエストの形式が正しくありません\"] };"
+   }
+  ],
+  "details": [
+   {
+    "file": "src/lib/agency-client.ts",
+    "line": 15,
+    "old": "true",
+    "new": "false",
+    "killed": false
+   },
+   {
+    "file": "src/lib/agency-client.ts",
+    "line": 29,
+    "old": " >= ",
+    "new": " > ",
+    "killed": false
+   },
+   {
+    "file": "src/lib/agency-client.ts",
+    "line": 29,
+    "old": "200",
+    "new": "201",
+    "killed": false
+   },
+   {
+    "file": "src/lib/agency-client.ts",
+    "line": 34,
+    "old": "true",
+    "new": "false",
+    "killed": true
+   },
+   {
+    "file": "src/lib/agency-client.ts",
+    "line": 45,
+    "old": "!",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 9,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 15,
+    "old": "10",
+    "new": "11",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 26,
+    "old": "60",
+    "new": "61",
+    "killed": false
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 97,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 100,
+    "old": "!==",
+    "new": "===",
+    "killed": false
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 101,
+    "old": "true",
+    "new": "false",
+    "killed": false
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 118,
+    "old": "false",
+    "new": "true",
+    "killed": false
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 119,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 146,
+    "old": "true",
+    "new": "false",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 156,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 185,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 221,
+    "old": "'pending'",
+    "new": "'approved'",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 226,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-orders.ts",
+    "line": 227,
+    "old": "&&",
+    "new": "||",
+    "killed": false
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 20,
+    "old": "60",
+    "new": "61",
+    "killed": false
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 41,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 58,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 84,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 85,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibrations.ts",
+    "line": 133,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/db/migrations.ts",
+    "line": 156,
+    "old": "8",
+    "new": "9",
+    "killed": false
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 18,
+    "old": "true",
+    "new": "false",
+    "killed": false
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 26,
+    "old": "1000",
+    "new": "1001",
+    "killed": true
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 46,
+    "old": "5",
+    "new": "6",
+    "killed": false
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 52,
+    "old": "200",
+    "new": "201",
+    "killed": false
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 55,
+    "old": " <= ",
+    "new": " < ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 72,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 73,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 75,
+    "old": "429",
+    "new": "430",
+    "killed": true
+   },
+   {
+    "file": "src/lib/http-retry.ts",
+    "line": 86,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 101,
+    "old": " AND ",
+    "new": " OR ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 165,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 177,
+    "old": "!==",
+    "new": "===",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 178,
+    "old": ".trim()",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 210,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 293,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/location-key.ts",
+    "line": 7,
+    "old": "０",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/location-key.ts",
+    "line": 18,
+    "old": "9",
+    "new": "10",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 39,
+    "old": "false",
+    "new": "true",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 42,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 51,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 62,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 71,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 30,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 39,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 86,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 105,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 112,
+    "old": "false",
+    "new": "true",
+    "killed": false
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 119,
+    "old": " < ",
+    "new": " <= ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 124,
+    "old": "true",
+    "new": "false",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 141,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 147,
+    "old": " > ",
+    "new": " >= ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 150,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 173,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 175,
+    "old": "!==",
+    "new": "===",
+    "killed": true
+   }
+  ]
+ },
+ "points": {
+  "current": 1.0,
+  "all": 1.0,
+  "passed": {
+   "base:B01": true,
+   "base:B02": true,
+   "f1:P01": true,
+   "f1:P02": true,
+   "f1:H01": true,
+   "f1:H02": true,
+   "f1:H03": true,
+   "f1:H04": true,
+   "f1:H05": true,
+   "f1:H06": true,
+   "f1:H07": true,
+   "f1:H08": true,
+   "f1:H09": true,
+   "f1:H10": true,
+   "f1:H11": true,
+   "f1:H12": true,
+   "f1:H13": true,
+   "f2:P01": true,
+   "f2:K01": true,
+   "f2:K02": true,
+   "f2:K03": true,
+   "f2:K04": true,
+   "f2:K05": true,
+   "f2:K06": true,
+   "f2:K07": true,
+   "f2:K08": true,
+   "f2:K09": true,
+   "f3:L01": true,
+   "f3:L02": true,
+   "f3:L03": true,
+   "f3:L04": true,
+   "f3:L05": true,
+   "f3:L06": true,
+   "f3:L07": true,
+   "f4:O01": true,
+   "f4:O02": true,
+   "f4:O03": true,
+   "f4:O04": true,
+   "f4:O05": true,
+   "f4:O06": true,
+   "f4:O07": true,
+   "f4:O08": true,
+   "f5:A01": true,
+   "f5:A02": true,
+   "f5:A03": true,
+   "f5:A04": true,
+   "f5:A05": true,
+   "f5:A06": true,
+   "f5:A07": true,
+   "f5:A08": true,
+   "f5:A09": true,
+   "f3-upgrade:L08": true
+  },
+  "mutation": 0.667
+ },
+ "adapter_drafted": false
+}
