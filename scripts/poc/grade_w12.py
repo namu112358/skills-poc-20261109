@@ -340,8 +340,8 @@ def migration_checks(app, work, adapter, aliases, static):
         except urllib.error.HTTPError as ex:
             return ex.code, None, ex.headers
 
-    def login():
-        st, _, h = api("POST", "/api/login", {"userId": "sato", "password": "password"})
+    def login(user="sato"):
+        st, _, h = api("POST", "/api/login", {"userId": user, "password": "password"})
         c = h.get("set-cookie", "") if h else ""
         return st, c.split(";")[0]
 
@@ -375,6 +375,10 @@ def migration_checks(app, work, adapter, aliases, static):
         set_status = None
         if key and levels and target in listed:
             set_status, _, _ = api("PATCH", f"/api/instruments/{listed[target]['id']}", {key: levels[0]}, cookie)
+            if set_status == 403:
+                # 重要度を変えられる人を管理者に限る実装（2026-11-10 補正）: その計測器の管理者として変える
+                _, mcookie = login(old_instr[target]["manager_id"])
+                set_status, _, _ = api("PATCH", f"/api/instruments/{listed[target]['id']}", {key: levels[0]}, mcookie)
         res["set_status"] = set_status
         e.stop_server()
         mid = snapshot(db)
