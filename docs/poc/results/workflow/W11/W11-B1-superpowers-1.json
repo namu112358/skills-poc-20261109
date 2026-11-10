@@ -1,0 +1,92 @@
+{
+ "scenario": "W11",
+ "task": "B1",
+ "kind": "bug",
+ "repo": "pytest-dev/pytest",
+ "trial": "W11-B1-superpowers-1",
+ "candidate": "superpowers",
+ "run": 1,
+ "resolved": true,
+ "quality": 100.0,
+ "hidden_tests": {
+  "f2p_total": 1,
+  "f2p_pass": 1,
+  "new_total": 1,
+  "new_pass": 1,
+  "existing_total": 56,
+  "existing_pass": 56,
+  "p2p_total": 56,
+  "p2p_pass": 56,
+  "f2p_failed": [],
+  "p2p_broken": [],
+  "seconds": 5.9,
+  "log_tail": ""
+ },
+ "diff": {
+  "src_added": 5,
+  "src_removed": 1,
+  "src_files": [
+   "src/_pytest/main.py"
+  ],
+  "test_added": 35,
+  "test_files": [
+   "testing/test_collection.py"
+  ],
+  "other_files": [
+   "changelog/14600.bugfix.rst"
+  ],
+  "upstream_src_added": 25,
+  "upstream_src_removed": 0
+ },
+ "facts": {
+  "cost_usd": 0.4812,
+  "elapsed_seconds": 341,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 1
+ },
+ "transcript": {
+  "cost_usd": 0.4812,
+  "turns": 31,
+  "tools": {
+   "Skill": 1,
+   "Bash": 21,
+   "Read": 3,
+   "Write": 2,
+   "Edit": 2
+  },
+  "skills": [
+   "superpowers:systematic-debugging"
+  ],
+  "subagents": 0,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"mkdir -p /tmp/t1 && cd /tmp/t1 && rm -rf * && mkdir -p comp/wh comp/tts && cat > comp/conftest.py <<'E'\\nimport pytest\\n@pytest.fixture\\ndef side(): return 1\\n@pytest.fixture\\ndef init_ca"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W11-B1-superpowers-1-app/0e6b2a83-89da-4aeb-8c0d-62fba82e53fd/scratchpad/t1; mkdir -p $S/comp/wh $S/comp/tts && cd $S && cat > comp/conftest.py <<'E'\\nimpo"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W11-B1-superpowers-1-app/0e6b2a83-89da-4aeb-8c0d-62fba82e53fd/scratchpad/t1\\nmkdir -p $S/comp/wh $S/comp/tts\\nprintf 'import pytest\\\\n@pytest.fixture\\\\ndef"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i '2011i\\\\        import sys; print(\\\"REG\\\", name, node, [getattr(e.node,\\\"nodeid\\\",e.baseid) for e in faclist], file=sys.stderr) if name==\\\"cache_dir\\\" else None' src/_pytest/fixtur"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W11-B1-superpowers-1-app/0e6b2a83-89da-4aeb-8c0d-62fba82e53fd/scratchpad/t1 && PYTHONPATH=/tmp/poc-trials/W11-B1-superpowers-1/app/src python -m pytest --"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python -m pytest testing -q -p no:cacheprovider -n8 2>&1 | grep -a \\\"^ERROR\\\" ; git stash -q && python -m pytest testing -q -p no:cacheprovider -n8 2>&1 | tail -1; git stash pop -q\"}"
+   }
+  ],
+  "isolation_suspects": [],
+  "final_text": "pytest 9.1.1 が conftest のフィクスチャを見失う不具合を修正し、コミットしました（`a31203c`）。\n\n## 原因\n問題は fixture の上書き順序ではなく、コレクション側にありました。\n\n- ファイルを直接引数に渡すと、同じファイルの重複指定を許すために、その親ディレクトリを `handle_dupes=False` で再収集します。\n- 再収集のたびにキャッシュ `_collection_cache` が上書きされ、兄弟の `Dir` ノードが別オブジェクトとして作り直されていました。\n- conftest のフィクスチャは最初に作られた `Dir comp` に登録されます。後続の引数 `comp/tts/test_i.py` は新しい `Dir comp` の下を通るので、親チェーンに登録先のノードが含まれません。\n- その結果 `init_cache` などが解決されず、クロージャから `side` が落ちて `function uses no argument` になっていました。\n\nHA の引数 `water_heater`、`test_config_entries.py`（ファイル）、`tts/test_init.py` の並びが、このパターンに当たります。\n\n最小再現は、`comp/wh`、`test_cfg.py`、`comp/tts/test_i.py` の順に渡す構成です。fixture のデバッグ出力で、`Dir comp` が 2 つの別オブジェクトになっていることを確認しました。\n\n## 修正\n`src/_pytest/main.py` の `_collect_one_node` で、強制再収集のときは既存のキャッシュを上書きしないようにしました（`setdefault`）。同じファイルの重複指定は、これまでどおり新しいノードで動きます。\n\n## 検証\n- 再現テスト `test_file_arg_does_not_recreate_sibling_dirs` を `testing/test_collection.py` に追加しました。修正前は失敗し、修正後は通ります。\n- `testing` 全体は 4248 件が通り、エラーは 1 件でした。これは私が付けた `-p no:cacheprovider` のせいで `test_cache_makedir` が動かなかったもので、修正とは無関係です。\n- changelog `changelog/14600.bugfix.rst` を追加しました。番号は仮置きなので、実際の Issue 番号に直してください。\n- Home Assistant の環境での確認はしていません。"
+ }
+}

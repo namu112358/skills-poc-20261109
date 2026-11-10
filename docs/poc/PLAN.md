@@ -134,7 +134,7 @@ scripts/poc-profile.sh wf-superpowers
 | W7 続けて行う作業での学習効果 | 10% | 長期運用での生産性に効く |
 | W8 人の介入なしでの自律実行 | 10% | 任せられる範囲の広さ |
 
-W9・W10 は、W1〜W8 の受け入れテストがほぼ全員満点で品質の差が出にくかったため、品質に差が出るシナリオとして 2026-11-09 に追加した（ユーザー指示）。上の重み（W1〜W8 の合計 100%）は変えない。W9・W10 を総合判定にどう入れるか（重みを付け直すか、品質の比較の参考として扱うか）は判定会で決め、それまでは §4.4 の 2 本立て（品質・効率）で結果を示す。
+W9・W10 は、W1〜W8 の受け入れテストがほぼ全員満点で品質の差が出にくかったため、品質に差が出るシナリオとして 2026-11-09 に追加した（ユーザー指示）。W11 も同じ理由で、課題の難しさを実際の OSS の水準に上げるため 2026-11-09 に追加した（ユーザー指示。まず各候補 1 回）。上の重み（W1〜W8 の合計 100%）は変えない。W9・W10 を総合判定にどう入れるか（重みを付け直すか、品質の比較の参考として扱うか）は判定会で決め、それまでは §4.4 の 2 本立て（品質・効率）で結果を示す。
 
 重みは Week 1 に PoC オーナーが確定し、試行開始後は変えない。
 
@@ -184,7 +184,7 @@ W9・W10 は、W1〜W8 の受け入れテストがほぼ全員満点で品質の
 | W9 | 再現率 40 + 適合率 25 + 具体性 20 | 85 |
 | W10 | 公開の受け入れテスト 25 + 隠しテスト 40 + テストの強さ 20 + ブラインドレビュー 15 | 100 |
 
-**効率（100 点）**: 費用 50 + 時間 30 + 介入 20。その W に介入の仕組み（定型の「お任せします」で続けさせる）が無ければ 費用 60 + 時間 40（W1 が該当）。
+**効率（100 点）**: 費用 50 + 時間 30 + 介入 20。その W に介入の仕組み（定型の「お任せします」で続けさせる）が無ければ 費用 60 + 時間 40（W1 と、介入しないシナリオの W8 が該当）。
 
 - 費用・時間は最安比ではなく、その W の **baseline の実額（費用）・壁時計の時間** を基準にした倍率の段階で付ける: 基準の 2 倍以下 = 満点、3 倍以下 = 80%、5 倍以下 = 60%、10 倍以下 = 30%、10 倍超 = 0。baseline が 2 回以上あれば平均を基準にする。
 - W7 は W7b の費用・時間で計算する（W7a 比は参考値）。W3 の費用は候補のセッションの費用だけで、回答役の費用は含めない。
@@ -228,6 +228,9 @@ W9・W10 は、W1〜W8 の受け入れテストがほぼ全員満点で品質の
 | W8 | 人の介入なしでの自律実行 | Superpowers、Compound Engineering、gstack | W2 と同程度の機能を、最初の指示と定型回答以外は介入せずに完了させる | 受け入れテスト 45、所要時間・費用 20、暴走の有無（同じ失敗の繰り返し・ループ・途中停止）20、承認なしの破壊的操作が無いこと 15 |
 | W9 | レビューで不具合を見つける（2026-11-09 追加） | gstack、Compound Engineering | PR 相当の差分（検索・削除・一括変更などの API 追加。main の `poc-app` には入れず、作業用コピーのレビュー対象のブランチにだけ当てる）に、種類の違う不具合 10 件（認可の抜け、SQL インジェクション、境界値、入力検証漏れ、同時更新、一括処理の原子性、エラーの握りつぶし、時差、何も確かめていないテスト、マイグレーションの規約違反）と、不具合のない「おとり」の変更 5 件を仕込む。各候補のレビュー機能で指摘させ、`REVIEW.md` に書かせる | 再現率（10 件のうち見つけた数）40、適合率（誤った指摘の少なさ）25、具体性（直し方まで正しいか）20、費用 15。指摘と正解の突き合わせの基準は試行前に採点手順に固定し、2 名のブラインド判定で行う |
 | W10 | 仕様に書かれていない落とし穴がある機能追加（2026-11-09 追加） | （差の確認） | W2・W8 と別の機能。課題文は普通の仕様として書き、隠しテストで「書かれていないが当然守るべきこと」（権限、入力検証、境界値、時差、同時更新、エラー時の振る舞いなど）を 10 項目程度確かめる | 公開の受け入れテスト 25、隠しテストの通過率 40、候補が書いたテストの強さ（ミューテーションテストなど）20、ブラインドレビュー 15 |
+| W11 | 実在する OSS の解決済み課題（2026-11-09 追加） | （差の確認） | pytest・zod・packaging・click で、本家が 2026 年 7〜11 月に解決した課題 6 件（不具合 3・機能 3）を、解決前の状態から Issue の文面（機能は合意済みの仕様も）だけで解かせる。設計は [wf-W11-design.md](tasks/wf-W11-design.md) | 本家の修正で追加されたテスト（隠しテスト）で採点。解決（F2P 全通過かつ P2P を壊さない）と、品質 = 新しいテストの通過率 70 + 既存テストの維持率 30。効率は §4.4 と同じ |
+| W14 | 安全な DB 移行（止めずに切り替える。2026-11-10 追加） | （差の確認） | 計測器の設置場所を、自由入力（本番は約 5 万件・表記ゆれ 170 種）から場所マスタで選ぶ形に変える。課題文は 1 文だけで、ハンディ端末の古い API・古い列を読む集計・前の版への戻しは、依頼者に聞くか文書を読まないと分からない。5 条件 × 2 回、全条件に汎用の開発標準。設計は [wf-W14-design.md](tasks/wf-W14-design.md) | 業務 25（公開 + 隠れ要件 10 項目）、移行の安全さ 30（5 万件の旧 DB で M1〜M9）、表記ゆれの寄せ 15、運用 5、ブラインドレビュー 15、テストの強さ 10。効率は §4.4 と同じ |
+| W15 | テストの無い古いコードの改修（2026-11-10 追加） | （差の確認） | テストが無く、理由の書かれていない分岐の多い古い取込処理（A 社の CSV）を残したまま、B 社の新しい CSV 形式も取り込めるようにする。課題文は 1 文だけで、B 社の隠れた決まりは依頼者に聞かないと分からない。5 条件 × 2 回、全条件に汎用の開発標準。設計は [wf-W15-design.md](tasks/wf-W15-design.md) | 新しい形式の受け入れ 30（公開 + 隠れ要件 9 項目）、後退なし 25（A 社の CSV 10 ファイルの黄金テスト）、特性テスト 20（古い処理の変異体の検出 + 変える前にテストを書いたか）、ブラインドレビュー 15、テストの強さ 10。効率は §4.4 と同じ |
 
 W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solutions/`、gstack の学習データ）を W7a から W7b の間だけ残す。人が `CLAUDE.md` に追記することは禁止する（候補自身が書き込むのは可）。記憶の仕組みを持たない候補は、何も残らない状態で W7b を行う（それも比較の結果とする）。
 
@@ -242,7 +245,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 | W4 | 通常の指示 | `/feature-dev` | `/autoplan` → 実装 → `/review` | `/ce-plan` → `/ce-work` → `/ce-code-review` |
 | W5 | 通常の指示（`systematic-debugging` の発火） | 通常の指示 | `/qa` | `/ce-debug` |
 | W6 | 通常の指示 → `finishing-a-development-branch` | `/feature-dev` → PR 作成の指示 | 実装 → `/qa` → `/ship` | `/ce-work` → `/ce-test-browser` → `/ce-commit-push-pr` |
-| W8 | `writing-plans` → `subagent-driven-development` | `/feature-dev` | `/autoplan` → `/ship` | `/ce-brainstorm` → `/lfg` |
+| W8 | `writing-plans` → `subagent-driven-development` | （対象外。参考値 1 回は `/feature-dev`） | `/autoplan` → `/ship` | `/ce-brainstorm` → `/lfg` |
 | W9 | `requesting-code-review` | code-reviewer エージェント（レビュー用のコマンドが無いため、エージェントを使うよう指示する） | `/review` | `/ce-code-review` |
 | W10 | 通常の指示（Skill の自動発火） | `/feature-dev <課題文>` | 実装の指示 → `/review` | `/ce-plan` → `/ce-work` → `/ce-code-review` |
 
@@ -255,6 +258,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 5. トランスクリプト、`/cost`、差分統計、各候補が作った成果物の一覧を `docs/poc/results/workflow/` に保存する。
 
 試行数: 10 シナリオ × 4 候補 × 2 回 = 80 回（W7 は W7a・W7b で 1 回と数える）+ `baseline` 10 シナリオ × 1 回 = 合計 90 回（うち W9・W10 の 18 回は 2026-11-09 の追加分）。実行者 2 名で Week 2（W1〜W4）と Week 3（W5〜W8）に分けて行い、W9・W10 は準備ができ次第行う。
+ただし W8 は Feature Dev を対象外とする（上のシナリオ表のとおり 3 候補 × 2 回 + `baseline`。Feature Dev は参考値 1 回）。W8 は 1 試行の費用の上限を設けない（ユーザー指示 2026-11-09。ほかの W は「規模係数 × W1 の候補平均 × 5、最大 $10」）。
 
 ### 5.2 セキュリティ監査（Week 4 前半）
 
@@ -342,10 +346,13 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 > | W4 既存コードを横断する大きな変更 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W4/report.md)・[report.html](results/workflow/W4/report.html) |
 > | W5 バグ修正 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W5/report.md)・[report.html](results/workflow/W5/report.html) |
 > | W6 UI 実装からブラウザ検証・PR 作成まで | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W6/report.md)・[report.html](results/workflow/W6/report.html) |
-> | W7 続けて行う作業での学習効果 | 未着手 | — |
-> | W8 人の介入なしでの自律実行 | 未着手 | — |
+> | W7 続けて行う作業での学習効果 | 完了（2026-11-09。4 候補 × 2 回 + baseline、W7a → W7b の 2 段階。対照 4 本） | [report.md](results/workflow/W7/report.md)・[report.html](results/workflow/W7/report.html) |
+> | W8 人の介入なしでの自律実行 | 完了（2026-11-09。3 候補 × 2 回 + baseline。Feature Dev は対象外で参考値 1 回。費用の上限なし） | [report.md](results/workflow/W8/report.md)・[report.html](results/workflow/W8/report.html) |
 > | W9 レビューで不具合を見つける | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W9/report.md)・[report.html](results/workflow/W9/report.html) |
-> | W10 仕様に書かれていない落とし穴がある機能追加 | 未着手 | — |
+> | W10 仕様に書かれていない落とし穴がある機能追加 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W10/report.md)・[report.html](results/workflow/W10/report.html) |
+> | W11 実在する OSS の解決済み課題 | 完了（2026-11-09。6 課題 × 4 候補 × 1 回 + baseline） | [report.md](results/workflow/W11/report.md)・[report.html](results/workflow/W11/report.html) |
+> | W14 安全な DB 移行 | 完了（2026-11-10。5 条件 × 2 回、全条件に汎用の開発標準） | [report.md](results/workflow/W14/report.md)・[report.html](results/workflow/W14/report.html) |
+> | W15 テストの無い古いコードの改修 | 完了（2026-11-10。5 条件 × 2 回、全条件に汎用の開発標準） | [report.md](results/workflow/W15/report.md)・[report.html](results/workflow/W15/report.html) |
 >
 > 状態は「未着手」「実施中」「完了」のいずれか。「完了」は結果レポート（report.md と report.html）と採点を含む PR が main にマージされた状態を指す。
 

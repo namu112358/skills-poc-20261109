@@ -1,0 +1,76 @@
+{
+ "scenario": "W11",
+ "task": "B3",
+ "kind": "bug",
+ "repo": "colinhacks/zod",
+ "trial": "W11-B3-baseline-1",
+ "candidate": "baseline",
+ "run": 1,
+ "resolved": false,
+ "quality": 65.0,
+ "hidden_tests": {
+  "f2p_total": 10,
+  "f2p_pass": 5,
+  "new_total": 10,
+  "new_pass": 5,
+  "existing_total": 111,
+  "existing_pass": 111,
+  "p2p_total": 111,
+  "p2p_pass": 111,
+  "f2p_failed": [
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > a cycle that closes after an await is a back-edge, not a wait",
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > visits that would wait on each other resolve: a node waited on twice, the first closing the loop",
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > visits that would wait on each other resolve: a node waiting twice, the first closing the loop",
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > visits that would wait on each other resolve: around a ring",
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts > visits that would wait on each other resolve: each waits on the other"
+  ],
+  "p2p_broken": [],
+  "seconds": 36.0,
+  "log_tail": "JSON report written to /tmp/w11-res-mda23kyi/vitest.json\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\n"
+ },
+ "diff": {
+  "src_added": 15,
+  "src_removed": 2,
+  "src_files": [
+   "packages/zod/src/v4/core/memoizer.ts"
+  ],
+  "test_added": 11,
+  "test_files": [
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts"
+  ],
+  "other_files": [],
+  "upstream_src_added": 71,
+  "upstream_src_removed": 23
+ },
+ "facts": {
+  "cost_usd": 0.2092,
+  "elapsed_seconds": 205,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 1
+ },
+ "transcript": {
+  "cost_usd": 0.2092,
+  "turns": 12,
+  "tools": {
+   "Bash": 9,
+   "Read": 1,
+   "Edit": 1
+  },
+  "skills": [],
+  "subagents": 0,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cat >> cyclic-data.test.ts <<'E'\\n\\ntest(\\\"union options sharing an async-checked recursive schema both report its issues\\\", async () => {\\n  const Node: z.ZodType<any> = z.object({\\n    "
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"git stash push packages/zod/src/v4/core/memoizer.ts -q && nub exec --node vitest run packages/zod/src/v4/classic/tests/cyclic-data.test.ts 2>&1 | grep -E \\\"Tests|FAIL\\\" | head; git stash "
+   }
+  ],
+  "isolation_suspects": [],
+  "final_text": " against the unfixed code, because that command was blocked. The fix is committed as `59685fe`. The change is in `packages/zod/src/v4/core/memoizer.ts`.\n\n**Cause:** the memoizer treated any memo entry that hadn't finished yet as a back edge in a cycle and skipped its checks. That is correct for an ancestor that is still being parsed. A concurrent sibling option with an async check isn't an ancestor, so its issues were never reported by anyone.\n\n**Fix:**\n- **Ancestor check:** each entry now records whether it is still on the synchronous descent stack, which is only true for ancestors. Those hits still behave as back edges.\n- **Sibling wait:** an entry that has finished its synchronous part but is still awaiting async checks now keeps a promise. A second hit waits for that promise and replays the recorded issues.\n\n**Test:** the regression test in `cyclic-data.test.ts` covers the reproduction from the issue. It also checks that valid input still parses.\n\nI only ran the tests. I did not measure the impact on runtime, memory or bundle size, which the repo guidelines ask for on changes under `packages/zod/src`. The change adds two small fields per memo entry and one promise per async node.\n\nIf a genuine cycle ever re-entered a node after its synchronous descent had ended, the new wait would hang instead of skipping. I couldn't find a path where that happens: object and array parsing starts all child parses synchronously, and cycles through transforms already throw `ZodCyclicError`."
+ }
+}

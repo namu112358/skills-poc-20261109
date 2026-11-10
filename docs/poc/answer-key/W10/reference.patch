@@ -1,0 +1,421 @@
+diff --git a/src/app/api/tasks/[id]/extensions/[extensionId]/approve/route.ts b/src/app/api/tasks/[id]/extensions/[extensionId]/approve/route.ts
+new file mode 100644
+index 0000000..0a68c84
+--- /dev/null
++++ b/src/app/api/tasks/[id]/extensions/[extensionId]/approve/route.ts
+@@ -0,0 +1,19 @@
++// POST /api/tasks/:id/extensions/:extensionId/approve — 延長申請を承認する。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { decideExtension } from "@/lib/extensions";
++import { parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string; extensionId: string }> };
++
++export async function POST(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const p = await params;
++  const taskId = parseTaskId(p.id);
++  const extensionId = parseTaskId(p.extensionId);
++  if (taskId === undefined || extensionId === undefined) return jsonError(404, "延長申請が見つかりません");
++  const result = decideExtension(taskId, extensionId, user, "approved");
++  if (!result.ok) return jsonError(result.error.status, result.error.message, result.error.details);
++  return NextResponse.json(result.value);
++}
+diff --git a/src/app/api/tasks/[id]/extensions/[extensionId]/reject/route.ts b/src/app/api/tasks/[id]/extensions/[extensionId]/reject/route.ts
+new file mode 100644
+index 0000000..d6dc77d
+--- /dev/null
++++ b/src/app/api/tasks/[id]/extensions/[extensionId]/reject/route.ts
+@@ -0,0 +1,19 @@
++// POST /api/tasks/:id/extensions/:extensionId/reject — 延長申請を却下する。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { decideExtension } from "@/lib/extensions";
++import { parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string; extensionId: string }> };
++
++export async function POST(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const p = await params;
++  const taskId = parseTaskId(p.id);
++  const extensionId = parseTaskId(p.extensionId);
++  if (taskId === undefined || extensionId === undefined) return jsonError(404, "延長申請が見つかりません");
++  const result = decideExtension(taskId, extensionId, user, "rejected");
++  if (!result.ok) return jsonError(result.error.status, result.error.message, result.error.details);
++  return NextResponse.json({ extension: result.value.extension });
++}
+diff --git a/src/app/api/tasks/[id]/extensions/route.ts b/src/app/api/tasks/[id]/extensions/route.ts
+new file mode 100644
+index 0000000..699c0ba
+--- /dev/null
++++ b/src/app/api/tasks/[id]/extensions/route.ts
+@@ -0,0 +1,27 @@
++// GET /api/tasks/:id/extensions — 延長申請の一覧 / POST — 延長を申請する。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { listExtensions, requestExtension } from "@/lib/extensions";
++import { getTask, parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  const task = id === undefined ? undefined : getTask(id);
++  if (!task) return jsonError(404, "タスクが見つかりません");
++  return NextResponse.json({ extensions: listExtensions(task.id) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  const task = id === undefined ? undefined : getTask(id);
++  if (!task) return jsonError(404, "タスクが見つかりません");
++  const result = requestExtension(task, user, await readJson(request));
++  if (!result.ok) return jsonError(result.error.status, result.error.message, result.error.details);
++  return NextResponse.json({ extension: result.value }, { status: 201 });
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 4e1b0a4..4014626 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -38,4 +38,24 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX sessions_user ON sessions(user_id);
+     `,
+   },
++  {
++    version: 3,
++    name: "due_date_extensions",
++    sql: `
++      CREATE TABLE due_date_extensions (
++        id           INTEGER PRIMARY KEY AUTOINCREMENT,
++        task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
++        requester    TEXT NOT NULL REFERENCES users(id),
++        new_due_date TEXT NOT NULL, -- YYYY-MM-DD
++        reason       TEXT NOT NULL,
++        status       TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
++        created_at   TEXT NOT NULL, -- ISO 8601（UTC）
++        decided_by   TEXT REFERENCES users(id),
++        decided_at   TEXT           -- ISO 8601（UTC）
++      );
++      CREATE INDEX due_date_extensions_task ON due_date_extensions(task_id);
++      -- 保留中の申請は 1 タスクに 1 件まで
++      CREATE UNIQUE INDEX due_date_extensions_one_pending ON due_date_extensions(task_id) WHERE status = 'pending';
++    `,
++  },
+ ];
+diff --git a/src/lib/extensions.ts b/src/lib/extensions.ts
+new file mode 100644
+index 0000000..ab824d8
+--- /dev/null
++++ b/src/lib/extensions.ts
+@@ -0,0 +1,162 @@
++// タスクの期限の延長申請（申請・一覧・承認・却下）。
++import { getDb, transaction, type Db } from "./db/index.ts";
++import { getTask, type Task } from "./tasks.ts";
++import type { User } from "./users.ts";
++
++export type ExtensionStatus = "pending" | "approved" | "rejected";
++
++export type Extension = {
++  id: number;
++  taskId: number;
++  requester: string;
++  newDueDate: string; // YYYY-MM-DD
++  reason: string;
++  status: ExtensionStatus;
++  createdAt: string; // ISO 8601（UTC）
++  decidedBy: string | null;
++  decidedAt: string | null;
++};
++
++type ExtensionRow = {
++  id: number;
++  task_id: number;
++  requester: string;
++  new_due_date: string;
++  reason: string;
++  status: ExtensionStatus;
++  created_at: string;
++  decided_by: string | null;
++  decided_at: string | null;
++};
++
++const COLUMNS = "id, task_id, requester, new_due_date, reason, status, created_at, decided_by, decided_at";
++export const REASON_MAX = 500;
++const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
++
++function toExtension(r: ExtensionRow): Extension {
++  return {
++    id: r.id,
++    taskId: r.task_id,
++    requester: r.requester,
++    newDueDate: r.new_due_date,
++    reason: r.reason,
++    status: r.status,
++    createdAt: r.created_at,
++    decidedBy: r.decided_by,
++    decidedAt: r.decided_at,
++  };
++}
++
++/** YYYY-MM-DD 形式で、実在する日付なら true（2027-02-29 などは false）。 */
++export function isValidDate(value: unknown): value is string {
++  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
++  const [y, m, d] = value.split("-").map(Number);
++  const date = new Date(Date.UTC(y, m - 1, d));
++  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
++}
++
++/** 日本時間での今日の日付（YYYY-MM-DD）。利用者は日本にいるため、サーバーの時差に関係なく日本時間で判断する。 */
++export function todayInJapan(now: Date = new Date()): string {
++  return new Date(now.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);
++}
++
++export function listExtensions(taskId: number, db: Db = getDb()): Extension[] {
++  const rows = db
++    .prepare(`SELECT ${COLUMNS} FROM due_date_extensions WHERE task_id = ? ORDER BY created_at, id`)
++    .all(taskId) as ExtensionRow[];
++  return rows.map(toExtension);
++}
++
++/** URL のタスクに属する申請だけを返す（別のタスクの申請は undefined）。 */
++export function getExtension(taskId: number, id: number, db: Db = getDb()): Extension | undefined {
++  const row = db
++    .prepare(`SELECT ${COLUMNS} FROM due_date_extensions WHERE id = ? AND task_id = ?`)
++    .get(id, taskId) as ExtensionRow | undefined;
++  return row && toExtension(row);
++}
++
++export type ExtensionInput = { newDueDate: string; reason: string };
++
++export type ExtensionError = { status: 400 | 403 | 404 | 409; message: string; details?: string[] };
++export type ExtensionResult<T> = { ok: true; value: T } | { ok: false; error: ExtensionError };
++
++/** 申請の本文を検証する。新しい期限は実在する日付で、今の期限より後、かつ今日（日本時間）以降。 */
++export function validateExtensionInput(body: unknown, task: Task, now: Date = new Date()): ExtensionResult<ExtensionInput> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, error: { status: 400, message: "入力内容に誤りがあります", details: ["リクエストの形式が正しくありません"] } };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  if (!isValidDate(b.newDueDate)) {
++    errors.push("新しい期限は実在する日付を YYYY-MM-DD 形式で入力してください");
++  } else if (b.newDueDate <= task.dueDate) {
++    errors.push("新しい期限は今の期限より後の日付にしてください");
++  } else if (b.newDueDate < todayInJapan(now)) {
++    errors.push("新しい期限に過去の日付は指定できません");
++  }
++  const reason = typeof b.reason === "string" ? b.reason.trim() : "";
++  if (reason.length < 1 || reason.length > REASON_MAX) errors.push(`理由は 1〜${REASON_MAX} 文字で入力してください`);
++  if (errors.length > 0) return { ok: false, error: { status: 400, message: "入力内容に誤りがあります", details: errors } };
++  return { ok: true, value: { newDueDate: b.newDueDate as string, reason } };
++}
++
++/** 延長を申請する。申請できるのはタスクの担当者だけで、保留中の申請は 1 タスクに 1 件まで。 */
++export function requestExtension(
++  task: Task,
++  user: User,
++  body: unknown,
++  now: Date = new Date(),
++  db: Db = getDb(),
++): ExtensionResult<Extension> {
++  if (task.assignee !== user.id) {
++    return { ok: false, error: { status: 403, message: "延長を申請できるのはタスクの担当者だけです" } };
++  }
++  const input = validateExtensionInput(body, task, now);
++  if (!input.ok) return input;
++  return transaction(db, () => {
++    const pending = db
++      .prepare("SELECT 1 FROM due_date_extensions WHERE task_id = ? AND status = 'pending'")
++      .get(task.id);
++    if (pending) return { ok: false, error: { status: 409, message: "保留中の延長申請があります" } };
++    const { lastInsertRowid } = db
++      .prepare(
++        "INSERT INTO due_date_extensions (task_id, requester, new_due_date, reason, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)",
++      )
++      .run(task.id, user.id, input.value.newDueDate, input.value.reason, now.toISOString());
++    return { ok: true, value: getExtension(task.id, Number(lastInsertRowid), db)! };
++  });
++}
++
++export type Decision = "approved" | "rejected";
++
++/**
++ * 保留中の申請を承認・却下する。申請者本人は承認できない。承認するとタスクの期限を新しい期限に変える。
++ * 判断の時点で状態と期限を確かめ直し、決定済みの申請や、期限を短くしてしまう承認は 409 にする。
++ */
++export function decideExtension(
++  taskId: number,
++  extensionId: number,
++  user: User,
++  decision: Decision,
++  now: Date = new Date(),
++  db: Db = getDb(),
++): ExtensionResult<{ extension: Extension; task: Task }> {
++  return transaction(db, () => {
++    const task = getTask(taskId, db);
++    const ext = task && getExtension(taskId, extensionId, db);
++    if (!task || !ext) return { ok: false, error: { status: 404, message: "延長申請が見つかりません" } };
++    if (ext.status !== "pending") return { ok: false, error: { status: 409, message: "この申請はすでに判断済みです" } };
++    if (decision === "approved" && ext.requester === user.id) {
++      return { ok: false, error: { status: 403, message: "自分の申請は承認できません" } };
++    }
++    if (decision === "approved" && ext.newDueDate <= task.dueDate) {
++      return { ok: false, error: { status: 409, message: "申請後に期限が変更されたため、この申請は承認できません" } };
++    }
++    const changed = db
++      .prepare("UPDATE due_date_extensions SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = 'pending'")
++      .run(decision, user.id, now.toISOString(), ext.id);
++    if (Number(changed.changes) !== 1) return { ok: false, error: { status: 409, message: "この申請はすでに判断済みです" } };
++    if (decision === "approved") db.prepare("UPDATE tasks SET due_date = ? WHERE id = ?").run(ext.newDueDate, task.id);
++    return { ok: true, value: { extension: getExtension(taskId, ext.id, db)!, task: getTask(task.id, db)! } };
++  });
++}
+diff --git a/tests/extensions.test.ts b/tests/extensions.test.ts
+new file mode 100644
+index 0000000..b98a261
+--- /dev/null
++++ b/tests/extensions.test.ts
+@@ -0,0 +1,135 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { createTask, getTask } from "../src/lib/tasks.ts";
++import {
++  decideExtension,
++  isValidDate,
++  listExtensions,
++  requestExtension,
++  todayInJapan,
++} from "../src/lib/extensions.ts";
++
++const sato = { id: "sato", name: "佐藤" };
++const suzuki = { id: "suzuki", name: "鈴木" };
++// 日本時間では 2026-11-10 00:30、UTC では 2026-11-09 15:30
++const NOW = new Date("2026-11-09T15:30:00.000Z");
++
++function setup(dueDate = "2026-11-20") {
++  const db = openDb();
++  const task = createTask({ title: "t", status: "todo", assignee: "sato", dueDate }, db);
++  return { db, task };
++}
++
++describe("isValidDate / todayInJapan", () => {
++  it("rejects dates that do not exist", () => {
++    assert.equal(isValidDate("2027-02-28"), true);
++    assert.equal(isValidDate("2027-02-29"), false);
++    assert.equal(isValidDate("2027-04-31"), false);
++    assert.equal(isValidDate("2027-13-01"), false);
++    assert.equal(isValidDate("2027-1-5"), false);
++  });
++  it("uses the date in Japan", () => {
++    assert.equal(todayInJapan(NOW), "2026-11-10");
++    assert.equal(todayInJapan(new Date("2026-11-09T14:59:59.999Z")), "2026-11-09");
++  });
++});
++
++describe("requestExtension", () => {
++  it("creates a pending request by the assignee", () => {
++    const { db, task } = setup();
++    const r = requestExtension(task, sato, { newDueDate: "2026-11-30", reason: "  レビュー待ち  ", status: "approved", requester: "suzuki" }, NOW, db);
++    assert.ok(r.ok);
++    assert.equal(r.value.requester, "sato");
++    assert.equal(r.value.status, "pending");
++    assert.equal(r.value.reason, "レビュー待ち");
++    assert.equal(r.value.createdAt, NOW.toISOString());
++    assert.equal(r.value.decidedBy, null);
++    assert.deepEqual(listExtensions(task.id, db).map((e) => e.id), [r.value.id]);
++  });
++  it("allows only the assignee", () => {
++    const { db, task } = setup();
++    const r = requestExtension(task, suzuki, { newDueDate: "2026-11-30", reason: "x" }, NOW, db);
++    assert.ok(!r.ok && r.error.status === 403);
++  });
++  it("requires a later date than the current due date and not in the past (Japan time)", () => {
++    const { db, task } = setup("2026-11-01");
++    for (const newDueDate of ["2026-11-01", "2026-10-31", "2026-11-05", "2026-11-09"]) {
++      const r = requestExtension(task, sato, { newDueDate, reason: "x" }, NOW, db);
++      assert.ok(!r.ok && r.error.status === 400, newDueDate);
++    }
++    assert.ok(requestExtension(task, sato, { newDueDate: "2026-11-10", reason: "x" }, NOW, db).ok);
++  });
++  it("checks the reason length after trimming", () => {
++    const { db, task } = setup();
++    for (const reason of ["   ", "", "あ".repeat(501), 1]) {
++      const r = requestExtension(task, sato, { newDueDate: "2026-11-30", reason }, NOW, db);
++      assert.ok(!r.ok && r.error.status === 400);
++    }
++    assert.ok(requestExtension(task, sato, { newDueDate: "2026-11-30", reason: "あ".repeat(500) }, NOW, db).ok);
++  });
++  it("rejects bodies that are not objects", () => {
++    const { db, task } = setup();
++    for (const body of [undefined, null, [], "x"]) {
++      const r = requestExtension(task, sato, body, NOW, db);
++      assert.ok(!r.ok && r.error.status === 400);
++    }
++  });
++  it("allows one pending request per task", () => {
++    const { db, task } = setup();
++    assert.ok(requestExtension(task, sato, { newDueDate: "2026-11-30", reason: "x" }, NOW, db).ok);
++    const r = requestExtension(task, sato, { newDueDate: "2026-12-01", reason: "y" }, NOW, db);
++    assert.ok(!r.ok && r.error.status === 409);
++  });
++});
++
++describe("decideExtension", () => {
++  function pending() {
++    const s = setup();
++    const r = requestExtension(s.task, sato, { newDueDate: "2026-11-30", reason: "x" }, NOW, s.db);
++    assert.ok(r.ok);
++    return { ...s, ext: r.value };
++  }
++  it("approves and moves the due date", () => {
++    const { db, task, ext } = pending();
++    const r = decideExtension(task.id, ext.id, suzuki, "approved", NOW, db);
++    assert.ok(r.ok);
++    assert.equal(r.value.extension.status, "approved");
++    assert.equal(r.value.extension.decidedBy, "suzuki");
++    assert.equal(r.value.extension.decidedAt, NOW.toISOString());
++    assert.equal(getTask(task.id, db)!.dueDate, "2026-11-30");
++  });
++  it("rejects without changing the due date", () => {
++    const { db, task, ext } = pending();
++    const r = decideExtension(task.id, ext.id, suzuki, "rejected", NOW, db);
++    assert.ok(r.ok && r.value.extension.status === "rejected");
++    assert.equal(getTask(task.id, db)!.dueDate, "2026-11-20");
++  });
++  it("does not let the requester approve their own request", () => {
++    const { db, task, ext } = pending();
++    const r = decideExtension(task.id, ext.id, sato, "approved", NOW, db);
++    assert.ok(!r.ok && r.error.status === 403);
++    assert.equal(getTask(task.id, db)!.dueDate, "2026-11-20");
++  });
++  it("returns 409 for a request that is already decided", () => {
++    const { db, task, ext } = pending();
++    assert.ok(decideExtension(task.id, ext.id, suzuki, "rejected", NOW, db).ok);
++    const r = decideExtension(task.id, ext.id, suzuki, "approved", NOW, db);
++    assert.ok(!r.ok && r.error.status === 409);
++    assert.equal(getTask(task.id, db)!.dueDate, "2026-11-20");
++  });
++  it("returns 404 for a request of another task", () => {
++    const { db, task, ext } = pending();
++    const other = createTask({ title: "o", status: "todo", assignee: "sato", dueDate: "2026-11-20" }, db);
++    const r = decideExtension(other.id, ext.id, suzuki, "approved", NOW, db);
++    assert.ok(!r.ok && r.error.status === 404);
++    assert.equal(getTask(task.id, db)!.dueDate, "2026-11-20");
++  });
++  it("does not shorten a due date that was moved after the request", () => {
++    const { db, task, ext } = pending();
++    db.prepare("UPDATE tasks SET due_date = '2026-12-10' WHERE id = ?").run(task.id);
++    const r = decideExtension(task.id, ext.id, suzuki, "approved", NOW, db);
++    assert.ok(!r.ok && r.error.status === 409);
++    assert.equal(getTask(task.id, db)!.dueDate, "2026-12-10");
++  });
++});

@@ -1,0 +1,88 @@
+{
+ "scenario": "W11",
+ "task": "B1",
+ "kind": "bug",
+ "repo": "pytest-dev/pytest",
+ "trial": "W11-B1-baseline-1",
+ "candidate": "baseline",
+ "run": 1,
+ "resolved": true,
+ "quality": 100.0,
+ "hidden_tests": {
+  "f2p_total": 1,
+  "f2p_pass": 1,
+  "new_total": 1,
+  "new_pass": 1,
+  "existing_total": 56,
+  "existing_pass": 56,
+  "p2p_total": 56,
+  "p2p_pass": 56,
+  "f2p_failed": [],
+  "p2p_broken": [],
+  "seconds": 14.7,
+  "log_tail": ""
+ },
+ "diff": {
+  "src_added": 6,
+  "src_removed": 1,
+  "src_files": [
+   "src/_pytest/main.py"
+  ],
+  "test_added": 31,
+  "test_files": [
+   "testing/test_fixtures_conftest_dupes.py"
+  ],
+  "other_files": [
+   "changelog/14600.bugfix.rst"
+  ],
+  "upstream_src_added": 25,
+  "upstream_src_removed": 0
+ },
+ "facts": {
+  "cost_usd": 0.4513,
+  "elapsed_seconds": 219,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 1
+ },
+ "transcript": {
+  "cost_usd": 0.4513,
+  "turns": 26,
+  "tools": {
+   "Bash": 20,
+   "Write": 3,
+   "Edit": 2
+  },
+  "skills": [],
+  "subagents": 0,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W11-B1-baseline-1-app/*/scratchpad && rm -rf r && mkdir -p r/c/wh r/c/tts r/c/other && cd r && \\ncat > c/conftest.py <<'E'\\nimport pytest\\n@pytest.fixture"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W11-B1-baseline-1-app/6cbbaf3b-7812-40ae-8881-5a044ac68ff6/scratchpad/r\\nrm -rf $S; mkdir -p $S/c/wh $S/c/tts $S/c/other; cd $S\\nprintf 'import pytest\\\\n@p"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python /tmp/claude-0/-tmp-poc-trials-W11-B1-baseline-1-app/6cbbaf3b-7812-40ae-8881-5a044ac68ff6/scratchpad/repro.py $PWD/src\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W11-B1-baseline-1-app/*/scratchpad && python - <<'E'\\nimport re\\ns=open('repro.py').read()\\ns=s.replace('env = dict','for d in [\\\"c\\\",\\\"c/tts\\\",\\\"c/wh\\\",\\"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cat >> testing/test_fixtures_conftest_dupes.py <<'E'\\nfrom __future__ import annotations\\n\\nfrom _pytest.pytester import Pytester\\n\\n\\ndef test_conftest_fixtures_visible_when_file_arg_rec"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python -m pytest testing/test_fixtures_conftest_dupes.py testing/test_collection.py testing/python/fixtures.py -q -n0 2>&1 | tail -4; git stash push src -q; python -m pytest testing/test_"
+   }
+  ],
+  "isolation_suspects": [],
+  "final_text": "修正してコミットしました（`2d9db34`）。コマンドライン引数の順序によって conftest のフィクスチャが見えなくなる不具合は、解消しています。\n\n**原因**\n- `Session._collect_one_node`（`src/_pytest/main.py`）は、ファイル引数の親ディレクトリを重複排除なしで再収集します。同じファイルを複数回渡したときに、アイテムも重複させるためです。\n- この再収集で、子の `Directory` ノード（`tests/components` など）が新しく作られ、キャッシュが新しい結果で上書きされていました。\n- conftest のフィクスチャは、最初に作られた `Directory` ノードにだけ登録されます。上書き後の引数（`tts/test_init.py` など）は、フィクスチャが未登録の新しいノードを辿ります。その結果、`tests/components/conftest.py` のフィクスチャが見えなくなり、`function uses no argument ...` というエラーが出ていました。\n- `tests/test_config_entries.py` のように、上位ディレクトリ直下のファイルが引数の途中に挟まると発生します。\n\n**修正**\n- 再収集した結果ではキャッシュを上書きしないようにしました（`self._collection_cache.setdefault(node, rep)`）。\n- 重複したファイル引数が重複アイテムになる従来の挙動は変わりません。\n\n**確認**\n- Home Assistant の環境は使えなかったため、同じ構成の小さなリポジトリで再現しました。ルート直下のファイルを間に挟んだ引数順で失敗し、修正後は通ります。\n- 回帰テスト `testing/test_fixtures_conftest_dupes.py` を追加しました。\n- 変更履歴は `changelog/14600.bugfix.rst` に追加しました。番号は仮置きなので、実際の Issue 番号に直してください。\n- `testing/test_collection.py`、`testing/python/fixtures.py` と新しいテストは通りました（334 passed）。\n- 修正を外した状態で新しいテストが失敗することは、実行の制約で確認できていません。"
+ }
+}
