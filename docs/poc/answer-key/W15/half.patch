@@ -1,0 +1,251 @@
+diff --git a/src/lib/legacy/calib-import.ts b/src/lib/legacy/calib-import.ts
+index 8cf7056..47116dc 100644
+--- a/src/lib/legacy/calib-import.ts
++++ b/src/lib/legacy/calib-import.ts
+@@ -1,6 +1,4 @@
+-// 校正結果 CSV の取込（2024-03 作成。東日本計測サービスから毎月届く CSV 用）
+-// 作った人は異動済み。動いているので触っていない。
+-// TODO: そのうち整理する
++// 校正結果 CSV の取込（2026-11 に書き直し。2 つの校正機関の形式に対応）
+ import { getDb, type Db } from "../db/index.ts";
+ import { recordCalibration } from "../calibrations.ts";
+ import { logger } from "../logger.ts";
+@@ -11,123 +9,99 @@ export type ImportResult = {
+   errors: { line: number; message: string }[];
+ };
+ 
++type Format = { agency: string; no: string; date: string; judge: string; cert: string; note: string; utf8: boolean };
++const HIGASHI: Format = { agency: "東日本計測サービス", no: "管理番号", date: "校正日", judge: "判定", cert: "証明書番号", note: "備考", utf8: false };
++const NISHI: Format = { agency: "西日本校正センター", no: "機器番号", date: "校正実施日", judge: "判定結果", cert: "成績書番号", note: "コメント", utf8: true };
++const PASS = new Set(["合格", "○", "OK", "PASS", "COND"]);
++const FAIL = new Set(["不合格", "×", "NG", "FAIL"]);
++
++function splitCsv(line: string): string[] {
++  const out: string[] = [];
++  let cur = "";
++  let q = false;
++  for (let i = 0; i < line.length; i++) {
++    const c = line[i];
++    if (q) {
++      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c;
++    } else if (c === '"') q = true;
++    else if (c === ",") { out.push(cur.trim()); cur = ""; } else cur += c;
++  }
++  out.push(cur.trim());
++  return out;
++}
++
++export function parseDate(v: string): string | undefined {
++  const s = v.normalize("NFKC");
++  let m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
++  let y: number, mo: number, d: number;
++  if (m) [y, mo, d] = [+m[1], +m[2], +m[3]];
++  else {
++    m = s.match(/^(R|H|令和|平成)(\d{1,2})[.年](\d{1,2})[.月](\d{1,2})日?$/);
++    if (!m) return undefined;
++    y = (m[1] === "R" || m[1] === "令和" ? 2018 : 1988) + +m[2];
++    [mo, d] = [+m[3], +m[4]];
++  }
++  const dt = new Date(Date.UTC(y, mo - 1, d));
++  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return undefined;
++  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
++}
++
++export function normalizeNo(v: string): string {
++  let no = v.normalize("NFKC").toUpperCase();
++  if (/^[A-Z]{2}\d{4}$/.test(no)) no = `${no.slice(0, 2)}-${no.slice(2)}`;
++  return no;
++}
++
+ export function importCalibrationCsv(data: Uint8Array, recordedBy: string, db: Db = getDb(), now: Date = new Date()): ImportResult {
+   const res: ImportResult = { imported: 0, skipped: [], errors: [] };
+-  let text: string;
+-  if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) {
+-    text = new TextDecoder("utf-8").decode(data.subarray(3));
+-  } else {
+-    text = new TextDecoder("shift_jis").decode(data);
+-  }
++  const bom = data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf;
++  let text = new TextDecoder("utf-8").decode(bom ? data.subarray(3) : data);
++  const isNishi = /^#.*\n?機器番号|^機器番号/m.test(text);
++  if (!bom && !isNishi) text = new TextDecoder("shift_jis").decode(data);
++  const f = isNishi ? NISHI : HIGASHI;
+   const lines = text.split(/\r\n|\n|\r/);
+   let header: string[] | null = null;
+-  const seen: Record<string, boolean> = {};
+-  for (let n = 0; n < lines.length; n++) {
+-    const lineNo = n + 1;
+-    const raw = lines[n];
+-    if (raw.trim() === "") continue;
+-    // カンマ区切り（"..." の中のカンマと "" に対応）
+-    const cols: string[] = [];
+-    let cur = "";
+-    let q = false;
+-    for (let i = 0; i < raw.length; i++) {
+-      const ch = raw[i];
+-      if (q) {
+-        if (ch === '"') {
+-          if (raw[i + 1] === '"') {
+-            cur += '"';
+-            i++;
+-          } else q = false;
+-        } else cur += ch;
+-      } else if (ch === '"') q = true;
+-      else if (ch === ",") {
+-        cols.push(cur);
+-        cur = "";
+-      } else cur += ch;
+-    }
+-    cols.push(cur);
+-    for (let i = 0; i < cols.length; i++) cols[i] = cols[i].trim();
+-    if (header === null) {
+-      if (cols.indexOf("管理番号") < 0) {
+-        res.errors.push({ line: lineNo, message: "CSV の形式が違います（1 行目に「管理番号」の列がありません）" });
+-        return res;
+-      }
+-      header = cols;
+-      continue;
+-    }
+-    const get = (name: string) => {
+-      const i = header!.indexOf(name);
+-      return i >= 0 && i < cols.length ? cols[i] : "";
+-    };
+-    let no = get("管理番号");
+-    if (no === "" || no.charAt(0) === "#" || no.charAt(0) === "＃" || no === "合計") continue;
+-    no = no.replace(/[Ａ-Ｚａ-ｚ０-９－]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).toUpperCase();
+-    if (/^[A-Z]{2}\d{4}$/.test(no)) no = no.substring(0, 2) + "-" + no.substring(2);
+-    // 日付（西暦・和暦）
+-    let d = get("校正日").replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+-    let y = 0, m = 0, day = 0;
+-    let mt = d.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+-    if (mt) {
+-      y = +mt[1]; m = +mt[2]; day = +mt[3];
+-    } else {
+-      mt = d.match(/^(R|H|令和|平成)\s*(\d{1,2}|元)[.年](\d{1,2})[.月](\d{1,2})日?$/);
+-      if (mt) {
+-        const ey = mt[2] === "元" ? 1 : +mt[2];
+-        if (mt[1] === "R" || mt[1] === "令和") y = 2018 + ey;
+-        else y = 1988 + ey;
+-        m = +mt[3]; day = +mt[4];
+-        if ((mt[1] === "H" || mt[1] === "平成") && (y > 2019 || (y === 2019 && m > 4))) {
+-          res.errors.push({ line: lineNo, message: `校正日が正しくありません: ${d}` });
+-          continue;
+-        }
+-        if ((mt[1] === "R" || mt[1] === "令和") && y === 2019 && m < 5) {
+-          res.errors.push({ line: lineNo, message: `校正日が正しくありません: ${d}` });
+-          continue;
+-        }
+-      }
+-    }
+-    const dt = new Date(Date.UTC(y, m - 1, day));
+-    if (!y || dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== day) {
+-      res.errors.push({ line: lineNo, message: `校正日が正しくありません: ${d}` });
+-      continue;
+-    }
+-    d = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+-    const j = get("判定");
+-    let result: "pass" | "fail";
+-    if (j === "合格" || j === "○" || j === "〇" || j === "OK" || j === "良") result = "pass";
+-    else if (j === "不合格" || j === "×" || j === "NG" || j === "否") result = "fail";
+-    else if (j === "保留") {
+-      res.skipped.push({ line: lineNo, reason: "判定が保留" });
+-      continue;
+-    } else {
+-      res.errors.push({ line: lineNo, message: `判定が読めません: ${j}` });
+-      continue;
+-    }
+-    if (get("備考").indexOf("参考") >= 0) {
+-      res.skipped.push({ line: lineNo, reason: "参考校正" });
+-      continue;
+-    }
+-    if (seen[no + "|" + d]) {
+-      res.skipped.push({ line: lineNo, reason: "同じファイルの中で重複" });
+-      continue;
+-    }
+-    seen[no + "|" + d] = true;
++  const rows: { line: number; cols: string[] }[] = [];
++  let end: number | undefined;
++  lines.forEach((raw, n) => {
++    if (raw.trim() === "" || raw.startsWith("#")) return;
++    const cols = splitCsv(raw);
++    if (!header) { header = cols; return; }
++    if (cols[0] === "END") { end = Number(cols[1]); return; }
++    rows.push({ line: n + 1, cols });
++  });
++  if (!header || !(header as string[]).includes(f.no)) {
++    res.errors.push({ line: 1, message: "CSV の形式が違います（見出しがありません）" });
++    return res;
++  }
++  if (isNishi && end !== rows.length) {
++    res.errors.push({ line: lines.length, message: "END の件数が合いません" });
++    return res;
++  }
++  const h = header as string[];
++  const seen = new Set<string>();
++  for (const r of rows) {
++    const get = (k: string) => r.cols[h.indexOf(k)] ?? "";
++    const no = normalizeNo(get(f.no));
++    if (no === "" || no === "合計" || no.startsWith("#")) continue;
++    const date = parseDate(get(f.date));
++    if (!date) { res.errors.push({ line: r.line, message: `日付が正しくありません: ${get(f.date)}` }); continue; }
++    const j = get(f.judge);
++    if (j === "保留") { res.skipped.push({ line: r.line, reason: "判定が保留" }); continue; }
++    if (!PASS.has(j) && !FAIL.has(j)) { res.errors.push({ line: r.line, message: `判定が読めません: ${j}` }); continue; }
++    if (get(f.note).includes("参考")) { res.skipped.push({ line: r.line, reason: "参考校正" }); continue; }
++    if (seen.has(`${no}|${date}`)) { res.skipped.push({ line: r.line, reason: "同じファイルの中で重複" }); continue; }
++    seen.add(`${no}|${date}`);
+     const inst = db.prepare("SELECT id FROM instruments WHERE management_no = ?").get(no) as { id: number } | undefined;
+-    if (!inst) {
+-      res.errors.push({ line: lineNo, message: `管理番号が台帳にありません: ${no}` });
+-      continue;
+-    }
+-    const cert = get("証明書番号");
+-    const dup = db
+-      .prepare("SELECT 1 FROM calibration_records WHERE instrument_id = ? AND calibrated_on = ? AND certificate_no = ?")
+-      .get(inst.id, d, cert);
+-    if (dup) {
+-      res.skipped.push({ line: lineNo, reason: "取込済み" });
++    if (!inst) { res.errors.push({ line: r.line, message: `管理番号が台帳にありません: ${no}` }); continue; }
++    const cert = get(f.cert);
++    if (db.prepare("SELECT 1 FROM calibration_records WHERE instrument_id = ? AND calibrated_on = ? AND certificate_no = ?").get(inst.id, date, cert)) {
++      res.skipped.push({ line: r.line, reason: "取込済み" });
+       continue;
+     }
+-    recordCalibration(inst.id, { calibratedOn: d, result, agency: "東日本計測サービス", certificateNo: cert }, recordedBy, db, now);
++    recordCalibration(inst.id, { calibratedOn: date, result: PASS.has(j) ? "pass" : "fail", agency: f.agency, certificateNo: cert }, recordedBy, db, now);
+     res.imported++;
+   }
+-  logger.info("calibration.imported", { imported: res.imported, skipped: res.skipped.length, errors: res.errors.length });
++  logger.info("calibration.imported", { agency: f.agency, imported: res.imported, skipped: res.skipped.length, errors: res.errors.length });
+   return res;
+ }
+diff --git a/tests/import.test.ts b/tests/import.test.ts
+new file mode 100644
+index 0000000..7479501
+--- /dev/null
++++ b/tests/import.test.ts
+@@ -0,0 +1,24 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { importCalibrationCsv, parseDate } from "../src/lib/legacy/calib-import.ts";
++
++const B = (rows: string[], end = rows.length) =>
++  new TextEncoder().encode(["# 案内", "機器番号,品名,校正実施日,判定結果,成績書番号,有効期限,コメント", ...rows, `END,${end}`].join("\n"));
++
++describe("importCalibrationCsv", () => {
++  it("imports the new format", () => {
++    const db = openDb();
++    const r = importCalibrationCsv(B(["MI0003,a,2026-12-01,PASS,W-1,,", "MI0004,a,2026-12-01,COND,W-2,,"]), "sato", db);
++    assert.equal(r.imported, 2);
++  });
++  it("rejects a file with a wrong END count", () => {
++    const db = openDb();
++    assert.equal(importCalibrationCsv(B(["MI0003,a,2026-12-01,PASS,W-1,,"], 5), "sato", db).imported, 0);
++  });
++  it("parses dates", () => {
++    assert.equal(parseDate("R8.1.2"), "2026-01-02");
++    assert.equal(parseDate("2026/1/2"), "2026-01-02");
++    assert.equal(parseDate("2026-02-30"), undefined);
++  });
++});
