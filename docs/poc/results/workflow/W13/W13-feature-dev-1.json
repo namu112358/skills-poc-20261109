@@ -16,11 +16,11 @@
     },
     "test": {
       "pass": true,
-      "log": "rove, oldest application first\n    ok 1 - lists only the tentative reservations the user can approve, oldest application first\n      ---\n      duration_ms: 58.425\n      type: 'test'\n      ...\n    1..1\nok 36 - listPendingApprovals\n  ---\n  duration_ms: 58.556988\n  type: 'suite'\n  ...\n# Subtest: migration 7 (rejection)\n    # Subtest: adds the rejection columns, keeps cancelled reservations as cancellations, and is repeatable\n    ok 1 - adds the rejection columns, keeps cancelled reservations as cancellations, and is repeatable\n      ---\n      duration_ms: 2.192278\n      type: 'test'\n      ...\n    1..1\nok 37 - migration 7 (rejection)\n  ---\n  duration_ms: 2.35072\n  type: 'suite'\n  ...\n1..37\n# tests 101\n# suites 37\n# pass 101\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 3515.658425\n"
+      "log": "e, oldest application first\n    ok 1 - lists only the tentative reservations the user can approve, oldest application first\n      ---\n      duration_ms: 41.804757\n      type: 'test'\n      ...\n    1..1\nok 36 - listPendingApprovals\n  ---\n  duration_ms: 41.902593\n  type: 'suite'\n  ...\n# Subtest: migration 7 (rejection)\n    # Subtest: adds the rejection columns, keeps cancelled reservations as cancellations, and is repeatable\n    ok 1 - adds the rejection columns, keeps cancelled reservations as cancellations, and is repeatable\n      ---\n      duration_ms: 1.571571\n      type: 'test'\n      ...\n    1..1\nok 37 - migration 7 (rejection)\n  ---\n  duration_ms: 1.69053\n  type: 'suite'\n  ...\n1..37\n# tests 101\n# suites 37\n# pass 101\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2976.369598\n"
     },
     "build": {
       "pass": true,
-      "log": "e\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/cancel\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/reject\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /approvals\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:10167) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:10172) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:10165) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      "log": "e\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/cancel\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/reject\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /approvals\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:24432) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:24430) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:24437) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
     }
   },
   "e2e": [],
@@ -578,12 +578,21 @@
             "v1_status": "active"
           },
           {
+            "key": "B",
+            "user": "suzuki",
+            "no": "MI-0014",
+            "start": "2026-12-01",
+            "end": "2026-12-20",
+            "id": 2,
+            "v1_status": "active"
+          },
+          {
             "key": "D",
             "user": "sato",
             "no": "MI-0009",
             "start": "2026-11-16",
             "end": "2026-11-18",
-            "id": 2,
+            "id": 3,
             "v1_status": "active"
           },
           {
@@ -592,15 +601,12 @@
             "no": "MI-0006",
             "start": "2026-11-25",
             "end": "2026-11-26",
-            "id": 3,
+            "id": 4,
             "cancelled": true,
             "v1_status": "absent"
           }
         ],
-        "errors": [
-          "B: 2026-12-01〜2026-12-20 -> 409（短い期間でやり直す）",
-          "B: 409 {\"error\":\"予約できません\",\"details\":[\"予約期間中に次回校正期限が来る（または過ぎている）ため予約できません（次回校正期限 2026-12-03）\"]}"
-        ]
+        "errors": []
       },
       "prod_user_version": 5,
       "runs": [
@@ -610,14 +616,14 @@
             {
               "id": "N3x",
               "name": "本番の予約（取消以外）が、同じ期間・同じ人のまま一覧に残る",
-              "pass": false,
-              "detail": "本番の DB に予約を入れられていない: [\"B: 2026-12-01〜2026-12-20 -> 409（短い期間でやり直す）\",\"B: 409 {\\\"error\\\":\\\"予約できません\\\",\\\"details\\\":[\\\"予約期間中に次回校正期限が来る（または過ぎている）ため予約できません（次回校正期限 2026-12-03）\\\"]}\"]"
+              "pass": true,
+              "detail": ""
             },
             {
               "id": "N4",
               "name": "本番の予約（14 日を超えるものを含む）は確定、取り消した予約は取消のまま",
-              "pass": false,
-              "detail": "本番の予約が無い"
+              "pass": true,
+              "detail": ""
             },
             {
               "id": "N5",
@@ -635,7 +641,7 @@
               "id": "facts",
               "name": "記録",
               "pass": true,
-              "detail": "{\"statuses\":[\"\\\"\\\\\\\"active\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.024Z\\\\\\\"|null\\\"\",\"\\\"\\\\\\\"active\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.168Z\\\\\\\"|null\\\"\"],\"found\":{\"A\":{\"id\":1,\"status\":\"approved\",\"raw\":\"\\\"active\\\"|\\\"2026-11-09T22:30:00.024Z\\\"|null\"},\"D\":{\"id\":2,\"status\":\"approved\",\"raw\":\"\\\"active\\\"|\\\"2026-11-09T22:30:00.168Z\\\"|null\"}}}"
+              "detail": "{\"statuses\":[\"\\\"\\\\\\\"active\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.034Z\\\\\\\"|null\\\"\",\"\\\"\\\\\\\"active\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.114Z\\\\\\\"|null\\\"\",\"\\\"\\\\\\\"active\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.046Z\\\\\\\"|null\\\"\"],\"found\":{\"A\":{\"id\":1,\"status\":\"approved\",\"raw\":\"\\\"active\\\"|\\\"2026-11-09T22:30:00.034Z\\\"|null\"},\"B\":{\"id\":2,\"status\":\"approved\",\"raw\":\"\\\"active\\\"|\\\"2026-11-09T22:30:00.046Z\\\"|null\"},\"D\":{\"id\":3,\"status\":\"approved\",\"raw\":\"\\\"active\\\"|\\\"2026-11-09T22:30:00.114Z\\\"|null\"}}}"
             }
           ],
           "user_version": 7,
@@ -647,14 +653,14 @@
             {
               "id": "N3x",
               "name": "本番の予約（取消以外）が、同じ期間・同じ人のまま一覧に残る",
-              "pass": false,
-              "detail": "本番の DB に予約を入れられていない: [\"B: 2026-12-01〜2026-12-20 -> 409（短い期間でやり直す）\",\"B: 409 {\\\"error\\\":\\\"予約できません\\\",\\\"details\\\":[\\\"予約期間中に次回校正期限が来る（または過ぎている）ため予約できません（次回校正期限 2026-12-03）\\\"]}\"]"
+              "pass": true,
+              "detail": ""
             },
             {
               "id": "N4",
               "name": "本番の予約（14 日を超えるものを含む）は確定、取り消した予約は取消のまま",
-              "pass": false,
-              "detail": "本番の予約が無い"
+              "pass": true,
+              "detail": ""
             },
             {
               "id": "N5",
@@ -672,7 +678,7 @@
               "id": "facts",
               "name": "記録",
               "pass": true,
-              "detail": "{\"statuses\":[\"\\\"\\\\\\\"active\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.024Z\\\\\\\"|null\\\"\",\"\\\"\\\\\\\"active\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.168Z\\\\\\\"|null\\\"\",\"\\\"\\\\\\\"active\\\\\\\"|\\\\\\\"2026-11-14T22:30:00.300Z\\\\\\\"|null\\\"\"],\"found\":{\"A\":{\"id\":1,\"status\":\"approved\",\"raw\":\"\\\"active\\\"|\\\"2026-11-09T22:30:00.024Z\\\"|null\"},\"D\":{\"id\":2,\"status\":\"approved\",\"raw\":\"\\\"active\\\"|\\\"2026-11-09T22:30:00.168Z\\\"|null\"}}}"
+              "detail": "{\"statuses\":[\"\\\"\\\\\\\"active\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.034Z\\\\\\\"|null\\\"\",\"\\\"\\\\\\\"active\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.114Z\\\\\\\"|null\\\"\",\"\\\"\\\\\\\"active\\\\\\\"|\\\\\\\"2026-11-14T22:30:00.268Z\\\\\\\"|null\\\"\",\"\\\"\\\\\\\"active\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.046Z\\\\\\\"|null\\\"\"],\"found\":{\"A\":{\"id\":1,\"status\":\"approved\",\"raw\":\"\\\"active\\\"|\\\"2026-11-09T22:30:00.034Z\\\"|null\"},\"B\":{\"id\":2,\"status\":\"approved\",\"raw\":\"\\\"active\\\"|\\\"2026-11-09T22:30:00.046Z\\\"|null\"},\"D\":{\"id\":3,\"status\":\"approved\",\"raw\":\"\\\"active\\\"|\\\"2026-11-09T22:30:00.114Z\\\"|null\"}}}"
             }
           ],
           "user_version": 7,
@@ -698,10 +704,10 @@
       "checks": {
         "N1": true,
         "N2": true,
-        "N3": false,
-        "N4": false,
+        "N3": true,
+        "N4": true,
         "N5": true,
-        "N6": false,
+        "N6": true,
         "S1": true
       }
     },
@@ -1241,11 +1247,11 @@
       "v1": 13.75,
       "change": 20.8,
       "unchanged": 14.38,
-      "migration": 11,
+      "migration": 20,
       "stale": 5.0,
       "design": 0.0,
       "test_strength": 3.92,
-      "total": 68.85,
+      "total": 77.85,
       "regressions": []
     }
   }
