@@ -184,6 +184,963 @@
     "active_seconds": 1074,
     "answer_key_access": [],
     "isolation_suspects": [],
-    "final_message": "返る**（red-team）。旧版は `cancelled_at` が空なら有効として扱うためです。却下の記録に `cancelled_at` も残すようにしました。\n\n**修正した参考の指摘**\n- 不正な JSON で却下すると、理由なしの却下として通っていました。400 を返すようにしました。\n- ロールバックの手順では、期限切れの仮予約を片付けられないと再レビューで判明しました。手順に SQL を足しました（`docs/operations.md`）。\n- 取消の権限を広げた分の、403 のメッセージとコメントの食い違いを直しました。\n- 「承認制のリリースメモ」を `docs/operations.md` に追加しました。`201` が仮予約を意味するようになったことや、ロールバックの手順を書いています。API を使っているシステムへの影響を書く、開発標準 11 への対応です。\n\n**依頼者に確認して反映した仕様**\n- 承認されない仮予約は、開始日の翌日に期限切れとして無効になり、枠が空きます。開始日の当日までは承認・却下できます。日付で判定するので、定期実行のジョブは使いません。\n- 承認する人（管理者、無効なら部署の代表者）にも取消を認めました。\n- 却下された予約と理由を、予約者が詳細画面と API（`GET` の `rejected`）で確認できます。\n- 同じ人が同じ計測器を、期間が重ならなければ何件でも予約できる点は変えていません。\n\n**「お任せ」と回答があり、私が決めた点**\n- 承認前の仮予約では、予約者本人も貸出不可にしました。本人が貸出できるのは、承認済みの予約だけです。\n- 予約の開始日は、今日から 90 日先までにしました。仮予約が長期間を押さえ続けるのを防ぐためです。\n\n**未解決の参考指摘**\n- 仮予約の件数に上限がなく、複数の仮予約を出せば、長く枠を押さえられます（90 日先までという上限はあります）。\n- 管理者も代表者も無効のとき、承認・却下できる人がいません（開始日の翌日に自動で失効します）。\n- 期限切れで消えた仮予約は、予約者に知らされません。\n- 却下の理由と予約者の名前は、ログインしている全員に見えます。\n- 貸出の返却予定日に上限がありません。これは以前からの動きです。\n- 予約の登録時の重なり確認は、サーバーが 1 つのプロセスなら安全です。複数プロセスなら `BEGIN IMMEDIATE` などが必要です。\n- 承認済みの予約は、期間が終わっても一覧に残ります。これも以前からの動きです。\n\n**QA（実サーバー、分離した `:memory:` DB）**\n- 14 日上限（15 日は 400）と 90 日先の上限、承認・却下の権限（他人は 403）、仮予約中の貸出ブロック（本人も 409）を確認しました。\n- 承認後の本人の貸出、却下と理由、却下後の再承認（409）と取消（404）、不正な JSON で 400 も確認しました。\n- 修正後のコードで取り直した記録で判断しています。\n- 期限切れの動きは、実サーバーでは確認していません。サーバーの日付を動かせないためで、単体テスト（時刻を差し替え）だけで確認しました。\n\n**カバレッジの欠け**\n- Codex は未インストールのため、外部レビューは未実施です。\n- 状態遷移の担当は、対象外にしました（状態判定の対象外）。\n- 型チェック・テスト（62 件）・ビルドは通っています。\n\n`npm test` の件数は 62 件です。"
+    "final_message": "返る**（red-team）。旧版は `cancelled_at` が空なら有効として扱うためです。却下の記録に `cancelled_at` も残すようにしました。\n\n**修正した参考の指摘**\n- 不正な JSON で却下すると、理由なしの却下として通っていました。400 を返すようにしました。\n- ロールバックの手順では、期限切れの仮予約を片付けられないと再レビューで判明しました。手順に SQL を足しました（`docs/operations.md`）。\n- 取消の権限を広げた分の、403 のメッセージとコメントの食い違いを直しました。\n- 「承認制のリリースメモ」を `docs/operations.md` に追加しました。`201` が仮予約を意味するようになったことや、ロールバックの手順を書いています。API を使っているシステムへの影響を書く、開発標準 11 への対応です。\n\n**依頼者に確認して反映した仕様**\n- 承認されない仮予約は、開始日の翌日に期限切れとして無効になり、枠が空きます。開始日の当日までは承認・却下できます。日付で判定するので、定期実行のジョブは使いません。\n- 承認する人（管理者、無効なら部署の代表者）にも取消を認めました。\n- 却下された予約と理由を、予約者が詳細画面と API（`GET` の `rejected`）で確認できます。\n- 同じ人が同じ計測器を、期間が重ならなければ何件でも予約できる点は変えていません。\n\n**「お任せ」と回答があり、私が決めた点**\n- 承認前の仮予約では、予約者本人も貸出不可にしました。本人が貸出できるのは、承認済みの予約だけです。\n- 予約の開始日は、今日から 90 日先までにしました。仮予約が長期間を押さえ続けるのを防ぐためです。\n\n**未解決の参考指摘**\n- 仮予約の件数に上限がなく、複数の仮予約を出せば、長く枠を押さえられます（90 日先までという上限はあります）。\n- 管理者も代表者も無効のとき、承認・却下できる人がいません（開始日の翌日に自動で失効します）。\n- 期限切れで消えた仮予約は、予約者に知らされません。\n- 却下の理由と予約者の名前は、ログインしている全員に見えます。\n- 貸出の返却予定日に上限がありません。これは以前からの動きです。\n- 予約の登録時の重なり確認は、サーバーが 1 つのプロセスなら安全です。複数プロセスなら `BEGIN IMMEDIATE` などが必要です。\n- 承認済みの予約は、期間が終わっても一覧に残ります。これも以前からの動きです。\n\n**QA（実サーバー、分離した `:memory:` DB）**\n- 14 日上限（15 日は 400）と 90 日先の上限、承認・却下の権限（他人は 403）、仮予約中の貸出ブロック（本人も 409）を確認しました。\n- 承認後の本人の貸出、却下と理由、却下後の再承認（409）と取消（404）、不正な JSON で 400 も確認しました。\n- 修正後のコードで取り直した記録で判断しています。\n- 期限切れの動きは、実サーバーでは確認していません。サーバーの日付を動かせないためで、単体テスト（時刻を差し替え）だけで確認しました。\n\n**カバレッジの欠け**\n- Codex は未インストールのため、外部レビューは未実施です。\n- 状態遷移の担当は、対象外にしました（状態判定の対象外）。\n- 型チェック・テスト（62 件）・ビルドは通っています。\n\n`npm test` の件数は 62 件です。",
+    "turns_last_result_only": 164,
+    "active_seconds_last_result_only": 1074
+  },
+  "w13": {
+    "adapters": {
+      "v1": {
+        "create": {
+          "method": "POST",
+          "path": "/api/instruments/{instrumentId}/reservations",
+          "body": {
+            "startOn": "{start}",
+            "endOn": "{end}"
+          },
+          "id": "reservation.id"
+        },
+        "list": {
+          "method": "GET",
+          "path": "/api/instruments/{instrumentId}/reservations",
+          "items": "reservations"
+        },
+        "cancel": {
+          "method": "POST",
+          "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+        },
+        "fields": {
+          "id": "id",
+          "status": "cancelledAt",
+          "start": "startOn",
+          "end": "endOn",
+          "user": "reserverId"
+        },
+        "status": {
+          "active": [
+            null
+          ]
+        },
+        "jobs": []
+      },
+      "v2": {
+        "create": {
+          "method": "POST",
+          "path": "/api/instruments/{instrumentId}/reservations",
+          "body": {
+            "startOn": "{start}",
+            "endOn": "{end}"
+          },
+          "id": "reservation.id"
+        },
+        "list": {
+          "method": "GET",
+          "path": "/api/instruments/{instrumentId}/reservations",
+          "items": "reservations"
+        },
+        "cancel": {
+          "method": "POST",
+          "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+        },
+        "approve": {
+          "method": "POST",
+          "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/approve"
+        },
+        "reject": {
+          "method": "POST",
+          "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/reject",
+          "body": {
+            "reason": "検証のため"
+          }
+        },
+        "fields": {
+          "id": "id",
+          "status": [
+            "status",
+            "cancelledAt"
+          ],
+          "start": "startOn",
+          "end": "endOn",
+          "user": "reserverId"
+        },
+        "status": {
+          "cancelled": [
+            "*|@notnull"
+          ],
+          "pending": [
+            "\"pending\"|null"
+          ],
+          "approved": [
+            "\"approved\"|null"
+          ],
+          "rejected": [
+            "\"rejected\"|null"
+          ]
+        },
+        "jobs": []
+      }
+    },
+    "v1_commit": "545567563f1cb9f3ce70d90813f4bc277748501f",
+    "v1_checks": {
+      "typecheck": true,
+      "test": true,
+      "build": true,
+      "logs": {}
+    },
+    "checks": {
+      "typecheck": true,
+      "test": true,
+      "build": true,
+      "logs": {}
+    },
+    "static": {
+      "readable": true,
+      "versions": {
+        "base": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "v1": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "final": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      "v1_added": [
+        5
+      ],
+      "v1_rewrote_base": [],
+      "final_rewrote_shipped": [],
+      "final_added": [
+        6
+      ],
+      "appended_in_order": true,
+      "stale_status_values": [],
+      "stale_hits": [],
+      "change_lines": {
+        "added": 560,
+        "deleted": 31
+      },
+      "v1_lines_added": 468
+    },
+    "v1_tests": [
+      {
+        "id": "P01",
+        "name": "予約を作れて、一覧で誰が・いつからいつまでかが読める",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "P02",
+        "name": "既存の API の応答の形と、既存の機能（貸出・返却・校正記録・不合格で使用停止・既存のジョブ）が従来どおり",
+        "pass": false,
+        "detail": "貸出: 403"
+      },
+      {
+        "id": "K01",
+        "name": "過去の日からは予約できず、今日からはできる。終了日が開始日より前は不可",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K02",
+        "name": "期間が 1 日でも重なる予約はできない（端の日が同じでも）。隣り合う期間はできる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K03",
+        "name": "取り消した予約は枠を空ける",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K04",
+        "name": "貸出中の計測器は、返却予定日までと重なる予約はできず、翌日からはできる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K05",
+        "name": "他人の予約の期間にかかる貸出はしない。予約した本人には予約の期間に貸し出せる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K06",
+        "name": "使用停止・廃棄の計測器は予約できない",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K07",
+        "name": "取り消せるのは予約した本人と計測器の管理者で、ほかの人はできない",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K08",
+        "name": "校正で不合格になり使用停止になったら、これからの予約は取り消しになる",
+        "pass": false,
+        "detail": "予約の状態: active"
+      }
+    ],
+    "final_tests": [
+      {
+        "id": "P02",
+        "name": "既存の API の応答の形と、既存の機能（貸出・返却・校正記録・不合格で使用停止・既存のジョブ）が従来どおり",
+        "pass": false,
+        "detail": "貸出: 403"
+      },
+      {
+        "id": "P03",
+        "name": "（変更依頼）仮予約を管理者が承認すると確定になり、14 日を大きく超える予約は断る",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K01",
+        "name": "過去の日からは予約できず、今日からはできる。終了日が開始日より前は不可",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K02",
+        "name": "期間が 1 日でも重なる予約はできない（端の日が同じでも）。隣り合う期間はできる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K03",
+        "name": "取り消した予約は枠を空ける",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K04",
+        "name": "貸出中の計測器は、返却予定日までと重なる予約はできず、翌日からはできる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K05",
+        "name": "他人の予約の期間にかかる貸出はしない。予約した本人には予約の期間に貸し出せる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K06",
+        "name": "使用停止・廃棄の計測器は予約できない",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K07",
+        "name": "取り消せるのは予約した本人と計測器の管理者で、ほかの人はできない",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "K08",
+        "name": "校正で不合格になり使用停止になったら、これからの予約は取り消しになる",
+        "pass": false,
+        "detail": "予約の状態: approved"
+      },
+      {
+        "id": "C01",
+        "name": "新しい予約は仮予約で、管理者の承認で確定になる（区別できる）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "C02",
+        "name": "承認できるのは計測器の管理者だけ（予約した本人・ほかの人はできない）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "C03",
+        "name": "管理者が無効なら、部署の代表者が承認できる（同じ部署のほかの人はできない）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "C04",
+        "name": "管理者は仮予約を却下でき、却下した予約は枠を空ける",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "C05",
+        "name": "仮予約も枠を押さえる（仮予約と重なる予約はできない）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "C06",
+        "name": "開始日を過ぎた仮予約は期限切れで、承認できず、枠を空ける（当日なら承認できる）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "C07",
+        "name": "期間は開始日と終了日を含めて 14 日まで",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "C08",
+        "name": "承認・却下できるのは仮予約だけ（取消・却下したものは承認できない）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "C09",
+        "name": "予約した本人は、仮予約も確定した予約も取り消せ、枠が空く",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "C10",
+        "name": "仮予約は他人の貸出を止め、却下・期限切れの予約は止めない",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "migration": {
+      "prod": {
+        "made": [
+          {
+            "key": "A",
+            "user": "suzuki",
+            "no": "MI-0001",
+            "start": "2026-11-20",
+            "end": "2026-11-22",
+            "id": 1,
+            "v1_status": "active"
+          },
+          {
+            "key": "B",
+            "user": "suzuki",
+            "no": "MI-0014",
+            "start": "2026-12-01",
+            "end": "2026-12-20",
+            "id": 2,
+            "v1_status": "active"
+          },
+          {
+            "key": "D",
+            "user": "sato",
+            "no": "MI-0009",
+            "start": "2026-11-16",
+            "end": "2026-11-18",
+            "id": 3,
+            "v1_status": "active"
+          },
+          {
+            "key": "C",
+            "user": "tanaka",
+            "no": "MI-0006",
+            "start": "2026-11-25",
+            "end": "2026-11-26",
+            "id": 4,
+            "cancelled": true,
+            "v1_status": "absent"
+          }
+        ],
+        "errors": []
+      },
+      "prod_user_version": 5,
+      "runs": [
+        {
+          "started": true,
+          "results": [
+            {
+              "id": "N3x",
+              "name": "本番の予約（取消以外）が、同じ期間・同じ人のまま一覧に残る",
+              "pass": true,
+              "detail": ""
+            },
+            {
+              "id": "N4",
+              "name": "本番の予約（14 日を超えるものを含む）は確定、取り消した予約は取消のまま",
+              "pass": true,
+              "detail": ""
+            },
+            {
+              "id": "N5",
+              "name": "本番の DB で、本番の予約と重なる予約は断り、新しい予約は仮予約として作れて承認できる",
+              "pass": true,
+              "detail": ""
+            },
+            {
+              "id": "S1",
+              "name": "移行後の予約の状態の値が、変更後のコードが知っている値だけ",
+              "pass": true,
+              "detail": ""
+            },
+            {
+              "id": "facts",
+              "name": "記録",
+              "pass": true,
+              "detail": "{\"statuses\":[\"\\\"\\\\\\\"approved\\\\\\\"|null\\\"\"],\"found\":{\"A\":{\"id\":1,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"B\":{\"id\":2,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"D\":{\"id\":3,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"}}}"
+            }
+          ],
+          "user_version": 6,
+          "log_errors": []
+        },
+        {
+          "started": true,
+          "results": [
+            {
+              "id": "N3x",
+              "name": "本番の予約（取消以外）が、同じ期間・同じ人のまま一覧に残る",
+              "pass": true,
+              "detail": ""
+            },
+            {
+              "id": "N4",
+              "name": "本番の予約（14 日を超えるものを含む）は確定、取り消した予約は取消のまま",
+              "pass": true,
+              "detail": ""
+            },
+            {
+              "id": "N5",
+              "name": "本番の DB で、本番の予約と重なる予約は断り、新しい予約は仮予約として作れて承認できる",
+              "pass": false,
+              "detail": "予約できない 2026-11-25〜2026-11-26: 409 {\"error\":\"その期間にはすでに予約があります\"}"
+            },
+            {
+              "id": "S1",
+              "name": "移行後の予約の状態の値が、変更後のコードが知っている値だけ",
+              "pass": true,
+              "detail": ""
+            },
+            {
+              "id": "facts",
+              "name": "記録",
+              "pass": true,
+              "detail": "{\"statuses\":[\"\\\"\\\\\\\"approved\\\\\\\"|null\\\"\"],\"found\":{\"A\":{\"id\":1,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"B\":{\"id\":2,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"D\":{\"id\":3,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"}}}"
+            }
+          ],
+          "user_version": 6,
+          "log_errors": []
+        }
+      ],
+      "base_tables_kept": {
+        "first": {
+          "departments": true,
+          "users": true,
+          "instruments": true,
+          "loans": true,
+          "calibration_records": true
+        },
+        "second": {
+          "departments": true,
+          "users": true,
+          "instruments": true,
+          "loans": true,
+          "calibration_records": true
+        }
+      },
+      "checks": {
+        "N1": true,
+        "N2": true,
+        "N3": true,
+        "N4": true,
+        "N5": true,
+        "N6": true,
+        "S1": true
+      }
+    },
+    "mutation": {
+      "baseline_tests_pass": true,
+      "baseline_fails": 0,
+      "baseline_log": "",
+      "mutants": 60,
+      "killed": 56,
+      "kill_rate": 0.933,
+      "files": [
+        "src/lib/db/migrations.ts",
+        "src/lib/loans.ts",
+        "src/lib/reservations.ts"
+      ],
+      "survivors": [
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 106,
+          "old": "6",
+          "new": "7",
+          "snippet": "version: 6,"
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 129,
+          "old": "&&",
+          "new": "||",
+          "snippet": "if (startOk && endOk) {"
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 141,
+          "old": "true",
+          "new": "false",
+          "snippet": "| { ok: true; reservation: Reservation }"
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 233,
+          "old": "true",
+          "new": "false",
+          "snippet": "| { ok: true; reservation: Reservation }"
+        }
+      ],
+      "details": [
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 89,
+          "old": "5",
+          "new": "6",
+          "killed": true
+        },
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 106,
+          "old": "6",
+          "new": "7",
+          "killed": false
+        },
+        {
+          "file": "src/lib/loans.ts",
+          "line": 60,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/loans.ts",
+          "line": 60,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/loans.ts",
+          "line": 86,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 14,
+          "old": "90",
+          "new": "91",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 60,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 60,
+          "old": "'pending'",
+          "new": "'approved'",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 90,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 103,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 116,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 116,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 117,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 123,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 125,
+          "old": " < ",
+          "new": " <= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 126,
+          "old": " > ",
+          "new": " >= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 129,
+          "old": "&&",
+          "new": "||",
+          "killed": false
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 131,
+          "old": " > ",
+          "new": " >= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 135,
+          "old": " > ",
+          "new": " >= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 136,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 141,
+          "old": "true",
+          "new": "false",
+          "killed": false
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 157,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 158,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 158,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 162,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 164,
+          "old": " <= ",
+          "new": " < ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 164,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 166,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 168,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 186,
+          "old": "true",
+          "new": "false",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 205,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 208,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 208,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 209,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 209,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 210,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 212,
+          "old": "true",
+          "new": "false",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 218,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 218,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 219,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 220,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 223,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 223,
+          "old": "true",
+          "new": "false",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 224,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 226,
+          "old": " > ",
+          "new": " >= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 229,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 233,
+          "old": "true",
+          "new": "false",
+          "killed": false
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 252,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 256,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 256,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 256,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 256,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 259,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 260,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 261,
+          "old": " < ",
+          "new": " <= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 263,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 269,
+          "old": "true",
+          "new": "false",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 298,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 298,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/reservations.ts",
+          "line": 299,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        }
+      ]
+    },
+    "suite_retries": [],
+    "points_without_design": {
+      "v1": 12.75,
+      "change": 25.0,
+      "unchanged": 12.38,
+      "migration": 20,
+      "stale": 5.0,
+      "design": 0.0,
+      "test_strength": 4.67,
+      "total": 79.8,
+      "regressions": []
+    }
   }
 }
