@@ -29,14 +29,24 @@ TOOL = re.compile(r"^(package-lock\.json|docs/(plans|solutions|superpowers|specs
 DOC = re.compile(r"\.(md|mdx|txt)$")
 
 
+DOC_LIMIT, TEST_LIMIT = 8000, 12000  # レビュー担当が読める分量にするため、文書とテストの差分は先頭だけを渡す（本体のコードは全部）
+
+
 def split(text):
-    code, docs = [], []
+    code, tests, docs = [], [], []
     for chunk in re.split(r"(?m)^(?=diff --git )", text):
         m = re.match(r"diff --git a/(\S+) b/(\S+)", chunk)
         if not m or TOOL.match(m.group(2)):
             continue
-        (docs if DOC.search(m.group(2)) else code).append(chunk)
-    return "".join(code), "".join(docs)
+        path = m.group(2)
+        (docs if DOC.search(path) else tests if path.startswith("tests/") else code).append(chunk)
+    t = "".join(tests)
+    d = "".join(docs)
+    if len(t) > TEST_LIMIT:
+        t = t[:TEST_LIMIT] + f"\n…（テストの差分の残り {len(t) - TEST_LIMIT} 文字は省略）\n"
+    if len(d) > DOC_LIMIT:
+        d = d[:DOC_LIMIT] + f"\n…（文書の差分の残り {len(d) - DOC_LIMIT} 文字は省略）\n"
+    return "".join(code) + t, d
 
 
 def base_file(path):
@@ -57,7 +67,7 @@ def prepare(out):
         c, d = split((RAW / trial / "diff.patch").read_text())
         commits = (RAW / trial / "commits.txt").read_text() if (RAW / trial / "commits.txt").exists() else ""
         body = (f"# {code}\n\n## コミットメッセージ（1 行目）\n\n```\n{commits}```\n\n"
-                f"## 文書の差分（README・設計メモなど。ツールの管理用ファイルは除く）\n\n```diff\n{d[:30000] or '（なし）'}\n```\n\n"
+                f"## 文書の差分（README・設計メモなど。ツールの管理用ファイルは除く）\n\n```diff\n{d or '（なし）'}\n```\n\n"
                 f"## コードの差分\n\n```diff\n{c or '（コードの変更なし）'}\n```\n")
         (out / f"{code}.md").write_text(NAMES.sub("[redacted]", body))
     files = ["CLAUDE.md", "docs/operations.md", "docs/notify-api.md", "src/lib/logger.ts", "src/lib/api.ts", "src/lib/db/migrations.ts"]
