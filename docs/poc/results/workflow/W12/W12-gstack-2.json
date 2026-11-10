@@ -1,0 +1,158 @@
+{
+  "scenario": "W12",
+  "trial": "W12-gstack-2",
+  "candidate": "gstack",
+  "run": 2,
+  "elapsed_seconds": 834,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "trument / returnLoan\n  ---\n  duration_ms: 106.886402\n  type: 'suite'\n  ...\n# Subtest: validateLoanInput\n    # Subtest: requires an active borrower and a real date\n    ok 1 - requires an active borrower and a real date\n      ---\n      duration_ms: 46.666689\n      type: 'test'\n      ...\n    1..1\nok 21 - validateLoanInput\n  ---\n  duration_ms: 46.869261\n  type: 'suite'\n  ...\n# Subtest: listOverdueLoans\n    # Subtest: lists unreturned loans whose due date is before today\n    ok 1 - lists unreturned loans whose due date is before today\n      ---\n      duration_ms: 43.125626\n      type: 'test'\n      ...\n    1..1\nok 22 - listOverdueLoans\n  ---\n  duration_ms: 43.294463\n  type: 'suite'\n  ...\n1..22\n# tests 41\n# suites 22\n# pass 41\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1198.987873\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "truments/[id]/calibrations\n├ ƒ /api/instruments/[id]/loans\n├ ƒ /api/instruments/[id]/loans/[loanId]/return\n├ ƒ /api/jobs/calibration-notices\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:22025) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:22030) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:22023) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [],
+  "diff": {
+    "files": [
+      {
+        "path": "CLAUDE.md",
+        "added": 2,
+        "deleted": 1,
+        "kind": "doc"
+      },
+      {
+        "path": "docs/operations.md",
+        "added": 7,
+        "deleted": 0,
+        "kind": "doc"
+      },
+      {
+        "path": "src/app/api/instruments/[id]/route.ts",
+        "added": 13,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/api/jobs/calibration-notices/route.ts",
+        "added": 22,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/instruments/[id]/page.tsx",
+        "added": 2,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/instruments/page.tsx",
+        "added": 2,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/calibration-notices.ts",
+        "added": 179,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/dates.ts",
+        "added": 15,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/db/migrations.ts",
+        "added": 16,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/instruments.ts",
+        "added": 22,
+        "deleted": 4,
+        "kind": "code"
+      },
+      {
+        "path": "tests/calibration-notices.test.ts",
+        "added": 215,
+        "deleted": 0,
+        "kind": "test"
+      },
+      {
+        "path": "tests/instruments.test.ts",
+        "added": 3,
+        "deleted": 2,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/jobs/calibration-notices/route.ts",
+      "src/lib/calibration-notices.ts",
+      "tests/calibration-notices.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "e1c94c9 校正期限の通知: レビュー指摘の修正（失敗の可視化・ログ・URL・冪等キー）",
+      "78550aa 計測器に重要度（A/B/C）を追加し、重要度 A の校正期限を管理者へ通知する"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 5.8455,
+    "tokens": {
+      "input": 290,
+      "output": 117930,
+      "cache_read": 14438871,
+      "cache_creation": 1141862
+    },
+    "turns": 127,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\nimport re\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\ns=s.rstrip()\\nassert s.endswith(\\\"];\\\")\\ns=s[:-2]+'''  {\\n    version: 5,\\n    name: \\\"importance_and_calibra"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat >> src/lib/dates.ts <<'EOF'\\n\\n/** YYYY-MM-DD に月数を足す。翌月に日が無いときは月末にする（1/31 + 1 か月 = 2/28 または 2/29）。 */\\nexport function addMonths(date: string, months: number): string {\\n  const [y, m"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i 's/model: \\\"\\\", location: \\\"\\\", note: \\\"\\\", status: \\\"in_use\\\" })/model: \\\"\\\", location: \\\"\\\", note: \\\"\\\", status: \\\"in_use\\\", importance: \\\"B\\\" })/' tests/instruments.test.ts && c"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i 's/note: \\\"\\\", status: \\\"in_use\\\" })/note: \\\"\\\", status: \\\"in_use\\\", importance: \\\"B\\\" })/' tests/instruments.test.ts && npm run typecheck 2>&1 | tail -15; npm test 2>&1 | tail -30"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 109,
+      "Edit": 36,
+      "Write": 5,
+      "Read": 36,
+      "Agent": 22
+    },
+    "skills_used": [],
+    "subagents": 22,
+    "subagent_types": {
+      "general-purpose": 22
+    },
+    "questions": 0,
+    "active_seconds": 787,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "レビューで直した内容を `e1c94c9` としてコミットしました。5 ファイルで、作業ツリーは clean です。\n\nコミット前に、型チェックと単体テスト 41 件が通っていることを確認済みです。"
+  }
+}
