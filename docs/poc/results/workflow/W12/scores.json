@@ -1051,6 +1051,340 @@
       "total_v1": 78.2
     },
     {
+      "trial": "W12-baseline-conventions-2",
+      "candidate": "baseline-conventions",
+      "base_candidate": "baseline-conventions",
+      "standard": false,
+      "model": "claude-sonnet-5-5",
+      "messy": false,
+      "models_used": {
+        "claude-sonnet-5-5": 1.0315
+      },
+      "run": 2,
+      "total": 75.9,
+      "business": 24.92,
+      "business_public": 8.0,
+      "business_hidden": 16.92,
+      "migration": 20,
+      "robustness": 13.64,
+      "robustness_v1": 15.0,
+      "robust_v1_items": {
+        "R01": true,
+        "R02": true,
+        "R03": true,
+        "R04": true,
+        "R05": true,
+        "R06": true,
+        "R07": true,
+        "R08": true,
+        "R09": true,
+        "R10": true,
+        "R11": true
+      },
+      "ops": 10.0,
+      "design": 0.0,
+      "test_strength": 7.33,
+      "hidden_items": {
+        "H01": true,
+        "H02": false,
+        "H03": false,
+        "H04": true,
+        "H05": true,
+        "H06": true,
+        "H07": true,
+        "H08": false,
+        "H09": true,
+        "H10": true,
+        "H11": true,
+        "H12": true,
+        "H13": true
+      },
+      "public_items": {
+        "P01": true,
+        "P02": true,
+        "P03": true,
+        "P04": true
+      },
+      "robust_items": {
+        "R01": true,
+        "R02": false,
+        "R03": true,
+        "R04": true,
+        "R05": true,
+        "R06": true,
+        "R07": true,
+        "R08": true,
+        "R09": true,
+        "R10": true,
+        "R11": true
+      },
+      "migration_items": {
+        "M1": true,
+        "M2": true,
+        "M3": true,
+        "M4": true,
+        "M5": true,
+        "M6": true
+      },
+      "escape": {
+        "rewrote_existing_migration": false,
+        "lost_or_recreated_data": false,
+        "stuffed_into_existing_column": false,
+        "not_persisted": false
+      },
+      "ops_detail": {
+        "O1_logger": 3.0,
+        "O2_structured": 3.0,
+        "O3_no_secrets": 2.0,
+        "O4_env": 2.0,
+        "total": 10.0
+      },
+      "ops_facts": {
+        "logger_used": true,
+        "console_lines": [],
+        "json_events": [
+          "calibration_due.send_failed",
+          "calibration_due.sent",
+          "job.completed",
+          "notify.retry"
+        ],
+        "info_lines": 61,
+        "warn_error_lines": 14,
+        "unstructured_lines": [],
+        "leaked_tokens": [],
+        "notify_auth_ok": true,
+        "reads_documented_env": true,
+        "aliases": {},
+        "notify_aliases": [],
+        "hardcoded_urls": [],
+        "env_names": [
+          "NOTIFY_API_TOKEN",
+          "NOTIFY_API_URL"
+        ]
+      },
+      "adapter": {
+        "key": "importance",
+        "levels": [
+          "A",
+          "B",
+          "C"
+        ],
+        "default": "B",
+        "set": "post",
+        "filter": {
+          "api": false,
+          "page": false,
+          "param": null
+        },
+        "job": {
+          "method": "POST",
+          "path": "/api/jobs/calibration-due",
+          "unauthStatus": 401
+        },
+        "needs_review": false,
+        "notes": [
+          "新しい項目: importance"
+        ]
+      },
+      "review_detail": null,
+      "questions": {
+        "total": 5,
+        "by_route": {
+          "ask-po": 5,
+          "message": 0
+        },
+        "ask_po_calls": 1,
+        "message_rounds": 0,
+        "hit": 5,
+        "hit_rate": 1.0,
+        "reask": 0,
+        "before_impl": 5,
+        "before_impl_rate": 1.0,
+        "q_ids": [
+          "Q1",
+          "Q4",
+          "Q5",
+          "Q6",
+          "Q8",
+          "Q10",
+          "Q11",
+          "Q12"
+        ],
+        "o_ids": [],
+        "d_ids": [],
+        "kinds": {
+          "requirement": 5,
+          "operations": 0,
+          "documented": 0,
+          "confirmation": 0,
+          "other": 0
+        },
+        "persona_cost_usd": 0.038,
+        "errors": [],
+        "items": [
+          {
+            "route": "ask-po",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q1"
+            ],
+            "before": true,
+            "question": "(1) 重要度は高/中/低の3段階で、既存の計測器の初期値は「中」でよいか",
+            "answer": "重要度は A・B・C の3段階にしてください。Aは品質記録（検査成績書）に使う計測器です。今ある計測器はいったん全部 B にして、あとで各管理者が見直します。"
+          },
+          {
+            "route": "ask-po",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q4",
+              "Q8",
+              "Q10",
+              "Q12"
+            ],
+            "before": true,
+            "question": "(2) 期限の何日前から通知するか。毎朝8:00のジョブで、期限当日・超過後も含め、同じ期限の通知は重複させない案でよいか",
+            "answer": "期限の30日前の日からです。外部の校正機関への手配に3〜4週間かかるためです。「期限が近い」お知らせは同じ期限につき1回だけで、期限を過ぎても校正されていなければ「期限切れ」を1回だけ知らせてください。実行は毎朝1回、7:30ごろで、ほかのジョブと同じく運用チームの cron から呼ぶ形にしてください。"
+          },
+          {
+            "route": "ask-po",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q5"
+            ],
+            "before": true,
+            "question": "(3) 重要度「高」のみ通知対象でよいか",
+            "answer": "はい、知らせるのは重要度 A だけです。B・C は知らせなくてよいです。"
+          },
+          {
+            "route": "ask-po",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q11"
+            ],
+            "before": true,
+            "question": "(4) 管理者が退職・休職(無効)の場合は、管理者の部署の代表者に通知する案でよいか",
+            "answer": "はい、それでお願いします。台帳の管理者の付け替えが遅れることがあるためです。"
+          },
+          {
+            "route": "ask-po",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q6"
+            ],
+            "before": true,
+            "question": "(5) 使用停止・廃棄の計測器は通知対象外でよいか",
+            "answer": "はい、対象外です。校正中の計測器も、すでに手配済みなので知らせないでください。"
+          }
+        ]
+      },
+      "facts": {
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "peeked": false,
+        "public_failed": [],
+        "hidden_failed": [
+          {
+            "id": "H02",
+            "detail": "絞り込み: {\"api\":false,\"page\":false,\"param\":null}"
+          },
+          {
+            "id": "H03",
+            "detail": "月末にしない期限（02-10）の 30 日前（01-15）に届いた: 1 件"
+          },
+          {
+            "id": "H08",
+            "detail": "管理者 tanaka: 1 件、借りている人 matsumoto: 0 件"
+          }
+        ],
+        "robust_failed": [
+          {
+            "id": "R02",
+            "detail": "間隔が伸びていない: [173,1456,144]ms"
+          }
+        ],
+        "mutants": 60,
+        "killed": 44,
+        "kill_rate": 0.733,
+        "static": {
+          "inProcessScheduler": [],
+          "console_lines": [],
+          "logger_used": true,
+          "env_names": [
+            "NOTIFY_API_TOKEN",
+            "NOTIFY_API_URL"
+          ],
+          "hardcoded_urls": [],
+          "new_deps": false
+        },
+        "migrations_static": {
+          "readable": true,
+          "base_versions": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "rewritten": [],
+          "added": [
+            5
+          ],
+          "appended_in_order": true
+        },
+        "interventions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "code_added": 375,
+        "test_added": 313,
+        "artifacts": [
+          "CLAUDE.md",
+          "docs/operations.md"
+        ],
+        "cost_usd": 1.0315,
+        "elapsed_seconds": 294,
+        "active_seconds": 278,
+        "turns": 57,
+        "subagents": 0,
+        "subagent_types": {},
+        "skills_used": [
+          "code-review"
+        ],
+        "tool_calls": {
+          "Bash": 21,
+          "Write": 5,
+          "Edit": 34,
+          "Skill": 1
+        },
+        "denials": 4,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'EOF'\\nimport re\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\ns=s.rstrip()\\nassert s.endswith(\\\"];\\\")\\ns=s[:-2]+'''  {\\n    version: 5,\\n    name: \\\"importance_and_calibra"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 -I /tmp/claude-0/-tmp-poc-trials-W12-baseline-conventions-2-app/545d607b-104f-4c22-ad9b-2b708c3e0d25/scratchpad/patch.py && git diff --stat\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"sed -i 's/{ ...VALID, model: \\\"\\\", location: \\\"\\\", note: \\\"\\\", status: \\\"in_use\\\" });/{ ...VALID, model: \\\"\\\", location: \\\"\\\", note: \\\"\\\", status: \\\"in_use\\\", importance: \\\"B\\\" });/; s/{ "
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"git status --short && git diff @{upstream}...HEAD 2>/dev/null | head -1000 || git diff main...HEAD | head -1000; echo ----; git diff HEAD\"}"
+          }
+        ],
+        "commits": [
+          "fd5c318 計測器に重要度（A/B/C）を追加し、重要度 A の校正期限を管理者に通知する"
+        ],
+        "errors": "",
+        "questions": 5
+      },
+      "total_v1": 77.3
+    },
+    {
       "trial": "W12-compound-engineering-1",
       "candidate": "compound-engineering",
       "base_candidate": "compound-engineering",
