@@ -1,0 +1,2224 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index acfc6a0..7dd10a4 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -1,6 +1,7 @@
+-# poc-app（PoC 評価用アプリ）
++# 計測器 校正台帳（社内向け）
+ 
+-タスク管理アプリ。Next.js（App Router）+ TypeScript + SQLite（Node 標準の `node:sqlite`）。
++製造・工事の現場で使う計測器（テスター・絶縁抵抗計・トルクレンチなど）を台帳で管理し、外部の校正機関での定期校正を記録するアプリ。
++Next.js（App Router）+ TypeScript + SQLite（Node 標準の `node:sqlite`）。
+ 
+ ## コマンド
+ 
+@@ -10,24 +11,31 @@
+ 
+ ## DB
+ 
+-- `src/lib/db/index.ts` の `getDb()` が共有の接続を返す。接続先は環境変数 `DATABASE_PATH`（既定は `:memory:`。サーバーを起動するたびに `src/lib/db/seed.ts` の初期データから始まる）。
++- `src/lib/db/index.ts` の `getDb()` が共有の接続を返す。接続先は環境変数 `DATABASE_PATH`（開発の既定は `:memory:`。サーバーを起動するたびに `src/lib/db/seed.ts` の初期データから始まる）。本番の設定は `docs/operations.md`。
+ - スキーマは `src/lib/db/migrations.ts`（`PRAGMA user_version` で管理）。
+ - テストでは `openDb()` で独立したインメモリ DB を作り、`src/lib/` の関数の引数 `db` に渡す。
+ 
++## 業務の用語
++
++- 計測器: 管理番号（例: `MI-0001`）・名称・型式・設置場所・管理者・校正周期（月）・前回校正日・状態を持つ。
++- 状態: 使用中（`in_use`）・貸出中（`on_loan`）・校正中（`calibrating`）・使用停止（`suspended`）・廃棄（`disposed`）。貸出中は貸出・返却の操作でだけ変わる。
++- 校正記録: 校正日・結果（合格 `pass` / 不合格 `fail`）・校正機関・証明書番号。合格なら前回校正日が更新され、不合格なら計測器は使用停止になる。
++- 利用者は部署に所属する。退職・休職した利用者は無効（`active = 0`）になり、ログインできない。部署には代表者がいる。
++
+ ## ログインと API
+ 
+-- 初期ユーザーは `sato` / `suzuki` / `tanaka`（パスワードは共通で `password`。PoC の検証用）。`/login` からログインする。
++- 初期ユーザーは `src/lib/db/seed.ts`（パスワードは共通で `password`。PoC の検証用）。`/login` からログインする。
+ - セッションは DB の `sessions` テーブルと Cookie `poc_session`（`src/lib/auth.ts`）。ページでは `requireUser()`、API Route では `requireApiUser()`（`src/lib/session.ts`・`src/lib/api.ts`）でログインを確認する。
+-- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/tasks`、`GET/PATCH /api/tasks/:id`。エラーは `{ error, details? }` の JSON で返す。
++- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/instruments`、`GET/PATCH /api/instruments/:id`、`GET/POST /api/instruments/:id/loans`、`POST /api/instruments/:id/loans/:loanId/return`、`GET/POST /api/instruments/:id/calibrations`。エラーは `{ error, details? }` の JSON で返す。
++- 定期実行のジョブ: `POST /api/jobs/overdue-loans` など（`docs/operations.md`）。
+ 
+ ## コーディング規約
+ 
+ 1. データの取得・絞り込みは `src/lib/` の関数に置き、ページコンポーネントには表示の処理だけを書く。
+-2. URL のクエリパラメータは、型ガード（例: `isTaskStatus`）で検証してから使う。不正な値は「指定なし」として扱う。
++2. URL のクエリパラメータは、型ガード（例: `isInstrumentStatus`）で検証してから使う。不正な値は「指定なし」として扱う。
+ 3. 画面の文言は日本語にする。
+ 4. 新しい外部ライブラリは追加しない。
+ 5. ロジックを追加・変更したら `tests/` に単体テストを追加する。
+ 6. 変更は依頼された範囲にとどめる。
+-7. スキーマを変えるときは `src/lib/db/migrations.ts` の末尾に新しい番号のマイグレーションを追加する。既存のマイグレーションは書き換えない。
+-8. SQL に値を埋め込むときは必ずプレースホルダ（`?` / `:name`）を使い、文字列連結で組み立てない。
+-9. API Route は最初にログインを確認し、リクエスト本文は `src/lib/` の検証関数（例: `validateTaskInput`）を通してから使う。入力誤りは 400、未ログインは 401、対象が無いときは 404 を返す。
++7. SQL に値を埋め込むときは必ずプレースホルダ（`?` / `:name`）を使い、文字列連結で組み立てない。
++8. API Route は最初にログインを確認し、リクエスト本文は `src/lib/` の検証関数（例: `validateInstrumentInput`）を通してから使う。入力誤りは 400、未ログインは 401、対象が無いときは 404 を返す。
+diff --git a/docs/notify-api.md b/docs/notify-api.md
+new file mode 100644
+index 0000000..88e06f7
+--- /dev/null
++++ b/docs/notify-api.md
+@@ -0,0 +1,41 @@
++# 社内通知サービス API（抜粋）
++
++情報システム課が運用する、社員へのお知らせ（社内チャットとメール）を送るサービス。
++送り先は社員 ID（このアプリの利用者 ID と同じ）で指定する。チャットとメールのどちらに届くかは、受け取る人の設定で決まる。
++
++## 接続先と認証
++
++- URL とトークンは環境変数で渡す: `NOTIFY_API_URL`（例: `https://notify.internal.example`）、`NOTIFY_API_TOKEN`。
++- すべての要求に `Authorization: Bearer <NOTIFY_API_TOKEN>` を付ける。
++
++## お知らせを送る
++
++`POST {NOTIFY_API_URL}/v1/notifications`
++
++```json
++{
++  "recipient": "sato",
++  "title": "（件名。100 文字まで）",
++  "body": "（本文。2000 文字まで）",
++  "category": "calibration"
++}
++```
++
++| ヘッダー | 内容 |
++|---|---|
++| `Authorization` | `Bearer <NOTIFY_API_TOKEN>`（必須） |
++| `Content-Type` | `application/json`（必須） |
++| `Idempotency-Key` | 任意の文字列（255 文字まで、任意）。同じキーの要求は 24 時間、最初の 1 回だけ送られ、2 回目以降は最初の結果が返る |
++
++### 応答
++
++| ステータス | 意味 |
++|---|---|
++| `202` | 受け付けた。本文 `{ "id": "ntf_..." }` |
++| `400` | 要求の誤り（項目の欠落・長すぎる・存在しない社員 ID など）。本文 `{ "error": "..." }` |
++| `401` | トークンが無い・誤り |
++| `429` | 要求が多すぎる。`Retry-After` ヘッダー（秒）が付く |
++| `503` | 一時的に利用できない（メンテナンス・高負荷） |
++
++- 応答が返るまでに時間がかかることがある（混雑時は数十秒）。
++- `category` は受け取る人の通知設定の分類（`calibration`・`general` など）。省略すると `general`。
+diff --git a/docs/operations.md b/docs/operations.md
+new file mode 100644
+index 0000000..32afa87
+--- /dev/null
++++ b/docs/operations.md
+@@ -0,0 +1,32 @@
++# 運用メモ（情報システム課）
++
++## 本番環境
++
++- 社内のアプリサーバー 1 台で `npm run start` を常駐させている（systemd）。リリースのたびに再起動する。
++- DB は SQLite のファイル。`DATABASE_PATH=/var/lib/calib/calib.db`。起動時に `src/lib/db/migrations.ts` のうち未適用のものが適用される。
++  - 2024 年の稼働開始からのデータが入っている。リリース前に `calib.db` のバックアップを取る。
++  - 計測器は約 5 万件（全社分）。一覧は毎朝、各部署の担当者が開く。
++- 環境変数は `/etc/calib/env` に書き、systemd から渡す。リポジトリには書かない。
++
++| 変数 | 内容 |
++|---|---|
++| `DATABASE_PATH` | DB ファイルの場所 |
++| `JOBS_TOKEN` | 定期実行のジョブの認証トークン |
++| `NOTIFY_API_URL` | 社内の通知サービスの URL（`docs/notify-api.md`） |
++| `NOTIFY_API_TOKEN` | 通知サービスのトークン（情報システム課が発行） |
++
++## 定期実行のジョブ
++
++アプリの中では定期実行しない（サーバーの再起動や多重起動で動きが変わらないようにするため）。
++運用チームの cron から、ジョブごとの API を `JOBS_TOKEN` 付きで呼ぶ。
++
++```bash
++curl -fsS -X POST -H "Authorization: Bearer $JOBS_TOKEN" https://calib.internal.example/api/jobs/overdue-loans
++```
++
++| ジョブ | API | 実行時刻 |
++|---|---|---|
++| 返却予定日を過ぎた貸出の集計 | `POST /api/jobs/overdue-loans` | 毎日 8:00（日本時間） |
++
++新しいジョブを足すときは、`src/app/api/jobs/<ジョブ名>/route.ts` に置き、`requireJobAuth()`（`src/lib/api.ts`）で認証する。
++cron の設定は運用チームに依頼する（実行時刻とジョブ名を伝える）。
+diff --git a/src/app/api/instruments/[id]/calibrations/route.ts b/src/app/api/instruments/[id]/calibrations/route.ts
+new file mode 100644
+index 0000000..fcf6e4a
+--- /dev/null
++++ b/src/app/api/instruments/[id]/calibrations/route.ts
+@@ -0,0 +1,28 @@
++// GET /api/instruments/:id/calibrations — 校正記録 / POST — 校正記録を登録する
++//（本文 { calibratedOn, result: "pass" | "fail", agency, certificateNo? }）。不合格なら計測器は使用停止になる。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { listCalibrations, recordCalibration, validateCalibrationInput } from "@/lib/calibrations";
++import { getInstrument, parseId } from "@/lib/instruments";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ calibrations: listCalibrations(id) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  const input = validateCalibrationInput(await readJson(request));
++  if (!input.ok) return jsonError(400, "入力内容に誤りがあります", input.errors);
++  const result = recordCalibration(id, input.value, user.id);
++  if (!result) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ calibration: result.record, instrument: result.instrument }, { status: 201 });
++}
+diff --git a/src/app/api/instruments/[id]/loans/[loanId]/return/route.ts b/src/app/api/instruments/[id]/loans/[loanId]/return/route.ts
+new file mode 100644
+index 0000000..093fd0e
+--- /dev/null
++++ b/src/app/api/instruments/[id]/loans/[loanId]/return/route.ts
+@@ -0,0 +1,17 @@
++// POST /api/instruments/:id/loans/:loanId/return — 返却する。計測器は使用中に戻る。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { parseId } from "@/lib/instruments";
++import { returnLoan } from "@/lib/loans";
++
++type Context = { params: Promise<{ id: string; loanId: string }> };
++
++export async function POST(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const p = await params;
++  const id = parseId(p.id);
++  const loanId = parseId(p.loanId);
++  const loan = id === undefined || loanId === undefined ? undefined : returnLoan(id, loanId);
++  return loan ? NextResponse.json({ loan }) : jsonError(404, "返却されていない貸出が見つかりません");
++}
+diff --git a/src/app/api/instruments/[id]/loans/route.ts b/src/app/api/instruments/[id]/loans/route.ts
+new file mode 100644
+index 0000000..88dc757
+--- /dev/null
++++ b/src/app/api/instruments/[id]/loans/route.ts
+@@ -0,0 +1,31 @@
++// GET /api/instruments/:id/loans — 貸出の記録 / POST /api/instruments/:id/loans — 貸し出す（本文 { borrowerId, dueOn }）。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { getInstrument, parseId } from "@/lib/instruments";
++import { lendInstrument, listLoans, validateLoanInput } from "@/lib/loans";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ loans: listLoans(id) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  const input = validateLoanInput(await readJson(request));
++  if (!input.ok) return jsonError(400, "入力内容に誤りがあります", input.errors);
++  const result = lendInstrument(id, input.value);
++  if (!result.ok) {
++    return result.reason === "not_found"
++      ? jsonError(404, "計測器が見つかりません")
++      : jsonError(409, "使用中の計測器だけを貸し出せます");
++  }
++  return NextResponse.json({ loan: result.loan }, { status: 201 });
++}
+diff --git a/src/app/api/instruments/[id]/route.ts b/src/app/api/instruments/[id]/route.ts
+new file mode 100644
+index 0000000..c31881b
+--- /dev/null
++++ b/src/app/api/instruments/[id]/route.ts
+@@ -0,0 +1,34 @@
++// GET /api/instruments/:id — 計測器を 1 件取得 / PATCH /api/instruments/:id — 送った項目だけを更新する。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { getInstrument, managementNoExists, parseId, updateInstrument, validateInstrumentInput } from "@/lib/instruments";
++import { currentLoan } from "@/lib/loans";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  const instrument = id === undefined ? undefined : getInstrument(id);
++  if (!instrument) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ instrument, currentLoan: currentLoan(instrument.id) ?? null });
++}
++
++export async function PATCH(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  const current = id === undefined ? undefined : getInstrument(id);
++  if (!current) return jsonError(404, "計測器が見つかりません");
++  const result = validateInstrumentInput(await readJson(request), { partial: true });
++  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
++  const changes = result.value;
++  if (changes.status !== undefined && current.status === "on_loan") {
++    return jsonError(409, "貸出中の計測器の状態は、返却してから変更してください");
++  }
++  if (changes.managementNo !== undefined && changes.managementNo !== current.managementNo && managementNoExists(changes.managementNo)) {
++    return jsonError(409, "その管理番号はすでに登録されています");
++  }
++  return NextResponse.json({ instrument: updateInstrument(current.id, changes) });
++}
+diff --git a/src/app/api/instruments/route.ts b/src/app/api/instruments/route.ts
+new file mode 100644
+index 0000000..86cc764
+--- /dev/null
++++ b/src/app/api/instruments/route.ts
+@@ -0,0 +1,37 @@
++// GET /api/instruments?status=…&dept=… — 計測器の一覧 / POST /api/instruments — 計測器を台帳に登録する。いずれもログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import {
++  createInstrument,
++  isInstrumentStatus,
++  listInstruments,
++  managementNoExists,
++  validateInstrumentInput,
++  type InstrumentInput,
++} from "@/lib/instruments";
++
++export async function GET(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const params = new URL(request.url).searchParams;
++  const status = params.get("status");
++  const manager = params.get("manager");
++  const dept = params.get("dept");
++  return NextResponse.json({
++    instruments: listInstruments({
++      status: isInstrumentStatus(status) ? status : undefined,
++      managerId: manager || undefined,
++      dept: dept || undefined,
++    }),
++  });
++}
++
++export async function POST(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const result = validateInstrumentInput(await readJson(request));
++  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
++  const input = result.value as InstrumentInput;
++  if (managementNoExists(input.managementNo)) return jsonError(409, "その管理番号はすでに登録されています");
++  return NextResponse.json({ instrument: createInstrument(input) }, { status: 201 });
++}
+diff --git a/src/app/api/jobs/overdue-loans/route.ts b/src/app/api/jobs/overdue-loans/route.ts
+new file mode 100644
+index 0000000..5b1d893
+--- /dev/null
++++ b/src/app/api/jobs/overdue-loans/route.ts
+@@ -0,0 +1,23 @@
++// POST /api/jobs/overdue-loans — 返却予定日を過ぎた貸出を集計してログに出す（運用の cron が毎朝 8:00 JST に呼ぶ）。
++import { NextResponse } from "next/server";
++import { requireJobAuth } from "@/lib/api";
++import { todayJst } from "@/lib/dates";
++import { listOverdueLoans } from "@/lib/loans";
++import { logger } from "@/lib/logger";
++
++export async function POST(request: Request) {
++  const denied = requireJobAuth(request, "overdue-loans");
++  if (denied) return denied;
++  const today = todayJst();
++  const overdue = listOverdueLoans(today);
++  for (const loan of overdue) {
++    logger.info("loan.overdue", {
++      loanId: loan.id,
++      managementNo: loan.managementNo,
++      borrowerId: loan.borrowerId,
++      dueOn: loan.dueOn,
++    });
++  }
++  logger.info("job.completed", { job: "overdue-loans", today, overdue: overdue.length });
++  return NextResponse.json({ today, overdue: overdue.length });
++}
+diff --git a/src/app/api/login/route.ts b/src/app/api/login/route.ts
+index d5f0988..e800840 100644
+--- a/src/app/api/login/route.ts
++++ b/src/app/api/login/route.ts
+@@ -3,6 +3,7 @@
+ import { NextResponse } from "next/server";
+ import { jsonError, readJson } from "@/lib/api";
+ import { SESSION_COOKIE, SESSION_TTL_MS, authenticate, createSession } from "@/lib/auth";
++import { logger } from "@/lib/logger";
+ 
+ export async function POST(request: Request) {
+   const isJson = (request.headers.get("content-type") ?? "").includes("application/json");
+@@ -21,6 +22,8 @@ export async function POST(request: Request) {
+   const user =
+     typeof userId === "string" && typeof password === "string" ? authenticate(userId, password) : undefined;
+   if (!user) {
++    // パスワードはログに出さない
++    logger.warn("auth.login_failed", { userId: typeof userId === "string" ? userId.slice(0, 64) : null });
+     return isJson
+       ? jsonError(401, "ID またはパスワードが正しくありません")
+       : NextResponse.redirect(new URL("/login?error=1", request.url), 303);
+@@ -28,7 +31,7 @@ export async function POST(request: Request) {
+ 
+   const response = isJson
+     ? NextResponse.json({ user })
+-    : NextResponse.redirect(new URL("/tasks", request.url), 303);
++    : NextResponse.redirect(new URL("/instruments", request.url), 303);
+   response.cookies.set(SESSION_COOKIE, createSession(user.id), {
+     httpOnly: true,
+     sameSite: "lax",
+diff --git a/src/app/api/tasks/[id]/route.ts b/src/app/api/tasks/[id]/route.ts
+deleted file mode 100644
+index 275c08d..0000000
+--- a/src/app/api/tasks/[id]/route.ts
++++ /dev/null
+@@ -1,24 +0,0 @@
+-// GET /api/tasks/:id — タスクを 1 件取得 / PATCH /api/tasks/:id — 送った項目だけを更新する。ログインが必要。
+-import { NextResponse } from "next/server";
+-import { jsonError, readJson, requireApiUser } from "@/lib/api";
+-import { getTask, parseTaskId, updateTask, validateTaskInput } from "@/lib/tasks";
+-
+-type Context = { params: Promise<{ id: string }> };
+-
+-export async function GET(_request: Request, { params }: Context) {
+-  const user = await requireApiUser();
+-  if (user instanceof NextResponse) return user;
+-  const id = parseTaskId((await params).id);
+-  const task = id === undefined ? undefined : getTask(id);
+-  return task ? NextResponse.json({ task }) : jsonError(404, "タスクが見つかりません");
+-}
+-
+-export async function PATCH(request: Request, { params }: Context) {
+-  const user = await requireApiUser();
+-  if (user instanceof NextResponse) return user;
+-  const id = parseTaskId((await params).id);
+-  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
+-  const result = validateTaskInput(await readJson(request), { partial: true });
+-  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+-  return NextResponse.json({ task: updateTask(id, result.value) });
+-}
+diff --git a/src/app/api/tasks/route.ts b/src/app/api/tasks/route.ts
+deleted file mode 100644
+index 687d509..0000000
+--- a/src/app/api/tasks/route.ts
++++ /dev/null
+@@ -1,19 +0,0 @@
+-// GET /api/tasks?status=… — タスク一覧 / POST /api/tasks — タスクを作成する。いずれもログインが必要。
+-import { NextResponse } from "next/server";
+-import { jsonError, readJson, requireApiUser } from "@/lib/api";
+-import { createTask, isTaskStatus, listTasks, validateTaskInput, type TaskInput } from "@/lib/tasks";
+-
+-export async function GET(request: Request) {
+-  const user = await requireApiUser();
+-  if (user instanceof NextResponse) return user;
+-  const status = new URL(request.url).searchParams.get("status");
+-  return NextResponse.json({ tasks: listTasks({ status: isTaskStatus(status) ? status : undefined }) });
+-}
+-
+-export async function POST(request: Request) {
+-  const user = await requireApiUser();
+-  if (user instanceof NextResponse) return user;
+-  const result = validateTaskInput(await readJson(request));
+-  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+-  return NextResponse.json({ task: createTask(result.value as TaskInput) }, { status: 201 });
+-}
+diff --git a/src/app/instruments/[id]/page.tsx b/src/app/instruments/[id]/page.tsx
+new file mode 100644
+index 0000000..eaf4736
+--- /dev/null
++++ b/src/app/instruments/[id]/page.tsx
+@@ -0,0 +1,120 @@
++import { notFound } from "next/navigation";
++import { RESULT_LABELS, listCalibrations } from "@/lib/calibrations";
++import { STATUS_LABELS, getInstrument, parseId } from "@/lib/instruments";
++import { listLoans } from "@/lib/loans";
++import { requireUser } from "@/lib/session";
++import { getUser } from "@/lib/users";
++
++type Props = {
++  params: Promise<{ id: string }>;
++};
++
++export default async function InstrumentDetailPage({ params }: Props) {
++  await requireUser();
++  const id = parseId((await params).id);
++  const instrument = id === undefined ? undefined : getInstrument(id);
++  if (!instrument) notFound();
++  const manager = getUser(instrument.managerId);
++  const loans = listLoans(instrument.id);
++  const calibrations = listCalibrations(instrument.id);
++  const nameOf = (userId: string) => getUser(userId)?.name ?? userId;
++
++  return (
++    <main>
++      <p>
++        <a href="/instruments">← 計測器一覧へ戻る</a>
++      </p>
++      <h1 data-testid="instrument-title">
++        {instrument.managementNo} {instrument.name}
++      </h1>
++      <dl>
++        <dt>型式</dt>
++        <dd>{instrument.model || "—"}</dd>
++        <dt>設置場所</dt>
++        <dd>{instrument.location || "—"}</dd>
++        <dt>管理者</dt>
++        <dd data-testid="instrument-manager">{manager?.name ?? instrument.managerId}</dd>
++        <dt>校正周期</dt>
++        <dd>{instrument.intervalMonths} か月</dd>
++        <dt>前回校正日</dt>
++        <dd data-testid="instrument-last-calibrated">{instrument.lastCalibratedOn}</dd>
++        <dt>状態</dt>
++        <dd data-testid="instrument-status">{STATUS_LABELS[instrument.status]}</dd>
++        {instrument.note && (
++          <>
++            <dt>備考</dt>
++            <dd>{instrument.note}</dd>
++          </>
++        )}
++        {Object.entries(instrument.extra).map(([key, value]) => {
++          // その他の項目。よく使うものだけ名前を付けて出す
++          let label = key;
++          if (key === "dept") label = "担当部署";
++          else if (key === "inspector") label = "点検者";
++          else if (key === "last_inspected") label = "最終点検日";
++          else if (key === "memo") label = "メモ";
++          return (
++            <span key={key}>
++              <dt>{label}</dt>
++              <dd>{typeof value === "string" ? value : JSON.stringify(value)}</dd>
++            </span>
++          );
++        })}
++      </dl>
++
++      <h2>校正記録</h2>
++      {calibrations.length === 0 ? (
++        <p>校正記録はありません。</p>
++      ) : (
++        <table>
++          <thead>
++            <tr>
++              <th>校正日</th>
++              <th>結果</th>
++              <th>校正機関</th>
++              <th>証明書番号</th>
++              <th>登録者</th>
++            </tr>
++          </thead>
++          <tbody>
++            {calibrations.map((c) => (
++              <tr key={c.id}>
++                <td>{c.calibratedOn}</td>
++                <td>{RESULT_LABELS[c.result]}</td>
++                <td>{c.agency}</td>
++                <td>{c.certificateNo || "—"}</td>
++                <td>{nameOf(c.recordedBy)}</td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++      )}
++
++      <h2>貸出の記録</h2>
++      {loans.length === 0 ? (
++        <p>貸出の記録はありません。</p>
++      ) : (
++        <table>
++          <thead>
++            <tr>
++              <th>借りた人</th>
++              <th>貸出日時（UTC）</th>
++              <th>返却予定日</th>
++              <th>返却</th>
++            </tr>
++          </thead>
++          <tbody>
++            {loans.map((l) => (
++              <tr key={l.id}>
++                <td>{nameOf(l.borrowerId)}</td>
++                <td>{l.borrowedAt}</td>
++                <td>{l.dueOn}</td>
++                <td>{l.returnedAt ? "返却済み" : "貸出中"}</td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++      )}
++    </main>
++  );
++}
+diff --git a/src/app/instruments/page.tsx b/src/app/instruments/page.tsx
+new file mode 100644
+index 0000000..4ca3802
+--- /dev/null
++++ b/src/app/instruments/page.tsx
+@@ -0,0 +1,76 @@
++import { requireUser } from "@/lib/session";
++import { INSTRUMENT_STATUSES, STATUS_LABELS, extraText, isInstrumentStatus, listInstruments } from "@/lib/instruments";
++import { listUsers } from "@/lib/users";
++
++type Props = {
++  searchParams: Promise<{ status?: string; dept?: string }>;
++};
++
++export default async function InstrumentsPage({ searchParams }: Props) {
++  await requireUser();
++  const params = await searchParams;
++  const status = isInstrumentStatus(params.status) ? params.status : undefined;
++  const dept = params.dept || undefined;
++  const instruments = listInstruments({ status, dept });
++  const names = new Map(listUsers().map((u) => [u.id, u.name]));
++
++  return (
++    <main>
++      <h1>計測器一覧</h1>
++      <form method="get" aria-label="絞り込み">
++        <label>
++          状態{" "}
++          <select name="status" defaultValue={status ?? ""}>
++            <option value="">すべて</option>
++            {INSTRUMENT_STATUSES.map((s) => (
++              <option key={s} value={s}>
++                {STATUS_LABELS[s]}
++              </option>
++            ))}
++          </select>
++        </label>{" "}
++        <label>
++          担当部署 <input name="dept" defaultValue={dept ?? ""} size={10} />
++        </label>{" "}
++        <button type="submit">絞り込む</button>
++      </form>
++      <table>
++        <thead>
++          <tr>
++            <th>管理番号</th>
++            <th>名称</th>
++            <th>型式</th>
++            <th>設置場所</th>
++            <th>管理者</th>
++            <th>校正周期</th>
++            <th>前回校正日</th>
++            <th>状態</th>
++            <th>担当部署</th>
++            <th>点検</th>
++          </tr>
++        </thead>
++        <tbody>
++          {instruments.map((i) => (
++            <tr key={i.id} data-testid="instrument-row">
++              <td>
++                <a href={`/instruments/${i.id}`}>{i.managementNo}</a>
++              </td>
++              <td>{i.name}</td>
++              <td>{i.model}</td>
++              <td>{i.location}</td>
++              <td>{names.get(i.managerId) ?? i.managerId}</td>
++              <td>{i.intervalMonths} か月</td>
++              <td>{i.lastCalibratedOn}</td>
++              <td>{STATUS_LABELS[i.status]}</td>
++              <td>{extraText(i, "dept") || "—"}</td>
++              <td>
++                {extraText(i, "inspector") ? `${extraText(i, "inspector")}（${extraText(i, "last_inspected") || "日付なし"}）` : "—"}
++              </td>
++            </tr>
++          ))}
++        </tbody>
++      </table>
++      {instruments.length === 0 && <p>該当する計測器はありません。</p>}
++    </main>
++  );
++}
+diff --git a/src/app/layout.tsx b/src/app/layout.tsx
+index 23f0335..7fb4edf 100644
+--- a/src/app/layout.tsx
++++ b/src/app/layout.tsx
+@@ -1,7 +1,7 @@
+ import type { ReactNode } from "react";
+ import { getCurrentUser } from "@/lib/session";
+ 
+-export const metadata = { title: "PoC タスク管理" };
++export const metadata = { title: "計測器 校正台帳" };
+ 
+ export default async function RootLayout({ children }: { children: ReactNode }) {
+   const user = await getCurrentUser();
+@@ -10,7 +10,7 @@ export default async function RootLayout({ children }: { children: ReactNode })
+       <body style={{ fontFamily: "system-ui, sans-serif", margin: 24 }}>
+         {user && (
+           <header style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
+-            <a href="/tasks">タスク一覧</a>
++            <a href="/instruments">計測器一覧</a>
+             <span data-testid="current-user">{user.name}（{user.id}）</span>
+             <form method="post" action="/api/logout">
+               <button type="submit">ログアウト</button>
+diff --git a/src/app/page.tsx b/src/app/page.tsx
+index c029718..ea735cf 100644
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -1,5 +1,5 @@
+ import { redirect } from "next/navigation";
+ 
+ export default function Home() {
+-  redirect("/tasks");
++  redirect("/instruments");
+ }
+diff --git a/src/app/tasks/[id]/page.tsx b/src/app/tasks/[id]/page.tsx
+deleted file mode 100644
+index 6325e66..0000000
+--- a/src/app/tasks/[id]/page.tsx
++++ /dev/null
+@@ -1,33 +0,0 @@
+-import { notFound } from "next/navigation";
+-import { requireUser } from "@/lib/session";
+-import { STATUS_LABELS, getTask, parseTaskId } from "@/lib/tasks";
+-import { getUser } from "@/lib/users";
+-
+-type Props = {
+-  params: Promise<{ id: string }>;
+-};
+-
+-export default async function TaskDetailPage({ params }: Props) {
+-  await requireUser();
+-  const id = parseTaskId((await params).id);
+-  const task = id === undefined ? undefined : getTask(id);
+-  if (!task) notFound();
+-  const assignee = getUser(task.assignee);
+-
+-  return (
+-    <main>
+-      <p>
+-        <a href="/tasks">← タスク一覧へ戻る</a>
+-      </p>
+-      <h1 data-testid="task-title">{task.title}</h1>
+-      <dl>
+-        <dt>ステータス</dt>
+-        <dd data-testid="task-status">{STATUS_LABELS[task.status]}</dd>
+-        <dt>担当者</dt>
+-        <dd data-testid="task-assignee">{assignee?.name ?? task.assignee}</dd>
+-        <dt>期限</dt>
+-        <dd data-testid="task-due-date">{task.dueDate}</dd>
+-      </dl>
+-    </main>
+-  );
+-}
+diff --git a/src/app/tasks/page.tsx b/src/app/tasks/page.tsx
+deleted file mode 100644
+index 1da2fed..0000000
+--- a/src/app/tasks/page.tsx
++++ /dev/null
+@@ -1,56 +0,0 @@
+-import { requireUser } from "@/lib/session";
+-import { STATUS_LABELS, TASK_STATUSES, isTaskStatus, listTasks } from "@/lib/tasks";
+-
+-type Props = {
+-  searchParams: Promise<{ status?: string }>;
+-};
+-
+-export default async function TasksPage({ searchParams }: Props) {
+-  await requireUser();
+-  const params = await searchParams;
+-  const status = isTaskStatus(params.status) ? params.status : undefined;
+-  const tasks = listTasks({ status });
+-
+-  return (
+-    <main>
+-      <h1>タスク一覧</h1>
+-      <form method="get" aria-label="絞り込み">
+-        <label>
+-          ステータス{" "}
+-          <select name="status" defaultValue={status ?? ""}>
+-            <option value="">すべて</option>
+-            {TASK_STATUSES.map((s) => (
+-              <option key={s} value={s}>
+-                {STATUS_LABELS[s]}
+-              </option>
+-            ))}
+-          </select>
+-        </label>{" "}
+-        <button type="submit">絞り込む</button>
+-      </form>
+-      <table>
+-        <thead>
+-          <tr>
+-            <th>タイトル</th>
+-            <th>ステータス</th>
+-            <th>担当者</th>
+-            <th>期限</th>
+-          </tr>
+-        </thead>
+-        <tbody>
+-          {tasks.map((task) => (
+-            <tr key={task.id} data-testid="task-row">
+-              <td>
+-                <a href={`/tasks/${task.id}`}>{task.title}</a>
+-              </td>
+-              <td>{STATUS_LABELS[task.status]}</td>
+-              <td>{task.assignee}</td>
+-              <td>{task.dueDate}</td>
+-            </tr>
+-          ))}
+-        </tbody>
+-      </table>
+-      {tasks.length === 0 && <p>該当するタスクはありません。</p>}
+-    </main>
+-  );
+-}
+diff --git a/src/lib/api.ts b/src/lib/api.ts
+index 67d6604..6c4b009 100644
+--- a/src/lib/api.ts
++++ b/src/lib/api.ts
+@@ -1,5 +1,7 @@
+ // API Route 共通の処理（認証の確認とエラー応答）。
+ import { NextResponse } from "next/server";
++import { isAuthorizedJobRequest } from "./jobs.ts";
++import { logger } from "./logger.ts";
+ import { getCurrentUser } from "./session.ts";
+ import type { User } from "./users.ts";
+ 
+@@ -21,3 +23,10 @@ export async function readJson(request: Request): Promise<unknown> {
+     return undefined;
+   }
+ }
++
++/** 定期実行のジョブの API Route の最初に呼ぶ。JOBS_TOKEN で認証できなければ 401 の応答を返す。 */
++export function requireJobAuth(request: Request, job: string): NextResponse | undefined {
++  if (isAuthorizedJobRequest(request.headers.get("authorization"))) return undefined;
++  logger.warn("job.unauthorized", { job });
++  return jsonError(401, "認証に失敗しました");
++}
+diff --git a/src/lib/auth.ts b/src/lib/auth.ts
+index 7ce3c64..8ee89b7 100644
+--- a/src/lib/auth.ts
++++ b/src/lib/auth.ts
+@@ -13,12 +13,12 @@ const DUMMY_HASH = hashPassword(randomBytes(32).toString("hex"));
+ 
+ /** ID とパスワードが正しければユーザーを返す。 */
+ export function authenticate(userId: string, password: string, db: Db = getDb()): User | undefined {
+-  const row = db.prepare("SELECT id, name, password_hash FROM users WHERE id = ?").get(userId) as
+-    | { id: string; name: string; password_hash: string }
++  const row = db.prepare("SELECT id, name, password_hash, active FROM users WHERE id = ?").get(userId) as
++    | { id: string; name: string; password_hash: string; active: number }
+     | undefined;
+   const ok = verifyPassword(password, row?.password_hash || DUMMY_HASH);
+-  // パスワード未設定（ハッシュが空）のユーザーはログインさせない。
+-  if (!row || !row.password_hash || !ok) return undefined;
++  // パスワード未設定（ハッシュが空）のユーザーと、在籍していないユーザーはログインさせない。
++  if (!row || !row.password_hash || row.active !== 1 || !ok) return undefined;
+   return { id: row.id, name: row.name };
+ }
+ 
+@@ -33,7 +33,7 @@ export function createSession(userId: string, db: Db = getDb(), now: Date = new
+ export function getSessionUser(token: string | undefined, db: Db = getDb(), now: Date = new Date()): User | undefined {
+   if (!token) return undefined;
+   return db
+-    .prepare("SELECT u.id, u.name FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > ?")
++    .prepare("SELECT u.id, u.name FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > ? AND u.active = 1")
+     .get(token, now.toISOString()) as User | undefined;
+ }
+ 
+diff --git a/src/lib/calibrations.ts b/src/lib/calibrations.ts
+new file mode 100644
+index 0000000..68049fb
+--- /dev/null
++++ b/src/lib/calibrations.ts
+@@ -0,0 +1,124 @@
++// 校正記録。外部の校正機関での校正結果を登録する。
++// - 合格: 計測器の前回校正日を校正日に更新し、校正中だった計測器は使用中に戻す。
++// - 不合格: 計測器を使用停止にする（前回校正日は変えない）。
++import { getDb, transaction, type Db } from "./db/index.ts";
++import { isValidDate } from "./dates.ts";
++import { getInstrument, type Instrument, type ValidationResult } from "./instruments.ts";
++import { logger } from "./logger.ts";
++
++export type CalibrationResult = "pass" | "fail";
++
++export const RESULT_LABELS: Record<CalibrationResult, string> = { pass: "合格", fail: "不合格" };
++
++export type CalibrationRecord = {
++  id: number;
++  instrumentId: number;
++  calibratedOn: string; // YYYY-MM-DD
++  result: CalibrationResult;
++  agency: string;
++  certificateNo: string;
++  recordedBy: string;
++  recordedAt: string; // ISO 8601（UTC）
++};
++
++type Row = {
++  id: number;
++  instrument_id: number;
++  calibrated_on: string;
++  result: CalibrationResult;
++  agency: string;
++  certificate_no: string;
++  recorded_by: string;
++  recorded_at: string;
++};
++
++const COLUMNS = "id, instrument_id, calibrated_on, result, agency, certificate_no, recorded_by, recorded_at";
++
++function toRecord(r: Row): CalibrationRecord {
++  return {
++    id: r.id,
++    instrumentId: r.instrument_id,
++    calibratedOn: r.calibrated_on,
++    result: r.result,
++    agency: r.agency,
++    certificateNo: r.certificate_no,
++    recordedBy: r.recorded_by,
++    recordedAt: r.recorded_at,
++  };
++}
++
++/** 計測器の校正記録を、校正日の新しい順に返す。 */
++export function listCalibrations(instrumentId: number, db: Db = getDb()): CalibrationRecord[] {
++  const rows = db
++    .prepare(`SELECT ${COLUMNS} FROM calibration_records WHERE instrument_id = ? ORDER BY calibrated_on DESC, id DESC`)
++    .all(instrumentId) as Row[];
++  return rows.map(toRecord);
++}
++
++export type CalibrationInput = { calibratedOn: string; result: CalibrationResult; agency: string; certificateNo: string };
++
++export function validateCalibrationInput(body: unknown): ValidationResult<CalibrationInput> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  if (!isValidDate(b.calibratedOn)) errors.push("校正日は YYYY-MM-DD 形式で入力してください");
++  if (b.result !== "pass" && b.result !== "fail") errors.push("結果は pass（合格）か fail（不合格）で指定してください");
++  if (typeof b.agency !== "string" || b.agency.trim() === "" || b.agency.length > 100) {
++    errors.push("校正機関は 1〜100 文字で入力してください");
++  }
++  const cert = b.certificateNo ?? "";
++  if (typeof cert !== "string" || cert.length > 50) errors.push("証明書番号は 50 文字以内で入力してください");
++  if (errors.length > 0) return { ok: false, errors };
++  return {
++    ok: true,
++    value: {
++      calibratedOn: b.calibratedOn as string,
++      result: b.result as CalibrationResult,
++      agency: (b.agency as string).trim(),
++      certificateNo: (cert as string).trim(),
++    },
++  };
++}
++
++/** 校正記録を登録し、計測器の前回校正日・状態を更新する。計測器が無ければ undefined。 */
++export function recordCalibration(
++  instrumentId: number,
++  input: CalibrationInput,
++  recordedBy: string,
++  db: Db = getDb(),
++  now: Date = new Date(),
++): { record: CalibrationRecord; instrument: Instrument } | undefined {
++  const result = transaction(db, () => {
++    const instrument = getInstrument(instrumentId, db);
++    if (!instrument) return undefined;
++    const { lastInsertRowid } = db
++      .prepare(
++        `INSERT INTO calibration_records (instrument_id, calibrated_on, result, agency, certificate_no, recorded_by, recorded_at)
++         VALUES (?, ?, ?, ?, ?, ?, ?)`,
++      )
++      .run(instrumentId, input.calibratedOn, input.result, input.agency, input.certificateNo, recordedBy, now.toISOString());
++    if (input.result === "pass") {
++      // 古い校正日の記録を後から登録しても、前回校正日は戻さない
++      db.prepare(
++        `UPDATE instruments SET last_calibrated_on = MAX(last_calibrated_on, ?),
++           status = CASE WHEN status = 'calibrating' THEN 'in_use' ELSE status END
++         WHERE id = ?`,
++      ).run(input.calibratedOn, instrumentId);
++    } else {
++      db.prepare("UPDATE instruments SET status = 'suspended' WHERE id = ?").run(instrumentId);
++    }
++    const record = toRecord(db.prepare(`SELECT ${COLUMNS} FROM calibration_records WHERE id = ?`).get(Number(lastInsertRowid)) as Row);
++    return { record, instrument: getInstrument(instrumentId, db)! };
++  });
++  if (result?.record.result === "fail") {
++    logger.warn("calibration.failed", {
++      instrumentId,
++      managementNo: result.instrument.managementNo,
++      recordId: result.record.id,
++      status: result.instrument.status,
++    });
++  }
++  return result;
++}
+diff --git a/src/lib/dates.ts b/src/lib/dates.ts
+new file mode 100644
+index 0000000..9a73424
+--- /dev/null
++++ b/src/lib/dates.ts
+@@ -0,0 +1,16 @@
++// 日付の扱い。日付（YYYY-MM-DD）は日本時間の暦日で、日時は UTC の ISO 8601 で扱う。
++const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
++
++/** YYYY-MM-DD 形式で、実在する日付なら true（2027-02-29 などは false）。 */
++export function isValidDate(value: unknown): value is string {
++  if (typeof value !== "string") return false;
++  const m = DATE_RE.exec(value);
++  if (!m) return false;
++  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
++  return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
++}
++
++/** 日本時間での今日の日付（YYYY-MM-DD）。利用者は全員日本国内にいる。 */
++export function todayJst(now: Date = new Date()): string {
++  return new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
++}
+diff --git a/src/lib/db/index.ts b/src/lib/db/index.ts
+index 27530d3..92d91dd 100644
+--- a/src/lib/db/index.ts
++++ b/src/lib/db/index.ts
+@@ -5,7 +5,14 @@
+ import { DatabaseSync } from "node:sqlite";
+ import { MIGRATIONS, type Migration } from "./migrations.ts";
+ import { hashPassword } from "../password.ts";
+-import { SEED_PASSWORD, SEED_TASKS, SEED_USERS } from "./seed.ts";
++import {
++  SEED_CALIBRATIONS,
++  SEED_DEPARTMENTS,
++  SEED_INSTRUMENTS,
++  SEED_LOANS,
++  SEED_PASSWORD,
++  SEED_USERS,
++} from "./seed.ts";
+ 
+ export type Db = DatabaseSync;
+ 
+@@ -24,10 +31,33 @@ export function seed(db: Db): void {
+   const { n } = db.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number };
+   if (n > 0) return;
+   transaction(db, () => {
+-    const insertUser = db.prepare("INSERT INTO users (id, name, password_hash) VALUES (?, ?, ?)");
+-    for (const u of SEED_USERS) insertUser.run(u.id, u.name, hashPassword(SEED_PASSWORD));
+-    const insertTask = db.prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES (?, ?, ?, ?)");
+-    for (const t of SEED_TASKS) insertTask.run(t.title, t.status, t.assignee, t.dueDate);
++    const insertDept = db.prepare("INSERT INTO departments (id, name, representative_id) VALUES (?, ?, ?)");
++    for (const d of SEED_DEPARTMENTS) insertDept.run(d.id, d.name, d.representativeId);
++    const insertUser = db.prepare(
++      "INSERT INTO users (id, name, department_id, active, password_hash) VALUES (?, ?, ?, ?, ?)",
++    );
++    const hash = hashPassword(SEED_PASSWORD);
++    for (const u of SEED_USERS) insertUser.run(u.id, u.name, u.departmentId, u.active ? 1 : 0, hash);
++    const insertInstrument = db.prepare(
++      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, extra)
++       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++    );
++    for (const i of SEED_INSTRUMENTS) {
++      insertInstrument.run(i.managementNo, i.name, i.model, i.location, i.managerId, i.intervalMonths, i.lastCalibratedOn, i.status, i.extra);
++    }
++    const idOf = (no: string) =>
++      (db.prepare("SELECT id FROM instruments WHERE management_no = ?").get(no) as { id: number }).id;
++    const insertLoan = db.prepare(
++      "INSERT INTO loans (instrument_id, borrower_id, borrowed_at, due_on, returned_at) VALUES (?, ?, ?, ?, ?)",
++    );
++    for (const l of SEED_LOANS) insertLoan.run(idOf(l.managementNo), l.borrowerId, l.borrowedAt, l.dueOn, l.returnedAt);
++    const insertCal = db.prepare(
++      `INSERT INTO calibration_records (instrument_id, calibrated_on, result, agency, certificate_no, recorded_by, recorded_at)
++       VALUES (?, ?, ?, ?, ?, ?, ?)`,
++    );
++    for (const c of SEED_CALIBRATIONS) {
++      insertCal.run(idOf(c.managementNo), c.calibratedOn, c.result, c.agency, c.certificateNo, c.recordedBy, c.recordedAt);
++    }
+   });
+ }
+ 
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 4e1b0a4..b4bb1e4 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -1,4 +1,5 @@
+ // スキーマのマイグレーション。PRAGMA user_version で適用済みの番号を管理する。
++// 本番の DB（DATABASE_PATH のファイル）には適用済みの番号が残っているため、
+ // 既存のマイグレーションは書き換えず、変更は末尾に新しい番号で追加する。
+ export type Migration = {
+   version: number;
+@@ -9,20 +10,20 @@ export type Migration = {
+ export const MIGRATIONS: readonly Migration[] = [
+   {
+     version: 1,
+-    name: "users_and_tasks",
++    name: "users_and_departments",
+     sql: `
+-      CREATE TABLE users (
+-        id   TEXT PRIMARY KEY,
+-        name TEXT NOT NULL
++      CREATE TABLE departments (
++        id                TEXT PRIMARY KEY,
++        name              TEXT NOT NULL,
++        representative_id TEXT -- 部署の代表者（users.id）
+       );
+-      CREATE TABLE tasks (
+-        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+-        title    TEXT NOT NULL,
+-        status   TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'done')),
+-        assignee TEXT NOT NULL REFERENCES users(id),
+-        due_date TEXT NOT NULL
++      CREATE TABLE users (
++        id            TEXT PRIMARY KEY,
++        name          TEXT NOT NULL,
++        department_id TEXT NOT NULL REFERENCES departments(id),
++        active        INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)) -- 0 = 退職・休職など
+       );
+-      CREATE INDEX tasks_assignee ON tasks(assignee);
++      CREATE INDEX users_department ON users(department_id);
+     `,
+   },
+   {
+@@ -38,4 +39,56 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX sessions_user ON sessions(user_id);
+     `,
+   },
++  {
++    version: 3,
++    name: "instruments",
++    sql: `
++      CREATE TABLE instruments (
++        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
++        management_no      TEXT NOT NULL UNIQUE,
++        name               TEXT NOT NULL,
++        model              TEXT NOT NULL DEFAULT '',
++        location           TEXT NOT NULL DEFAULT '',
++        manager_id         TEXT NOT NULL REFERENCES users(id),
++        interval_months    INTEGER NOT NULL CHECK (interval_months BETWEEN 1 AND 120),
++        last_calibrated_on TEXT NOT NULL, -- YYYY-MM-DD
++        status             TEXT NOT NULL DEFAULT 'in_use'
++                           CHECK (status IN ('in_use', 'on_loan', 'calibrating', 'suspended', 'disposed')),
++        note               TEXT NOT NULL DEFAULT ''
++      );
++      CREATE INDEX instruments_manager ON instruments(manager_id);
++    `,
++  },
++  {
++    version: 4,
++    name: "loans_and_calibrations",
++    sql: `
++      CREATE TABLE loans (
++        id            INTEGER PRIMARY KEY AUTOINCREMENT,
++        instrument_id INTEGER NOT NULL REFERENCES instruments(id),
++        borrower_id   TEXT NOT NULL REFERENCES users(id),
++        borrowed_at   TEXT NOT NULL, -- ISO 8601（UTC）
++        due_on        TEXT NOT NULL, -- 返却予定日 YYYY-MM-DD
++        returned_at   TEXT           -- ISO 8601（UTC）。未返却なら NULL
++      );
++      CREATE INDEX loans_instrument ON loans(instrument_id);
++      CREATE TABLE calibration_records (
++        id             INTEGER PRIMARY KEY AUTOINCREMENT,
++        instrument_id  INTEGER NOT NULL REFERENCES instruments(id),
++        calibrated_on  TEXT NOT NULL, -- YYYY-MM-DD
++        result         TEXT NOT NULL CHECK (result IN ('pass', 'fail')),
++        agency         TEXT NOT NULL, -- 校正機関
++        certificate_no TEXT NOT NULL DEFAULT '',
++        recorded_by    TEXT NOT NULL REFERENCES users(id),
++        recorded_at    TEXT NOT NULL  -- ISO 8601（UTC）
++      );
++      CREATE INDEX calibration_records_instrument ON calibration_records(instrument_id);
++    `,
++  },
++  {
++    // 2026-08 追加。細かい項目は extra（JSON の文字列）にまとめて入れる。列を増やさなくて済む。
++    version: 5,
++    name: "instrument_extra",
++    sql: `ALTER TABLE instruments ADD COLUMN extra TEXT NOT NULL DEFAULT '{}';`,
++  },
+ ];
+diff --git a/src/lib/db/seed.ts b/src/lib/db/seed.ts
+index eb745e0..91110b1 100644
+--- a/src/lib/db/seed.ts
++++ b/src/lib/db/seed.ts
+@@ -2,18 +2,54 @@
+ 
+ /** 初期ユーザー共通のパスワード（PoC の検証用。本番では使わない）。 */
+ export const SEED_PASSWORD = "password";
++
++export const SEED_DEPARTMENTS = [
++  { id: "qa", name: "品質保証部", representativeId: "kimura" },
++  { id: "mfg", name: "製造部", representativeId: "yamada" },
++  { id: "field", name: "工事部", representativeId: "sasaki" },
++] as const;
++
+ export const SEED_USERS = [
+-  { id: "sato", name: "佐藤" },
+-  { id: "suzuki", name: "鈴木" },
+-  { id: "tanaka", name: "田中" },
++  { id: "sato", name: "佐藤", departmentId: "qa", active: true },
++  { id: "suzuki", name: "鈴木", departmentId: "mfg", active: true },
++  { id: "tanaka", name: "田中", departmentId: "field", active: true },
++  { id: "kimura", name: "木村", departmentId: "qa", active: true },
++  { id: "yamada", name: "山田", departmentId: "mfg", active: true },
++  { id: "sasaki", name: "佐々木", departmentId: "field", active: true },
++  { id: "takahashi", name: "高橋", departmentId: "qa", active: true },
++  { id: "ito", name: "伊藤", departmentId: "mfg", active: true },
++  { id: "watanabe", name: "渡辺", departmentId: "mfg", active: true },
++  { id: "yamamoto", name: "山本", departmentId: "field", active: true },
++  { id: "kobayashi", name: "小林", departmentId: "field", active: true },
++  { id: "kato", name: "加藤", departmentId: "qa", active: true },
++  { id: "yoshida", name: "吉田", departmentId: "mfg", active: true },
++  { id: "matsumoto", name: "松本", departmentId: "field", active: true },
++  { id: "hayashi", name: "林", departmentId: "qa", active: true },
++  { id: "shimizu", name: "清水", departmentId: "field", active: true },
++  { id: "inoue", name: "井上", departmentId: "mfg", active: false }, // 2026-09 退職
++  { id: "kondo", name: "近藤", departmentId: "field", active: false }, // 休職中
++] as const;
++
++export const SEED_INSTRUMENTS = [
++  { managementNo: "MI-0001", name: "デジタルマルチメータ", model: "DMM-7510", location: "品質保証部 測定室", managerId: "sato", intervalMonths: 12, lastCalibratedOn: "2026-01-20", status: "in_use", extra: "{\"dept\": \"品質保証部\", \"inspector\": \"佐藤\", \"last_inspected\": \"2026-09-01\"}" },
++  { managementNo: "MI-0002", name: "絶縁抵抗計", model: "IR-4056", location: "工事部 倉庫", managerId: "tanaka", intervalMonths: 12, lastCalibratedOn: "2025-12-08", status: "on_loan", extra: "{\"dept\": \"工事部\"}" },
++  { managementNo: "MI-0003", name: "トルクレンチ", model: "TW-200N", location: "製造部 第 1 ライン", managerId: "suzuki", intervalMonths: 6, lastCalibratedOn: "2026-06-03", status: "in_use", extra: "{\"dept\": \"製造部\", \"inspector\": \"鈴木さん\", \"last_inspected\": \"2026/8/20\", \"memo\": \"ヘッドのガタ注意\"}" },
++  { managementNo: "MI-0004", name: "ノギス", model: "CD-150AX", location: "製造部 第 2 ライン", managerId: "inoue", intervalMonths: 12, lastCalibratedOn: "2025-11-27", status: "in_use", extra: "{\"dept\": \"製造部\", \"inspector\": \"井上\", \"last_inspected\": \"2026-07-15\"}" },
++  { managementNo: "MI-0005", name: "接地抵抗計", model: "ER-4105", location: "工事部 倉庫", managerId: "tanaka", intervalMonths: 24, lastCalibratedOn: "2025-02-14", status: "calibrating", extra: "{\"dept\": \"工事部\", \"memo\": \"校正中（東日本計測サービス）\"}" },
++  { managementNo: "MI-0006", name: "クランプメータ", model: "CM-2033", location: "工事部 倉庫", managerId: "yamamoto", intervalMonths: 12, lastCalibratedOn: "2026-03-11", status: "in_use", extra: "{\"dept\": \"工事部\", \"inspector\": \"山本\", \"last_inspected\": \"R8.9.10\"}" },
++  { managementNo: "MI-0007", name: "マイクロメータ", model: "MDC-25", location: "品質保証部 測定室", managerId: "kimura", intervalMonths: 12, lastCalibratedOn: "2025-10-30", status: "suspended", extra: "{\"dept\": \"品証\"}" },
++  { managementNo: "MI-0008", name: "検電器", model: "HT-610", location: "工事部 車両 3 号", managerId: "kobayashi", intervalMonths: 12, lastCalibratedOn: "2024-08-01", status: "disposed", extra: "{}" },
++  { managementNo: "MI-0009", name: "オシロスコープ", model: "DS-1054", location: "品質保証部 測定室", managerId: "takahashi", intervalMonths: 12, lastCalibratedOn: "2026-05-19", status: "in_use", extra: "{\"dept\": \"品質保証部\", \"inspector\": \"外部委託\", \"last_inspected\": \"2026-10-02\"}" },
++  { managementNo: "MI-0010", name: "温湿度計", model: "TR-72", location: "製造部 恒温室", managerId: "ito", intervalMonths: 12, lastCalibratedOn: "2025-12-25", status: "in_use", extra: "{\"dept\": \"製造部\", \"inspector\": \"伊藤\", \"last_inspected\": \"2026-10-20\", \"memo\": \"恒温室の鍵は守衛室\"}" },
++] as const;
++
++/** 初期の貸出（返却予定日は YYYY-MM-DD、貸出日時は UTC）。MI-0002 を貸出中にする。 */
++export const SEED_LOANS = [
++  { managementNo: "MI-0002", borrowerId: "matsumoto", borrowedAt: "2026-11-02T00:15:00.000Z", dueOn: "2026-11-13", returnedAt: null },
++  { managementNo: "MI-0006", borrowerId: "shimizu", borrowedAt: "2026-10-05T23:40:00.000Z", dueOn: "2026-10-09", returnedAt: "2026-10-09T08:10:00.000Z" },
+ ] as const;
+ 
+-export const SEED_TASKS = [
+-  { title: "要件定義書のレビュー", status: "done", assignee: "sato", dueDate: "2026-11-02" },
+-  { title: "ログイン画面のデザイン", status: "in_progress", assignee: "suzuki", dueDate: "2026-11-12" },
+-  { title: "API 設計", status: "in_progress", assignee: "sato", dueDate: "2026-11-14" },
+-  { title: "DB スキーマ作成", status: "todo", assignee: "tanaka", dueDate: "2026-11-18" },
+-  { title: "CI の整備", status: "todo", assignee: "suzuki", dueDate: "2026-11-20" },
+-  { title: "E2E テストの追加", status: "todo", assignee: "sato", dueDate: "2026-11-25" },
+-  { title: "リリースノート作成", status: "done", assignee: "tanaka", dueDate: "2026-11-05" },
++export const SEED_CALIBRATIONS = [
++  { managementNo: "MI-0001", calibratedOn: "2026-01-20", result: "pass", agency: "東日本計測サービス", certificateNo: "EJ-26-00113", recordedBy: "sato", recordedAt: "2026-01-23T02:00:00.000Z" },
++  { managementNo: "MI-0007", calibratedOn: "2026-10-30", result: "fail", agency: "東日本計測サービス", certificateNo: "EJ-26-01876", recordedBy: "kimura", recordedAt: "2026-11-02T05:30:00.000Z" },
+ ] as const;
+diff --git a/src/lib/instruments.ts b/src/lib/instruments.ts
+new file mode 100644
+index 0000000..2cbb2b8
+--- /dev/null
++++ b/src/lib/instruments.ts
+@@ -0,0 +1,248 @@
++// 計測器の台帳。
++import { getDb, type Db } from "./db/index.ts";
++import { isValidDate } from "./dates.ts";
++
++export type InstrumentStatus = "in_use" | "on_loan" | "calibrating" | "suspended" | "disposed";
++
++export type Instrument = {
++  id: number;
++  managementNo: string; // 管理番号（例: MI-0001）
++  name: string;
++  model: string; // 型式
++  location: string; // 設置場所
++  managerId: string; // 管理者（users.id）
++  intervalMonths: number; // 校正周期（月）
++  lastCalibratedOn: string; // 前回校正日 YYYY-MM-DD
++  status: InstrumentStatus;
++  note: string;
++  extra: Record<string, unknown>; // その他の項目（担当部署 dept・点検者 inspector・最終点検日 last_inspected・メモ memo など）
++};
++
++export const INSTRUMENT_STATUSES: readonly InstrumentStatus[] = ["in_use", "on_loan", "calibrating", "suspended", "disposed"];
++
++export const STATUS_LABELS: Record<InstrumentStatus, string> = {
++  in_use: "使用中",
++  on_loan: "貸出中",
++  calibrating: "校正中",
++  suspended: "使用停止",
++  disposed: "廃棄",
++};
++
++/** 台帳の編集で直接設定できる状態。貸出中は貸出・返却の操作でだけ変わる。 */
++export const EDITABLE_STATUSES: readonly InstrumentStatus[] = ["in_use", "calibrating", "suspended", "disposed"];
++
++export function isInstrumentStatus(value: unknown): value is InstrumentStatus {
++  return typeof value === "string" && (INSTRUMENT_STATUSES as readonly string[]).includes(value);
++}
++
++export type InstrumentFilter = {
++  status?: InstrumentStatus;
++  managerId?: string;
++  dept?: string;
++};
++
++type InstrumentRow = {
++  id: number;
++  management_no: string;
++  name: string;
++  model: string;
++  location: string;
++  manager_id: string;
++  interval_months: number;
++  last_calibrated_on: string;
++  status: InstrumentStatus;
++  note: string;
++  extra: string;
++};
++
++const COLUMNS =
++  "id, management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note, extra";
++
++function parseExtra(text: string): Record<string, unknown> {
++  try {
++    const v = JSON.parse(text);
++    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
++  } catch {
++    return {};
++  }
++}
++
++/** extra の文字列の項目を取り出す。無ければ空文字。 */
++export function extraText(instrument: Instrument, key: string): string {
++  const v = instrument.extra[key];
++  return typeof v === "string" ? v : "";
++}
++
++function toInstrument(row: InstrumentRow): Instrument {
++  return {
++    id: row.id,
++    managementNo: row.management_no,
++    name: row.name,
++    model: row.model,
++    location: row.location,
++    managerId: row.manager_id,
++    intervalMonths: row.interval_months,
++    lastCalibratedOn: row.last_calibrated_on,
++    status: row.status,
++    note: row.note,
++    extra: parseExtra(row.extra),
++  };
++}
++
++export function listInstruments(filter: InstrumentFilter = {}, db: Db = getDb()): Instrument[] {
++  const rows = db
++    .prepare(
++      `SELECT ${COLUMNS} FROM instruments
++       WHERE (:status IS NULL OR status = :status) AND (:manager IS NULL OR manager_id = :manager)
++       ORDER BY management_no`,
++    )
++    .all({ status: filter.status ?? null, manager: filter.managerId ?? null }) as InstrumentRow[];
++  const list = rows.map(toInstrument);
++  // 担当部署は extra に入っているので、読み出してから絞り込む
++  if (filter.dept) return list.filter((i) => extraText(i, "dept") === filter.dept);
++  return list;
++}
++
++export function getInstrument(id: number, db: Db = getDb()): Instrument | undefined {
++  const row = db.prepare(`SELECT ${COLUMNS} FROM instruments WHERE id = ?`).get(id) as InstrumentRow | undefined;
++  return row && toInstrument(row);
++}
++
++/** URL のパスの ID を検証する。正の整数でなければ undefined。 */
++export function parseId(value: unknown): number | undefined {
++  if (typeof value !== "string" || !/^[1-9][0-9]{0,9}$/.test(value)) return undefined;
++  return Number(value);
++}
++
++export type InstrumentInput = Omit<Instrument, "id" | "extra"> & { extra?: Record<string, unknown> };
++
++export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
++
++const MANAGEMENT_NO_RE = /^[A-Z]{2}-\d{4}$/;
++
++function text(b: Record<string, unknown>, key: string, max: number, required: boolean): string | undefined {
++  const v = b[key];
++  if (typeof v !== "string" || v.length > max || (required && v.trim() === "")) return undefined;
++  return v.trim();
++}
++
++/**
++ * API に送られた計測器の内容を検証する。partial = true（更新）のときは、送られた項目だけを検証する。
++ * 管理者が存在するかは DB で確認する。貸出中（on_loan）は貸出の操作でだけ設定できる。
++ */
++export function validateInstrumentInput(
++  body: unknown,
++  options: { partial?: boolean } = {},
++  db: Db = getDb(),
++): ValidationResult<Partial<InstrumentInput>> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  const value: Partial<InstrumentInput> = {};
++  const need = (key: string) => !options.partial || key in b;
++
++  if (need("managementNo")) {
++    if (typeof b.managementNo !== "string" || !MANAGEMENT_NO_RE.test(b.managementNo)) {
++      errors.push("管理番号は「MI-0001」の形式で入力してください");
++    } else value.managementNo = b.managementNo;
++  }
++  if (need("name")) {
++    const v = text(b, "name", 100, true);
++    if (v === undefined) errors.push("名称は 1〜100 文字で入力してください");
++    else value.name = v;
++  }
++  for (const [key, label] of [["model", "型式"], ["location", "設置場所"]] as const) {
++    if (key in b || !options.partial) {
++      const v = key in b ? text(b, key, 100, false) : "";
++      if (v === undefined) errors.push(`${label}は 100 文字以内で入力してください`);
++      else value[key] = v;
++    }
++  }
++  if ("note" in b || !options.partial) {
++    const v = "note" in b ? text(b, "note", 1000, false) : "";
++    if (v === undefined) errors.push("備考は 1000 文字以内で入力してください");
++    else value.note = v;
++  }
++  if (need("managerId")) {
++    const exists =
++      typeof b.managerId === "string" && db.prepare("SELECT 1 FROM users WHERE id = ?").get(b.managerId) !== undefined;
++    if (!exists) errors.push("管理者が存在しません");
++    else value.managerId = b.managerId as string;
++  }
++  if (need("intervalMonths")) {
++    if (!Number.isInteger(b.intervalMonths) || (b.intervalMonths as number) < 1 || (b.intervalMonths as number) > 120) {
++      errors.push("校正周期は 1〜120 か月の整数で入力してください");
++    } else value.intervalMonths = b.intervalMonths as number;
++  }
++  if (need("lastCalibratedOn")) {
++    if (!isValidDate(b.lastCalibratedOn)) errors.push("前回校正日は YYYY-MM-DD 形式で入力してください");
++    else value.lastCalibratedOn = b.lastCalibratedOn;
++  }
++  if ("extra" in b) {
++    // その他の項目は、送られたものをそのまま既存の extra に重ねる（null を送るとその項目を消す）
++    if (typeof b.extra !== "object" || b.extra === null || Array.isArray(b.extra)) errors.push("その他の項目の形式が正しくありません");
++    else value.extra = b.extra as Record<string, unknown>;
++  }
++  if ("status" in b || !options.partial) {
++    const s = "status" in b ? b.status : "in_use";
++    if (!isInstrumentStatus(s) || !EDITABLE_STATUSES.includes(s)) errors.push("状態が正しくありません");
++    else value.status = s;
++  }
++  return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
++}
++
++export function managementNoExists(managementNo: string, db: Db = getDb()): boolean {
++  return db.prepare("SELECT 1 FROM instruments WHERE management_no = ?").get(managementNo) !== undefined;
++}
++
++export function createInstrument(input: InstrumentInput, db: Db = getDb()): Instrument {
++  const { lastInsertRowid } = db
++    .prepare(
++      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note, extra)
++       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++    )
++    .run(
++      input.managementNo,
++      input.name,
++      input.model,
++      input.location,
++      input.managerId,
++      input.intervalMonths,
++      input.lastCalibratedOn,
++      input.status,
++      input.note,
++      JSON.stringify(input.extra ?? {}),
++    );
++  return getInstrument(Number(lastInsertRowid), db)!;
++}
++
++/** 指定した項目だけを更新する。計測器が無ければ undefined。 */
++export function updateInstrument(id: number, changes: Partial<InstrumentInput>, db: Db = getDb()): Instrument | undefined {
++  const current = getInstrument(id, db);
++  if (!current) return undefined;
++  const extra: Record<string, unknown> = { ...current.extra };
++  for (const [k, v] of Object.entries(changes.extra ?? {})) {
++    if (v === null) delete extra[k];
++    else extra[k] = v;
++  }
++  const next = { ...current, ...changes, extra };
++  db.prepare(
++    `UPDATE instruments SET management_no = ?, name = ?, model = ?, location = ?, manager_id = ?, interval_months = ?,
++       last_calibrated_on = ?, status = ?, note = ?, extra = ? WHERE id = ?`,
++  ).run(
++    next.managementNo,
++    next.name,
++    next.model,
++    next.location,
++    next.managerId,
++    next.intervalMonths,
++    next.lastCalibratedOn,
++    next.status,
++    next.note,
++    JSON.stringify(next.extra),
++    id,
++  );
++  return getInstrument(id, db);
++}
+diff --git a/src/lib/jobs.ts b/src/lib/jobs.ts
+new file mode 100644
+index 0000000..e1aaf27
+--- /dev/null
++++ b/src/lib/jobs.ts
+@@ -0,0 +1,12 @@
++// 定期実行のジョブ（運用チームの cron が POST /api/jobs/<ジョブ名> を呼ぶ）の認証。
++// 利用者のログインではなく、環境変数 JOBS_TOKEN と一致する Bearer トークンで認証する（docs/operations.md）。
++// API Route からは src/lib/api.ts の requireJobAuth() を使う。
++import { timingSafeEqual } from "node:crypto";
++
++/** ヘッダーのトークンが JOBS_TOKEN と一致すれば true。JOBS_TOKEN が未設定なら常に false。 */
++export function isAuthorizedJobRequest(authorization: string | null, expected = process.env.JOBS_TOKEN): boolean {
++  if (!expected || !authorization?.startsWith("Bearer ")) return false;
++  const given = Buffer.from(authorization.slice("Bearer ".length));
++  const want = Buffer.from(expected);
++  return given.length === want.length && timingSafeEqual(given, want);
++}
+diff --git a/src/lib/loans.ts b/src/lib/loans.ts
+new file mode 100644
+index 0000000..4d3009e
+--- /dev/null
++++ b/src/lib/loans.ts
+@@ -0,0 +1,111 @@
++// 計測器の貸出と返却。貸し出すと計測器の状態は「貸出中」、返却すると「使用中」に戻る。
++import { getDb, transaction, type Db } from "./db/index.ts";
++import { isValidDate } from "./dates.ts";
++import { getInstrument } from "./instruments.ts";
++import { isActiveUser } from "./users.ts";
++import type { ValidationResult } from "./instruments.ts";
++
++export type Loan = {
++  id: number;
++  instrumentId: number;
++  borrowerId: string;
++  borrowedAt: string; // ISO 8601（UTC）
++  dueOn: string; // 返却予定日 YYYY-MM-DD
++  returnedAt: string | null;
++};
++
++type LoanRow = {
++  id: number;
++  instrument_id: number;
++  borrower_id: string;
++  borrowed_at: string;
++  due_on: string;
++  returned_at: string | null;
++};
++
++function toLoan(r: LoanRow): Loan {
++  return {
++    id: r.id,
++    instrumentId: r.instrument_id,
++    borrowerId: r.borrower_id,
++    borrowedAt: r.borrowed_at,
++    dueOn: r.due_on,
++    returnedAt: r.returned_at,
++  };
++}
++
++const COLUMNS = "id, instrument_id, borrower_id, borrowed_at, due_on, returned_at";
++
++/** 計測器の貸出の記録を、新しい順に返す。 */
++export function listLoans(instrumentId: number, db: Db = getDb()): Loan[] {
++  const rows = db
++    .prepare(`SELECT ${COLUMNS} FROM loans WHERE instrument_id = ? ORDER BY borrowed_at DESC, id DESC`)
++    .all(instrumentId) as LoanRow[];
++  return rows.map(toLoan);
++}
++
++/** 返却されていない貸出（無ければ undefined）。 */
++export function currentLoan(instrumentId: number, db: Db = getDb()): Loan | undefined {
++  const row = db
++    .prepare(`SELECT ${COLUMNS} FROM loans WHERE instrument_id = ? AND returned_at IS NULL ORDER BY id DESC LIMIT 1`)
++    .get(instrumentId) as LoanRow | undefined;
++  return row && toLoan(row);
++}
++
++export type LoanInput = { borrowerId: string; dueOn: string };
++
++export function validateLoanInput(body: unknown, db: Db = getDb()): ValidationResult<LoanInput> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  if (typeof b.borrowerId !== "string" || !isActiveUser(b.borrowerId, db)) errors.push("借りる人が存在しません");
++  if (!isValidDate(b.dueOn)) errors.push("返却予定日は YYYY-MM-DD 形式で入力してください");
++  return errors.length > 0
++    ? { ok: false, errors }
++    : { ok: true, value: { borrowerId: b.borrowerId as string, dueOn: b.dueOn as string } };
++}
++
++export type LendResult = { ok: true; loan: Loan } | { ok: false; reason: "not_found" | "not_available" };
++
++/** 使用中の計測器を貸し出す。使用中でなければ貸し出せない。 */
++export function lendInstrument(instrumentId: number, input: LoanInput, db: Db = getDb(), now: Date = new Date()): LendResult {
++  return transaction(db, () => {
++    const instrument = getInstrument(instrumentId, db);
++    if (!instrument) return { ok: false, reason: "not_found" } as const;
++    if (instrument.status !== "in_use") return { ok: false, reason: "not_available" } as const;
++    const { lastInsertRowid } = db
++      .prepare("INSERT INTO loans (instrument_id, borrower_id, borrowed_at, due_on) VALUES (?, ?, ?, ?)")
++      .run(instrumentId, input.borrowerId, now.toISOString(), input.dueOn);
++    db.prepare("UPDATE instruments SET status = 'on_loan' WHERE id = ?").run(instrumentId);
++    const loan = db.prepare(`SELECT ${COLUMNS} FROM loans WHERE id = ?`).get(Number(lastInsertRowid)) as LoanRow;
++    return { ok: true, loan: toLoan(loan) } as const;
++  });
++}
++
++/** 貸出を返却済みにし、計測器を使用中に戻す。対象の貸出が無い・返却済みなら undefined。 */
++export function returnLoan(instrumentId: number, loanId: number, db: Db = getDb(), now: Date = new Date()): Loan | undefined {
++  return transaction(db, () => {
++    const { changes } = db
++      .prepare("UPDATE loans SET returned_at = ? WHERE id = ? AND instrument_id = ? AND returned_at IS NULL")
++      .run(now.toISOString(), loanId, instrumentId);
++    if (changes === 0) return undefined;
++    db.prepare("UPDATE instruments SET status = 'in_use' WHERE id = ? AND status = 'on_loan'").run(instrumentId);
++    return toLoan(db.prepare(`SELECT ${COLUMNS} FROM loans WHERE id = ?`).get(loanId) as LoanRow);
++  });
++}
++
++export type OverdueLoan = Loan & { managementNo: string };
++
++/** 返却予定日（日本時間の日付）を過ぎても返却されていない貸出。 */
++export function listOverdueLoans(today: string, db: Db = getDb()): OverdueLoan[] {
++  const rows = db
++    .prepare(
++      `SELECT l.id, l.instrument_id, l.borrower_id, l.borrowed_at, l.due_on, l.returned_at, i.management_no
++       FROM loans l JOIN instruments i ON i.id = l.instrument_id
++       WHERE l.returned_at IS NULL AND l.due_on < ? ORDER BY l.due_on, l.id`,
++    )
++    .all(today) as (LoanRow & { management_no: string })[];
++  return rows.map((r) => ({ ...toLoan(r), managementNo: r.management_no }));
++}
+diff --git a/src/lib/logger.ts b/src/lib/logger.ts
+new file mode 100644
+index 0000000..26711a0
+--- /dev/null
++++ b/src/lib/logger.ts
+@@ -0,0 +1,22 @@
++// 構造化ログ。1 行に 1 つの JSON を標準出力（error は標準エラー）に書く。
++// 例: logger.info("loan.overdue", { count: 2 }) → {"ts":"2026-11-10T00:00:00.000Z","level":"info","event":"loan.overdue","count":2}
++// パスワード・トークンなどの秘密情報はフィールドに入れない。
++type Level = "debug" | "info" | "warn" | "error";
++type Fields = Record<string, unknown>;
++
++function write(level: Level, event: string, fields: Fields = {}): void {
++  const line = JSON.stringify({ ts: new Date().toISOString(), level, event, ...fields }, (_key, value) =>
++    value instanceof Error ? { name: value.name, message: value.message } : value,
++  );
++  if (level === "error") process.stderr.write(line + "\n");
++  else process.stdout.write(line + "\n");
++}
++
++export const logger = {
++  debug: (event: string, fields?: Fields) => {
++    if (process.env.LOG_LEVEL === "debug") write("debug", event, fields);
++  },
++  info: (event: string, fields?: Fields) => write("info", event, fields),
++  warn: (event: string, fields?: Fields) => write("warn", event, fields),
++  error: (event: string, fields?: Fields) => write("error", event, fields),
++};
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+deleted file mode 100644
+index b533ce9..0000000
+--- a/src/lib/tasks.ts
++++ /dev/null
+@@ -1,121 +0,0 @@
+-import { getDb, type Db } from "./db/index.ts";
+-
+-export type TaskStatus = "todo" | "in_progress" | "done";
+-
+-export type Task = {
+-  id: number;
+-  title: string;
+-  status: TaskStatus;
+-  assignee: string;
+-  dueDate: string; // YYYY-MM-DD
+-};
+-
+-export const TASK_STATUSES: readonly TaskStatus[] = ["todo", "in_progress", "done"];
+-
+-export const STATUS_LABELS: Record<TaskStatus, string> = {
+-  todo: "未着手",
+-  in_progress: "進行中",
+-  done: "完了",
+-};
+-
+-export function isTaskStatus(value: unknown): value is TaskStatus {
+-  return typeof value === "string" && (TASK_STATUSES as readonly string[]).includes(value);
+-}
+-
+-export type TaskFilter = {
+-  status?: TaskStatus;
+-};
+-
+-type TaskRow = { id: number; title: string; status: TaskStatus; assignee: string; due_date: string };
+-
+-function toTask(row: TaskRow): Task {
+-  return { id: row.id, title: row.title, status: row.status, assignee: row.assignee, dueDate: row.due_date };
+-}
+-
+-export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
+-  const rows = db
+-    .prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id")
+-    .all({ status: filter.status ?? null }) as TaskRow[];
+-  return rows.map(toTask);
+-}
+-
+-export function getTask(id: number, db: Db = getDb()): Task | undefined {
+-  const row = db.prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE id = ?").get(id) as
+-    | TaskRow
+-    | undefined;
+-  return row && toTask(row);
+-}
+-
+-/** URL のパス・クエリの ID を検証する。正の整数でなければ undefined。 */
+-export function parseTaskId(value: unknown): number | undefined {
+-  if (typeof value !== "string" || !/^[1-9][0-9]{0,9}$/.test(value)) return undefined;
+-  return Number(value);
+-}
+-
+-export type TaskInput = Omit<Task, "id">;
+-
+-export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
+-
+-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+-
+-/**
+- * API に送られたタスクの内容を検証する。partial = true（更新）のときは、送られた項目だけを検証する。
+- * 担当者が存在するかは DB で確認する。
+- */
+-export function validateTaskInput(
+-  body: unknown,
+-  options: { partial?: boolean } = {},
+-  db: Db = getDb(),
+-): ValidationResult<Partial<TaskInput>> {
+-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+-    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
+-  }
+-  const b = body as Record<string, unknown>;
+-  const errors: string[] = [];
+-  const value: Partial<TaskInput> = {};
+-  const need = (key: string) => !options.partial || key in b;
+-
+-  if (need("title")) {
+-    if (typeof b.title !== "string" || b.title.trim() === "" || b.title.length > 200) {
+-      errors.push("タイトルは 1〜200 文字で入力してください");
+-    } else value.title = b.title.trim();
+-  }
+-  if (need("status")) {
+-    if (!isTaskStatus(b.status)) errors.push("ステータスが正しくありません");
+-    else value.status = b.status;
+-  }
+-  if (need("assignee")) {
+-    const exists =
+-      typeof b.assignee === "string" && db.prepare("SELECT 1 FROM users WHERE id = ?").get(b.assignee) !== undefined;
+-    if (!exists) errors.push("担当者が存在しません");
+-    else value.assignee = b.assignee as string;
+-  }
+-  if (need("dueDate")) {
+-    if (typeof b.dueDate !== "string" || !DATE_RE.test(b.dueDate) || Number.isNaN(Date.parse(b.dueDate))) {
+-      errors.push("期限は YYYY-MM-DD 形式で入力してください");
+-    } else value.dueDate = b.dueDate;
+-  }
+-  return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
+-}
+-
+-export function createTask(input: TaskInput, db: Db = getDb()): Task {
+-  const { lastInsertRowid } = db
+-    .prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES (?, ?, ?, ?)")
+-    .run(input.title, input.status, input.assignee, input.dueDate);
+-  return getTask(Number(lastInsertRowid), db)!;
+-}
+-
+-/** 指定した項目だけを更新する。タスクが無ければ undefined。 */
+-export function updateTask(id: number, changes: Partial<TaskInput>, db: Db = getDb()): Task | undefined {
+-  const current = getTask(id, db);
+-  if (!current) return undefined;
+-  const next = { ...current, ...changes };
+-  db.prepare("UPDATE tasks SET title = ?, status = ?, assignee = ?, due_date = ? WHERE id = ?").run(
+-    next.title,
+-    next.status,
+-    next.assignee,
+-    next.dueDate,
+-    id,
+-  );
+-  return getTask(id, db);
+-}
+diff --git a/src/lib/users.ts b/src/lib/users.ts
+index ab877f9..5012452 100644
+--- a/src/lib/users.ts
++++ b/src/lib/users.ts
+@@ -2,6 +2,14 @@ import { getDb, type Db } from "./db/index.ts";
+ 
+ export type User = { id: string; name: string };
+ 
++export type UserDetail = User & { departmentId: string; active: boolean };
++
++type UserRow = { id: string; name: string; department_id: string; active: number };
++
++function toDetail(row: UserRow): UserDetail {
++  return { id: row.id, name: row.name, departmentId: row.department_id, active: row.active === 1 };
++}
++
+ export function listUsers(db: Db = getDb()): User[] {
+   return db.prepare("SELECT id, name FROM users ORDER BY id").all() as User[];
+ }
+@@ -9,3 +17,23 @@ export function listUsers(db: Db = getDb()): User[] {
+ export function getUser(id: string, db: Db = getDb()): User | undefined {
+   return db.prepare("SELECT id, name FROM users WHERE id = ?").get(id) as User | undefined;
+ }
++
++/** 部署・在籍状態を含めて取得する。 */
++export function getUserDetail(id: string, db: Db = getDb()): UserDetail | undefined {
++  const row = db.prepare("SELECT id, name, department_id, active FROM users WHERE id = ?").get(id) as UserRow | undefined;
++  return row && toDetail(row);
++}
++
++/** 在籍中（active = 1）の利用者だけを返す。 */
++export function isActiveUser(id: string, db: Db = getDb()): boolean {
++  return db.prepare("SELECT 1 FROM users WHERE id = ? AND active = 1").get(id) !== undefined;
++}
++
++export type Department = { id: string; name: string; representativeId: string | null };
++
++export function getDepartment(id: string, db: Db = getDb()): Department | undefined {
++  const row = db.prepare("SELECT id, name, representative_id FROM departments WHERE id = ?").get(id) as
++    | { id: string; name: string; representative_id: string | null }
++    | undefined;
++  return row && { id: row.id, name: row.name, representativeId: row.representative_id };
++}
+diff --git a/tests/calibrations.test.ts b/tests/calibrations.test.ts
+new file mode 100644
+index 0000000..47c724e
+--- /dev/null
++++ b/tests/calibrations.test.ts
+@@ -0,0 +1,47 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { listCalibrations, recordCalibration, validateCalibrationInput } from "../src/lib/calibrations.ts";
++import { openDb } from "../src/lib/db/index.ts";
++import { listInstruments } from "../src/lib/instruments.ts";
++
++const byNo = (db: ReturnType<typeof openDb>, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!;
++const PASS = { calibratedOn: "2026-11-05", result: "pass", agency: "東日本計測サービス", certificateNo: "EJ-1" } as const;
++
++describe("recordCalibration", () => {
++  it("updates the last calibration date and returns calibrating instruments to use when passed", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0005");
++    const r = recordCalibration(inst.id, PASS, "tanaka", db);
++    assert.equal(r?.instrument.lastCalibratedOn, "2026-11-05");
++    assert.equal(r?.instrument.status, "in_use");
++    assert.equal(listCalibrations(inst.id, db)[0].certificateNo, "EJ-1");
++  });
++
++  it("does not move the last calibration date backwards", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0003");
++    const r = recordCalibration(inst.id, { ...PASS, calibratedOn: "2026-01-01" }, "suzuki", db);
++    assert.equal(r?.instrument.lastCalibratedOn, "2026-06-03");
++  });
++
++  it("suspends the instrument when failed and keeps the last calibration date", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001");
++    const r = recordCalibration(inst.id, { ...PASS, result: "fail" }, "sato", db);
++    assert.equal(r?.instrument.status, "suspended");
++    assert.equal(r?.instrument.lastCalibratedOn, "2026-01-20");
++  });
++
++  it("returns undefined for unknown instruments", () => {
++    assert.equal(recordCalibration(9999, PASS, "sato", openDb()), undefined);
++  });
++});
++
++describe("validateCalibrationInput", () => {
++  it("checks the date, result and agency", () => {
++    assert.equal(validateCalibrationInput(PASS).ok, true);
++    const r = validateCalibrationInput({ calibratedOn: "2026-02-30", result: "ok", agency: " " });
++    assert.equal(r.ok, false);
++    if (!r.ok) assert.equal(r.errors.length, 3);
++  });
++});
+diff --git a/tests/dates-jobs.test.ts b/tests/dates-jobs.test.ts
+new file mode 100644
+index 0000000..2307435
+--- /dev/null
++++ b/tests/dates-jobs.test.ts
+@@ -0,0 +1,27 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { isValidDate, todayJst } from "../src/lib/dates.ts";
++import { isAuthorizedJobRequest } from "../src/lib/jobs.ts";
++
++describe("dates", () => {
++  it("validates real calendar dates", () => {
++    assert.equal(isValidDate("2028-02-29"), true);
++    for (const v of ["2027-02-29", "2026-04-31", "2026-13-01", "2026-1-1", 20260101]) assert.equal(isValidDate(v), false);
++  });
++
++  it("returns today's date in Japan", () => {
++    assert.equal(todayJst(new Date("2026-11-09T14:59:59Z")), "2026-11-09");
++    assert.equal(todayJst(new Date("2026-11-09T15:00:00Z")), "2026-11-10");
++  });
++});
++
++describe("isAuthorizedJobRequest", () => {
++  it("accepts only the configured bearer token", () => {
++    assert.equal(isAuthorizedJobRequest("Bearer s3cret", "s3cret"), true);
++    assert.equal(isAuthorizedJobRequest("Bearer wrong", "s3cret"), false);
++    assert.equal(isAuthorizedJobRequest("s3cret", "s3cret"), false);
++    assert.equal(isAuthorizedJobRequest(null, "s3cret"), false);
++    assert.equal(isAuthorizedJobRequest("Bearer ", ""), false);
++    assert.equal(isAuthorizedJobRequest("Bearer x", undefined), false);
++  });
++});
+diff --git a/tests/db.test.ts b/tests/db.test.ts
+index 1a67f64..bb7df2c 100644
+--- a/tests/db.test.ts
++++ b/tests/db.test.ts
+@@ -8,19 +8,23 @@ describe("openDb", () => {
+     const db = openDb();
+     const { user_version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
+     assert.equal(user_version, MIGRATIONS.at(-1)!.version);
+-    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n, 3);
+-    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM tasks").get() as { n: number }).n, 7);
++    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n, 18);
++    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM instruments").get() as { n: number }).n, 10);
+   });
+ 
+   it("can skip seeding", () => {
+     const db = openDb(":memory:", { seed: false });
+-    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM tasks").get() as { n: number }).n, 0);
++    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM instruments").get() as { n: number }).n, 0);
+   });
+ 
+   it("enforces foreign keys", () => {
+     const db = openDb();
+     assert.throws(() =>
+-      db.prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES ('x', 'todo', 'nobody', '2026-01-01')").run(),
++      db
++        .prepare(
++          "INSERT INTO instruments (management_no, name, manager_id, interval_months, last_calibrated_on) VALUES ('ZZ-0001', 'x', 'nobody', 12, '2026-01-01')",
++        )
++        .run(),
+     );
+   });
+ });
+@@ -30,7 +34,7 @@ describe("migrate / seed", () => {
+     const db = openDb();
+     migrate(db);
+     seed(db);
+-    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM tasks").get() as { n: number }).n, 7);
++    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM instruments").get() as { n: number }).n, 10);
+   });
+ });
+ 
+@@ -39,10 +43,10 @@ describe("transaction", () => {
+     const db = openDb();
+     assert.throws(() =>
+       transaction(db, () => {
+-        db.prepare("DELETE FROM tasks").run();
++        db.exec("DELETE FROM calibration_records; DELETE FROM loans; DELETE FROM instruments");
+         throw new Error("boom");
+       }),
+     );
+-    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM tasks").get() as { n: number }).n, 7);
++    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM instruments").get() as { n: number }).n, 10);
+   });
+ });
+diff --git a/tests/instrument-extra.test.ts b/tests/instrument-extra.test.ts
+new file mode 100644
+index 0000000..fc6783f
+--- /dev/null
++++ b/tests/instrument-extra.test.ts
+@@ -0,0 +1,37 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { extraText, getInstrument, listInstruments, updateInstrument, validateInstrumentInput } from "../src/lib/instruments.ts";
++
++describe("その他の項目（extra）", () => {
++  it("reads the seeded department and inspection notes", () => {
++    const db = openDb();
++    const mi1 = listInstruments({}, db).find((i) => i.managementNo === "MI-0001")!;
++    assert.equal(extraText(mi1, "dept"), "品質保証部");
++    assert.equal(extraText(mi1, "inspector"), "佐藤");
++    assert.equal(extraText(mi1, "missing"), "");
++  });
++
++  it("filters by department", () => {
++    const db = openDb();
++    const nos = listInstruments({ dept: "工事部" }, db).map((i) => i.managementNo);
++    assert.deepEqual(nos, ["MI-0002", "MI-0005", "MI-0006"]);
++  });
++
++  it("merges sent items into extra and removes items sent as null", () => {
++    const db = openDb();
++    const v = validateInstrumentInput({ extra: { memo: "置き場所変更", inspector: null } }, { partial: true }, db);
++    assert.ok(v.ok);
++    const id = listInstruments({}, db).find((i) => i.managementNo === "MI-0001")!.id;
++    updateInstrument(id, v.ok ? v.value : {}, db);
++    const after = getInstrument(id, db)!;
++    assert.equal(after.extra.memo, "置き場所変更");
++    assert.equal(after.extra.dept, "品質保証部");
++    assert.ok(!("inspector" in after.extra));
++  });
++
++  it("rejects extra that is not an object", () => {
++    const v = validateInstrumentInput({ extra: ["x"] }, { partial: true }, openDb());
++    assert.equal(v.ok, false);
++  });
++});
+diff --git a/tests/instruments.test.ts b/tests/instruments.test.ts
+new file mode 100644
+index 0000000..a3e24c1
+--- /dev/null
++++ b/tests/instruments.test.ts
+@@ -0,0 +1,88 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import {
++  createInstrument,
++  getInstrument,
++  isInstrumentStatus,
++  listInstruments,
++  parseId,
++  updateInstrument,
++  validateInstrumentInput,
++} from "../src/lib/instruments.ts";
++
++const VALID = {
++  managementNo: "MI-0100",
++  name: "抵抗計",
++  managerId: "sato",
++  intervalMonths: 12,
++  lastCalibratedOn: "2026-04-01",
++};
++
++describe("listInstruments", () => {
++  it("returns instruments ordered by management number and filters by status and manager", () => {
++    const db = openDb();
++    const all = listInstruments({}, db);
++    assert.equal(all.length, 10);
++    assert.deepEqual(
++      all.map((i) => i.managementNo),
++      [...all.map((i) => i.managementNo)].sort(),
++    );
++    assert.ok(listInstruments({ status: "on_loan" }, db).every((i) => i.status === "on_loan"));
++    assert.deepEqual(
++      listInstruments({ managerId: "tanaka" }, db).map((i) => i.managementNo),
++      ["MI-0002", "MI-0005"],
++    );
++  });
++});
++
++describe("parseId / isInstrumentStatus", () => {
++  it("accepts only positive integers and known statuses", () => {
++    assert.equal(parseId("12"), 12);
++    for (const v of ["0", "-1", "1.5", "abc", "", "12345678901", undefined]) assert.equal(parseId(v), undefined);
++    assert.equal(isInstrumentStatus("suspended"), true);
++    assert.equal(isInstrumentStatus("lost"), false);
++  });
++});
++
++describe("validateInstrumentInput", () => {
++  it("fills defaults for a new instrument", () => {
++    const db = openDb();
++    const r = validateInstrumentInput(VALID, {}, db);
++    assert.equal(r.ok, true);
++    if (r.ok) assert.deepEqual(r.value, { ...VALID, model: "", location: "", note: "", status: "in_use" });
++  });
++
++  it("rejects invalid values", () => {
++    const db = openDb();
++    const r = validateInstrumentInput(
++      { ...VALID, managementNo: "0100", managerId: "nobody", intervalMonths: 0, lastCalibratedOn: "2027-02-29", status: "on_loan" },
++      {},
++      db,
++    );
++    assert.equal(r.ok, false);
++    if (!r.ok) assert.equal(r.errors.length, 5);
++    assert.equal(validateInstrumentInput([], {}, db).ok, false);
++  });
++
++  it("validates only the given fields when partial", () => {
++    const db = openDb();
++    const r = validateInstrumentInput({ location: " 倉庫 " }, { partial: true }, db);
++    assert.deepEqual(r, { ok: true, value: { location: "倉庫" } });
++  });
++});
++
++describe("createInstrument / updateInstrument", () => {
++  it("creates and updates only the given fields", () => {
++    const db = openDb();
++    const created = createInstrument(
++      { ...VALID, model: "", location: "", note: "", status: "in_use" },
++      db,
++    );
++    assert.equal(getInstrument(created.id, db)?.managementNo, "MI-0100");
++    const updated = updateInstrument(created.id, { status: "calibrating" }, db);
++    assert.equal(updated?.status, "calibrating");
++    assert.equal(updated?.name, "抵抗計");
++    assert.equal(updateInstrument(9999, { status: "in_use" }, db), undefined);
++  });
++});
+diff --git a/tests/loans.test.ts b/tests/loans.test.ts
+new file mode 100644
+index 0000000..d96697e
+--- /dev/null
++++ b/tests/loans.test.ts
+@@ -0,0 +1,53 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { getInstrument, listInstruments } from "../src/lib/instruments.ts";
++import { currentLoan, lendInstrument, listOverdueLoans, returnLoan, validateLoanInput } from "../src/lib/loans.ts";
++
++const byNo = (db: ReturnType<typeof openDb>, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!;
++
++describe("lendInstrument / returnLoan", () => {
++  it("marks the instrument on loan and back in use", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001");
++    const r = lendInstrument(inst.id, { borrowerId: "yamamoto", dueOn: "2026-11-20" }, db, new Date("2026-11-10T01:00:00Z"));
++    assert.equal(r.ok, true);
++    assert.equal(getInstrument(inst.id, db)?.status, "on_loan");
++    assert.equal(currentLoan(inst.id, db)?.borrowerId, "yamamoto");
++    if (!r.ok) return;
++    assert.equal(returnLoan(inst.id, r.loan.id, db)?.id, r.loan.id);
++    assert.equal(getInstrument(inst.id, db)?.status, "in_use");
++    assert.equal(returnLoan(inst.id, r.loan.id, db), undefined);
++  });
++
++  it("refuses instruments that are not in use", () => {
++    const db = openDb();
++    for (const no of ["MI-0002", "MI-0005", "MI-0007"]) {
++      assert.deepEqual(lendInstrument(byNo(db, no).id, { borrowerId: "sato", dueOn: "2026-11-20" }, db), {
++        ok: false,
++        reason: "not_available",
++      });
++    }
++    assert.deepEqual(lendInstrument(9999, { borrowerId: "sato", dueOn: "2026-11-20" }, db), { ok: false, reason: "not_found" });
++  });
++});
++
++describe("validateLoanInput", () => {
++  it("requires an active borrower and a real date", () => {
++    const db = openDb();
++    assert.equal(validateLoanInput({ borrowerId: "sato", dueOn: "2026-11-20" }, db).ok, true);
++    assert.equal(validateLoanInput({ borrowerId: "inoue", dueOn: "2026-11-20" }, db).ok, false);
++    assert.equal(validateLoanInput({ borrowerId: "sato", dueOn: "2026-11-31" }, db).ok, false);
++  });
++});
++
++describe("listOverdueLoans", () => {
++  it("lists unreturned loans whose due date is before today", () => {
++    const db = openDb();
++    assert.deepEqual(listOverdueLoans("2026-11-13", db), []);
++    assert.deepEqual(
++      listOverdueLoans("2026-11-14", db).map((l) => l.managementNo),
++      ["MI-0002"],
++    );
++  });
++});
+diff --git a/tests/tasks.test.ts b/tests/tasks.test.ts
+deleted file mode 100644
+index 66029e6..0000000
+--- a/tests/tasks.test.ts
++++ /dev/null
+@@ -1,92 +0,0 @@
+-import { describe, it } from "node:test";
+-import assert from "node:assert/strict";
+-import { openDb } from "../src/lib/db/index.ts";
+-import {
+-  createTask,
+-  getTask,
+-  isTaskStatus,
+-  listTasks,
+-  parseTaskId,
+-  updateTask,
+-  validateTaskInput,
+-} from "../src/lib/tasks.ts";
+-
+-describe("listTasks", () => {
+-  it("returns all tasks without a filter", () => {
+-    assert.equal(listTasks({}, openDb()).length, 7);
+-  });
+-
+-  it("filters by status", () => {
+-    const tasks = listTasks({ status: "todo" }, openDb());
+-    assert.ok(tasks.length > 0);
+-    assert.ok(tasks.every((t) => t.status === "todo"));
+-  });
+-});
+-
+-describe("getTask", () => {
+-  it("returns a task by id, or undefined", () => {
+-    const db = openDb();
+-    assert.deepEqual(getTask(1, db), {
+-      id: 1,
+-      title: "要件定義書のレビュー",
+-      status: "done",
+-      assignee: "sato",
+-      dueDate: "2026-11-02",
+-    });
+-    assert.equal(getTask(999, db), undefined);
+-  });
+-});
+-
+-describe("parseTaskId", () => {
+-  it("accepts positive integers only", () => {
+-    assert.equal(parseTaskId("3"), 3);
+-    for (const bad of ["0", "-1", "1.5", "abc", "", "01", undefined]) assert.equal(parseTaskId(bad), undefined, String(bad));
+-  });
+-});
+-
+-describe("validateTaskInput", () => {
+-  const valid = { title: " 新しいタスク ", status: "todo", assignee: "tanaka", dueDate: "2026-12-01" };
+-
+-  it("accepts a complete input and trims the title", () => {
+-    const r = validateTaskInput(valid, {}, openDb());
+-    assert.deepEqual(r, { ok: true, value: { ...valid, title: "新しいタスク" } });
+-  });
+-
+-  it("reports every invalid field", () => {
+-    const r = validateTaskInput({ title: "", status: "x", assignee: "nobody", dueDate: "12/01" }, {}, openDb());
+-    assert.equal(r.ok, false);
+-    assert.equal(!r.ok && r.errors.length, 4);
+-  });
+-
+-  it("rejects non-object bodies", () => {
+-    for (const body of [undefined, null, "x", []]) assert.equal(validateTaskInput(body, {}, openDb()).ok, false);
+-  });
+-
+-  it("validates only the given fields when partial", () => {
+-    assert.deepEqual(validateTaskInput({ status: "done" }, { partial: true }, openDb()), {
+-      ok: true,
+-      value: { status: "done" },
+-    });
+-    assert.equal(validateTaskInput({ status: "x" }, { partial: true }, openDb()).ok, false);
+-  });
+-});
+-
+-describe("createTask / updateTask", () => {
+-  it("creates a task and updates only the given fields", () => {
+-    const db = openDb();
+-    const created = createTask({ title: "新規", status: "todo", assignee: "sato", dueDate: "2026-12-01" }, db);
+-    assert.equal(created.id, 8);
+-    assert.equal(listTasks({}, db).length, 8);
+-    const updated = updateTask(created.id, { status: "done" }, db);
+-    assert.deepEqual(updated, { ...created, status: "done" });
+-    assert.equal(updateTask(999, { status: "done" }, db), undefined);
+-  });
+-});
+-
+-describe("isTaskStatus", () => {
+-  it("accepts known statuses only", () => {
+-    assert.equal(isTaskStatus("done"), true);
+-    assert.equal(isTaskStatus("unknown"), false);
+-    assert.equal(isTaskStatus(undefined), false);
+-  });
+-});

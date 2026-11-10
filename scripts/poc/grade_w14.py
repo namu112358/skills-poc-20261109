@@ -84,6 +84,26 @@ def migrations_of(app):
         return None
 
 
+def built_base(app, base):
+    """初期状態（base）のアプリを書き出してビルドしたディレクトリを返す。中身（git の木）ごとに 1 回だけ作って使い回す
+    （2026-11-10 追加: 採点のたびに書き出してビルドしていたため、一時領域が一杯になった）。失敗したら (None, ログ)。"""
+    import fcntl
+    tree = git(app, "rev-parse", f"{base}^{{tree}}").strip()
+    root = Path("/tmp/poc-base-build")
+    root.mkdir(exist_ok=True)
+    d = root / tree
+    with open(root / f"{tree}.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if (d / ".next" / "BUILD_ID").exists():
+            return d, ""
+        d.mkdir(exist_ok=True)
+        subprocess.run(f"git -C {app} archive {base} . | tar -x -C {d}", shell=True, check=True)
+        if not (d / "node_modules").exists():
+            subprocess.run(["cp", "-al", str((Path(app) / "node_modules").resolve()), str(d / "node_modules")], check=False)
+        code, out = sh("npx next build", d, timeout=900)
+        return (d, "") if code == 0 else (None, out[-400:])
+
+
 def export_base(app, base, what="src"):
     d = Path(tempfile.mkdtemp(prefix="w14-base-"))
     subprocess.run(f"git -C {app} archive {base} {what} | tar -x -C {d}", shell=True, check=True)
@@ -775,10 +795,9 @@ def migration_suite(app, base, work, routes, static):
 
 
 def rollback_check(app, base, work, db, m5_target):
-    bdir = export_base(app, base, what=".")
-    code, out = sh(f"cp -al {Path(app) / 'node_modules'} {bdir / 'node_modules'} && npx next build", bdir, timeout=900)
-    if code != 0:
-        return False, {"error": "前の版をビルドできない", "log": out[-400:]}
+    bdir, out = built_base(app, base)
+    if bdir is None:
+        return False, {"error": "前の版をビルドできない", "log": out}
     rdb = Path(work) / "rollback.db"
     copy_db(db, rdb)
     srv = Server(bdir, work, "rollback", rdb)
