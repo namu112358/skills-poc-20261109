@@ -113,6 +113,8 @@
 
 - 参考（本表に含めない）: Feature Dev の補足の再試行（新文言 2 回）は品質 100.0・効率 100.0・総合点 88.4。
 
+- 参考（本表に含めない）: Compound Engineering の補足の再試行（/ce-work 入口 2 回）は品質 100.0・効率 74.0・総合点 81.8。
+
 ### W2 仕様が明確な機能追加
 
 - 品質: 最高は Compound Engineering（99.2 点）。これと差なし（差がばらつき以下）: Superpowers（94.2）、Compound Engineering（99.2）。差あり: Feature Dev（96.9、−2.3）、gstack（97.3、−1.9）、baseline（候補なし）（96.2、−3.0）。

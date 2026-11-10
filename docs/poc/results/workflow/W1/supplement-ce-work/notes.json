@@ -1,0 +1,22 @@
+{
+  "summary": [
+    "元の試行では、Compound Engineering の入口を <code>/ce-plan &lt;課題&gt;</code> → <code>/ce-work</code> → <code>/ce-code-review</code> にしていました。<code>ce-plan</code> は「無人の実行」と「計画の依頼」のどちらでも、作業の大きさに関係なく重い経路（計画書を作り、計画のレビュー役 <code>ce-doc-review</code> を動かす）を選ぶ決まりです。そのため、フィルタ 1 つの変更でも 120 行超の計画書を作っていました。そこで入口だけを <code>/ce-work &lt;課題&gt;</code> → <code>/ce-code-review</code> に変え（<code>POC_CE_ENTRY=work</code>）、2 回やり直しました。<strong>元の点数・順位は置き換えません</strong>（この節は参考値）。",
+    "<strong>2 回とも計画書を作らず、サブエージェントも使わずに、そのまま実装してコミットしました。</strong>実装の中身は元の 2 回とほぼ同じ（同じ 3 ファイル、コード 36 行、隠しの受け入れテスト 6/6）です。計画書をコミットしなかった分、過剰さの減点（−4）が無くなり、品質は 94.3 → 100.0 点になりました。",
+    "費用は平均 $1.78 → $0.48（約 4 分の 1）、時間は 3.7 分 → 1.5 分になりました。baseline 比では費用 11.5 倍 → 3.1 倍、時間 5.2 倍 → 2.1 倍で、効率は 18.0 → 74.0 点、従来の総合点は 70.0 → 81.8 点です。ただし baseline・Superpowers・Feature Dev（$0.15〜0.17）よりはまだ約 3 倍高く、gstack（$0.46）と同じくらいです。差の多くは、<code>ce-work</code> が実装の前に手順の参照ファイル（入力の振り分け・作業場所の準備・実装の進め方・出荷の手順など）を 5〜6 本読むことによります。"
+  ],
+  "table_note": "点数は元の W1 と同じ採点基準（<code>score_w1.py --supplement-dir=supplement-ce-work</code>）。時間・費用の点の基準（最安・最速）は元の 9 試行の値に固定した。費用は 1 試行の総額（<code>--resume</code> の累計の最後の値）。",
+  "trials": {
+    "W1-compound-engineering-3": "<code>/ce-work</code> が入力を「計画の無い、はっきりした依頼」と判定し、タスクの一覧を作らずにその場で実装した。作業ブランチ <code>feat/tasks-assignee-filter</code> を自分で作ってコミット。出荷前の決まりに従って <code>ce-work</code> の中から <code>ce-code-review</code> を呼んだが、差分の範囲を判定するスクリプトが権限で拒否され、「レビュー未実施」と報告した。2 ステップ目の <code>/ce-code-review</code> も同じ理由で止まり、自分で差分を読み直しただけ（指摘なし）。",
+    "W1-compound-engineering-4": "#3 と同じく計画書なしで実装し、作業ブランチにコミット。<code>ce-work</code> の中ではレビューを呼ばず、「コードレビューは行っていない」と報告した。2 ステップ目の <code>/ce-code-review</code> は、スクリプトが拒否された後もこの文脈だけで差分を確認し、「そのままマージ可。指摘なし」と判定した（複数エージェントのレビューは動いていない）。"
+  },
+  "decisions": [
+    "<strong>変えたのは入口だけ</strong>: 課題文・末尾の定型文（旧文言）・介入なし（<code>POC_MAX_NUDGES=0</code>）・<code>master</code> 上で開始・許可リスト・プラグインの固定コミット（Compound Engineering は <code>18c2be5</code>、v3.37.0）は元の W1 と同じ。評価用アプリは Feature Dev の補足と同じく、W1 当時の poc-app（コミット <code>83e3877</code> の版）を <code>.poc-work/</code> に取り出して <code>npm ci</code> したものを <code>POC_APP_SRC</code> で使った。作業用コピーはリポジトリの外（<code>/tmp/poc-trials/</code>）。",
+    "<strong>入口の選び方</strong>: <code>ce-work</code> の手順書は、依頼文を直接渡された場合に大きさを見て進め方を決める（1〜2 ファイルで振る舞いを変えない作業はタスクの一覧も省く）。W1 の課題は振る舞いを変えるので一覧を省く経路には当たらないが、実装の単位が 1 つなので、サブエージェントを使わずにその場で実装する経路になった。<code>/ce-code-review</code> は元の手順と同じく 2 ステップ目に残した。",
+    "<strong>費用の上限</strong>: 元の W1 には上限が無かった。補足の再試行の決まり（1 試行が W1 の 5 倍を超えそうなら止める）に合わせ、元の Compound Engineering 平均 $1.78 × 5 = $8.9 を上限にした。Feature Dev の補足では、<code>--max-budget-usd</code> の残額が子セッションに見えて工程を減らした可能性があったため、今回は子セッションに見せない watch 方式（<code>POC_BUDGET_MODE=watch</code>）にした。2 回とも上限の 6% 以下で終わった。",
+    "<strong>レビューのスクリプトが拒否された</strong>: <code>ce-code-review</code> の差分の範囲を判定するスクリプトは、2 回とも権限で拒否された（変数を含むコマンドで、許可リストの形に合わない）。元の W1 の 2 回も同じ理由で簡易レビューに切り替えており、条件はそろっている。ただし、複数エージェントのレビューが動いた場合の費用・時間はこの試行では測れていない。手順書では、この大きさの差分は複数エージェントを使わない lite のレビューになる見込み。",
+    "<strong>採点の分け方</strong>: 再試行の結果は <code>results/workflow/W1/supplement-ce-work/</code> に置き、元の 9 試行の <code>scores.json</code> と Feature Dev の補足（<code>supplement/</code>）は変えていない。時間・費用の点の基準は元の 9 試行の最安・最速に固定し、それより安い・速い場合は 15 点で頭打ちにする。",
+    "<strong>依頼範囲外の変更</strong>: 人の確認（<code>supplement-ce-work/manual-review.json</code>）で、2 回とも lib・ページ・テストの 3 ファイルだけで範囲外の変更なしと判断した。",
+    "<strong>並列度</strong>: 2 回は 1 本ずつ順に実行した。"
+  ],
+  "isolation": "再試行 2 回とも <code>transcript.isolation_suspects</code> は空（自分の作業用コピーの外を参照した形跡なし）。正解データを読んだ形跡（<code>answer_key_access</code>）も無い。"
+}
