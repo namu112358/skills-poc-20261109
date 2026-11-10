@@ -1,0 +1,48 @@
+{
+  "phase": "v1",
+  "commit": "083dcaa976382d61d61258570d8138a3afec6c75",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "DELETE",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}"
+    },
+    "fields": {
+      "id": "id",
+      "status": "cancelledAt",
+      "start": "startOn",
+      "end": "endOn",
+      "user": "reserverId"
+    },
+    "status": {
+      "active": [
+        "null"
+      ]
+    },
+    "jobs": [],
+    "notes": "取消は DELETE（JSON 応答）。POST はフォーム用で 303 リダイレクトを返すため DELETE を採用。一覧は取り消し済みと終了日が過去の予約を返さないため、cancelled は一覧に現れない（cancelled の状態値は書いていない）。status は cancelledAt 列で、有効な予約は null。予約者はログイン中の本人で body に user は不要。日付は YYYY-MM-DD の JST。"
+  },
+  "cost_usd": 0.0610052
+}

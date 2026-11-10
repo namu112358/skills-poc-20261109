@@ -1,0 +1,55 @@
+{
+  "phase": "v1",
+  "commit": "35bf61ee46a84cee7aaf02d3e1e83ee00f302fee",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/app/instruments/[id]/reservation-controls.tsx",
+    "src/lib/calibrations.ts",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "fields": {
+      "id": "id",
+      "status": [
+        "cancelledAt"
+      ],
+      "start": "startOn",
+      "end": "endOn",
+      "user": "userId"
+    },
+    "status": {
+      "active": [
+        "null"
+      ],
+      "cancelled": [
+        "@notnull"
+      ]
+    },
+    "jobs": [],
+    "notes": "v1 のため承認・却下の API は無い。予約者はログイン中の本人（本文に user は不要）。一覧は取り消し済み（cancelledAt が null でない）の予約を返さず、予約者が無効（退職・休職）の予約も除外するため、cancelled の状態は一覧に現れない（取消後は一覧から消える）。status は cancelledAt の値を JSON 化した文字列（null なら \"null\"）で判定する想定。取消は予約した本人か計測器の管理者のみ可能。日付は YYYY-MM-DD でそのまま送れる。開始日は日本時間の今日以降、最長 30 日、365 日先まで。"
+  },
+  "cost_usd": 0.0706072
+}

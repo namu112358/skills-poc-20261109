@@ -1,0 +1,51 @@
+{
+  "phase": "v1",
+  "commit": "59348492737100971f6d8e6ca6356dcac1bf9dba",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "DELETE",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}"
+    },
+    "fields": {
+      "id": "id",
+      "status": [
+        "cancelledAt"
+      ],
+      "start": "startOn",
+      "end": "endOn",
+      "user": "userId"
+    },
+    "status": {
+      "active": [
+        "null"
+      ],
+      "cancelled": []
+    },
+    "jobs": [],
+    "notes": "v1 のため approve/reject は無い。一覧（listUpcomingReservations）は取消済みと終了日が過去の予約を返さないので、取消後は一覧から消える（cancelled の状態値は一覧では観測できない）。取消 API の応答には cancelledAt が入った予約が返る。予約者はログイン中の本人で、開始日は今日以降（JST）のみ受け付ける。status は cancelledAt の 1 項目で、未取消は null（JSON では \"null\"）。"
+  },
+  "cost_usd": 0.057937999999999996
+}

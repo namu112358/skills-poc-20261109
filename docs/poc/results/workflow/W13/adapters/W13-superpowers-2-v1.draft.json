@@ -1,0 +1,48 @@
+{
+  "phase": "v1",
+  "commit": "82c1f5f19ef11b77f20058c3aefdbd3281391996",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "fields": {
+      "id": "id",
+      "status": "cancelledAt",
+      "start": "startOn",
+      "end": "endOn",
+      "user": "reserverId"
+    },
+    "status": {
+      "active": [
+        "null"
+      ]
+    },
+    "jobs": [],
+    "notes": "v1。予約者はログイン中の本人（本文に user は不要）。一覧は取り消されておらず終了日が今日以降の予約だけを返すため、取消後は一覧から消える（cancelled の状態は一覧に現れない）。status は cancelledAt の列で判定し、有効な予約は null。cancelled は一覧で観測できないので書いていない。承認・却下の操作や期限切れの処理、定期実行のジョブは無い。"
+  },
+  "cost_usd": 0.056824
+}

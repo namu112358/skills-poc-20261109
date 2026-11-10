@@ -1,0 +1,52 @@
+{
+  "phase": "v1",
+  "commit": "096d4d69a9beb72767a2a19637653be1ec93e1e4",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservation-rules.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "fields": {
+      "id": "id",
+      "status": "status",
+      "start": "startOn",
+      "end": "endOn",
+      "user": "userId"
+    },
+    "status": {
+      "active": [
+        "active"
+      ],
+      "cancelled": [
+        "cancelled"
+      ]
+    },
+    "jobs": [],
+    "notes": "一覧 API（GET）は有効な予約（status=active かつ終了日が今日以降）だけを返し、取消済み・貸出済み（consumed）・期限切れは含まれない。そのため取消後の状態を一覧から確認することはできない。cancel は JSON リクエスト（Content-Type: application/json）で呼ぶと JSON で応答し、フォームだと 303 リダイレクトになる。予約の状態には consumed（貸出済み）もあるが、共通の状態名には対応するものが無いので status には含めていない。"
+  },
+  "cost_usd": 0.0757836
+}
