@@ -51,9 +51,16 @@ LABEL = {
     "superpowers+std": "Superpowers + 標準", "feature-dev+std": "Feature Dev + 標準",
     "compound-engineering+std": "Compound Engineering + 標準", "gstack+std": "gstack + 標準",
     "baseline+std": "baseline + 標準",
+    # W12 の追加条件: 試行する側のモデルを Haiku にした試行、乱れた初期状態の試行
+    "superpowers@haiku": "Superpowers（Haiku）", "feature-dev@haiku": "Feature Dev（Haiku）",
+    "compound-engineering@haiku": "Compound Engineering（Haiku）", "gstack@haiku": "gstack（Haiku）", "baseline@haiku": "baseline（Haiku）",
+    "superpowers+messy": "Superpowers（乱れ）", "feature-dev+messy": "Feature Dev（乱れ）",
+    "compound-engineering+messy": "Compound Engineering（乱れ）", "gstack+messy": "gstack（乱れ）", "baseline+messy": "baseline（乱れ）",
 }
 ORDER = ["superpowers", "feature-dev", "compound-engineering", "gstack", "baseline-conventions", "baseline",
-         "superpowers+std", "feature-dev+std", "compound-engineering+std", "gstack+std", "baseline+std"]
+         "superpowers+std", "feature-dev+std", "compound-engineering+std", "gstack+std", "baseline+std",
+         "superpowers@haiku", "feature-dev@haiku", "compound-engineering@haiku", "gstack@haiku", "baseline@haiku",
+         "superpowers+messy", "feature-dev+messy", "compound-engineering+messy", "gstack+messy", "baseline+messy"]
 
 # W ごとの品質系の内訳（scores.json のキー、見出し、満点）。W4・W6〜W8 のキーは採点スクリプトができたら合わせる。
 QUALITY = {

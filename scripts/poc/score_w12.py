@@ -35,6 +35,23 @@ Q_IDS = [f"Q{i}" for i in range(1, 14)]
 O_IDS = [f"O{i}" for i in range(1, 7)]
 
 
+def models_used(trial):
+    """トランスクリプトの最後の result の modelUsage（セッションの累計）から、実際に使われたモデルと費用を返す。"""
+    last = None
+    for f in (RAW / trial).glob("step*.jsonl"):
+        n = int(f.stem[4:])
+        for line in f.open():
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if d.get("type") == "result" and d.get("modelUsage") and (last is None or n >= last[0]):
+                last = (n, d["modelUsage"])
+    if not last:
+        return {}
+    return {m: round(u.get("costUSD", 0.0), 4) for m, u in last[1].items()}
+
+
 def review(trial):
     p = DIR / "blind" / "scores.json"
     if not p.exists():
@@ -103,9 +120,13 @@ def score(t):
     files = t["diff"]["files"]
     # 汎用の開発標準を CLAUDE.md に足した試行（POC_STANDARD=generic、回の番号 11・12）は、別の条件「<候補>+std」として扱う
     standard = (RAW / t["trial"] / "standard").exists()
+    # Haiku の追加条件（試行する側のモデルだけを変える。回の番号 21・22）と、乱れた初期状態の追加条件（回の番号 31・32）
+    model = (RAW / t["trial"] / "model").read_text().strip() if (RAW / t["trial"] / "model").exists() else "claude-sonnet-5-5"
+    messy = (RAW / t["trial"] / "base-variant").exists()
+    cond = t["candidate"] + ("+std" if standard else "") + ("@haiku" if "haiku" in model else "") + ("+messy" if messy else "")
     return {
-        "trial": t["trial"], "candidate": t["candidate"] + ("+std" if standard else ""), "base_candidate": t["candidate"],
-        "standard": standard, "run": t["run"],
+        "trial": t["trial"], "candidate": cond, "base_candidate": t["candidate"],
+        "standard": standard, "model": model, "messy": messy, "models_used": models_used(t["trial"]), "run": t["run"],
         "total": round(business + migration + robustness + ops + design + strength, 1),
         "business": business, "business_public": public_pts, "business_hidden": hidden_pts,
         "migration": migration, "robustness": robustness, "robustness_v1": robustness_v1,

@@ -44,6 +44,7 @@ else
   rm -rf "$WORK" "$OUT"; mkdir -p "$APP" "$HOME_DIR" "$OUT"
 fi
 echo "$WORK" > "$OUT/workdir"
+echo "$MODEL" > "$OUT/model"
 [[ -n "$W7_CONTROL" ]] && echo 1 > "$OUT/control"
 
 # 1) 評価用アプリのコピー（node_modules を含む）と、常時有効な Skills・MCP
@@ -83,6 +84,13 @@ INJECT="${POC_INJECT_PATCH:-}"
 [[ -z "$INJECT" && "$SCENARIO" == W7a ]] && INJECT="$ROOT/docs/poc/answer-key/W7/base.patch"
 # W12: 題材（計測器の校正台帳）の初期状態を当てる（docs/poc/tasks/wf-W12-design.md）
 [[ -z "$INJECT" && "$SCENARIO" == W12 ]] && INJECT="$ROOT/docs/poc/answer-key/W12/base.patch"
+# W12 の追加条件「乱れた初期状態」（POC_W12_BASE=messy）: base.patch の上に base-messy.patch を当てる（設計書 §5）
+if [[ "${POC_W12_BASE:-}" == messy && "$SCENARIO" == W12 ]]; then
+  INJECT="$INJECT:$ROOT/docs/poc/answer-key/W12/base-messy.patch"
+  echo messy > "$OUT/base-variant"
+elif [[ -n "${POC_W12_BASE:-}" ]]; then
+  echo "POC_W12_BASE は W12 で messy のときだけ使える: ${POC_W12_BASE} ($SCENARIO)" >&2; exit 1
+fi
 # W7 の対照: 初期状態 + 前の段階までの参照実装（例: W7b なら base.patch:reference-W7a.patch）。POC_INJECT_PATCH は : 区切りで複数書ける
 if [[ -z "$INJECT" && -n "$W7_CONTROL" ]]; then
   INJECT="$ROOT/docs/poc/answer-key/W7/base.patch"
