@@ -2,18 +2,18 @@
 
 使用量の上限などで止まったときに、次のセッションが続きから始めるためのメモ。節目ごとに更新する。
 
-## 状態（2026-11-10 07:00 UTC）
+## 状態（2026-11-10 10:20 UTC）
 
 | 項目 | 状態 |
 |---|---|
 | 設計書・正解データ・試行前の確認 | 完了（`docs/poc/tasks/wf-W12-design.md`、`docs/poc/answer-key/W12/`） |
 | 標準なし 12 本（6 条件 × 2 回） | 完了・採点済み |
 | 汎用の開発標準あり 10 本（回 11・12） | 完了・採点済み |
-| Haiku（回 21） | 5 本とも実行済み（baseline #21 の採点が進行中）。回 22 はユーザー判断で流さない |
-| 乱れた初期状態（回 31） | 5 本を実行中（`scripts/poc/w12_messy_only.sh`）。回 32 はユーザー判断で流さない |
-| 最終版での全試行の採点し直し | 進行中（`scripts/poc/w12_regrade_all.sh`、記録は `raw/w12-regrade.log`） |
+| Haiku（回 21） | 完了・採点済み。回 22 はユーザー判断で流さない |
+| 乱れた初期状態（回 31） | 完了・採点済み。回 32 はユーザー判断で流さない |
+| 最終版での全試行の採点し直し | 25 本のうち 14 本済み、残り 11 本を実行中（`scripts/poc/w12_regrade_all.sh`、記録は `raw/w12-regrade.log`。済んだものは `regrade-done` の行と試行ごとの行で分かる） |
 | 不正の点検（`scripts/poc/audit_w12.py`） | 未（全試行の採点し直しのあと） |
-| ブラインドレビュー（`scripts/poc/blind_w12.py`） | 未 |
+| ブラインドレビュー（`scripts/poc/blind_w12.py`） | 資料作り済み（`W12/blind/mapping.json`）。レビュー担当 2 名 × 4 組（各 8 本）を実行中。結果は `W12/blind/reviewer-1.json`・`reviewer-2.json` にまとめる |
 | report（`scripts/poc/report_w12.py`、`notes.json`） | 未（生成スクリプトは作成済み） |
 | PLAN.md §5.1・§6 の更新、two_axis の summary | 未 |
 | PR（draft → 全部そろったら Ready、自動マージ） | 未 |
