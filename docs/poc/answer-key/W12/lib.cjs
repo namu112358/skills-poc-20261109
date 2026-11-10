@@ -68,12 +68,34 @@ function harness(base, prefix) {
     const body = { managementNo: no, name: `検証用計測器 ${no}`, model: "T-1", location: "検証室", managerId, intervalMonths: interval, lastCalibratedOn: last };
     const value = importance === undefined ? undefined : level(importance);
     if (adapter.set === "post" && value !== undefined) body[adapter.key] = value;
-    const r = await call(c, "POST", "/api/instruments", body);
+    // 重要度を変えられる人を管理者などに限る実装がある（依頼者役は「お任せします」と答える範囲）。403 のときは管理者として
+    // 登録し直す。管理者が無効でログインできないときは、sato を管理者にして登録し、あとで管理者を付け替える（2026-11-10 補正）
+    let r = await call(c, "POST", "/api/instruments", body);
+    let actor = c;
+    let reassign = null;
+    if (r.status === 403) {
+      try {
+        actor = await login(managerId);
+      } catch {
+        actor = c;
+        reassign = managerId;
+        body.managerId = "sato";
+      }
+      r = await call(actor, "POST", "/api/instruments", body);
+    }
     if (r.status !== 201) throw new Error(`計測器を登録できない: ${r.status} ${JSON.stringify(r.json)?.slice(0, 200)}`);
     const id = r.json.instrument.id;
     if (adapter.set !== "post" && value !== undefined) {
-      const p = await call(c, "PATCH", `/api/instruments/${id}`, { [adapter.key]: value });
+      let p = await call(actor, "PATCH", `/api/instruments/${id}`, { [adapter.key]: value });
+      if (p.status === 403 && actor === c && !reassign) {
+        try { actor = await login(managerId); } catch { /* 無効な管理者 */ }
+        p = await call(actor, "PATCH", `/api/instruments/${id}`, { [adapter.key]: value });
+      }
       if (p.status !== 200) throw new Error(`重要度を設定できない: ${p.status} ${JSON.stringify(p.json)?.slice(0, 200)}`);
+    }
+    if (reassign) {
+      const p = await call(c, "PATCH", `/api/instruments/${id}`, { managerId: reassign });
+      if (p.status !== 200) throw new Error(`管理者を付け替えられない: ${p.status} ${JSON.stringify(p.json)?.slice(0, 200)}`);
     }
     if (status !== "in_use") {
       const p = await call(c, "PATCH", `/api/instruments/${id}`, { status });
