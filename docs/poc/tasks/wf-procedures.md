@@ -16,6 +16,7 @@
 | W8 | `<課題>` | `/superpowers:writing-plans <課題>` → `/superpowers:subagent-driven-development` | `/feature-dev:feature-dev <課題>` | `/autoplan <課題>` → `/ship` | `/ce-brainstorm <課題>` → `/lfg` |
 | W9 | `<課題>` | `/superpowers:requesting-code-review <課題>` | 「Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。」+ `<課題>` | `/review <課題>` | `/ce-code-review <課題>` |
 | W10 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
+| W12 | `<課題>`（baseline-conventions も同じ） | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 
 ### W2 以降の共通の決まり
 
@@ -96,6 +97,14 @@
 - 手順: 不具合（`B*`）は W5、機能（`F*`）は W2 と同じ入口。課題文の末尾は新文言、費用の上限は付けない（2026-11-09 15:40 UTC ユーザー指示。歯止めは 1 ステップ 40 分のタイムアウトだけ。詳しくは wf-W11-design.md）、介入は最大 2 回。
 - 子セッションの許可リスト: `curl` と `npx next` を外し、課題のテストと再現用のスクリプトの実行（`python`・`pytest`・`node`・`npx vitest`・`npx tsx`・`npx tsc`・`pnpm test` など）を足す（2026-11-09 ユーザー承認）。依存のインストールは許可しない。開発サーバー・ブラウザの許可は足さない。
 - 採点: `python3 scripts/poc/grade_w11.py <試行ID>`（隠しテストを作業後のコードに上書きして実行し、終わったら取り除く）。外部サイト・依存のインストール・公開版のパッケージのソースへの参照は `isolation_suspects` として記録する。集計は `scripts/poc/report_w11.py`。まとめて流すときは `scripts/poc/oss/run_all.sh <試行ID>...`。
+
+### W12 の決まり（短い要件から、運用まで考えて作る。2026-11-10 追加）
+
+- 設計は [wf-W12-design.md](wf-W12-design.md)、採点は `docs/poc/answer-key/W12/grading.md`。題材は計測器の校正台帳（`answer-key/W12/base.patch` を作業用コピーにだけ当てる）。課題文は `wf-W12.md` の 1 文だけ。
+- 課題文の末尾は W12 用の文言（`task-suffix` が `w12`）。依頼者への質問は、作業中いつでも使える `ask-po "<質問>"`（`$WORK/bin` に置き、`PATH` に入れて `Bash(ask-po:*)` を許可）と、ステップの最後のメッセージの質問（W3 と同じ。最大 10 回）の 2 経路。依頼者役は `scripts/poc/answer_w12.py`（回答シートは `answer-key/W12/persona.md`）。`AskUserQuestion` は外す。記録は `raw/<試行ID>/po-questions.jsonl`。
+- 条件に `baseline-conventions` を足す（候補なし。`CLAUDE.md` の末尾に `wf-W12-conventions.md` の開発規約を足してから baseline コミットを作る。`raw/<試行ID>/conventions` にハッシュを記録）。
+- 介入は最大 2 回（`POC_MAX_NUDGES=2`）。費用の上限は付けない。まとめて流すときは `scripts/poc/run_w12_trials.sh <候補>:<回> ...`（試行のあと `grade_w12.py` で採点する）。
+- 採点は `grade_w12.py`（アダプター・公開・隠し・堅牢さ・旧 DB でのマイグレーション・運用・ミューテーション）→ `blind_w12.py`（ブラインドレビュー）→ `score_w12.py`。
 
 ## 権限
 
