@@ -16,6 +16,7 @@
 | W8 | `<課題>` | `/superpowers:writing-plans <課題>` → `/superpowers:subagent-driven-development` | `/feature-dev:feature-dev <課題>` | `/autoplan <課題>` → `/ship` | `/ce-brainstorm <課題>` → `/lfg` |
 | W9 | `<課題>` | `/superpowers:requesting-code-review <課題>` | 「Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。」+ `<課題>` | `/review <課題>` | `/ce-code-review <課題>` |
 | W10 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
+| W13 | `<課題>` → `<変更依頼>`（baseline-conventions も同じ） | `<課題>` → `<変更依頼>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` → `/feature-dev:feature-dev <変更依頼>` | `<課題>` → `/review` → `<変更依頼>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` → `/ce-plan <変更依頼>` → `/ce-work` → `/ce-code-review` |
 
 ### W2 以降の共通の決まり
 
@@ -96,6 +97,13 @@
 - 手順: 不具合（`B*`）は W5、機能（`F*`）は W2 と同じ入口。課題文の末尾は新文言、費用の上限は付けない（2026-11-09 15:40 UTC ユーザー指示。歯止めは 1 ステップ 40 分のタイムアウトだけ。詳しくは wf-W11-design.md）、介入は最大 2 回。
 - 子セッションの許可リスト: `curl` と `npx next` を外し、課題のテストと再現用のスクリプトの実行（`python`・`pytest`・`node`・`npx vitest`・`npx tsx`・`npx tsc`・`pnpm test` など）を足す（2026-11-09 ユーザー承認）。依存のインストールは許可しない。開発サーバー・ブラウザの許可は足さない。
 - 採点: `python3 scripts/poc/grade_w11.py <試行ID>`（隠しテストを作業後のコードに上書きして実行し、終わったら取り除く）。外部サイト・依存のインストール・公開版のパッケージのソースへの参照は `isolation_suspects` として記録する。集計は `scripts/poc/report_w11.py`。まとめて流すときは `scripts/poc/oss/run_all.sh <試行ID>...`。
+
+### W13 の決まり（途中で要件が変わる。2026-11-10 追加）
+
+- 設計は [wf-W13-design.md](wf-W13-design.md)、採点は `docs/poc/answer-key/W13/grading.md`。題材・初期状態・依頼者役の仕組み（`ask-po` とメッセージの 2 経路、`AskUserQuestion` は外す）・課題文の末尾（`w12`）・条件（`baseline-conventions` を含む）は W12 と同じ（W12 の仕組みは `origin/agent/poc-w12` 03b1d05 から写した）。規約は `wf-W13-conventions.md`、回答シートは `answer-key/W13/persona.md`（依頼者役は `answer_w13.py`）。
+- 候補の手順・質問への回答・介入（最大 2 回）がすべて終わった時点のコミットを最初の版（`raw/<ID>/v1-commit`）とし、同じセッションに変更依頼（`wf-W13-change.md`）を送る。変更依頼にも候補の手順（上の表）を使い、その後の回答・介入（最大 2 回、v1 からのコミットで判定）も同じ。依頼者役には段階（`raw/<ID>/phase`）を渡す。
+- 試行の最後に、最初の版までの差分（`diff-v1.patch`）と変更のステップの差分（`diff-change.patch`）を分けて残す。
+- 費用の上限は付けない。まとめて流すときは `scripts/poc/run_w13_trials.sh <候補>:<回> ...`。採点は `grade_w13.py`（アダプターの下書き → 採点者が確定 → 採点）→ `blind_w13.py` → `score_w13.py`。
 
 ## 権限
 
