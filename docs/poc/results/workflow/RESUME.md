@@ -12,10 +12,11 @@
 | W9 | 完了（#31） | — | — | なし |
 | W10 | 完了（#38） | — | — | なし |
 | W11 | 完了（#39） | — | — | なし |
-| W12 | 試行中（標準なし 12 本ほぼ終了 → 汎用の開発標準あり 10 本 → Haiku 10 本 → 乱れた初期状態 10 本。不正の経路の点検を追加） | session_01QR8ZDPuUFUuUcqdMDcGEqr（このアカウント） | agent/poc-w12 | 試行 → 採点 → report → PR |
-| W13 | 準備中（01:13 UTC 開始。試行は W12 の試行が終わってから） | session_01QR8ZDMCgWzYXsSxXTqyE2z（このアカウント） | agent/poc-w13 | 設計書・正解データ → 3 種類の確認 → コーディネーターの確認 → 試行 → report → PR |
+| W12 | 試行中（標準なし 12 本・汎用の開発標準あり 10 本は採点済み。Haiku 10 本 → 乱れた初期状態 10 本を実行中） | session_01QR8ZDPuUFUuUcqdMDcGEqr（このアカウント） | agent/poc-w12 | 試行 → 最終の採点し直し → ブラインド → report → PR |
+| W13 | 試行中（06:02 UTC に開始の合図。5 条件 × 2 回、全条件に汎用の開発標準） | session_01QR8ZDMCgWzYXsSxXTqyE2z（このアカウント） | agent/poc-w13 | 試行 → 採点 → report → PR |
 | W14・W15 | 別アカウントの担当が実施。W14 は 03:00 UTC に試行開始（承認済み）、W15 は 03:05 UTC に試行開始を承認。判断のやり取りは git（担当の `W1x/QUESTIONS.md` → `docs/poc/coordination/answers.md`） | 別アカウントのセッション | agent/poc-w14・agent/poc-w15 | 試行 → 採点 → report → PR |
-| W16・W17 | 計画済み。W12 の試行が終わったら W16 の担当を立てて準備（W13 の試行と並行）、W13 の試行の後に W16 の試行、その後 W17 | — | agent/poc-w16・w17（予定） | 計画書の「進める順番」 |
+| W16 | 準備中（06:02 UTC に担当を立てた） | session_01QR8ZDNr1NKndq8g95LBXXq（このアカウント） | agent/poc-w16 | 設計・正解データ → 3 種類の確認 → コーディネーターの確認 → 試行 |
+| W17 | 計画済み。W13 の試行が終わったら担当を立てる | — | agent/poc-w17（予定） | 計画書の「進める順番」 |
 | W18 | 準備済み（報告① 承認、引き継ぎに h3 を追加）。ユーザー判断で試行は W16・W17 の後。合図まで待機 | session_01QR8ZDNT1W59ni59XMVwMQP（このアカウント） | agent/poc-w18 | 合図を待って試行 |
 
 別アカウントのセッションには send_message が届かないため、W8・W10 は各ブランチの RESUME.md とコミットで進み具合を確かめる。試行の作業用コピー（`/tmp/poc-trials/<ID>`）はコンテナが入れ替わると消えるため、採点前の試行はやり直しになる可能性がある。
