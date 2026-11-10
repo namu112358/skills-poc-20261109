@@ -508,6 +508,11 @@ def evaluate(app, base, work, override=None, mutation=True):
         adapter = discover_adapter(app, work, routes, aliases, override)
         out["adapter"] = adapter
         extra = {"W12_STATIC": json.dumps({"inProcessScheduler": static["inProcessScheduler"]})}
+        # 既存の計測器の重要度（H01）は、旧 DB（本番相当のデータ）にマイグレーションを当てたあとの値で見る。初期データ（seed）を
+        # 見本として書き換えた候補がいるため（2026-11-10 補正）。そのためマイグレーションの確認を先に行う
+        out["migration"] = migration_checks(app, work, adapter, aliases, static)
+        dv = out["migration"].get("default_values") or []
+        adapter["default_existing"] = json.loads(dv[0]) if len(dv) == 1 else None
         logs = {}
         out["public"], logs["public"], pstate = suite(app, work, "public", "public.cjs", adapter, aliases)
         out["hidden"], logs["hidden"], hstate = suite(app, work, "hidden", "hidden.cjs", adapter, aliases, extra)
@@ -516,7 +521,6 @@ def evaluate(app, base, work, override=None, mutation=True):
         out["robust_v1"], logs["robust_v1"], _ = suite(app, work, "robust_v1", "robust-v1.cjs", adapter, aliases)
         out["robust_requests"] = [{k: r.get(k) for k in ("t", "recipient", "key", "status", "action", "closedAt")} for r in rstate.get("requests", [])][:200]
         out["deliveries_sample"] = [{k: d.get(k) for k in ("recipient", "title", "body")} for d in rstate.get("deliveries", [])][:5]
-        out["migration"] = migration_checks(app, work, adapter, aliases, static)
         all_requests = {"requests": [r for st in (pstate, hstate, rstate) for r in st.get("requests", [])]}
         out["ops"] = ops_checks(static, logs, aliases, all_requests)
         out["suite_retries"] = list(SUITE_RETRIES)

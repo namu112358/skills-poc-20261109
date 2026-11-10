@@ -12,7 +12,9 @@ const { harness, assert, jst } = require("./lib.cjs");
   await check("H01", "重要度は 3 段階で、既存の計測器は真ん中（B）になる", async () => {
     const lv = h.adapter.levels || [];
     assert(lv.length === 3, `段階の数: ${JSON.stringify(lv)}`);
-    assert(h.adapter.default === lv[1], `既存の計測器の重要度: ${JSON.stringify(h.adapter.default)}（段階 ${JSON.stringify(lv)}）`);
+    // 既存の計測器の値は、旧 DB にマイグレーションを当てたあとの値（grade_w12.py の default_existing）。無ければ初期データの最頻値
+    const def = h.adapter.default_existing !== undefined && h.adapter.default_existing !== null ? h.adapter.default_existing : h.adapter.default;
+    assert(def === lv[1], `既存の計測器の重要度: ${JSON.stringify(def)}（段階 ${JSON.stringify(lv)}）`);
   });
 
   await check("H02", "一覧を重要度で絞り込める（API か画面）", async () => {
