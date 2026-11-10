@@ -44,6 +44,7 @@ else
   rm -rf "$WORK" "$OUT"; mkdir -p "$APP" "$HOME_DIR" "$OUT"
 fi
 echo "$WORK" > "$OUT/workdir"
+echo "$MODEL" > "$OUT/model"
 [[ -n "$W7_CONTROL" ]] && echo 1 > "$OUT/control"
 
 # 1) 評価用アプリのコピー（node_modules を含む）と、常時有効な Skills・MCP
@@ -90,8 +91,17 @@ INJECT="${POC_INJECT_PATCH:-}"
 [[ -z "$INJECT" && "$SCENARIO" == W7a ]] && INJECT="$ROOT/docs/poc/answer-key/W7/base.patch"
 # W12: 題材（計測器の校正台帳）の初期状態を当てる（docs/poc/tasks/wf-W12-design.md）
 [[ -z "$INJECT" && "$SCENARIO" == W12 ]] && INJECT="$ROOT/docs/poc/answer-key/W12/base.patch"
+# W12 の追加条件「乱れた初期状態」（POC_W12_BASE=messy）: base.patch の上に base-messy.patch を当てる（設計書 §5）
+if [[ "${POC_W12_BASE:-}" == messy && "$SCENARIO" == W12 ]]; then
+  INJECT="$INJECT:$ROOT/docs/poc/answer-key/W12/base-messy.patch"
+  echo messy > "$OUT/base-variant"
+elif [[ -n "${POC_W12_BASE:-}" ]]; then
+  echo "POC_W12_BASE は W12 で messy のときだけ使える: ${POC_W12_BASE} ($SCENARIO)" >&2; exit 1
+fi
 # W13: 同じ題材の初期状態（W12 の base.patch の写し。docs/poc/tasks/wf-W13-design.md）
 [[ -z "$INJECT" && "$SCENARIO" == W13 ]] && INJECT="$ROOT/docs/poc/answer-key/W13/base.patch"
+# W14・W15: 同じ題材に、その W に必要なものを足した初期状態（docs/poc/tasks/wf-W14-design.md・wf-W15-design.md）
+[[ -z "$INJECT" && ( "$SCENARIO" == W14 || "$SCENARIO" == W15 ) ]] && INJECT="$ROOT/docs/poc/answer-key/$SCENARIO/base.patch"
 # W7 の対照: 初期状態 + 前の段階までの参照実装（例: W7b なら base.patch:reference-W7a.patch）。POC_INJECT_PATCH は : 区切りで複数書ける
 if [[ -z "$INJECT" && -n "$W7_CONTROL" ]]; then
   INJECT="$ROOT/docs/poc/answer-key/W7/base.patch"
@@ -115,9 +125,18 @@ if [[ "$CAND" == baseline-conventions ]]; then
   cat "$ROOT/docs/poc/tasks/wf-$SCENARIO-conventions.md" >> "$APP/CLAUDE.md"
   sha256sum "$ROOT/docs/poc/tasks/wf-$SCENARIO-conventions.md" | sed "s#$ROOT/##" > "$OUT/conventions"
 fi
-# W13: 全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準（docs/poc/standards/generic-dev-standard.md の
+# 汎用の開発標準（W12 の追加条件。POC_STANDARD=generic、W12 のときだけ）: docs/poc/standards/generic-dev-standard.md の
+# 区切り（コメント）より下を、そのまま CLAUDE.md の末尾に足す。試行 ID は回の番号 11・12 で区別する（設計書 §5）。
+if [[ "${POC_STANDARD:-}" == generic && "$SCENARIO" == W12 ]]; then
+  STD="$ROOT/docs/poc/standards/generic-dev-standard.md"
+  { echo; sed -n '/^-->$/,$p' "$STD" | tail -n +2; } >> "$APP/CLAUDE.md"
+  sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/standard"
+elif [[ -n "${POC_STANDARD:-}" ]]; then
+  echo "POC_STANDARD は W12 で generic のときだけ使える: ${POC_STANDARD} ($SCENARIO)" >&2; exit 1
+fi
+# W13・W14・W15: 全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準（docs/poc/standards/generic-dev-standard.md の
 # 区切りのコメントより下。全 W 同じ文面）を足す（2026-11-10 コーディネーター・ユーザー承認）。初期状態の一部なので候補からは差分に見えない
-if [[ "$SCENARIO" == W13 ]]; then
+if [[ "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 ]]; then
   STD="$ROOT/docs/poc/standards/generic-dev-standard.md"
   { echo; sed '1,/^-->$/d' "$STD"; } >> "$APP/CLAUDE.md"
   sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/dev-standard"
@@ -266,6 +285,15 @@ if [[ "$SCENARIO" == W13 ]]; then
   ALLOWED+=("Bash(ask-po:*)" "Bash(ask-po *)")
   CHILD_ENV+=(PATH="$WORK/bin:$PATH")
 fi
+# W14・W15: W12 と同じ ask-po（依頼者役は answer_persona.py。回答シートは answer-key/<W>/persona.md）。
+# 許可リストへの追加は ask-po だけ（2026-11-10 コーディネーター承認）
+if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 ]]; then
+  mkdir -p "$WORK/bin"
+  cp "$ROOT/scripts/poc/ask-po" "$WORK/bin/ask-po"
+  chmod +x "$WORK/bin/ask-po"
+  ALLOWED+=("Bash(ask-po:*)" "Bash(ask-po *)")
+  CHILD_ENV+=(PATH="$WORK/bin:$PATH")
+fi
 
 # 4) 手順（docs/poc/tasks/wf-procedures.md）
 if [[ "$SCENARIO" == W3 ]]; then
@@ -282,6 +310,8 @@ else
     case "$SCENARIO" in W1|W2) SUFFIX_MODE=old ;; W12) SUFFIX_MODE=w12 ;; *) SUFFIX_MODE=new ;; esac
     # W13 も依頼者に質問できるので W12 と同じ文言
     [[ "$SCENARIO" == W13 ]] && SUFFIX_MODE=w12
+    # W14・W15 も依頼者（品質保証部の担当者）に質問できるので同じ文言
+    [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 ]] && SUFFIX_MODE=w12
   fi
   case "$SUFFIX_MODE" in
     # W12: 依頼者に質問できることを伝える（ask-po と、メッセージでの質問の両方）。工程を省かないことは新文言と同じ
@@ -315,6 +345,7 @@ else
   # W12: 質問はメッセージ本文か ask-po で受ける。質問ツールは無人では答えられないので外す（W3 と同じ）
   [[ "$SCENARIO" == W12 ]] && EXTRA=(--disallowedTools AskUserQuestion)
   [[ "$SCENARIO" == W13 ]] && EXTRA=(--disallowedTools AskUserQuestion)
+  [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 ]] && EXTRA=(--disallowedTools AskUserQuestion)
 fi
 # W7a の後の手順（Compound Engineering は学んだことを残す /ce-compound。落とし穴の指摘のやり取りが終わってから行う）
 POST_STEPS=()
@@ -513,7 +544,9 @@ run_step() {  # run_step <番号> <プロンプト>
 }
 
 qa_answer() {  # qa_answer <ステップ> <通し番号>: 回答役に答えさせ、回答文を出す（質問が無ければ何も出さない）
-  if [[ "$SCENARIO" == W13 ]]; then
+  if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 ]]; then
+    POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_persona.py" "$SCENARIO" message "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$1" "$2"
+  elif [[ "$SCENARIO" == W13 ]]; then
     POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_w13.py" message "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$1" "$2"
   elif [[ "$SCENARIO" == W12 ]]; then
     POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_w12.py" message "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$1" "$2"
@@ -522,11 +555,11 @@ qa_answer() {  # qa_answer <ステップ> <通し番号>: 回答役に答えさ�
   fi
 }
 qa_loop() {  # W3・W12: 直前のステップの最後のメッセージに質問があれば、回答役の回答で続ける（上限 MAX_QA 回）
-  [[ "$SCENARIO" == W3 || "$SCENARIO" == W12 || "$SCENARIO" == W13 ]] || return 0
+  [[ "$SCENARIO" == W3 || "$SCENARIO" == W12 || "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 ]] || return 0
   local reply
   while :; do
     # W12 は上限に達したら答えるのをやめる（締め切りの定型文は送らない。続きは介入の定型文で進める）
-    [[ ( "$SCENARIO" == W12 || "$SCENARIO" == W13 ) && "$QA" -ge "$MAX_QA" ]] && { echo "qa limit $MAX_QA reached" >> "$OUT/errors.log"; return 0; }
+    [[ ( "$SCENARIO" == W12 || "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 ) && "$QA" -ge "$MAX_QA" ]] && { echo "qa limit $MAX_QA reached" >> "$OUT/errors.log"; return 0; }
     if [[ "$QA" -ge "$MAX_QA" ]]; then
       # 上限に達した後も質問が続くときは、締め切りの定型文を 1 回だけ送る（qa-closed.log に記録）
       if [[ ! -s "$OUT/qa-closed.log" ]] && ! over_budget; then
@@ -561,6 +594,15 @@ if [[ "$SCENARIO" == W13 ]]; then
   mkdir -p "$WORK/answerer-home"
   echo v1 > "$OUT/phase"
   POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_w13.py" serve "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$WORK/po.sock" \
+    >> "$OUT/persona.log" 2>&1 &
+  PO_PID=$!
+  trap 'declare -F reap_servers >/dev/null && reap_servers end; [[ -n "$PO_PID" ]] && kill "$PO_PID" 2>/dev/null' EXIT
+  for _ in $(seq 1 20); do [[ -S "$WORK/po.sock" ]] && break; sleep 0.5; done
+fi
+# W14・W15: 依頼者役（answer_persona.py）を W12 と同じく裏で起動する
+if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 ]]; then
+  mkdir -p "$WORK/answerer-home"
+  POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_persona.py" "$SCENARIO" serve "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$WORK/po.sock" \
     >> "$OUT/persona.log" 2>&1 &
   PO_PID=$!
   trap 'declare -F reap_servers >/dev/null && reap_servers end; [[ -n "$PO_PID" ]] && kill "$PO_PID" 2>/dev/null' EXIT

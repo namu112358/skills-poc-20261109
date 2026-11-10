@@ -1,0 +1,1023 @@
+{
+  "scenario": "W15",
+  "trial": "W15-superpowers-2",
+  "candidate": "superpowers",
+  "run": 2,
+  "elapsed_seconds": 220,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "ment / returnLoan\n  ---\n  duration_ms: 248.108734\n  type: 'suite'\n  ...\n# Subtest: validateLoanInput\n    # Subtest: requires an active borrower and a real date\n    ok 1 - requires an active borrower and a real date\n      ---\n      duration_ms: 126.085852\n      type: 'test'\n      ...\n    1..1\nok 18 - validateLoanInput\n  ---\n  duration_ms: 126.276614\n  type: 'suite'\n  ...\n# Subtest: listOverdueLoans\n    # Subtest: lists unreturned loans whose due date is before today\n    ok 1 - lists unreturned loans whose due date is before today\n      ---\n      duration_ms: 150.218918\n      type: 'test'\n      ...\n    1..1\nok 19 - listOverdueLoans\n  ---\n  duration_ms: 150.388538\n  type: 'suite'\n  ...\n1..19\n# tests 38\n# suites 19\n# pass 38\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 3101.23463\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "/api/instruments/[id]\n├ ƒ /api/instruments/[id]/calibrations\n├ ƒ /api/instruments/[id]/loans\n├ ƒ /api/instruments/[id]/loans/[loanId]/return\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:12857) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:12851) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:12864) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [],
+  "diff": {
+    "files": [
+      {
+        "path": "docs/calibration-import.md",
+        "added": 10,
+        "deleted": 0,
+        "kind": "doc"
+      },
+      {
+        "path": "src/app/api/calibrations/import/route.ts",
+        "added": 3,
+        "deleted": 2,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/calibration-import.ts",
+        "added": 140,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "tests/calibration-import.test.ts",
+        "added": 110,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/lib/calibration-import.ts",
+      "tests/calibration-import.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "7d97f9e 西日本校正センターの COND を合格として取り込み、備考に書き足す",
+      "8fdfb3b 西日本校正センターの校正結果 CSV を取り込めるようにする"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.59,
+    "tokens": {
+      "input": 54,
+      "output": 20830,
+      "cache_read": 1614565,
+      "cache_creation": 55036
+    },
+    "turns": 34,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W15-superpowers-2 && bin/ask-po \\\"B社＝西日本校正センター（docs/agencies の仕様書）と理解しています。確認です。(1) 判定 COND（条件付き合格）は、合格として前回校正日を更新しますか？それとも不合格扱い（使用停止）にしますか？ (2) 最終行 END の件数がデータ行数と合わない場"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"/tmp/poc-trials/W15-superpowers-2/bin/ask-po \\\"B社＝西日本校正センター（docs/agencies の仕様書）と理解しています。確認です。(1) 判定 COND（条件付き合格）は、合格として前回校正日を更新しますか？それとも不合格扱い（使用停止）にしますか？ (2) 最終行 END の件数がデータ行数と合わない場合は、全件取"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > tests/calibration-import.test.ts <<'EOF'\\nimport { describe, it } from \\\"node:test\\\";\\nimport assert from \\\"node:assert/strict\\\";\\nimport { importCalibrationFile, importNishinihonCs"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm test 2>&1 | grep -B2 -A14 \\\"^ *not ok\\\" | head -70; git stash -q; npm test 2>&1 | grep -E \\\"^# (pass|fail)\\\"; git stash pop -q\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i 's/\\\"qa\\\"/\\\"sato\\\"/g' tests/calibration-import.test.ts && npm test 2>&1 | grep -E \\\"^# (pass|fail)|not ok\\\"; npm run typecheck 2>&1 | tail -2\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i 's/\\\"qa\\\"/\\\"sato\\\"/g' tests/calibration-import.test.ts\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/calibration-import.ts'\\ns=open(p).read()\\ns=s.replace('''    if (judge === \\\"COND\\\") {\\n      res.errors.push({ line, message: `条件付き合格（COND）は取り込めません。扱いが決まるまで"
+      }
+    ],
+    "tool_calls": {
+      "Skill": 1,
+      "Bash": 20,
+      "Write": 2,
+      "Edit": 8
+    },
+    "skills_used": [
+      "superpowers:brainstorming"
+    ],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 179,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`COND`（条件付き合格）は合格として取り込むようにし、変更をコミットしました（7d97f9e）。`npm test`（38 件）と `npm run typecheck` は通っています。\n\n- **記録と前回校正日**: 結果は合格として記録され、前回校正日が更新されます。計測器の状態は変わらず、使い続けられます。\n- **備考への追記**: 計測器の備考の末尾に、1 行を改行して書き足します。例は「条件付き合格（2026-11-05）: 湿度 90%RH のレンジで許容差外」です。コメントが空のときは「: 」以降を付けません。\n- **再送時**: 同じファイルを再送しても、備考が二重に増えることはありません。\n- **備考の長さ**: 備考は 1000 文字までなので、超えた分は切り捨てます。\n- **ドキュメント**: `docs/calibration-import.md` も、この扱いに直しました。\n\n他の方針（自動の見分け、A社の取込は変更なし、`MI0003` と `MI-0003` の同一扱い、`END` の件数不一致で全件拒否、有効期限の読み飛ばし）は、前回の実装のままです。\n\n備考への追記は、校正記録の登録とは別の処理です。登録は成功して備考の追記だけが失敗した場合、再送しても「取込済み」として読み飛ばされ、備考は書き足されません。",
+    "turns_last_result_only": 34,
+    "active_seconds_last_result_only": 179
+  },
+  "w15": {
+    "checks": {
+      "typecheck": true,
+      "test": true,
+      "build": true
+    },
+    "routes": [
+      {
+        "path": "/api/calibrations/import",
+        "methods": [
+          "POST"
+        ]
+      }
+    ],
+    "static": {
+      "legacy_file_changed": false,
+      "legacy_file_exists": true,
+      "changed_src_files": [
+        "src/app/api/calibrations/import/route.ts",
+        "src/lib/calibration-import.ts"
+      ],
+      "logger_used": true,
+      "new_deps": false,
+      "docs_changed": true
+    },
+    "golden": [
+      {
+        "id": "a01-basic",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a02-numbers",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a03-dates",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a04-judgement",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a05-duplicates",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a06-quotes",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a07-bom",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a08-badheader",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a09-blanklines",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a10-order",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      }
+    ],
+    "public": [
+      {
+        "id": "P1",
+        "name": "B 社の仕様書どおりの CSV（同じ取込の送り先）を取り込める",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "hidden": [
+      {
+        "id": "B02",
+        "name": "ハイフン無しの機器番号（MI0003）を同じ計測器として扱う",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B03",
+        "name": "COND（条件付き合格）は合格として取り込み、計測器の備考に「条件付き合格（校正日）: コメント」を書き足す",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B04",
+        "name": "B 社の校正記録の校正機関は「西日本校正センター」",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B05",
+        "name": "END の件数と行数が合わないファイルは 1 件も取り込まず、誤りを返す",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B06",
+        "name": "同じ B 社のファイルを 2 回取り込んでも二重にならない",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B07",
+        "name": "同じファイルの中の重複（同じ機器・同じ校正日）は後の行を読み飛ばす",
+        "pass": false,
+        "detail": "同じファイルの中の重複（同じ機器・同じ日）が 1 件にならない: [{'no': 'MI-0009', 'date': '2026-12-06', 'result': 'pass', 'agency': '西日本校正センター', 'cert': 'WN2612-0010'}, {'no': 'MI-0009', 'date': '2026-12-06', 'result': 'pass', 'agency': '西日本校正センター', 'cert': 'WN2612-0011'}]"
+      },
+      {
+        "id": "B08",
+        "name": "B 社のファイルの形式を自動で見分ける（BOM・CRLF の場合も）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B09",
+        "name": "台帳に無い機器番号・読めない判定の行は誤りにして、ほかの行は取り込む",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B10",
+        "name": "取込の応答の形（imported・skipped・errors と各要素の line）が変わっていない",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "characterization": {
+      "legacy_mutants": 60,
+      "found_in_candidate": 60,
+      "killed": 19,
+      "mutants": 60,
+      "survivors": [
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 17,
+          "old": " >= ",
+          "new": " > ",
+          "snippet": "if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 17,
+          "old": "&&",
+          "new": "||",
+          "snippet": "if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) {"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 25,
+          "old": "0",
+          "new": "1",
+          "snippet": "for (let n = 0; n < lines.length; n++) {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 28,
+          "old": ".trim()",
+          "new": "",
+          "snippet": "if (raw.trim() === \"\") continue;"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 33,
+          "old": " < ",
+          "new": " <= ",
+          "snippet": "for (let i = 0; i < raw.length; i++) {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 37,
+          "old": "===",
+          "new": "!==",
+          "snippet": "if (raw[i + 1] === '\"') {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 40,
+          "old": "false",
+          "new": "true",
+          "snippet": "} else q = false;"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 49,
+          "old": ".trim()",
+          "new": "",
+          "snippet": "for (let i = 0; i < cols.length; i++) cols[i] = cols[i].trim();"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 63,
+          "old": "||",
+          "new": "&&",
+          "snippet": "if (no === \"\" || no.charAt(0) === \"#\" || no.charAt(0) === \"＃\" || no === \"合計\") continue;"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 63,
+          "old": "0",
+          "new": "1",
+          "snippet": "if (no === \"\" || no.charAt(0) === \"#\" || no.charAt(0) === \"＃\" || no === \"合計\") continue;"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 65,
+          "old": "2",
+          "new": "3",
+          "snippet": "if (/^[A-Z]{2}\\d{4}$/.test(no)) no = no.substring(0, 2) + \"-\" + no.substring(2);"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 65,
+          "old": "0",
+          "new": "1",
+          "snippet": "if (/^[A-Z]{2}\\d{4}$/.test(no)) no = no.substring(0, 2) + \"-\" + no.substring(2);"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 67,
+          "old": "0",
+          "new": "1",
+          "snippet": "let d = get(\"校正日\").replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 68,
+          "old": "0",
+          "new": "1",
+          "snippet": "let y = 0, m = 0, day = 0;"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 69,
+          "old": "1",
+          "new": "2",
+          "snippet": "let mt = d.match(/^(\\d{4})[\\/\\-.](\\d{1,2})[\\/\\-.](\\d{1,2})$/);"
+        }
+      ],
+      "baseline_tests_pass": true,
+      "commits": 2,
+      "first_characterization_commit": 0,
+      "first_importer_change_commit": 0,
+      "order_by": "transcript",
+      "transcript": {
+        "tool_calls": 31,
+        "first_characterization_call": 8,
+        "first_importer_change_call": 8
+      },
+      "order": "same"
+    },
+    "mutation": {
+      "baseline_tests_pass": true,
+      "baseline_fails": 0,
+      "baseline_log": "",
+      "mutants": 60,
+      "killed": 42,
+      "kill_rate": 0.7,
+      "files": [
+        "src/lib/calibration-import.ts"
+      ],
+      "survivors": [
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 20,
+          "old": "true",
+          "new": "false",
+          "snippet": "text = new TextDecoder(\"utf-8\", { fatal: true }).decode(data);"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 40,
+          "old": "===",
+          "new": "!==",
+          "snippet": "if (ch === '\"') {"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 41,
+          "old": "===",
+          "new": "!==",
+          "snippet": "if (raw[i + 1] === '\"') {"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 41,
+          "old": "1",
+          "new": "2",
+          "snippet": "if (raw[i + 1] === '\"') {"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 44,
+          "old": "false",
+          "new": "true",
+          "snippet": "} else quoted = false;"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 46,
+          "old": "true",
+          "new": "false",
+          "snippet": "} else if (ch === '\"') quoted = true;"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 48,
+          "old": ".trim()",
+          "new": "",
+          "snippet": "cols.push(cur.trim());"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 52,
+          "old": ".trim()",
+          "new": "",
+          "snippet": "cols.push(cur.trim());"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 82,
+          "old": "0",
+          "new": "1",
+          "snippet": "for (let n = 0; n < lines.length; n++) {"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 84,
+          "old": ".trim()",
+          "new": "",
+          "snippet": "if (raw.trim() === \"\" || raw.startsWith(\"#\")) continue;"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 87,
+          "old": "1",
+          "new": "2",
+          "snippet": "if (HEADER.some((h, i) => cols[i] !== h)) return fatal(n + 1, \"CSV の形式が違います（見出しが西日本校正センターの仕様と一致しません）\");"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 92,
+          "old": "1",
+          "new": "2",
+          "snippet": "if (!/^\\d+$/.test(cols[1] ?? \"\")) return fatal(n + 1, \"最終行 END の件数が読めません\");"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 98,
+          "old": "1",
+          "new": "2",
+          "snippet": "if (!headerSeen) return fatal(1, \"CSV の形式が違います（見出しがありません）\");"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 108,
+          "old": "4",
+          "new": "5",
+          "snippet": "const cert = cols[4] ?? \"\";"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 117,
+          "old": " > ",
+          "new": " >= ",
+          "snippet": "if (cert.length > 50) {"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 117,
+          "old": "50",
+          "new": "51",
+          "snippet": "if (cert.length > 50) {"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 127,
+          "old": " AND ",
+          "new": " OR ",
+          "snippet": ".prepare(\"SELECT 1 FROM calibration_records WHERE instrument_id = ? AND calibrated_on = ? AND certificate_no = ?\")"
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 127,
+          "old": " AND ",
+          "new": " OR ",
+          "snippet": ".prepare(\"SELECT 1 FROM calibration_records WHERE instrument_id = ? AND calibrated_on = ? AND certificate_no = ?\")"
+        }
+      ],
+      "details": [
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 20,
+          "old": "true",
+          "new": "false",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 29,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 36,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 37,
+          "old": " < ",
+          "new": " <= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 37,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 40,
+          "old": "===",
+          "new": "!==",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 41,
+          "old": "===",
+          "new": "!==",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 41,
+          "old": "1",
+          "new": "2",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 44,
+          "old": "false",
+          "new": "true",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 46,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 46,
+          "old": "true",
+          "new": "false",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 47,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 48,
+          "old": ".trim()",
+          "new": "",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 52,
+          "old": ".trim()",
+          "new": "",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 59,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 59,
+          "old": "4",
+          "new": "5",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 59,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 59,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 59,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 62,
+          "old": "1000",
+          "new": "1001",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 67,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 72,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 74,
+          "old": "true",
+          "new": "false",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 79,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 82,
+          "old": " < ",
+          "new": " <= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 82,
+          "old": "0",
+          "new": "1",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 84,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 84,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 84,
+          "old": ".trim()",
+          "new": "",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 86,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 87,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 87,
+          "old": "1",
+          "new": "2",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 88,
+          "old": "true",
+          "new": "false",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 91,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 91,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 92,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 92,
+          "old": "1",
+          "new": "2",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 93,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 96,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 98,
+          "old": "1",
+          "new": "2",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 99,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 100,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 105,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 106,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 107,
+          "old": "3",
+          "new": "4",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 108,
+          "old": "4",
+          "new": "5",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 109,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 113,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 113,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 113,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 113,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 113,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 117,
+          "old": " > ",
+          "new": " >= ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 117,
+          "old": "50",
+          "new": "51",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 122,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 127,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 127,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 133,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 135,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import.ts",
+          "line": 135,
+          "old": "6",
+          "new": "7",
+          "killed": true
+        }
+      ]
+    },
+    "public_before_recheck": [
+      {
+        "id": "P1",
+        "name": "B 社の仕様書どおりの CSV（同じ取込の送り先）を取り込める",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "hidden_before_recheck": [
+      {
+        "id": "B02",
+        "name": "ハイフン無しの機器番号（MI0003）を同じ計測器として扱う",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B03",
+        "name": "COND（条件付き合格）は合格として取り込み、計測器の備考に「条件付き合格（校正日）: コメント」を書き足す",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B04",
+        "name": "B 社の校正記録の校正機関は「西日本校正センター」",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B05",
+        "name": "END の件数と行数が合わないファイルは 1 件も取り込まず、誤りを返す",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B06",
+        "name": "同じ B 社のファイルを 2 回取り込んでも二重にならない",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B07",
+        "name": "同じファイルの中の重複（同じ機器・同じ校正日）は後の行を読み飛ばす",
+        "pass": false,
+        "detail": "同じファイルの中の重複（同じ機器・同じ日）が 1 件にならない: [{'no': 'MI-0009', 'date': '2026-12-06', 'result': 'pass', 'agency': '西日本校正センター', 'cert': 'WN2612-0010'}, {'no': 'MI-0009', 'date': '2026-12-06', 'result': 'pass', 'agency': '西日本校正センター', 'cert': 'WN2612-0011'}]"
+      },
+      {
+        "id": "B08",
+        "name": "B 社のファイルの形式を自動で見分ける（BOM・CRLF の場合も）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B09",
+        "name": "台帳に無い機器番号・読めない判定の行は誤りにして、ほかの行は取り込む",
+        "pass": false,
+        "detail": "台帳に無い番号・読めない判定以外の 2 件を取り込まない: 200 {\"imported\":3,\"skipped\":[],\"errors\":[{\"line\":4,\"message\":\"管理番号が台帳にありません: ZZ-0001\"},{\"line\":5,\"message\":\"判定が読めません: UNKNOWN\"}]}"
+      },
+      {
+        "id": "B10",
+        "name": "取込の応答の形（imported・skipped・errors と各要素の line）が変わっていない",
+        "pass": true,
+        "detail": ""
+      }
+    ]
+  }
+}

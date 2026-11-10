@@ -16,7 +16,9 @@
 | W8 | `<課題>` | `/superpowers:writing-plans <課題>` → `/superpowers:subagent-driven-development` | `/feature-dev:feature-dev <課題>` | `/autoplan <課題>` → `/ship` | `/ce-brainstorm <課題>` → `/lfg` |
 | W9 | `<課題>` | `/superpowers:requesting-code-review <課題>` | 「Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。」+ `<課題>` | `/review <課題>` | `/ce-code-review <課題>` |
 | W10 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
+| W12 | `<課題>`（baseline-conventions も同じ） | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W13 | `<課題>` → `<変更依頼>` | `<課題>` → `<変更依頼>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` → `/feature-dev:feature-dev <変更依頼>` | `<課題>` → `/review` → `<変更依頼>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` → `/ce-plan <変更依頼>` → `/ce-work` → `/ce-code-review` |
+| W14・W15 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 
 ### W2 以降の共通の決まり
 
@@ -98,12 +100,28 @@
 - 子セッションの許可リスト: `curl` と `npx next` を外し、課題のテストと再現用のスクリプトの実行（`python`・`pytest`・`node`・`npx vitest`・`npx tsx`・`npx tsc`・`pnpm test` など）を足す（2026-11-09 ユーザー承認）。依存のインストールは許可しない。開発サーバー・ブラウザの許可は足さない。
 - 採点: `python3 scripts/poc/grade_w11.py <試行ID>`（隠しテストを作業後のコードに上書きして実行し、終わったら取り除く）。外部サイト・依存のインストール・公開版のパッケージのソースへの参照は `isolation_suspects` として記録する。集計は `scripts/poc/report_w11.py`。まとめて流すときは `scripts/poc/oss/run_all.sh <試行ID>...`。
 
+### W12 の決まり（短い要件から、運用まで考えて作る。2026-11-10 追加）
+
+- 設計は [wf-W12-design.md](wf-W12-design.md)、採点は `docs/poc/answer-key/W12/grading.md`。題材は計測器の校正台帳（`answer-key/W12/base.patch` を作業用コピーにだけ当てる）。課題文は `wf-W12.md` の 1 文だけ。
+- 課題文の末尾は W12 用の文言（`task-suffix` が `w12`）。依頼者への質問は、作業中いつでも使える `ask-po "<質問>"`（`$WORK/bin` に置き、`PATH` に入れて `Bash(ask-po:*)` を許可）と、ステップの最後のメッセージの質問（W3 と同じ。最大 10 回）の 2 経路。依頼者役は `scripts/poc/answer_w12.py`（回答シートは `answer-key/W12/persona.md`）。`AskUserQuestion` は外す。記録は `raw/<試行ID>/po-questions.jsonl`。
+- 条件に `baseline-conventions` を足す（候補なし。`CLAUDE.md` の末尾に `wf-W12-conventions.md` の開発規約を足してから baseline コミットを作る。`raw/<試行ID>/conventions` にハッシュを記録）。
+- 介入は最大 2 回（`POC_MAX_NUDGES=2`）。費用の上限は付けない。まとめて流すときは `scripts/poc/run_w12_trials.sh <候補>:<回> ...`（試行のあと `grade_w12.py` で採点する）。
+- 採点は `grade_w12.py`（アダプター・公開・隠し・堅牢さ・旧 DB でのマイグレーション・運用・ミューテーション）→ `blind_w12.py`（ブラインドレビュー）→ `score_w12.py`。
+
 ### W13 の決まり（途中で要件が変わる。2026-11-10 追加）
 
 - 設計は [wf-W13-design.md](wf-W13-design.md)、採点は `docs/poc/answer-key/W13/grading.md`。題材・初期状態・依頼者役の仕組み（`ask-po` とメッセージの 2 経路、`AskUserQuestion` は外す）・課題文の末尾（`w12`）は W12 と同じ（W12 の仕組みは `origin/agent/poc-w12` 03b1d05 から写した）。条件は 5 つ（baseline-conventions は使わない）で、全条件の作業用コピーの `CLAUDE.md` の末尾に汎用の開発標準（`docs/poc/standards/generic-dev-standard.md` の区切りより下）を足す（`raw/<ID>/dev-standard` にハッシュ）。回答シートは `answer-key/W13/persona.md`（依頼者役は `answer_w13.py`）。
 - 候補の手順・質問への回答・介入（最大 2 回）がすべて終わった時点のコミットを最初の版（`raw/<ID>/v1-commit`）とし、同じセッションに変更依頼（`wf-W13-change.md`）を送る。変更依頼にも候補の手順（上の表）を使い、その後の回答・介入（最大 2 回、v1 からのコミットで判定）も同じ。依頼者役には段階（`raw/<ID>/phase`）を渡す。
 - 試行の最後に、最初の版までの差分（`diff-v1.patch`）と変更のステップの差分（`diff-change.patch`）を分けて残す。
 - 費用の上限は付けない。まとめて流すときは `scripts/poc/run_w13_trials.sh <候補>:<回> ...`。採点は `grade_w13.py`（アダプターの下書き → 採点者が確定 → 採点）→ `blind_w13.py` → `score_w13.py`。
+
+### W14 の決まり（安全な DB 移行。2026-11-10 追加）
+
+- 設計は [wf-W14-design.md](wf-W14-design.md)、採点は `docs/poc/answer-key/W14/grading.md`。初期状態は `answer-key/W14/base.patch`（W12 の初期状態 + ハンディ端末の API・場所の値の抽出など）を作業用コピーにだけ当てる。課題文は `wf-W14.md` の 1 文だけ。
+- 依頼者への質問は W12 と同じ 2 経路（`ask-po` とメッセージ）。依頼者役は `scripts/poc/answer_persona.py W14`（回答シートは `answer-key/W14/persona.md`）。`AskUserQuestion` は外す。
+- 条件は 5 つ（baseline-conventions は使わない）。全条件で、`docs/poc/standards/generic-dev-standard.md` の汎用の開発標準を作業用コピーの `CLAUDE.md` の末尾に足す（2026-11-10 コーディネーターの連絡）。
+- 介入は最大 2 回。費用の上限は付けない。まとめて流すときは `scripts/poc/run_w14_trials.sh W14 <候補>:<回> ...`。
+- 採点は `grade_w14.py`（新しい DB での公開・隠し、5 万件の旧 DB での移行、表記ゆれ、前の版への戻し、運用、ミューテーション）→ `blind_w14.py` → `score_w14.py`。
 
 ## 権限
 
