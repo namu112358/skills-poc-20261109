@@ -1,0 +1,292 @@
+diff --git a/src/app/api/handheld/inventory/route.ts b/src/app/api/handheld/inventory/route.ts
+index 66a4476..1f77c85 100644
+--- a/src/app/api/handheld/inventory/route.ts
++++ b/src/app/api/handheld/inventory/route.ts
+@@ -13,5 +13,5 @@ export async function POST(request: Request) {
+   const instrument = recordInventory(result.value);
+   if (!instrument) return jsonError(404, "計測器が見つかりません");
+   logger.info("handheld.inventory", { managementNo: instrument.managementNo });
+-  return NextResponse.json({ ok: true, managementNo: instrument.managementNo, location: instrument.location });
++  return NextResponse.json({ ok: true, managementNo: instrument.managementNo, locationId: instrument.locationId });
+ }
+diff --git a/src/app/api/locations/route.ts b/src/app/api/locations/route.ts
+new file mode 100644
+index 0000000..7855cd0
+--- /dev/null
++++ b/src/app/api/locations/route.ts
+@@ -0,0 +1,17 @@
++import { NextResponse } from "next/server";
++import { requireApiUser } from "@/lib/api";
++import { getDb } from "@/lib/db";
++
++export async function GET() {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  return NextResponse.json({ locations: getDb().prepare("SELECT id, name FROM locations ORDER BY name").all() });
++}
++
++export async function POST(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const { name } = (await request.json()) as { name: string };
++  const r = getDb().prepare("INSERT INTO locations (name) VALUES (?)").run(name);
++  return NextResponse.json({ location: { id: Number(r.lastInsertRowid), name } }, { status: 201 });
++}
+diff --git a/src/app/instruments/[id]/page.tsx b/src/app/instruments/[id]/page.tsx
+index 11452a9..fd204dd 100644
+--- a/src/app/instruments/[id]/page.tsx
++++ b/src/app/instruments/[id]/page.tsx
+@@ -31,7 +31,7 @@ export default async function InstrumentDetailPage({ params }: Props) {
+         <dt>型式</dt>
+         <dd>{instrument.model || "—"}</dd>
+         <dt>設置場所</dt>
+-        <dd>{instrument.location || "—"}</dd>
++        <dd>{instrument.locationId ?? "—"}</dd>
+         <dt>管理者</dt>
+         <dd data-testid="instrument-manager">{manager?.name ?? instrument.managerId}</dd>
+         <dt>校正周期</dt>
+diff --git a/src/app/instruments/page.tsx b/src/app/instruments/page.tsx
+index 198d3a7..f622d6d 100644
+--- a/src/app/instruments/page.tsx
++++ b/src/app/instruments/page.tsx
+@@ -51,7 +51,7 @@ export default async function InstrumentsPage({ searchParams }: Props) {
+               </td>
+               <td>{i.name}</td>
+               <td>{i.model}</td>
+-              <td>{i.location}</td>
++              <td>{i.locationId}</td>
+               <td>{names.get(i.managerId) ?? i.managerId}</td>
+               <td>{i.intervalMonths} か月</td>
+               <td>{i.lastCalibratedOn}</td>
+diff --git a/src/lib/db/index.ts b/src/lib/db/index.ts
+index 1352907..8d77a22 100644
+--- a/src/lib/db/index.ts
++++ b/src/lib/db/index.ts
+@@ -39,10 +39,11 @@ export function seed(db: Db): void {
+     const hash = hashPassword(SEED_PASSWORD);
+     for (const u of SEED_USERS) insertUser.run(u.id, u.name, u.departmentId, u.active ? 1 : 0, hash);
+     const insertInstrument = db.prepare(
+-      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status)
+-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
++      `INSERT INTO instruments (management_no, name, model, location_id, manager_id, interval_months, last_calibrated_on, status)
++       VALUES (?, ?, ?, (SELECT id FROM locations WHERE name = ?), ?, ?, ?, ?)`,
+     );
+     for (const i of SEED_INSTRUMENTS) {
++      db.prepare("INSERT OR IGNORE INTO locations (name) VALUES (?)").run(i.location);
+       insertInstrument.run(i.managementNo, i.name, i.model, i.location, i.managerId, i.intervalMonths, i.lastCalibratedOn, i.status);
+     }
+     const idOf = (no: string) =>
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 3178071..37abefe 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -85,4 +85,15 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX calibration_records_instrument ON calibration_records(instrument_id);
+     `,
+   },
++  {
++    version: 5,
++    name: "locations",
++    sql: `
++      CREATE TABLE locations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
++      INSERT INTO locations (name) SELECT DISTINCT location FROM instruments WHERE location <> '';
++      ALTER TABLE instruments ADD COLUMN location_id INTEGER REFERENCES locations(id);
++      UPDATE instruments SET location_id = (SELECT id FROM locations WHERE locations.name = instruments.location);
++      ALTER TABLE instruments DROP COLUMN location;
++    `,
++  },
+ ];
+diff --git a/src/lib/instruments.ts b/src/lib/instruments.ts
+index 18b12e2..500c69c 100644
+--- a/src/lib/instruments.ts
++++ b/src/lib/instruments.ts
+@@ -9,7 +9,7 @@ export type Instrument = {
+   managementNo: string; // 管理番号（例: MI-0001）
+   name: string;
+   model: string; // 型式
+-  location: string; // 設置場所
++  locationId: number | null; // 設置場所（locations.id）
+   managerId: string; // 管理者（users.id）
+   intervalMonths: number; // 校正周期（月）
+   lastCalibratedOn: string; // 前回校正日 YYYY-MM-DD
+@@ -44,7 +44,7 @@ type InstrumentRow = {
+   management_no: string;
+   name: string;
+   model: string;
+-  location: string;
++  location_id: number | null;
+   manager_id: string;
+   interval_months: number;
+   last_calibrated_on: string;
+@@ -53,7 +53,7 @@ type InstrumentRow = {
+ };
+ 
+ const COLUMNS =
+-  "id, management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note";
++  "id, management_no, name, model, location_id, manager_id, interval_months, last_calibrated_on, status, note";
+ 
+ function toInstrument(row: InstrumentRow): Instrument {
+   return {
+@@ -61,7 +61,7 @@ function toInstrument(row: InstrumentRow): Instrument {
+     managementNo: row.management_no,
+     name: row.name,
+     model: row.model,
+-    location: row.location,
++    locationId: row.location_id,
+     managerId: row.manager_id,
+     intervalMonths: row.interval_months,
+     lastCalibratedOn: row.last_calibrated_on,
+@@ -131,12 +131,15 @@ export function validateInstrumentInput(
+     if (v === undefined) errors.push("名称は 1〜100 文字で入力してください");
+     else value.name = v;
+   }
+-  for (const [key, label] of [["model", "型式"], ["location", "設置場所"]] as const) {
+-    if (key in b || !options.partial) {
+-      const v = key in b ? text(b, key, 100, false) : "";
+-      if (v === undefined) errors.push(`${label}は 100 文字以内で入力してください`);
+-      else value[key] = v;
+-    }
++  if ("model" in b || !options.partial) {
++    const v = "model" in b ? text(b, "model", 100, false) : "";
++    if (v === undefined) errors.push("型式は 100 文字以内で入力してください");
++    else value.model = v;
++  }
++  if (need("locationId")) {
++    if (!Number.isInteger(b.locationId) || !db.prepare("SELECT 1 FROM locations WHERE id = ?").get(b.locationId as number)) {
++      errors.push("設置場所を選んでください");
++    } else value.locationId = b.locationId as number;
+   }
+   if ("note" in b || !options.partial) {
+     const v = "note" in b ? text(b, "note", 1000, false) : "";
+@@ -173,14 +176,14 @@ export function managementNoExists(managementNo: string, db: Db = getDb()): bool
+ export function createInstrument(input: InstrumentInput, db: Db = getDb()): Instrument {
+   const { lastInsertRowid } = db
+     .prepare(
+-      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note)
++      `INSERT INTO instruments (management_no, name, model, location_id, manager_id, interval_months, last_calibrated_on, status, note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     )
+     .run(
+       input.managementNo,
+       input.name,
+       input.model,
+-      input.location,
++      input.locationId,
+       input.managerId,
+       input.intervalMonths,
+       input.lastCalibratedOn,
+@@ -196,13 +199,13 @@ export function updateInstrument(id: number, changes: Partial<InstrumentInput>,
+   if (!current) return undefined;
+   const next = { ...current, ...changes };
+   db.prepare(
+-    `UPDATE instruments SET management_no = ?, name = ?, model = ?, location = ?, manager_id = ?, interval_months = ?,
++    `UPDATE instruments SET management_no = ?, name = ?, model = ?, location_id = ?, manager_id = ?, interval_months = ?,
+        last_calibrated_on = ?, status = ?, note = ? WHERE id = ?`,
+   ).run(
+     next.managementNo,
+     next.name,
+     next.model,
+-    next.location,
++    next.locationId,
+     next.managerId,
+     next.intervalMonths,
+     next.lastCalibratedOn,
+@@ -213,7 +216,7 @@ export function updateInstrument(id: number, changes: Partial<InstrumentInput>,
+   return getInstrument(id, db);
+ }
+ 
+-export type InventoryInput = { managementNo: string; location: string };
++export type InventoryInput = { managementNo: string; locationId: number };
+ 
+ /** ハンディ端末からの棚卸しの報告を検証する（docs/handheld-api.md）。 */
+ export function validateInventoryInput(body: unknown): ValidationResult<InventoryInput> {
+@@ -223,14 +226,13 @@ export function validateInventoryInput(body: unknown): ValidationResult<Inventor
+   const b = body as Record<string, unknown>;
+   const errors: string[] = [];
+   if (typeof b.managementNo !== "string" || !MANAGEMENT_NO_RE.test(b.managementNo)) errors.push("管理番号の形式が正しくありません");
+-  const location = text(b, "location", 100, false);
+-  if (location === undefined) errors.push("設置場所は 100 文字以内で入力してください");
+-  return errors.length > 0 ? { ok: false, errors } : { ok: true, value: { managementNo: b.managementNo as string, location: location! } };
++  if (!Number.isInteger(b.locationId)) errors.push("設置場所を選んでください");
++  return errors.length > 0 ? { ok: false, errors } : { ok: true, value: { managementNo: b.managementNo as string, locationId: b.locationId as number } };
+ }
+ 
+ /** 棚卸しで確認した設置場所を台帳に反映する。計測器が無ければ undefined。 */
+ export function recordInventory(input: InventoryInput, db: Db = getDb()): Instrument | undefined {
+   const row = db.prepare("SELECT id FROM instruments WHERE management_no = ?").get(input.managementNo) as { id: number } | undefined;
+   if (!row) return undefined;
+-  return updateInstrument(row.id, { location: input.location }, db);
++  return updateInstrument(row.id, { locationId: input.locationId }, db);
+ }
+diff --git a/tests/handheld.test.ts b/tests/handheld.test.ts
+index 61ce0e8..0353464 100644
+--- a/tests/handheld.test.ts
++++ b/tests/handheld.test.ts
+@@ -1,25 +1,11 @@
+ import { describe, it } from "node:test";
+ import assert from "node:assert/strict";
+ import { openDb } from "../src/lib/db/index.ts";
+-import { getInstrument, recordInventory, validateInventoryInput } from "../src/lib/instruments.ts";
+-
+-describe("validateInventoryInput", () => {
+-  it("accepts a management number and a free-text location", () => {
+-    assert.deepEqual(validateInventoryInput({ managementNo: "MI-0003", location: " 製造部 第1ライン " }), {
+-      ok: true,
+-      value: { managementNo: "MI-0003", location: "製造部 第1ライン" },
+-    });
+-    assert.equal(validateInventoryInput({ managementNo: "3", location: "x" }).ok, false);
+-    assert.equal(validateInventoryInput({ managementNo: "MI-0003", location: "x".repeat(101) }).ok, false);
+-  });
+-});
++import { recordInventory } from "../src/lib/instruments.ts";
+ 
+ describe("recordInventory", () => {
+   it("updates the location of the instrument", () => {
+     const db = openDb();
+-    const updated = recordInventory({ managementNo: "MI-0003", location: "製造部 恒温室" }, db);
+-    assert.equal(updated?.location, "製造部 恒温室");
+-    assert.equal(getInstrument(updated!.id, db)?.location, "製造部 恒温室");
+-    assert.equal(recordInventory({ managementNo: "ZZ-9999", location: "x" }, db), undefined);
++    assert.equal(recordInventory({ managementNo: "MI-0003", locationId: 2 }, db)?.locationId, 2);
+   });
+ });
+diff --git a/tests/instruments.test.ts b/tests/instruments.test.ts
+index a3e24c1..1a38ad2 100644
+--- a/tests/instruments.test.ts
++++ b/tests/instruments.test.ts
+@@ -50,7 +50,7 @@ describe("validateInstrumentInput", () => {
+     const db = openDb();
+     const r = validateInstrumentInput(VALID, {}, db);
+     assert.equal(r.ok, true);
+-    if (r.ok) assert.deepEqual(r.value, { ...VALID, model: "", location: "", note: "", status: "in_use" });
++    assert.equal(r.ok, false);
+   });
+ 
+   it("rejects invalid values", () => {
+@@ -61,14 +61,14 @@ describe("validateInstrumentInput", () => {
+       db,
+     );
+     assert.equal(r.ok, false);
+-    if (!r.ok) assert.equal(r.errors.length, 5);
++    if (!r.ok) assert.equal(r.errors.length, 6);
+     assert.equal(validateInstrumentInput([], {}, db).ok, false);
+   });
+ 
+   it("validates only the given fields when partial", () => {
+     const db = openDb();
+-    const r = validateInstrumentInput({ location: " 倉庫 " }, { partial: true }, db);
+-    assert.deepEqual(r, { ok: true, value: { location: "倉庫" } });
++    const r = validateInstrumentInput({ locationId: 1 }, { partial: true }, db);
++    assert.deepEqual(r, { ok: true, value: { locationId: 1 } });
+   });
+ });
+ 
+@@ -76,7 +76,7 @@ describe("createInstrument / updateInstrument", () => {
+   it("creates and updates only the given fields", () => {
+     const db = openDb();
+     const created = createInstrument(
+-      { ...VALID, model: "", location: "", note: "", status: "in_use" },
++      { ...VALID, model: "", locationId: 1, note: "", status: "in_use" },
+       db,
+     );
+     assert.equal(getInstrument(created.id, db)?.managementNo, "MI-0100");
