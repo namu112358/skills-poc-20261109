@@ -33,7 +33,7 @@ GUIDE = """あなたは採点の補助です。社内アプリ（計測器の校
   filterInstrument に各要素の計測器 ID の項目名を書く。
 - cancel / approve / reject: 予約への操作。{{reservationId}} が使える。無い操作は書かない。
 - fields: 一覧の各要素の項目名（id・status・start・end・user）。状態が複数の項目の組み合わせなら status に項目名の配列を書く
-  （そのときの値は JSON にした各項目を "|" でつないだ文字列。例 "\\"active\\"|0"）。
+  （そのときの値は JSON にした各項目を "|" でつないだ文字列。例 "\\"active\\"|0"。項目ごとに "*"（何でもよい）と "@notnull"（null 以外。日時の列など）が使える。例 "\\"active\\"|@notnull|null"）。
 - status: 共通の状態名 → 候補の状態の値の配列。共通の状態名は、承認制の前（{phase} が v1）なら active（有効な予約）・cancelled、
   承認制の後（v2）なら pending（仮予約・承認待ち）・approved（確定）・rejected（却下）・cancelled（取消）・expired（期限切れ）。
   候補のコードに無い状態は書かない。

@@ -50,7 +50,7 @@ def free_port():
         return s.getsockname()[1]
 
 
-def wait_port(port, seconds=90):
+def wait_port(port, seconds=180):
     for _ in range(seconds):
         try:
             socket.create_connection(("127.0.0.1", port), timeout=1).close()
@@ -277,7 +277,13 @@ def migration_checks(app, v1app, work, adapters, static):
     s1 = Server(v1app, work, "prod-v1", prod, "2026-11-09T22:30:00.000Z")
     made = {"made": [], "errors": ["v1 のサーバーが起動しない"]}
     try:
-        if s1.start():
+        started = s1.start()
+        if not started:
+            # 並行する試行の負荷で起動の確認が間に合わないことがあった（feature-dev-1。2026-11-10）。1 回だけ起動し直す
+            s1.stop()
+            res["prod_v1_restart"] = True
+            started = s1.start()
+        if started:
             p = s1.node("prod.cjs", adapters.get("v1"), "v1", args=("make",))
             line = next((l for l in p.stderr.splitlines() if l.startswith("PROD ")), None)
             made = json.loads(line[5:]) if line else {"made": [], "errors": [p.stderr[-500:]]}

@@ -35,7 +35,10 @@ function harness(base, prefix, adapterJson) {
   const contexts = [];
   let seq = 0;
   async function ctx() {
-    const c = await request.newContext({ baseURL: base, timeout: 300_000 });
+    // API として呼ぶ: JSON を受け付ける旨を送り、リダイレクトは追わない（画面のフォーム送信と兼ねる実装で、
+    // 失敗が 303 → 画面の 200 に見えないようにする。2026-11-10、試行前の確認の後の補正。判断の記録）
+    const c = await request.newContext({ baseURL: base, timeout: 300_000, maxRedirects: 0,
+      extraHTTPHeaders: { accept: "application/json" } });
     contexts.push(c);
     return c;
   }
@@ -58,7 +61,9 @@ function harness(base, prefix, adapterJson) {
     try { return await res.json(); } catch { return undefined; }
   }
   async function call(c, method, path, body, headers) {
-    const go = () => c.fetch(path, { method, ...(body !== undefined ? { data: body } : {}), ...(headers ? { headers } : {}) });
+    // 本文の無い POST・PATCH・PUT・DELETE も JSON（{}）で送る（JSON の要求かどうかで応答を変える実装があるため）
+    const data = body !== undefined ? body : method !== "GET" ? {} : undefined;
+    const go = () => c.fetch(path, { method, ...(data !== undefined ? { data } : {}), ...(headers ? { headers } : {}), maxRedirects: 0 });
     let res = await go();
     if (res.status() === 401 && users.has(c)) {
       await signIn(c, users.get(c));
@@ -124,9 +129,19 @@ function harness(base, prefix, adapterJson) {
     return r.status;
   }
   /** 状態の値を、アダプターの対応表で共通の名前（active・pending・approved・rejected・cancelled・expired）にする */
+  // 複数の項目を組み合わせた状態（'"active"|null|null'）では、項目ごとに "*"（何でもよい）・"@notnull"（null 以外）が使える
+  function partMatch(p, r) {
+    return p === "*" || (p === "@notnull" && r !== "null") || p === r;
+  }
+  function matches(v, raw) {
+    if (JSON.stringify(v) === JSON.stringify(raw)) return true;
+    if (typeof v !== "string" || typeof raw !== "string" || !v.includes("|")) return false;
+    const a = v.split("|"), b = raw.split("|");
+    return a.length === b.length && a.every((p, i) => partMatch(p, b[i]));
+  }
   function canon(raw) {
     for (const [name, values] of Object.entries(adapter.status || {})) {
-      if ((Array.isArray(values) ? values : [values]).some((v) => JSON.stringify(v) === JSON.stringify(raw))) return name;
+      if ((Array.isArray(values) ? values : [values]).some((v) => matches(v, raw))) return name;
     }
     return `?${JSON.stringify(raw)}`;
   }

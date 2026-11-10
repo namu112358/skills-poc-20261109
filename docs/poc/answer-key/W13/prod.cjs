@@ -97,11 +97,10 @@ async function check(base) {
     const s1 = await h.statusOf(MI["MI-0010"], id);
     assert(s1 === "approved", `承認の後: ${s1}`);
   });
-  const vocab = new Set(Object.values(h.adapter.status || {}).flat().map((v) => JSON.stringify(v)));
   await check("S1", "移行後の予約の状態の値が、変更後のコードが知っている値だけ", async () => {
-    const unknown = [...statuses].filter((s) => !vocab.has(s));
+    const unknown = [...statuses].filter((s) => h.canon(JSON.parse(s)).startsWith("?"));
     assert(statuses.size > 0, "予約が読めない");
-    assert(unknown.length === 0, `知らない値: ${unknown.join(", ")}（変更後の値: ${[...vocab].join(", ")}）`);
+    assert(unknown.length === 0, `知らない値: ${unknown.join(", ")}（変更後の値: ${JSON.stringify(h.adapter.status)}）`);
   });
   h.results.push({ id: "facts", name: "記録", pass: true, detail: JSON.stringify({ statuses: [...statuses], found: Object.fromEntries(Object.entries(found).map(([k, v]) => [k, v && { id: v.id, status: v.status, raw: v.raw }])) }) });
   await h.done();
