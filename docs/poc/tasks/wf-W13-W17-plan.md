@@ -5,7 +5,7 @@
 ## 共通の条件
 
 - 題材: W12 の「計測器の校正台帳」（`docs/poc/answer-key/W12/base.patch`。学習データに多い ToDo を避ける）。各 W は W12 の初期状態を土台に、その W に必要なものだけ足した初期状態を `docs/poc/answer-key/W1x/` に置く。W12 の PR がマージされる前に始める場合は、`origin/agent/poc-w12` から base.patch などを写して使い、出どころ（コミット）を設計書に書く。
-- 条件: 6 条件 × 2 回 = 12 本（superpowers・feature-dev・gstack・compound-engineering・baseline・baseline-conventions）。baseline-conventions は、その W に関係する開発規約を 5 行程度だけ CLAUDE.md に足した素の状態（文言は設計書で固定）。
+- 条件: 5 条件 × 2 回 = 10 本（superpowers・feature-dev・gstack・compound-engineering・baseline）。全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準（`docs/poc/standards/generic-dev-standard.md` の区切りより下、全 W 同じ文面）を足す（2026-11-10 ユーザー承認。W12 の baseline-conventions は課題に合わせた答えを含んでいたため、W13 以降は使わない）。
 - ペルソナ（依頼者役）: W12 の `ask-po` と回答シートの仕組みを使う。質問の回数・的中・聞き直し・実装前かを記録する。
 - 試行の前に、参照実装・最短で動くだけの実装・半分だけの実装の 3 つで採点がはっきり分かれることを確かめ、コーディネーターの確認を受けてから試行を始める。
 - 品質と効率の 2 本立て。効率は費用・時間の実額を主に示す（baseline 2 回の平均を基準にした点数は補助）。
