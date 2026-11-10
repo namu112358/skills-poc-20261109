@@ -1,0 +1,364 @@
+diff --git a/src/app/api/tasks/[id]/tags/[name]/route.ts b/src/app/api/tasks/[id]/tags/[name]/route.ts
+new file mode 100644
+index 0000000..f928f3a
+--- /dev/null
++++ b/src/app/api/tasks/[id]/tags/[name]/route.ts
+@@ -0,0 +1,23 @@
++// DELETE /api/tasks/:id/tags/:name — タグを外す。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { removeTaskTag } from "@/lib/tags";
++import { getTask, parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string; name: string }> };
++
++export async function DELETE(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const p = await params;
++  const id = parseTaskId(p.id);
++  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
++  let name: string;
++  try {
++    name = decodeURIComponent(p.name);
++  } catch {
++    return jsonError(404, "タグが見つかりません");
++  }
++  if (!removeTaskTag(id, name)) return jsonError(404, "タグが見つかりません");
++  return new NextResponse(null, { status: 204 });
++}
+diff --git a/src/app/api/tasks/[id]/tags/route.ts b/src/app/api/tasks/[id]/tags/route.ts
+new file mode 100644
+index 0000000..c72181c
+--- /dev/null
++++ b/src/app/api/tasks/[id]/tags/route.ts
+@@ -0,0 +1,26 @@
++// GET /api/tasks/:id/tags — タグ一覧 / POST — タグを付ける。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { addTaskTag, listTaskTags, validateTagInput } from "@/lib/tags";
++import { getTask, parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
++  return NextResponse.json({ tags: listTaskTags(id) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
++  const result = validateTagInput(await readJson(request));
++  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
++  if (!addTaskTag(id, result.value)) return jsonError(409, "このタグはすでに付いています");
++  return NextResponse.json({ tags: listTaskTags(id) }, { status: 201 });
++}
+diff --git a/src/app/api/tasks/route.ts b/src/app/api/tasks/route.ts
+index 687d509..282afac 100644
+--- a/src/app/api/tasks/route.ts
++++ b/src/app/api/tasks/route.ts
+@@ -6,8 +6,10 @@ import { createTask, isTaskStatus, listTasks, validateTaskInput, type TaskInput
+ export async function GET(request: Request) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
+-  const status = new URL(request.url).searchParams.get("status");
+-  return NextResponse.json({ tasks: listTasks({ status: isTaskStatus(status) ? status : undefined }) });
++  const params = new URL(request.url).searchParams;
++  const status = params.get("status");
++  const tag = params.get("tag")?.trim() || undefined;
++  return NextResponse.json({ tasks: listTasks({ status: isTaskStatus(status) ? status : undefined, tag }) });
+ }
+ 
+ export async function POST(request: Request) {
+diff --git a/src/app/tasks/[id]/TagEditor.tsx b/src/app/tasks/[id]/TagEditor.tsx
+new file mode 100644
+index 0000000..0b62a8c
+--- /dev/null
++++ b/src/app/tasks/[id]/TagEditor.tsx
+@@ -0,0 +1,55 @@
++"use client";
++import { useState, type FormEvent } from "react";
++
++export default function TagEditor({ taskId, initialTags }: { taskId: number; initialTags: string[] }) {
++  const [tags, setTags] = useState(initialTags);
++  const [name, setName] = useState("");
++  const [error, setError] = useState("");
++
++  async function add(e: FormEvent) {
++    e.preventDefault();
++    const res = await fetch(`/api/tasks/${taskId}/tags`, {
++      method: "POST",
++      headers: { "Content-Type": "application/json" },
++      body: JSON.stringify({ name }),
++    });
++    const data = await res.json().catch(() => ({}));
++    if (res.status === 201) {
++      setTags(data.tags);
++      setName("");
++      setError("");
++    } else {
++      setError([data.error, ...(data.details ?? [])].filter(Boolean).join(" ") || "タグを追加できませんでした");
++    }
++  }
++
++  async function remove(tag: string) {
++    const res = await fetch(`/api/tasks/${taskId}/tags/${encodeURIComponent(tag)}`, { method: "DELETE" });
++    if (res.status === 204 || res.status === 404) setTags((ts) => ts.filter((t) => t !== tag));
++  }
++
++  return (
++    <section>
++      <h2>タグ</h2>
++      {tags.length === 0 ? (
++        <p>タグはまだありません。</p>
++      ) : (
++        <ul>
++          {tags.map((t) => (
++            <li key={t}>
++              <span data-testid="tag">{t}</span>{" "}
++              <button type="button" aria-label={`タグ「${t}」を外す`} onClick={() => remove(t)}>
++                外す
++              </button>
++            </li>
++          ))}
++        </ul>
++      )}
++      <form aria-label="タグの追加" onSubmit={add}>
++        <input name="name" value={name} onChange={(e) => setName(e.target.value)} aria-label="タグの名前" />{" "}
++        <button type="submit">追加する</button>
++        {error && <p role="alert">{error}</p>}
++      </form>
++    </section>
++  );
++}
+diff --git a/src/app/tasks/[id]/page.tsx b/src/app/tasks/[id]/page.tsx
+index 6325e66..63545bd 100644
+--- a/src/app/tasks/[id]/page.tsx
++++ b/src/app/tasks/[id]/page.tsx
+@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
+ import { requireUser } from "@/lib/session";
+ import { STATUS_LABELS, getTask, parseTaskId } from "@/lib/tasks";
+ import { getUser } from "@/lib/users";
++import { listTaskTags } from "@/lib/tags";
++import TagEditor from "./TagEditor";
+ 
+ type Props = {
+   params: Promise<{ id: string }>;
+@@ -28,6 +30,7 @@ export default async function TaskDetailPage({ params }: Props) {
+         <dt>期限</dt>
+         <dd data-testid="task-due-date">{task.dueDate}</dd>
+       </dl>
++      <TagEditor taskId={task.id} initialTags={listTaskTags(task.id)} />
+     </main>
+   );
+ }
+diff --git a/src/app/tasks/page.tsx b/src/app/tasks/page.tsx
+index 1da2fed..7536f94 100644
+--- a/src/app/tasks/page.tsx
++++ b/src/app/tasks/page.tsx
+@@ -1,20 +1,29 @@
+ import { requireUser } from "@/lib/session";
++import { tagsByTask } from "@/lib/tags";
+ import { STATUS_LABELS, TASK_STATUSES, isTaskStatus, listTasks } from "@/lib/tasks";
+ 
+ type Props = {
+-  searchParams: Promise<{ status?: string }>;
++  searchParams: Promise<{ status?: string; tag?: string }>;
+ };
+ 
+ export default async function TasksPage({ searchParams }: Props) {
+   await requireUser();
+   const params = await searchParams;
+   const status = isTaskStatus(params.status) ? params.status : undefined;
+-  const tasks = listTasks({ status });
++  const tag = typeof params.tag === "string" && params.tag.trim() !== "" ? params.tag.trim() : undefined;
++  const tasks = listTasks({ status, tag });
++  const tags = tagsByTask();
+ 
+   return (
+     <main>
+       <h1>タスク一覧</h1>
++      {tag && (
++        <p>
++          タグ「{tag}」のタスク <a href="/tasks">すべてのタスク</a>
++        </p>
++      )}
+       <form method="get" aria-label="絞り込み">
++        {tag && <input type="hidden" name="tag" value={tag} />}
+         <label>
+           ステータス{" "}
+           <select name="status" defaultValue={status ?? ""}>
+@@ -35,6 +44,7 @@ export default async function TasksPage({ searchParams }: Props) {
+             <th>ステータス</th>
+             <th>担当者</th>
+             <th>期限</th>
++            <th>タグ</th>
+           </tr>
+         </thead>
+         <tbody>
+@@ -46,6 +56,13 @@ export default async function TasksPage({ searchParams }: Props) {
+               <td>{STATUS_LABELS[task.status]}</td>
+               <td>{task.assignee}</td>
+               <td>{task.dueDate}</td>
++              <td>
++                {(tags.get(task.id) ?? []).map((t) => (
++                  <a key={t} href={`/tasks?tag=${encodeURIComponent(t)}`} data-testid="task-tag" style={{ marginRight: 4 }}>
++                    {t}
++                  </a>
++                ))}
++              </td>
+             </tr>
+           ))}
+         </tbody>
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 4e1b0a4..57dbf8d 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -38,4 +38,17 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX sessions_user ON sessions(user_id);
+     `,
+   },
++  {
++    version: 3,
++    name: "task_tags",
++    sql: `
++      CREATE TABLE task_tags (
++        id      INTEGER PRIMARY KEY AUTOINCREMENT,
++        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
++        name    TEXT NOT NULL,
++        UNIQUE (task_id, name)
++      );
++      CREATE INDEX task_tags_name ON task_tags(name);
++    `,
++  },
+ ];
+diff --git a/src/lib/tags.ts b/src/lib/tags.ts
+new file mode 100644
+index 0000000..59985a5
+--- /dev/null
++++ b/src/lib/tags.ts
+@@ -0,0 +1,43 @@
++import { getDb, type Db } from "./db/index.ts";
++import type { ValidationResult } from "./tasks.ts";
++
++/** タグの名前を検証する。前後の空白を除いた 1〜20 文字で、空白・カンマ・スラッシュを含まないこと。 */
++export function validateTagName(value: unknown): ValidationResult<string> {
++  if (typeof value !== "string") return { ok: false, errors: ["タグの名前を入力してください"] };
++  const name = value.trim();
++  if (name.length < 1 || name.length > 20) return { ok: false, errors: ["タグの名前は 1〜20 文字で入力してください"] };
++  if (/[\s,/]/.test(name)) return { ok: false, errors: ["タグの名前に空白・カンマ・スラッシュは使えません"] };
++  return { ok: true, value: name };
++}
++
++export function validateTagInput(body: unknown): ValidationResult<string> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  return validateTagName((body as Record<string, unknown>).name);
++}
++
++export function listTaskTags(taskId: number, db: Db = getDb()): string[] {
++  const rows = db.prepare("SELECT name FROM task_tags WHERE task_id = ? ORDER BY id").all(taskId) as { name: string }[];
++  return rows.map((r) => r.name);
++}
++
++/** タスク ID ごとのタグ（付けた古い順）。 */
++export function tagsByTask(db: Db = getDb()): Map<number, string[]> {
++  const rows = db.prepare("SELECT task_id, name FROM task_tags ORDER BY id").all() as { task_id: number; name: string }[];
++  const map = new Map<number, string[]>();
++  for (const r of rows) map.set(r.task_id, [...(map.get(r.task_id) ?? []), r.name]);
++  return map;
++}
++
++/** タグを付ける。すでに付いていれば false。 */
++export function addTaskTag(taskId: number, name: string, db: Db = getDb()): boolean {
++  const { changes } = db.prepare("INSERT OR IGNORE INTO task_tags (task_id, name) VALUES (?, ?)").run(taskId, name);
++  return Number(changes) > 0;
++}
++
++/** タグを外す。付いていなければ false。 */
++export function removeTaskTag(taskId: number, name: string, db: Db = getDb()): boolean {
++  const { changes } = db.prepare("DELETE FROM task_tags WHERE task_id = ? AND name = ?").run(taskId, name);
++  return Number(changes) > 0;
++}
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+index b533ce9..f422b1c 100644
+--- a/src/lib/tasks.ts
++++ b/src/lib/tasks.ts
+@@ -24,6 +24,7 @@ export function isTaskStatus(value: unknown): value is TaskStatus {
+ 
+ export type TaskFilter = {
+   status?: TaskStatus;
++  tag?: string;
+ };
+ 
+ type TaskRow = { id: number; title: string; status: TaskStatus; assignee: string; due_date: string };
+@@ -34,8 +35,13 @@ function toTask(row: TaskRow): Task {
+ 
+ export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
+   const rows = db
+-    .prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id")
+-    .all({ status: filter.status ?? null }) as TaskRow[];
++    .prepare(
++      `SELECT id, title, status, assignee, due_date FROM tasks
++       WHERE (:status IS NULL OR status = :status)
++         AND (:tag IS NULL OR EXISTS (SELECT 1 FROM task_tags WHERE task_id = tasks.id AND name = :tag))
++       ORDER BY id`,
++    )
++    .all({ status: filter.status ?? null, tag: filter.tag || null }) as TaskRow[];
+   return rows.map(toTask);
+ }
+ 
+diff --git a/tests/tags.test.ts b/tests/tags.test.ts
+new file mode 100644
+index 0000000..e43d28e
+--- /dev/null
++++ b/tests/tags.test.ts
+@@ -0,0 +1,41 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { addTaskTag, listTaskTags, removeTaskTag, tagsByTask, validateTagInput, validateTagName } from "../src/lib/tags.ts";
++import { listTasks } from "../src/lib/tasks.ts";
++
++describe("validateTagName", () => {
++  it("trims and accepts 1-20 chars", () => {
++    assert.deepEqual(validateTagName("  急ぎ "), { ok: true, value: "急ぎ" });
++    assert.equal(validateTagName("a".repeat(20)).ok, true);
++    assert.equal(validateTagName("a".repeat(21)).ok, false);
++    assert.equal(validateTagName("   ").ok, false);
++  });
++  it("rejects spaces, commas, slashes and non-strings", () => {
++    for (const v of ["a b", "a,b", "a/b", 1, null, undefined]) assert.equal(validateTagName(v).ok, false);
++    assert.equal(validateTagInput(undefined).ok, false);
++  });
++});
++
++describe("task tags", () => {
++  it("adds in order, rejects duplicates, is case-sensitive, removes", () => {
++    const db = openDb();
++    assert.equal(addTaskTag(1, "急ぎ", db), true);
++    assert.equal(addTaskTag(1, "Bug", db), true);
++    assert.equal(addTaskTag(1, "bug", db), true);
++    assert.equal(addTaskTag(1, "急ぎ", db), false);
++    assert.deepEqual(listTaskTags(1, db), ["急ぎ", "Bug", "bug"]);
++    assert.equal(removeTaskTag(1, "Bug", db), true);
++    assert.equal(removeTaskTag(1, "Bug", db), false);
++    assert.deepEqual(listTaskTags(1, db), ["急ぎ", "bug"]);
++  });
++  it("filters tasks by tag and status", () => {
++    const db = openDb();
++    addTaskTag(1, "x", db);
++    addTaskTag(4, "x", db);
++    assert.deepEqual(listTasks({ tag: "x" }, db).map((t) => t.id), [1, 4]);
++    assert.deepEqual(listTasks({ tag: "x", status: "todo" }, db).map((t) => t.id), [4]);
++    assert.deepEqual(listTasks({ tag: "none" }, db), []);
++    assert.deepEqual(tagsByTask(db).get(4), ["x"]);
++  });
++});

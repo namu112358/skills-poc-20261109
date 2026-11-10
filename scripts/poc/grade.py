@@ -29,7 +29,7 @@ APP = WORK / "app"
 # W7b は W7a の作業用コピーと HOME を引き継ぐ（run-trial.sh が continued-from に W7a の試行 ID を記録する）。
 # W7a の作業用コピー・試行 ID への参照は自分の試行の一部として扱い、他の試行への参照とは分けて数える。
 CONTINUED_FROM = (RAW / "continued-from").read_text().strip() if (RAW / "continued-from").exists() else ""
-TRIAL_ID = re.compile(r"\bW\d+[a-z]?-(?:baseline|superpowers|feature-dev|compound-engineering|gstack)-\d+\b")
+TRIAL_ID = re.compile(r"\bW\d+[a-z]?-(?:baseline(?:-conventions)?|superpowers|feature-dev|compound-engineering|gstack)-\d+\b")
 OUT = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO / ("supplement" if "--supplement" in FLAGS else "") / f"{TRIAL}.json"
 
 # 候補が作る管理用ファイル（コード量の集計から除く。過剰さの判定では別に数える）

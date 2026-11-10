@@ -1,0 +1,84 @@
+{
+ "scenario": "W11",
+ "task": "B2",
+ "kind": "bug",
+ "repo": "pytest-dev/pytest",
+ "trial": "W11-B2-feature-dev-1",
+ "candidate": "feature-dev",
+ "run": 1,
+ "resolved": true,
+ "quality": 100.0,
+ "hidden_tests": {
+  "f2p_total": 13,
+  "f2p_pass": 13,
+  "new_total": 13,
+  "new_pass": 13,
+  "existing_total": 193,
+  "existing_pass": 193,
+  "p2p_total": 193,
+  "p2p_pass": 193,
+  "f2p_failed": [],
+  "p2p_broken": [],
+  "seconds": 25.1,
+  "log_tail": ""
+ },
+ "diff": {
+  "src_added": 24,
+  "src_removed": 59,
+  "src_files": [
+   "src/_pytest/assertion/rewrite.py"
+  ],
+  "test_added": 38,
+  "test_files": [
+   "testing/test_assertrewrite.py"
+  ],
+  "other_files": [
+   "changelog/14500.bugfix.rst"
+  ],
+  "upstream_src_added": 83,
+  "upstream_src_removed": 78
+ },
+ "facts": {
+  "cost_usd": 0.5831,
+  "elapsed_seconds": 220,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 1
+ },
+ "transcript": {
+  "cost_usd": 0.5831,
+  "turns": 2,
+  "tools": {
+   "Skill": 1,
+   "Agent": 3,
+   "Bash": 11,
+   "Read": 10,
+   "Grep": 6,
+   "Write": 1,
+   "Edit": 1,
+   "ReadNotifications": 2,
+   "Glob": 1
+  },
+  "skills": [
+   "feature-dev:feature-dev"
+  ],
+  "subagents": 3,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i '/^from collections import defaultdict$/d' src/_pytest/assertion/rewrite.py && mkdir -p /tmp/claude-0/-tmp-poc-trials-W11-B2-feature-dev-1-app/8ded6afe-cec8-4657-8875-7f47a6566005/"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i '/^from collections import defaultdict$/d' src/_pytest/assertion/rewrite.py; S=/tmp/claude-0/-tmp-poc-trials-W11-B2-feature-dev-1-app/8ded6afe-cec8-4657-8875-7f47a6566005/scratchpa"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i '/^from collections import defaultdict$/d' src/_pytest/assertion/rewrite.py && git status --short\"}"
+   }
+  ],
+  "isolation_suspects": [],
+  "final_text": "`assert` 内のウォルラス演算子（`:=`）が複数回評価される不具合を修正し、コミットしました（48d4a60）。修正後は、Issue の `test_walrus_running_counter` と同じ形のカウンタ用テストを含め、`testing/test_assertrewrite.py` と `testing/test_assertion.py` が全件通ります（334 件成功、1 件スキップ）。\n\n## 原因\n`src/_pytest/assertion/rewrite.py` の `visit_NamedExpr` が、元の `NamedExpr` ノードをそのまま結果として返していました。そのため生成コード内に `(count := count + 1)` が複数箇所に現れていました。実際の比較に加えて、失敗メッセージ生成用の式でも評価されていたのが重複の原因です。以前の `variables_overwrite` による回避策も、ウォルラス式を呼び出し引数などにコピーして、重複評価を増やしていました。\n\n## 修正内容\n- **`visit_NamedExpr`**：値を一度だけ一時変数に評価して代入し、以降はその一時変数を使うようにしました。\n- **`visit_Name`**：同じ `assert` 内でウォルラスにより再代入される名前は、評価した時点の値を保存して使うようにしました。失敗メッセージには、評価時点の値が表示されます。\n- **`variables_overwrite` の削除**：`visit_BoolOp`、`visit_Call`、`visit_Compare` にあった回避策と、不要になった `scope` と `defaultdict` の import も削除しました。\n- **テストと changelog**：ウォルラスが一度しか評価されないことを確認するテストを追加しました。`changelog/14500.bugfix.rst` も追加しています。\n\n## 補足\n- 無人実行で Issue 番号を確認できなかったため、changelog の `14500` は仮の番号です。実際の番号に合わせてファイル名を変更してください。\n- 調査、設計、レビューは skill の手順どおり行いました。確認質問ができないため、設計案は一つに絞って進めています。\n- コードレビュー 2 件（バグ観点、単純さ・規約観点）では、修正が必要な指摘はありませんでした。\n- 既存の挙動として、連鎖比較では前の比較が偽でも後ろのオペランドが評価されます。今回の変更で悪化したものではないため、手を入れていません。"
+ }
+}

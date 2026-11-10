@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+# 依頼者に質問する（PoC W12）。使い方: ask-po "<質問>"
+# 依頼者の答えを標準出力に出す。決まっていないことは「お任せします」と返る。
+import os
+import socket
+import sys
+
+WORK = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+question = " ".join(sys.argv[1:]).strip()
+if not question:
+    print('使い方: ask-po "<依頼者への質問>"')
+    sys.exit(2)
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(900)
+    os.chdir(WORK)  # UNIX ソケットのパスの長さの上限を避けるため、相対パスでつなぐ
+    s.connect("po.sock")
+    s.sendall(question.encode("utf-8") + b"\0")
+    data = b""
+    while True:
+        chunk = s.recv(65536)
+        if not chunk:
+            break
+        data += chunk
+    print(data.decode("utf-8", "replace"))
+except OSError:
+    print("（依頼者に連絡がつきません。お任せします。）")

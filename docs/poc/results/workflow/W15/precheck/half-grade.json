@@ -1,0 +1,771 @@
+{
+ "checks": {
+  "typecheck": true,
+  "test": true,
+  "build": true
+ },
+ "routes": [],
+ "static": {
+  "legacy_file_changed": true,
+  "legacy_file_exists": true,
+  "changed_src_files": [
+   "src/lib/legacy/calib-import.ts"
+  ],
+  "logger_used": true,
+  "new_deps": false,
+  "docs_changed": false
+ },
+ "golden": [
+  {
+   "id": "a01-basic",
+   "pass": false,
+   "diff": [
+    "responses",
+    "records_added",
+    "instruments_changed"
+   ],
+   "detail": "{\"responses\": {\"want\": [{\"status\": 200, \"imported\": 6, \"skipped_lines\": [], \"error_lines\": []}], \"got\": [{\"status\": 200, \"imported\": 5, \"skipped_lines\": [], \"error_lines\": [5]}]}, \"records_added\": {\"want\": [{\"no\": \"MI-0001\", \"date\": \"2026-01-25\", \"result\": \"pass\", \"agency\": \"東日本計測サービス\", \"cert\": \"EJ-26-00201\"}, {\"no\": \"MI-0003\", \"date\": \"2026-06-10\", \"result\": \"pass\", \"agency\": \"東日本計測サービス\", \"cert\": \"EJ-26-00202\"}, {\"no\": \"MI-0004\", \"date\": \"2026-03-02\", \"result\": \"pass\", \"agency\": \"東日本計測サービス\", \"cert\": \"EJ-26-00203\"}, {\"no\": \"MI-0006\", \"date\": \"2026-04-01\", \"result\": \"pass\", \"agency\": \"東日本計測サービス"
+  },
+  {
+   "id": "a02-numbers",
+   "pass": true,
+   "diff": [],
+   "detail": ""
+  },
+  {
+   "id": "a03-dates",
+   "pass": false,
+   "diff": [
+    "responses",
+    "records_added"
+   ],
+   "detail": "{\"responses\": {\"want\": [{\"status\": 200, \"imported\": 7, \"skipped_lines\": [], \"error_lines\": [5, 6, 8]}], \"got\": [{\"status\": 200, \"imported\": 8, \"skipped_lines\": [], \"error_lines\": [7, 8]}]}, \"records_added\": {\"want\": [{\"no\": \"MI-0001\", \"date\": \"2026-03-01\", \"result\": \"pass\", \"agency\": \"東日本計測サービス\", \"cert\": \"EJ-26-00401\"}, {\"no\": \"MI-0003\", \"date\": \"2026-03-02\", \"result\": \"pass\", \"agency\": \"東日本計測サービス\", \"cert\": \"EJ-26-00402\"}, {\"no\": \"MI-0003\", \"date\": \"2026-03-05\", \"result\": \"pass\", \"agency\": \"東日本計測サービス\", \"cert\": \"EJ-26-00408\"}, {\"no\": \"MI-0004\", \"date\": \"2018-12-03\", \"result\": \"pass\", \"agency\": "
+  },
+  {
+   "id": "a04-judgement",
+   "pass": false,
+   "diff": [
+    "responses",
+    "records_added",
+    "instruments_changed"
+   ],
+   "detail": "{\"responses\": {\"want\": [{\"status\": 200, \"imported\": 2, \"skipped_lines\": [2, 3, 6], \"error_lines\": [4]}], \"got\": [{\"status\": 200, \"imported\": 1, \"skipped_lines\": [2, 3], \"error_lines\": [4, 5, 6]}]}, \"records_added\": {\"want\": [{\"no\": \"MI-0006\", \"date\": \"2026-07-04\", \"result\": \"pass\", \"agency\": \"東日本計測サービス\", \"cert\": \"EJ-26-00504\"}, {\"no\": \"MI-0010\", \"date\": \"2026-07-06\", \"result\": \"fail\", \"agency\": \"東日本計測サービス\", \"cert\": \"EJ-26-00506\"}], \"got\": [{\"no\": \"MI-0010\", \"date\": \"2026-07-06\", \"result\": \"fail\", \"agency\": \"東日本計測サービス\", \"cert\": \"EJ-26-00506\"}]}, \"instruments_changed\": {\"want\": [{\"no\": \"MI-0006\""
+  },
+  {
+   "id": "a05-duplicates",
+   "pass": true,
+   "diff": [],
+   "detail": ""
+  },
+  {
+   "id": "a06-quotes",
+   "pass": true,
+   "diff": [],
+   "detail": ""
+  },
+  {
+   "id": "a07-bom",
+   "pass": true,
+   "diff": [],
+   "detail": ""
+  },
+  {
+   "id": "a08-badheader",
+   "pass": true,
+   "diff": [],
+   "detail": ""
+  },
+  {
+   "id": "a09-blanklines",
+   "pass": true,
+   "diff": [],
+   "detail": ""
+  },
+  {
+   "id": "a10-order",
+   "pass": true,
+   "diff": [],
+   "detail": ""
+  }
+ ],
+ "public": [
+  {
+   "id": "P1",
+   "name": "B 社の仕様書どおりの CSV（同じ取込の送り先）を取り込める",
+   "pass": true,
+   "detail": ""
+  }
+ ],
+ "hidden": [
+  {
+   "id": "B02",
+   "name": "ハイフン無しの機器番号（MI0003）を同じ計測器として扱う",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "B03",
+   "name": "COND（条件付き合格）は合格として取り込み、計測器の備考に「条件付き合格（校正日）: コメント」を書き足す",
+   "pass": false,
+   "detail": "備考に条件付き合格が書き足されない: ''"
+  },
+  {
+   "id": "B04",
+   "name": "B 社の校正記録の校正機関は「西日本校正センター」",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "B05",
+   "name": "END の件数と行数が合わないファイルは 1 件も取り込まず、誤りを返す",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "B06",
+   "name": "同じ B 社のファイルを 2 回取り込んでも二重にならない",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "B07",
+   "name": "同じファイルの中の重複（同じ機器・同じ校正日）は後の行を読み飛ばす",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "B08",
+   "name": "B 社のファイルの形式を自動で見分ける（BOM・CRLF の場合も）",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "B09",
+   "name": "台帳に無い機器番号・読めない判定の行は誤りにして、ほかの行は取り込む",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "B10",
+   "name": "取込の応答の形（imported・skipped・errors と各要素の line）が変わっていない",
+   "pass": true,
+   "detail": ""
+  }
+ ],
+ "characterization": {
+  "legacy_mutants": 60,
+  "found_in_candidate": 1,
+  "killed": 1,
+  "mutants": 1,
+  "survivors": [],
+  "baseline_tests_pass": true,
+  "commits": 1,
+  "first_characterization_commit": 0,
+  "first_importer_change_commit": 0,
+  "order": "same"
+ },
+ "mutation": {
+  "baseline_tests_pass": true,
+  "baseline_fails": 0,
+  "baseline_log": "",
+  "mutants": 60,
+  "killed": 36,
+  "kill_rate": 0.6,
+  "files": [
+   "src/lib/legacy/calib-import.ts"
+  ],
+  "survivors": [
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 13,
+    "old": "false",
+    "new": "true",
+    "snippet": "const HIGASHI: Format = { agency: \"東日本計測サービス\", no: \"管理番号\", date: \"校正日\", judge: \"判定\", cert: \"証明書番号\", note: \"備考\", utf8: false };"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 14,
+    "old": "true",
+    "new": "false",
+    "snippet": "const NISHI: Format = { agency: \"西日本校正センター\", no: \"機器番号\", date: \"校正実施日\", judge: \"判定結果\", cert: \"成績書番号\", note: \"コメント\", utf8: true };"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 25,
+    "old": "===",
+    "new": "!==",
+    "snippet": "if (c === '\"' && line[i + 1] === '\"') { cur += '\"'; i++; } else if (c === '\"') q = false; else cur += c;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 25,
+    "old": "===",
+    "new": "!==",
+    "snippet": "if (c === '\"' && line[i + 1] === '\"') { cur += '\"'; i++; } else if (c === '\"') q = false; else cur += c;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 25,
+    "old": "false",
+    "new": "true",
+    "snippet": "if (c === '\"' && line[i + 1] === '\"') { cur += '\"'; i++; } else if (c === '\"') q = false; else cur += c;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 26,
+    "old": "true",
+    "new": "false",
+    "snippet": "} else if (c === '\"') q = true;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 27,
+    "old": ".trim()",
+    "new": "",
+    "snippet": "else if (c === \",\") { out.push(cur.trim()); cur = \"\"; } else cur += c;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 29,
+    "old": ".trim()",
+    "new": "",
+    "snippet": "out.push(cur.trim());"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 35,
+    "old": "2",
+    "new": "3",
+    "snippet": "let m = s.match(/^(\\d{4})[\\/\\-.](\\d{1,2})[\\/\\-.](\\d{1,2})$/);"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 39,
+    "old": "2",
+    "new": "3",
+    "snippet": "m = s.match(/^(R|H|令和|平成)(\\d{1,2})[.年](\\d{1,2})[.月](\\d{1,2})日?$/);"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 45,
+    "old": "||",
+    "new": "&&",
+    "snippet": "if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return undefined;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 57,
+    "old": "===",
+    "new": "!==",
+    "snippet": "const bom = data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 57,
+    "old": "===",
+    "new": "!==",
+    "snippet": "const bom = data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 57,
+    "old": "&&",
+    "new": "||",
+    "snippet": "const bom = data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 57,
+    "old": "&&",
+    "new": "||",
+    "snippet": "const bom = data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 57,
+    "old": "1",
+    "new": "2",
+    "snippet": "const bom = data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 57,
+    "old": "2",
+    "new": "3",
+    "snippet": "const bom = data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 67,
+    "old": ".trim()",
+    "new": "",
+    "snippet": "if (raw.trim() === \"\" || raw.startsWith(\"#\")) return;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 71,
+    "old": "1",
+    "new": "2",
+    "snippet": "rows.push({ line: n + 1, cols });"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 73,
+    "old": "||",
+    "new": "&&",
+    "snippet": "if (!header || !(header as string[]).includes(f.no)) {"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 74,
+    "old": "1",
+    "new": "2",
+    "snippet": "res.errors.push({ line: 1, message: \"CSV の形式が違います（見出しがありません）\" });"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 86,
+    "old": "||",
+    "new": "&&",
+    "snippet": "if (no === \"\" || no === \"合計\" || no.startsWith(\"#\")) continue;"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 91,
+    "old": "!",
+    "new": "",
+    "snippet": "if (!PASS.has(j) && !FAIL.has(j)) { res.errors.push({ line: r.line, message: `判定が読めません: ${j}` }); continue; }"
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 98,
+    "old": " AND ",
+    "new": " OR ",
+    "snippet": "if (db.prepare(\"SELECT 1 FROM calibration_records WHERE instrument_id = ? AND calibrated_on = ? AND certificate_no = ?\").get(inst.id, date, cert)) {"
+   }
+  ],
+  "details": [
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 13,
+    "old": "false",
+    "new": "true",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 14,
+    "old": "true",
+    "new": "false",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 22,
+    "old": " < ",
+    "new": " <= ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 22,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 25,
+    "old": "===",
+    "new": "!==",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 25,
+    "old": "===",
+    "new": "!==",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 25,
+    "old": "false",
+    "new": "true",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 26,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 26,
+    "old": "true",
+    "new": "false",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 27,
+    "old": ".trim()",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 29,
+    "old": ".trim()",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 35,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 35,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 35,
+    "old": "2",
+    "new": "3",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 37,
+    "old": "2",
+    "new": "3",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 37,
+    "old": "3",
+    "new": "4",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 39,
+    "old": "2",
+    "new": "3",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 39,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 39,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 40,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 41,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 41,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 41,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 41,
+    "old": "2018",
+    "new": "2019",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 41,
+    "old": "2",
+    "new": "3",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 42,
+    "old": "3",
+    "new": "4",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 44,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 45,
+    "old": "!==",
+    "new": "===",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 45,
+    "old": "!==",
+    "new": "===",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 45,
+    "old": "||",
+    "new": "&&",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 45,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 46,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 46,
+    "old": "2",
+    "new": "3",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 51,
+    "old": "2",
+    "new": "3",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 51,
+    "old": "4",
+    "new": "5",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 51,
+    "old": "2",
+    "new": "3",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 57,
+    "old": "===",
+    "new": "!==",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 57,
+    "old": "===",
+    "new": "!==",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 57,
+    "old": "&&",
+    "new": "||",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 57,
+    "old": "&&",
+    "new": "||",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 57,
+    "old": "1",
+    "new": "2",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 57,
+    "old": "2",
+    "new": "3",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 60,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 60,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 67,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 67,
+    "old": ".trim()",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 69,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 70,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 71,
+    "old": "1",
+    "new": "2",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 73,
+    "old": "||",
+    "new": "&&",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 73,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 74,
+    "old": "1",
+    "new": "2",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 77,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 86,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 86,
+    "old": "||",
+    "new": "&&",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 88,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 90,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 91,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 91,
+    "old": "!",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/legacy/calib-import.ts",
+    "line": 98,
+    "old": " AND ",
+    "new": " OR ",
+    "killed": false
+   }
+  ]
+ },
+ "work": "/tmp/w15-grade-5rsix919"
+}

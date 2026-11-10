@@ -1,0 +1,110 @@
+{
+ "scenario": "W11",
+ "task": "B3",
+ "kind": "bug",
+ "repo": "colinhacks/zod",
+ "trial": "W11-B3-feature-dev-1",
+ "candidate": "feature-dev",
+ "run": 1,
+ "resolved": true,
+ "quality": 100.0,
+ "hidden_tests": {
+  "f2p_total": 10,
+  "f2p_pass": 10,
+  "new_total": 10,
+  "new_pass": 10,
+  "existing_total": 111,
+  "existing_pass": 111,
+  "p2p_total": 111,
+  "p2p_pass": 111,
+  "f2p_failed": [],
+  "p2p_broken": [],
+  "seconds": 22.1,
+  "log_tail": ""
+ },
+ "diff": {
+  "src_added": 28,
+  "src_removed": 5,
+  "src_files": [
+   "packages/zod/src/v4/core/memoizer.ts"
+  ],
+  "test_added": 24,
+  "test_files": [
+   "packages/zod/src/v4/classic/tests/cyclic-data.test.ts"
+  ],
+  "other_files": [],
+  "upstream_src_added": 71,
+  "upstream_src_removed": 23
+ },
+ "facts": {
+  "cost_usd": 0.7605,
+  "elapsed_seconds": 447,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 1
+ },
+ "transcript": {
+  "cost_usd": 0.7605,
+  "turns": 3,
+  "tools": {
+   "Skill": 1,
+   "Bash": 32,
+   "Read": 2,
+   "Edit": 8,
+   "ToolSearch": 1,
+   "TaskStop": 1,
+   "Agent": 1,
+   "ReadNotifications": 1,
+   "Grep": 1
+  },
+  "skills": [
+   "feature-dev:feature-dev"
+  ],
+  "subagents": 1,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/poc-trials/W11-B3-feature-dev-1/app/packages/zod/src/v4/core && wc -l memoizer.ts && grep -n \\\"memo\\\" schemas.ts | head -60 && git log --oneline | head -3\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/poc-trials/W11-B3-feature-dev-1/app && cat >> packages/zod/src/v4/classic/tests/cyclic-data.test.ts <<'E'\\n\\ntest(\\\"async union options sharing a recursive schema don't skip its c"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/poc-trials/W11-B3-feature-dev-1/app && git status --short; tail -5 packages/zod/src/v4/classic/tests/cyclic-data.test.ts\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"printf '%s\\\\n' '' 'test(\\\"async union options sharing a recursive schema keep their checks\\\", async () => {' '  const Node: z.ZodType = z.object({' '    id: z.number(),' '    slow: z.stri"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/poc-trials/W11-B3-feature-dev-1/app && nub exec --node vitest run packages/zod/src/v4/classic/tests/cyclic-data.test.ts packages/zod/src/v4/classic/tests/recursive-types.test.ts p"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"nub exec --node vitest run packages/zod/src/v4/classic/tests/cyclic-data.test.ts packages/zod/src/v4/classic/tests/recursive-types.test.ts packages/zod/src/v4/classic/tests/lazy.test.ts\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"nub exec --node vitest run cyclic-data.test.ts recursive-types.test.ts lazy.test.ts\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/poc-trials/W11-B3-feature-dev-1/app && python3 - <<'E'\\np='packages/zod/src/v4/core/memoizer.ts'\\ns=open(p).read()\\ns=s.replace(\\\"\\\"\\\"  live: boolean;\\n}\\\"\\\"\\\",\\\"\\\"\\\"  live: boole"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i '341s/handoff = undefined;/handoff = undefined;\\\\n        adopt = undefined;/' memoizer.ts && sed -n 334,346p memoizer.ts && node /tmp/poc-trials/W11-B3-feature-dev-1/app/node_modu"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i 's/detached: boolean;/racing: boolean;/; s/detached: false/racing: false/; s/!hit.detached/!hit.racing/' memoizer.ts && sed -n 14,18p memoizer.ts\"}"
+   }
+  ],
+  "isolation_suspects": [],
+  "final_text": "Issue の再現ケースは修正され、変更をコミットしました（`322cd9d`）。`packages/zod` 全体のテスト（2841 件）は通過しています。ただし、最終版のテストは `cyclic-data.test.ts` と `recursive-types.test.ts` のみ再実行で、`nub` が承認待ちで使えなかったため plain Node の vitest で実行しました。lint と format、`check:comments` は未実行です。\n\n**原因**\n`memoizer.ts` で、まだパース中のエントリに当たると、常に「祖先への back edge」と見なしてチェックを飛ばしていました。非同期チェックがあると、先に始まった兄弟 union オプションのエントリも未完了なので、後のオプションがその誤判定に当たり、`Node` の検証が行われないまま成功していました。\n\n**修正**\n- 未完了のエントリが非同期で、かつ開始と同じ microtask 窓の内側にある場合は、兄弟として扱います。そのときは再パースして、その issue を自分の枝にも出します。\n- 出力オブジェクトは先行パースのものを共有します。`kids[0]` と `kids[1]` が同一参照になる既存テストはこれで通っています。\n- 窓の外で見つかった未完了エントリは、従来どおり back edge として扱います。\n\n**途中でやり直した点**\n最初は「未完了なら再パース」にしましたが、共有参照の同一性が壊れました。次に「完了を待つ」方式にしたところ、`pipe` の出力側など await 後に閉じる非同期サイクルでデッドロックしました。この非同期サイクルは元の実装では動いていたため、今の方式に落ち着きました。\n\n**テスト**\n`cyclic-data.test.ts` に 2 件追加しました。\n- Issue の再現（不正入力は失敗、正常入力は成功）\n- await 後に閉じる非同期サイクルが終了すること\n\n**レビュー**\ncode-reviewer の指摘は高信頼度のものがありませんでした。低信頼度の懸念として、同一 tick の判定が microtask の順序に依存する点が挙がりました。追加した非同期サイクルのテストが即時解決する非同期チェックを使っており、これは通っています。\n\n**未実施・制約**\n- CLAUDE.md の「3 軸」（速度、メモリ、バンドルサイズ）の計測は行っていません。変更は再帰スキーマかつ非同期のパスに限られ、エントリに 1 フィールド増え、非同期ノードごとに microtask を 1 件積みます。\n- microtask 窓で兄弟か祖先かを判定する方式は近似です。同一 tick で始まる union オプションなら正しく判定できます。await を挟んで順に起動される兄弟には効きません。\n- 無人実行のため、設計の確認は取らず推奨案で進めました。"
+ }
+}

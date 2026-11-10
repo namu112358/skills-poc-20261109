@@ -1,0 +1,145 @@
+<!doctype html><html lang=ja><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>PoC W11 結果</title><style>
+:root{--bg:#fff;--fg:#1a1a1a;--mut:#666;--line:#ddd;--head:#f4f4f4}
+@media (prefers-color-scheme:dark){:root{--bg:#161616;--fg:#e8e8e8;--mut:#aaa;--line:#333;--head:#222}}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,sans-serif;max-width:1100px;margin:0 auto;padding:16px}
+.tw{overflow-x:auto}table{border-collapse:collapse;margin:8px 0 16px;font-size:13px}
+th,td{border:1px solid var(--line);padding:4px 8px;vertical-align:top}th{background:var(--head);text-align:left}
+p.li{margin:2px 0 2px 8px}h2{margin-top:28px;border-bottom:1px solid var(--line)}
+</style></head><body><h1>PoC W11 実在する OSS の解決済み課題 — 結果レポート
+</h1>
+<p>実在する OSS（pytest・zod・packaging・click）で、2026 年 7〜11 月に本家が解決した課題 6 件（不具合 3・機能 3）を、解決前の状態から各候補に解かせた。採点は本家の修正で追加されたテスト（隠しテスト）で行った。設計は [wf-W11-design.md](../../../tasks/wf-W11-design.md)。
+</p>
+<h2>所見
+
+1. **品質ではほぼ差がつかなかった（天井効果）。** 6 課題のうち 4 課題（B1・B2・F2・F3）は、5 条件すべてが本家のテストを満点で通した。実在する OSS の、本家が数十〜数百行で直した課題でも、今回の課題の多くは候補なし（baseline）で解ける水準だった。
+2. **差が出たのは zod の 2 課題だけで、その差は候補を入れても縮まらなかった。**
+   - B3（非同期の union）: 全員が報告された症状は直したが、本家が同時に直した「待ち合わせの行き詰まり」「await の後で閉じる循環」までは届かず未解決。Feature Dev だけが新しいテスト 8/10 と一段深く直し、ほかは 5/10。
+   - F1（循環参照の入力）: baseline だけが解決。4 候補は新しいテストはほぼ満点だったが、そろって同じ既存テスト「チェックは参照 1 つにつき 1 回（循環が無い場合と同じ回数）」を壊した（課題文の仕様に書いてある点）。共有された参照を使い回してチェックまで省いた実装で、計画や設計の工程を足しても、仕様の細かい制約の読み落としは防げなかった。
+   - どちらも各条件 1 回だけの試行で、旧環境の B3 では Feature Dev が 10/10 で解決していた。同じ候補でも結果がぶれる範囲の差なので、「どの候補が上」とは言えない。
+3. **同じ品質なら、候補なしが最も安く速い。** baseline 比の費用（中央値）は Superpowers 1.8 倍、gstack 2.2 倍、Feature Dev 3.4 倍、Compound Engineering 3.8 倍。時間（中央値）は Feature Dev 1.9 倍、Superpowers 2.0 倍、gstack 2.0 倍、Compound Engineering 2.7 倍。Compound Engineering は機能追加で特に重く（F2 で費用 16 倍、F1 で $12.41・33 分）、F3 では手順を終えても未コミットが残り、介入が 2 回要った。
+4. **副次の指標**
+   - 候補が書いたテストの行数（6 課題の合計）: Compound Engineering 907、Superpowers 557、gstack 523、Feature Dev 500、baseline 377。テストを多く書いても、本家のテストの通過（品質）には差が出なかった。
+   - ソースの変更量は、どの条件も本家の修正（テスト以外のすべての変更。changelog・文書を含む）と同程度か少ない。B3 では全員が本家（94 行）の 1〜2 割で止まっており、変更の小ささが未解決と対応している。
+   - 試行の独立性: 外部サイト・依存のインストール・公開版のソースへの参照の形跡は、本採点の 30 試行で 0 件。拒否された操作は全候補に共通の形（`cd … &amp;&amp;` で始まる複合コマンド、許可していない `ruff`、ヒアドキュメントでの追記など）が中心で、候補ごとの差の原因ではない。
+
+## 結果の制約
+
+- **天井効果**: 6 課題中 4 課題が全員満点で、品質の比較にはほとんど使えない。結論は「同じ品質の中での費用・時間」を主な比較軸にした（PLAN.md §4.4 の 2 本立てと同じ考え方）。
+- **試行回数**: 各課題 × 各条件 1 回。B3 の旧環境と新環境の結果の違い（Feature Dev が 10/10 → 8/10）のように、1 回ごとのぶれが品質の差と同じくらい大きい。
+- **課題の選び方**: 学習時期より後に本家が直したものを選んだが、B2（最小の再現例付き）や F2・F3（API の仕様付き）のように、課題文に必要な情報がそろっていて素直に解けるものが多かった。
+- **モデル**: 子セッションは全条件で同じモデル（`run-trial.sh` の既定）。モデルを変えたときの差は見ていない。
+
+## 判断の記録
+
+- **課題の選定と採点方法は試行前に固定した**（`docs/poc/tasks/wf-W11-design.md`、`docs/poc/answer-key/W11/`）。途中で課題を足したり難しくしたりはしていない（コーディネーター指示）。
+- **F2（packaging）の採点の補正**: 本家のテストファイルが新しい API を冒頭で import するため、修正前は既存テストも含めて全件が失敗し、F2P が 1182 件に膨らんだ。準備の段階で「修正前のテストファイルのまま実行した結果」と比べ、新しいテスト（54 件）と、import に巻き込まれた既存テストを分けて数えるようにした（品質点は前者を「新しいテスト」、後者を「既存テスト」として計算）。試行の前に行った補正。
+- **費用の上限**: 試行の途中（2026-11-09 15:40 UTC）に、ユーザー指示で上限なしに変えた（このセッションからユーザーに直接確認して承認を得た）。それより前に上限 $10 で始めた B1 の 3 試行は上限に達していないので、そのまま採点に使った。
+- **zod の課題での nub の代替（許可リストの変更）**: B3 の初期状態の zod は、`CLAUDE.md` でテストやスクリプトを `nub` で実行するよう指示している。ところが nub はこの環境に無く、許可リストにも無かったため、指示どおりに動いた候補だけがテストを実行できなかった（B3 の baseline は `pnpm install` も試みて拒否され、既存テストを 37 件壊した）。候補の差ではなく環境の差になるため、コーディネーターの承認（CLAUDE.md の例外: 作業用コピーの中でしか効かない許可リストの変更）を得て、次のとおりにした。
+  - nub の代替（`scripts/poc/oss/nub-shim`）を zod の課題の作業領域にだけ置き、その試行だけ `PATH` と許可リスト（`Bash(nub:*)`・`Bash(timeout * nub*)`）に入れた。代替は事前に入れた依存だけで動き（`npx --no-install`）、依存の変更（install・add・remove など）と知らないサブコマンドは拒否する。
+  - 代替を通しても、隠しテストが修正前に失敗し本家の修正で通ることを、試行の前に確かめた（B3: F2P 10/10、F1: F2P 22/22）。
+  - B3・F1 の全 10 試行をこの環境でやり直し、採点に使った。旧環境の B3 の 5 試行と、旧環境で上限 $10 のまま走った F1 の Compound Engineering の 1 試行（新しいテスト 21/22、$10.58。所要時間の記録が残っていない）は参考値として `no-nub/` に残した。F1 の初期状態（8 月の zod）は pnpm の版で nub の指示が無く、実際に影響を受けたのは B3 だけだった。
+
+| 参考値（旧環境） | 解決 | 品質 | 費用 |
+|---|---|---:|---:|
+| B3 baseline | ❌ | 41.0（既存 −37） | $0.35 |
+| B3 Superpowers | ❌ | 65.0 | $0.32 |
+| B3 Feature Dev | ✅ | 100.0 | $0.76 |
+| B3 Compound Engineering | ❌ | 65.0 | $0.53 |
+| B3 gstack | ❌ | 65.0 | $0.50 |
+| F1 Compound Engineering（上限 $10） | ❌ | 96.8 | $10.58 |
+
+- **子セッションの許可リスト**（W11 のみ）: `curl`・`npx next` を外し、テストと再現用スクリプトの実行（`python`・`pytest`・`node`・`npx vitest`・`npx tsx`・`npx tsc`・`pnpm test` など）を足した（ユーザー承認）。依存のインストールは許可していない。
+
+## 次の対応
+
+1. **差が出る課題を足した検証（提案）**: 今回は 4/6 課題が天井だった。品質で比べるなら、(a) B3・F1 のように「症状を直すだけでは足りず、本家が周辺のケースまで直している」課題、(b) 課題文に再現手順が無い・仕様の制約が細かい課題を、事前に baseline 1 回で試して満点にならないものだけ採用する手順にする。
+2. **差が出た 2 課題（B3・F1）の繰り返し**: 1 回ごとのぶれが大きいので、各条件 2〜3 回に増やして、F1 で 4 候補がそろって同じテストを壊した傾向が再現するかを確かめる。
+3. **判定への入れ方**: W11 は品質で差が出なかったため、判定会では「効率の比較の参考（同じ品質なら候補なしが最も安く速い）」として扱うのが妥当。
+</h2>
+<h2>候補ごとのまとめ
+</h2>
+<div class=tw><table>
+<tr><th>候補</th><th>解決（全 6）</th><th>不具合 3 の解決</th><th>機能 3 の解決</th><th>品質の平均</th><th>費用の合計</th><th>時間の合計</th><th>効率の平均</th></tr>
+<tr><td>Superpowers</td><td>4/6</td><td>2/3</td><td>2/3</td><td>94.0</td><td>$5.90</td><td>46 分</td><td>87.8</td></tr>
+<tr><td>Feature Dev</td><td>4/6</td><td>2/3</td><td>2/3</td><td>97.5</td><td>$11.27</td><td>50 分</td><td>82.0</td></tr>
+<tr><td>Compound Engineering</td><td>4/6</td><td>2/3</td><td>2/3</td><td>93.5</td><td>$21.05</td><td>60 分</td><td>64.3</td></tr>
+<tr><td>gstack</td><td>4/6</td><td>2/3</td><td>2/3</td><td>94.0</td><td>$9.61</td><td>54 分</td><td>81.7</td></tr>
+<tr><td>baseline（候補なし）</td><td>5/6</td><td>2/3</td><td>3/3</td><td>94.2</td><td>$4.37</td><td>31 分</td><td>100.0</td></tr>
+</table></div>
+<p class=li>• 解決 = 本家のテストのうち、修正前に失敗し修正後に通るもの（F2P）がすべて通り、もともと通るもの（P2P）を 1 つも壊していない。</p>
+<p class=li>• 品質（100 点）= 新しいテストの通過率 × 70 + 既存テストの維持率 × 30。</p>
+<p class=li>• 効率（100 点）= 費用 50 + 時間 30 + 介入 20。その課題の baseline に対する倍率で段階を付ける（2 倍以下 = 満点、3 倍以下 = 80%、5 倍以下 = 60%、10 倍以下 = 30%、それ超 = 0）。
+</p>
+<h2>課題 × 候補の結果
+</h2>
+<p>各セル: 解決（✅ / ❌）と品質、（新しいテストの通過数 / 総数・壊した既存テストの数）。
+</p>
+<div class=tw><table>
+<tr><th>課題</th><th>Superpowers</th><th>Feature Dev</th><th>Compound Engineering</th><th>gstack</th><th>baseline（候補なし）</th></tr>
+<tr><td>B1（不具合）pytest: 同じ親ディレクトリが引数に複数回出ると、フィクスチャが見つからない</td><td>✅ 100（新 1/1）</td><td>✅ 100（新 1/1）</td><td>✅ 100（新 1/1）</td><td>✅ 100（新 1/1）</td><td>✅ 100（新 1/1）</td></tr>
+<tr><td>B2（不具合）pytest: assert の中の代入式（:=）が 2 回評価される</td><td>✅ 100（新 13/13）</td><td>✅ 100（新 13/13）</td><td>✅ 100（新 13/13）</td><td>✅ 100（新 13/13）</td><td>✅ 100（新 13/13）</td></tr>
+<tr><td>B3（不具合）zod: 共通の再帰スキーマを持つ union の非同期検証が不正な入力を通す</td><td>❌ 65（新 5/10）</td><td>❌ 86（新 8/10）</td><td>❌ 65（新 5/10）</td><td>❌ 65（新 5/10）</td><td>❌ 65（新 5/10）</td></tr>
+<tr><td>F1（機能）zod: 循環参照を含む入力を検証できるようにする</td><td>❌ 99（新 22/22・既存 −1）</td><td>❌ 99（新 22/22・既存 −1）</td><td>❌ 96（新 21/22・既存 −1）</td><td>❌ 99（新 22/22・既存 −1）</td><td>✅ 100（新 22/22）</td></tr>
+<tr><td>F2（機能）packaging: 範囲の包含関係と重なりを 1 回で返す API</td><td>✅ 100（新 54/54）</td><td>✅ 100（新 54/54）</td><td>✅ 100（新 54/54）</td><td>✅ 100（新 54/54）</td><td>✅ 100（新 54/54）</td></tr>
+<tr><td>F3（機能）click: テスト実行器 invoke() に Context の設定を渡せるようにする</td><td>✅ 100（新 22/22）</td><td>✅ 100（新 22/22）</td><td>✅ 100（新 22/22）</td><td>✅ 100（新 22/22）</td><td>✅ 100（新 22/22）</td></tr>
+</table></div>
+<h2>費用と時間
+</h2>
+<div class=tw><table>
+<tr><th>課題</th><th>Superpowers</th><th>Feature Dev</th><th>Compound Engineering</th><th>gstack</th><th>baseline（候補なし）</th></tr>
+<tr><td>B1</td><td>$0.48・5.7 分</td><td>$0.58・5.8 分</td><td>$0.50・2.2 分</td><td>$0.59・2.6 分</td><td>$0.45・3.6 分</td></tr>
+<tr><td>B2</td><td>$0.66・7.8 分</td><td>$0.58・3.7 分</td><td>$0.62・5.3 分</td><td>$0.46・2.7 分</td><td>$0.17・1.4 分</td></tr>
+<tr><td>B3</td><td>$0.29・6.4 分</td><td>$0.99・9.3 分</td><td>$0.31・2.9 分</td><td>$0.31・7.2 分</td><td>$0.21・3.4 分</td></tr>
+<tr><td>F1</td><td>$3.35・20.5 分</td><td>$7.60・26.7 分</td><td>$12.41・32.6 分</td><td>$5.13・31.9 分</td><td>$3.08・19.6 分</td></tr>
+<tr><td>F2</td><td>$0.65・3.3 分</td><td>$0.80・2.7 分</td><td>$3.76・8.6 分</td><td>$1.38・4.6 分</td><td>$0.24・1.2 分</td></tr>
+<tr><td>F3</td><td>$0.47・2.4 分</td><td>$0.72・1.9 分</td><td>$3.46・8.4 分</td><td>$1.74・4.9 分</td><td>$0.21・1.2 分</td></tr>
+</table></div>
+<h2>変更の規模と、候補が書いたテスト
+</h2>
+<p>ソースの変更行数（追加 + 削除。テスト・文書・候補の管理用ファイルを除く）と、候補が追加したテストの行数。括弧内は本家の修正の行数。
+</p>
+<div class=tw><table>
+<tr><th>課題（本家）</th><th>Superpowers</th><th>Feature Dev</th><th>Compound Engineering</th><th>gstack</th><th>baseline（候補なし）</th></tr>
+<tr><td>B1（25）</td><td>ソース 6・テスト +35</td><td>ソース 11・テスト +47</td><td>ソース 15・テスト +31</td><td>ソース 18・テスト +40</td><td>ソース 7・テスト +31</td></tr>
+<tr><td>B2（161）</td><td>ソース 104・テスト +94</td><td>ソース 83・テスト +38</td><td>ソース 105・テスト +61</td><td>ソース 101・テスト +41</td><td>ソース 67・テスト +28</td></tr>
+<tr><td>B3（94）</td><td>ソース 11・テスト +13</td><td>ソース 8・テスト +19</td><td>ソース 12・テスト +13</td><td>ソース 12・テスト +19</td><td>ソース 17・テスト +11</td></tr>
+<tr><td>F1（248）</td><td>ソース 274・テスト +254</td><td>ソース 232・テスト +297</td><td>ソース 450・テスト +488</td><td>ソース 221・テスト +305</td><td>ソース 282・テスト +200</td></tr>
+<tr><td>F2（137）</td><td>ソース 83・テスト +84</td><td>ソース 76・テスト +67</td><td>ソース 89・テスト +194</td><td>ソース 76・テスト +73</td><td>ソース 70・テスト +64</td></tr>
+<tr><td>F3（52）</td><td>ソース 35・テスト +77</td><td>ソース 31・テスト +32</td><td>ソース 26・テスト +120</td><td>ソース 27・テスト +45</td><td>ソース 29・テスト +43</td></tr>
+</table></div>
+<h2>試行の独立性と拒否された操作
+</h2>
+<div class=tw><table>
+<tr><th>試行</th><th>外部参照などの形跡</th><th>拒否された操作</th><th>使った Skill</th><th>サブエージェント</th><th>介入</th><th>費用上限で停止</th></tr>
+<tr><td>W11-B1-baseline-1</td><td>なし</td><td>6</td><td>—</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B1-compound-engineering-1</td><td>なし</td><td>5</td><td>—</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B1-feature-dev-1</td><td>なし</td><td>8</td><td>feature-dev:feature-dev</td><td>1</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B1-gstack-1</td><td>なし</td><td>0</td><td>—</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B1-superpowers-1</td><td>なし</td><td>6</td><td>superpowers:systematic-debugging</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B2-baseline-1</td><td>なし</td><td>0</td><td>—</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B2-compound-engineering-1</td><td>なし</td><td>8</td><td>compound-engineering:ce-commit</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B2-feature-dev-1</td><td>なし</td><td>3</td><td>feature-dev:feature-dev</td><td>3</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B2-gstack-1</td><td>なし</td><td>0</td><td>—</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B2-superpowers-1</td><td>なし</td><td>3</td><td>superpowers:requesting-code-review, superpowers:systematic-debugging</td><td>1</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B3-baseline-1</td><td>なし</td><td>2</td><td>—</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B3-compound-engineering-1</td><td>なし</td><td>8</td><td>—</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B3-feature-dev-1</td><td>なし</td><td>6</td><td>feature-dev:feature-dev</td><td>3</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B3-gstack-1</td><td>なし</td><td>0</td><td>—</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-B3-superpowers-1</td><td>なし</td><td>3</td><td>superpowers:systematic-debugging</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F1-baseline-1</td><td>なし</td><td>17</td><td>code-review</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F1-compound-engineering-1</td><td>なし</td><td>33</td><td>compound-engineering:ce-code-review, compound-engineering:ce-doc-review, compound-engineering:ce-work</td><td>10</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F1-feature-dev-1</td><td>なし</td><td>20</td><td>—</td><td>7</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F1-gstack-1</td><td>なし</td><td>22</td><td>code-review, review</td><td>7</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F1-superpowers-1</td><td>なし</td><td>12</td><td>superpowers:brainstorming, superpowers:executing-plans, superpowers:test-driven-development, superpowers:writing-plans</td><td>2</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F2-baseline-1</td><td>なし</td><td>1</td><td>—</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F2-compound-engineering-1</td><td>なし</td><td>22</td><td>compound-engineering:ce-code-review, compound-engineering:ce-doc-review, compound-engineering:ce-work</td><td>3</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F2-feature-dev-1</td><td>なし</td><td>5</td><td>—</td><td>3</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F2-gstack-1</td><td>なし</td><td>10</td><td>code-review</td><td>3</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F2-superpowers-1</td><td>なし</td><td>5</td><td>superpowers:brainstorming, superpowers:requesting-code-review</td><td>1</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F3-baseline-1</td><td>なし</td><td>2</td><td>—</td><td>0</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F3-compound-engineering-1</td><td>なし</td><td>20</td><td>compound-engineering:ce-code-review, compound-engineering:ce-commit, compound-engineering:ce-doc-review, compound-engineering:ce-work</td><td>3</td><td>2</td><td>—</td></tr>
+<tr><td>W11-F3-feature-dev-1</td><td>なし</td><td>4</td><td>—</td><td>4</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F3-gstack-1</td><td>なし</td><td>8</td><td>review, verify</td><td>5</td><td>0</td><td>—</td></tr>
+<tr><td>W11-F3-superpowers-1</td><td>なし</td><td>6</td><td>superpowers:brainstorming, superpowers:requesting-code-review</td><td>1</td><td>0</td><td>—</td></tr>
+</table></div></body></html>

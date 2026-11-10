@@ -1,0 +1,62 @@
+{
+ "scenario": "W11",
+ "task": "B2",
+ "kind": "bug",
+ "repo": "pytest-dev/pytest",
+ "trial": "W11-B2-gstack-1",
+ "candidate": "gstack",
+ "run": 1,
+ "resolved": true,
+ "quality": 100.0,
+ "hidden_tests": {
+  "f2p_total": 13,
+  "f2p_pass": 13,
+  "new_total": 13,
+  "new_pass": 13,
+  "existing_total": 193,
+  "existing_pass": 193,
+  "p2p_total": 193,
+  "p2p_pass": 193,
+  "f2p_failed": [],
+  "p2p_broken": [],
+  "seconds": 5.9,
+  "log_tail": ""
+ },
+ "diff": {
+  "src_added": 24,
+  "src_removed": 77,
+  "src_files": [
+   "src/_pytest/assertion/rewrite.py"
+  ],
+  "test_added": 41,
+  "test_files": [
+   "testing/test_assertrewrite.py"
+  ],
+  "other_files": [
+   "changelog/14400.bugfix.rst"
+  ],
+  "upstream_src_added": 83,
+  "upstream_src_removed": 78
+ },
+ "facts": {
+  "cost_usd": 0.4626,
+  "elapsed_seconds": 161,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 1
+ },
+ "transcript": {
+  "cost_usd": 0.4626,
+  "turns": 15,
+  "tools": {
+   "Bash": 10,
+   "Read": 4
+  },
+  "skills": [],
+  "subagents": 0,
+  "permission_denials": [],
+  "isolation_suspects": [],
+  "final_text": "報告された walrus 演算子（`:=`）の二重評価を修正し、コミットしました（`0867e69`）。報告された 2 テストは修正後に通ります。\n\n## 原因\n`src/_pytest/assertion/rewrite.py` の assert 書き換えに、次の 2 つの問題がありました。\n\n1. **NamedExpr の再利用**: `visit_NamedExpr` が NamedExpr ノードそのものを結果として返していました。そのノードが比較結果の再計算、`_call_reprcompare` の引数、失敗時の `saferepr` 表示に何度も埋め込まれ、そのたびに `:=` が実行されていました。\n2. **`variables_overwrite` による置換**: 以前の修正が、後続の `Name` を NamedExpr ノードで置き換える仕組みを入れていました。これが再評価の原因になり、`count` が 2、4、6 と倍々に増えていました。\n\n## 修正内容\n- `visit_NamedExpr` は式を一度だけ評価して一時変数に束縛し、その値を返すようにしました。\n- assert 内で walrus の代入先になる名前（`walrus_targets`）は、使用した時点の値を一時変数に保存します。これで `assert a != (a := ...)` のような式も元の評価順どおりに動きます。\n- 不要になった `variables_overwrite`、スコープ追跡、`Sentinel` と、BoolOp・Call・Compare 内の特例処理を削除しました（差分は純減）。\n\n## 確認結果\n- **再現**: 報告の reproducer は修正前に `1 != 1` と `5 == 2` で失敗しました。\n- **修正後**: 同じ reproducer は 2 件とも通ります。\n- **回帰テスト**: `TestAssertionRewriteWalrusOperator::test_assertion_walrus_evaluated_once` を追加しました。報告の 2 パターンと、失敗メッセージ生成時に再評価しないことを確認します。修正前は 2 failed、修正後は 3 passed です。\n- **既存テスト**: `test_assertion.py` と `test_assertrewrite.py` で 334 passed、1 skipped。ruff も通っています。\n\n## 補足\n- 変更履歴は `changelog/14400.bugfix.rst` として追加しました。実際の Issue 番号が分からなかったので **14400 は仮の番号** です。マージ前に正しい番号へリネームしてください。\n- 書き換え済み pyc は pytest のバージョンをキーにキャッシュされます。手元で試すときは `__pycache__` を消さないと、修正前の挙動が残ることがあります。\n- 対象は pytest 本体の assert 書き換えで、ブラウザは使っていません。QA レポートファイルの出力は省略し、結果はこの報告に書いています。"
+ }
+}

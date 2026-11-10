@@ -1,0 +1,61 @@
+{
+ "scenario": "W11",
+ "task": "B2",
+ "kind": "bug",
+ "repo": "pytest-dev/pytest",
+ "trial": "W11-B2-baseline-1",
+ "candidate": "baseline",
+ "run": 1,
+ "resolved": true,
+ "quality": 100.0,
+ "hidden_tests": {
+  "f2p_total": 13,
+  "f2p_pass": 13,
+  "new_total": 13,
+  "new_pass": 13,
+  "existing_total": 193,
+  "existing_pass": 193,
+  "p2p_total": 193,
+  "p2p_pass": 193,
+  "f2p_failed": [],
+  "p2p_broken": [],
+  "seconds": 6.5,
+  "log_tail": ""
+ },
+ "diff": {
+  "src_added": 20,
+  "src_removed": 47,
+  "src_files": [
+   "src/_pytest/assertion/rewrite.py"
+  ],
+  "test_added": 28,
+  "test_files": [
+   "testing/test_assertrewrite.py"
+  ],
+  "other_files": [
+   "changelog/walrus-double-eval.bugfix.rst"
+  ],
+  "upstream_src_added": 83,
+  "upstream_src_removed": 78
+ },
+ "facts": {
+  "cost_usd": 0.1736,
+  "elapsed_seconds": 85,
+  "interventions": 0,
+  "budget_stopped": "",
+  "errors": "",
+  "commits": 1
+ },
+ "transcript": {
+  "cost_usd": 0.1736,
+  "turns": 8,
+  "tools": {
+   "Bash": 7
+  },
+  "skills": [],
+  "subagents": 0,
+  "permission_denials": [],
+  "isolation_suspects": [],
+  "final_text": "walrus 演算子（`:=`）が二重に評価される問題を修正し、git にコミットしました。Issue の2つのテストと既存の `test_assertrewrite.py` / `test_assertion.py` は通りました。ただし、テストスイート全体はまだ実行していません。\n\n**原因**\n\n`src/_pytest/assertion/rewrite.py` が `:=` のノードを元のまま残していました。そのため、評価が実際の式と失敗時の説明文用の式で2回行われていました。\n\nまた、過去の対応（#10758、#11041）で `variables_overwrite` による置換が入っていました。これは、前の `assert` で使った walrus ノードを、後の `assert` の同名変数に差し込む仕組みです。このため、`before` を参照するたびに `c.value` などが再評価されていました。\n\n**修正**\n\n- `visit_NamedExpr` は、値を1回だけ評価して一時変数に代入し、その一時変数を比較と説明文の両方で使うようにしました。\n- `assert` 内に walrus がある場合は、`visit_Name` が名前の値をその場で退避します。`a == (a := a.lower())` のような式でも左から右の評価順が保たれます。\n- 上記の対応で不要になった `variables_overwrite` の置換処理を、BoolOp・Call・Compare の各所から削除しました。\n\n回帰テスト `test_assertion_walrus_evaluated_once` と changelog を追加しました。`variables_overwrite` の宣言と `scope` 関連のコードは、使われなくなりましたが残しています。"
+ }
+}
