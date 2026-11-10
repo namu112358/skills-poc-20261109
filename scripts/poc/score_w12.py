@@ -147,6 +147,7 @@ def score(t):
 
 def main():
     trials = [json.loads(p.read_text()) for p in sorted(DIR.glob("W12-*.json"))]
+    trials = [t for t in trials if "w12" in t]  # 採点の途中（grade.py の分だけ書かれたもの）は除く
     scores = [score(t) for t in trials]
     for s in scores:
         s["facts"]["questions"] = s["questions"]["total"]
