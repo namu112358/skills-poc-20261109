@@ -108,6 +108,13 @@ if [[ "$CAND" == baseline-conventions ]]; then
   cat "$ROOT/docs/poc/tasks/wf-$SCENARIO-conventions.md" >> "$APP/CLAUDE.md"
   sha256sum "$ROOT/docs/poc/tasks/wf-$SCENARIO-conventions.md" | sed "s#$ROOT/##" > "$OUT/conventions"
 fi
+# W13: 全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準（docs/poc/standards/generic-dev-standard.md の
+# 区切りのコメントより下。全 W 同じ文面）を足す（2026-11-10 コーディネーター・ユーザー承認）。初期状態の一部なので候補からは差分に見えない
+if [[ "$SCENARIO" == W13 ]]; then
+  STD="$ROOT/docs/poc/standards/generic-dev-standard.md"
+  { echo; sed '1,/^-->$/d' "$STD"; } >> "$APP/CLAUDE.md"
+  sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/dev-standard"
+fi
 ( cd "$APP" && git add -A && git -c user.name=poc -c user.email=poc@example.invalid commit -qm baseline )
 git -C "$APP" config user.name poc
 git -C "$APP" config user.email poc@example.invalid
