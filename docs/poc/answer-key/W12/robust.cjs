@@ -1,7 +1,9 @@
 // W12 の外部呼び出しの堅牢さのテスト（試行中は候補に見せない）。項目の定義は grading.md。
 // 偽の通知サービスに、送り先ごとの「台本」（503・429・400・応答しない など）を仕込む。
-// 台本ごとに計測器を 1 台作り、ジョブを 1 回ずつ実行する（1 件の失敗でジョブ全体を止める実装でも、
-// ほかの項目を測れるようにするため。2026-11-10 変更、report の判断の記録）。1 件の失敗で止まらないかは R09 で見る。
+// 台本ごとに計測器を 1 台作り、ジョブを 1 回ずつ実行する。各台本の判定に使う要求・届いた件数は、その実行の直後に記録する。
+// そのあと台本を空にしてジョブをもう 1 回実行し（後始末）、送れなかったお知らせを次の台本に持ち越さない
+//（失敗するとその実行の残りを送らない実装や、次の実行で送り直す実装でも、ほかの項目を測れるようにするため。
+// 2026-11-10 変更、report の判断の記録）。1 件の誤りでほかの送り先が止まらないかは R09 で見る。
 const { harness, assert, jst } = require("./lib.cjs");
 
 (async () => {
@@ -14,26 +16,32 @@ const { harness, assert, jst } = require("./lib.cjs");
   const mk = (managerId) => h.instrument(sato, { managerId, last: "2026-03-30" });
   const reqsOf = async (inst, who) => (await h.state()).requests.filter((r) => r.recipient === who && r.raw.includes(inst.no));
   const gaps = (rs) => rs.slice(1).map((r, i) => r.t - rs[i].t);
-  // 台本を仕込み、その計測器を作ってジョブを 1 回実行する
-  async function scenario(who, actions) {
+  // 台本を仕込み、その計測器を作ってジョブを 1 回実行し、要求と届いた件数を記録する。drain なら後始末の実行もする
+  async function scenario(who, actions, drain = true) {
     if (actions.length) await h.script(who, actions);
     const inst = await mk(who);
     const run = await h.runJob();
-    return { inst, run, reqs: await reqsOf(inst, who) };
+    const out = { inst, run, reqs: await reqsOf(inst, who), delivered: (await h.delivered(inst, who)).length };
+    if (drain) {
+      await h.script(who, [], true);
+      await h.runJob();
+    }
+    return out;
   }
 
   const retry = await scenario("kato", [{ status: 503 }, { status: 503 }]);
   await check("R01", "503 のあとに再試行して届ける", async () => {
-    const d = await h.delivered(retry.inst, "kato");
-    assert(retry.reqs.length >= 3 && d.length === 1, `要求 ${retry.reqs.length} 回、届いた ${d.length} 件`);
+    assert(retry.reqs.length >= 3 && retry.delivered === 1, `要求 ${retry.reqs.length} 回、届いた ${retry.delivered} 件（同じ実行の中で）`);
   });
   await check("R11", "すべての要求に Idempotency-Key を付け、同じお知らせの再試行では同じキーを使う", async () => {
     const all = (await h.state()).requests.filter((r) => r.recipient);
     assert(all.length > 0, "要求が無い");
     const missing = all.filter((r) => !r.key).length;
     assert(missing === 0, `キーの無い要求 ${missing}/${all.length}`);
-    const keys = new Set(retry.reqs.map((r) => r.key));
-    assert(retry.reqs.length >= 2 && keys.size === 1, `再試行の要求 ${retry.reqs.length} 回、キー: ${[...keys].join(", ")}`);
+    // 同じお知らせの再試行（同じ実行の中でも、次の実行でもよい）で同じキーを使うか
+    const rs = await reqsOf(retry.inst, "kato");
+    const keys = new Set(rs.map((r) => r.key));
+    assert(rs.length >= 2 && keys.size === 1, `同じお知らせの要求 ${rs.length} 回、キー: ${[...keys].join(", ")}`);
   });
 
   const backoff = await scenario("ito", [{ status: 503 }, { status: 503 }, { status: 503 }, { status: 503 }]);
@@ -51,31 +59,34 @@ const { harness, assert, jst } = require("./lib.cjs");
   });
 
   const hang = await scenario("matsumoto", ["hang"]);
-  await check("R06", "応答しない通知サービスをタイムアウト（60 秒以内）で打ち切り、再試行して届ける", async () => {
+  await check("R06", "応答しない通知サービスをタイムアウト（60 秒以内）で打ち切り、そのあと届ける", async () => {
     const first = hang.reqs[0];
     assert(first, "要求が無い");
     const waited = (first.closedAt ?? Infinity) - first.t;
     // 60 秒のタイムアウトは合格。打ち切りの検出までの遅れ（計測の誤差）として 2 秒を見込む
     assert(first.status !== 504 && waited <= 62_000, `打ち切るまで ${Number.isFinite(waited) ? waited + "ms" : "打ち切らない"}（サーバー側で ${first.status ?? "—"}）`);
-    assert((await h.delivered(hang.inst, "matsumoto")).length === 1, "再試行で届いていない");
+    // 届くのは同じ実行の中でも、次の実行（後始末の実行）でもよい（ここではタイムアウトの有無を見る。同じ実行の中での再試行は R01 で見る）
+    assert((await h.delivered(hang.inst, "matsumoto")).length === 1, "打ち切ったあと、再試行（次の実行を含む）で届いていない");
   });
 
   const lost = await scenario("hayashi", ["process_then_hang"]);
 
-  // 400 と、失敗と関係ない送り先を同じ実行で（400 の計測器を先に作る）
+  // 400（その 1 件だけの誤り）と、失敗と関係ない送り先を同じ実行で（400 の計測器を先に作る）
   await h.script("yoshida", [{ status: 400 }]);
   const bad = await mk("yoshida");
   const control = await mk("shimizu");
   await h.runJob();
+  const badReqs = (await reqsOf(bad, "yoshida")).length;
+  const controlDelivered = (await h.delivered(control, "shimizu")).length;
+  await h.runJob(); // 後始末
   await check("R05", "400 は再試行しない", async () => {
-    const n = (await reqsOf(bad, "yoshida")).length;
-    assert(n === 1, `要求 ${n} 回`);
+    assert(badReqs === 1, `要求 ${badReqs} 回`);
   });
-  await check("R09", "1 件の失敗で、ほかのお知らせが止まらない", async () => {
-    assert((await h.delivered(control, "shimizu")).length === 1, "400 と同じ実行の、ほかの送り先に届いていない");
+  await check("R09", "1 件の誤り（400）で、同じ実行のほかのお知らせが止まらない", async () => {
+    assert(controlDelivered === 1, "400 と同じ実行の、ほかの送り先に届いていない");
   });
 
-  const cap = await scenario("kobayashi", Array.from({ length: 40 }, () => ({ status: 503 })));
+  const cap = await scenario("kobayashi", Array.from({ length: 40 }, () => ({ status: 503 })), false);
   await check("R04", "失敗が続くときは決まった回数で再試行をやめる（2〜10 回）", async () => {
     const n = cap.reqs.length;
     assert(cap.run.status > 0 && n >= 2 && n <= 10, `要求 ${n} 回（ジョブ ${cap.run.status}、${cap.run.ms}ms）`);
