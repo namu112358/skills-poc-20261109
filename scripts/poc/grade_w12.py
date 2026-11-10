@@ -481,6 +481,8 @@ def evaluate(app, base, work, override=None, mutation=True):
         out["public"], logs["public"], pstate = suite(app, work, "public", "public.cjs", adapter, aliases)
         out["hidden"], logs["hidden"], hstate = suite(app, work, "hidden", "hidden.cjs", adapter, aliases, extra)
         out["robust"], logs["robust"], rstate = suite(app, work, "robust", "robust.cjs", adapter, aliases)
+        # 感度の確認用: 旧版（v1。台本を 1 回の実行にまとめた形）の結果も残す。点数には使わない（2026-11-10、コーディネーター指示）
+        out["robust_v1"], logs["robust_v1"], _ = suite(app, work, "robust_v1", "robust-v1.cjs", adapter, aliases)
         out["robust_requests"] = [{k: r.get(k) for k in ("t", "recipient", "key", "status", "action", "closedAt")} for r in rstate.get("requests", [])][:200]
         out["deliveries_sample"] = [{k: d.get(k) for k in ("recipient", "title", "body")} for d in rstate.get("deliveries", [])][:5]
         out["migration"] = migration_checks(app, work, adapter, aliases, static)

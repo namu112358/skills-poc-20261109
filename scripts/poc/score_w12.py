@@ -91,6 +91,9 @@ def score(t):
     mc = w.get("migration", {}).get("checks", {})
     migration = sum(v for k, v in M_WEIGHTS.items() if mc.get(k))
     robustness = round(15 * sum(rob.get(k, False) for k in ROBUST_LABELS) / N_ROBUST, 2)
+    # 感度の確認用: 旧版（v1）の堅牢さのテストの結果で計算した場合（点数には使わない）
+    rob1 = {r["id"]: r["pass"] and not peeked for r in w.get("robust_v1", [])}
+    robustness_v1 = round(15 * sum(rob1.get(k, False) for k in ROBUST_LABELS) / N_ROBUST, 2) if rob1 else None
     ops = w.get("ops", {}).get("total", 0)
     m = w.get("mutation", {})
     strength = round(10 * m.get("kill_rate", 0), 2) if m.get("mutants") else 0.0
@@ -102,7 +105,8 @@ def score(t):
         "trial": t["trial"], "candidate": t["candidate"], "run": t["run"],
         "total": round(business + migration + robustness + ops + design + strength, 1),
         "business": business, "business_public": public_pts, "business_hidden": hidden_pts,
-        "migration": migration, "robustness": robustness, "ops": ops, "design": design, "test_strength": strength,
+        "migration": migration, "robustness": robustness, "robustness_v1": robustness_v1,
+        "robust_v1_items": {k: rob1.get(k, False) for k in ROBUST_LABELS} if rob1 else None, "ops": ops, "design": design, "test_strength": strength,
         "hidden_items": {k: hid.get(k, False) for k in HIDDEN_LABELS},
         "public_items": {k: pub.get(k, False) for k in ("P01", "P02", "P03", "P04")},
         "robust_items": {k: rob.get(k, False) for k in ROBUST_LABELS},
@@ -143,6 +147,7 @@ def main():
     scores = [score(t) for t in trials]
     for s in scores:
         s["facts"]["questions"] = s["questions"]["total"]
+        s["total_v1"] = None if s["robustness_v1"] is None else round(s["total"] - s["robustness"] + s["robustness_v1"], 1)
     (DIR / "scores.json").write_text(json.dumps({"scores": scores}, ensure_ascii=False, indent=2) + "\n")
     for s in scores:
         q = s["questions"]
