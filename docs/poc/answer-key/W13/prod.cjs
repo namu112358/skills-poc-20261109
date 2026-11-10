@@ -12,6 +12,7 @@ const MI = {
   "MI-0009": { id: 9, no: "MI-0009", managerId: "takahashi" },
   "MI-0010": { id: 10, no: "MI-0010", managerId: "ito" },
   "MI-0014": { id: 14, no: "MI-0014", managerId: "tanaka" },
+  "MI-0003": { id: 3, no: "MI-0003", managerId: "suzuki" },
 };
 
 async function make(base) {
@@ -32,7 +33,12 @@ async function make(base) {
   await add("A", "suzuki", "MI-0001", "2026-11-20", "2026-11-22");
   // 14 日を超える予約。計測器は校正期限が遠い MI-0014（前回 2026-11-12・12 か月）。当初の MI-0003 は 2026-12-03 が校正期限で、
   // 「期間中に校正期限が来る予約は受けない」とした実装（feature-dev-1）で断られたため変えた（2026-11-10 補正。判断の記録）
-  await add("B", "suzuki", "MI-0014", "2026-12-01", "2026-12-20", ["2026-12-01", "2026-12-07"]);
+  if (process.env.W13_PREFIX === "1") {
+    // 補正 4 の前（当初の MI-0003・tanaka）で採点する（判断の記録の比較用。点数には使わない）
+    await add("B", "tanaka", "MI-0003", "2026-12-01", "2026-12-20", ["2026-12-01", "2026-12-07"]);
+  } else {
+    await add("B", "suzuki", "MI-0014", "2026-12-01", "2026-12-20", ["2026-12-01", "2026-12-07"]);
+  }
   await add("D", "sato", "MI-0009", "2026-11-16", "2026-11-18");
   const c = await add("C", "tanaka", "MI-0006", "2026-11-25", "2026-11-26");
   if (c !== undefined) {

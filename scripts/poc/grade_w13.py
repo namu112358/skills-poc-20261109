@@ -444,6 +444,22 @@ def main():
         print(json.dumps(r["points"], ensure_ascii=False), file=sys.stderr)
         return
     trial = args[0]
+    if "--prefix" in args:
+        # 補正 3・4 の前の条件で採点し直し、results/workflow/W13/prefix/<試行ID>.json に書く（判断の記録の比較用。点数には使わない）
+        os.environ["W13_PREFIX"] = "1"
+        raw = ROOT / "docs" / "poc" / "results" / "workflow" / "raw" / trial
+        workdir = Path((raw / "workdir").read_text().strip())
+        app = workdir / "app"
+        base = (raw / "baseline-commit").read_text().strip()
+        v1 = (raw / "v1-commit").read_text().strip()
+        adapters = {ph: json.loads((RESULTS / "adapters" / f"{trial}-{ph}.json").read_text()) for ph in ("v1", "v2")}
+        work = Path(tempfile.mkdtemp(prefix="grade-w13-prefix-", dir=workdir))
+        r = evaluate(app, base, v1, work, adapters, mutation=False)
+        out = RESULTS / "prefix" / f"{trial}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps({"trial": trial, "w13": r, "points_without_design_and_mutation": points(r)}, ensure_ascii=False, indent=2) + "\n")
+        print(f"{trial} (補正前): {summary_line(r)}")
+        return
     sys.argv = [sys.argv[0], "W13", trial]
     sys.path.insert(0, str(HERE))
     import grade  # noqa: E402

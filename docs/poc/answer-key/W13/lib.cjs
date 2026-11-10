@@ -192,11 +192,14 @@ function harness(base, prefix, adapterJson) {
    *  貸出の操作者を管理者にするのは、貸出の登録を管理者に限る実装（gstack-1）で、予約と貸出の関係の項目（K04・K05・C10）が
    *  権限の違いだけで落ちないようにするため（2026-11-10 補正。既存の振る舞いの変化は P02 が sato の操作で見る） */
   async function lend(inst, borrowerId, dueOn, actor) {
-    const r = await call(await as(actor || approverOf(inst)), "POST", `/api/instruments/${inst.id}/loans`, { borrowerId, dueOn });
+    // W13_PREFIX=1: 補正 3 の前（貸出の操作者は sato）で採点する（判断の記録の比較用。点数には使わない）
+    const who = actor || (process.env.W13_PREFIX === "1" ? "sato" : approverOf(inst));
+    const r = await call(await as(who), "POST", `/api/instruments/${inst.id}/loans`, { borrowerId, dueOn });
     return { status: r.status, loanId: r.json?.loan?.id };
   }
   async function returnLoan(inst, loanId, actor) {
-    return (await call(await as(actor || approverOf(inst)), "POST", `/api/instruments/${inst.id}/loans/${loanId}/return`)).status;
+    const who = actor || (process.env.W13_PREFIX === "1" ? "sato" : approverOf(inst));
+    return (await call(await as(who), "POST", `/api/instruments/${inst.id}/loans/${loanId}/return`)).status;
   }
   async function calibrate(inst, calibratedOn, result) {
     return call(await as("sato"), "POST", `/api/instruments/${inst.id}/calibrations`, { calibratedOn, result, agency: "検証用校正機関" });
