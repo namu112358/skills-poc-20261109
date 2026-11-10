@@ -19,6 +19,11 @@ d = Path("/tmp/poc-trials") / sys.argv[1]
 if d.parent != Path("/tmp/poc-trials") or not d.name.startswith("W12-") or not d.exists():
     sys.exit(f"対象外: {d}")
 if (d / "home").exists():
+    # Claude Code 自身のセッションの記録（サブエージェントの記録を含む）は、念のため raw/<試行ID>/home-transcripts に写してから消す
+    proj = d / "home" / ".claude" / "projects"
+    if proj.exists():
+        dst = ROOT / "docs" / "poc" / "results" / "workflow" / "raw" / d.name / "home-transcripts"
+        shutil.copytree(proj, dst, dirs_exist_ok=True)
     shutil.rmtree(d / "home")
 nm = d / "app" / "node_modules"
 if nm.exists() and not nm.is_symlink() and filecmp.cmp(SRC / "package-lock.json", d / "app" / "package-lock.json", shallow=False):
