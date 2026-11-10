@@ -568,6 +568,11 @@ def main():
         return
     trial = args[0]
     flags = set(args[1:])
+    # --keep-mutation: 前回の採点のミューテーションの結果を使う（候補のコードとテストが変わらないので結果も同じ。採点し直しの時間を短くするため）
+    prev_mut = None
+    prev_path = RESULTS / f"{trial}.json"
+    if "--keep-mutation" in flags and prev_path.exists():
+        prev_mut = (json.loads(prev_path.read_text()).get("w12") or {}).get("mutation")
     sys.argv = [sys.argv[0], "W12", trial]  # grade.py はモジュールの読み込み時に sys.argv からシナリオと試行 ID を読む
     sys.path.insert(0, str(HERE))
     import grade  # noqa: E402
@@ -576,7 +581,9 @@ def main():
     base = (grade.RAW / "baseline-commit").read_text().strip()
     ov_path = RESULTS / "adapters" / f"{trial}.json"
     override = json.loads(ov_path.read_text()) if ov_path.exists() else None
-    w12 = evaluate(grade.APP, base, grade.WORK / "grade-w12", override=override)
+    w12 = evaluate(grade.APP, base, grade.WORK / "grade-w12", override=override, mutation=prev_mut is None)
+    if prev_mut is not None:
+        w12["mutation"] = prev_mut
     w12["checks"] = {k: v["pass"] for k, v in w12["checks"].items()}
     result["w12"] = w12
     sys.path.insert(0, str(HERE))
