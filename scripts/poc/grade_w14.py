@@ -338,6 +338,44 @@ def item_from(j):
     return None
 
 
+def retired_mark(item):
+    """場所マスタの 1 件に、使用終了の印が付いているか。"""
+    for k in ("active", "isActive", "inUse", "enabled", "available", "selectable"):
+        if item.get(k) is False or item.get(k) == 0:
+            return True
+    for k in ("retired", "archived", "isRetired", "inactive", "disabled", "ended"):
+        if item.get(k) is True or item.get(k) == 1:
+            return True
+    for k in ("retiredAt", "archivedAt", "endedAt", "inactiveAt", "deactivatedAt", "retired_at", "archived_at"):
+        if item.get(k):
+            return True
+    return str(item.get("status", "")).lower() in ("retired", "inactive", "ended", "archived", "disabled", "使用終了")
+
+
+def filter_params(app):
+    """一覧の絞り込みに使えそうなクエリ（キー=値）を作る。既定の候補に、候補のコードにあるクエリの名前と値を足す
+    （試行の採点で ?location=pending・?locationCheck=…・?locationPending=… を見落としていたので直した。判断の記録に書く）。"""
+    keys = ["locationStatus", "unresolved", "pending", "needsReview", "unmapped", "unmatched", "location", "locationState", "status",
+            "location_status", "review", "unconfirmed", "locationUnresolved", "filter", "locationCheck", "locationPending", "locationReview",
+            "locationUnmatched", "locationId"]
+    vals = ["unresolved", "pending", "unmatched", "unmapped", "unconfirmed", "review", "needsReview", "needs_review", "1", "true",
+            "unknown", "check", "unassigned"]
+    for f in list((Path(app) / "src" / "app").rglob("*.ts*")):
+        if "instruments" not in str(f) and "locations" not in str(f):
+            continue
+        t = f.read_text(errors="ignore")
+        keys += re.findall(r"searchParams\.get\(\s*[\"'](\w+)[\"']", t)
+        keys += re.findall(r"(\w+)\?\s*:\s*string", t)
+        vals += re.findall(r"===\s*[\"']([A-Za-z_]+)[\"']", t)
+    keys = [k for k in dict.fromkeys(keys) if k not in ("id", "name", "password", "userId", "q")]
+    vals = list(dict.fromkeys(vals))
+    out = []
+    for k in keys:
+        for v in vals:
+            out.append(f"{k}={v}")
+    return out
+
+
 def loc_name(item):
     for k in ("name", "label", "title", "displayName", "locationName"):
         if isinstance(item.get(k), str):
@@ -489,8 +527,11 @@ def api_suite(app, work, routes, base):
                         continue
                     r = c.call(m, path, body)
                     if r["status"] in (200, 201, 204):
-                        names = [loc_name(x) for x in list_from(c.call("GET", api["list"])["json"])]
-                        if "検証用 場所 C" not in names:
+                        # 使用終了の場所が一覧から消える作りと、一覧に残して使用終了の印を付ける作りの両方を受け付ける
+                        # （試行の採点で、一覧に active: false で残す作りを誤って落としていたので直した。判断の記録に書く）
+                        items = list_from(c.call("GET", api["list"])["json"])
+                        mine = [x for x in items if loc_name(x) == "検証用 場所 C"]
+                        if not mine or any(retired_mark(x) for x in mine):
                             return f"{m} {body}"
             raise AssertionError("場所を使用終了にできない")
 
@@ -579,10 +620,7 @@ def api_suite(app, work, routes, base):
             need(no, "確認中の計測器を作れていない（H10 が失敗）")
             target = next((x for x in list_from(c.call("GET", "/api/instruments")["json"]) if x.get("managementNo") == no), None)
             resolved = next((x for x in list_from(c.call("GET", "/api/instruments")["json"]) if x.get("managementNo") == "MI-0001"), None)
-            params = ["locationStatus=unresolved", "locationStatus=pending", "locationStatus=unmatched", "unresolved=1", "unresolved=true",
-                      "pending=1", "needsReview=1", "needsReview=true", "unmapped=1", "unmapped=true", "unmatched=1", "location=unresolved",
-                      "locationState=unresolved", "status=unresolved", "location_status=unresolved", "review=1", "unconfirmed=1",
-                      "locationUnresolved=1", "locationUnresolved=true", "filter=unresolved"]
+            params = filter_params(app)
             for p in params:
                 lst = list_from(c.call("GET", f"/api/instruments?{p}")["json"])
                 nos = {x.get("managementNo") for x in lst}
@@ -630,6 +668,12 @@ def migration_suite(app, base, work, routes, static):
         dt["start"] = srv.log.read_text()[-500:]
         return res, None
     jobs = [r for r in routes if r["path"].startswith("/api/jobs/") and "[" not in r["path"] and r["path"] != "/api/jobs/overdue-loans"]
+    # 補正（W14/adapters/<試行ID>.json の "job_query"）: 候補の手順書が、ジョブを特定のクエリ（例 ?dryRun=false）で呼ぶよう
+    # 定めているときは、そのクエリを付けて呼ぶ（既定が試しの実行で、書き込まないジョブ。採点の誤検出の補正。判断の記録に書く）
+    jq = json.loads(os.environ.get("W14_OVERRIDE") or "{}").get("job_query", "")
+    if jq:
+        jobs = [{**j, "path": j["path"] + jq} for j in jobs]
+        dt["job_query"] = jq
     try:
         t0 = time.time()  # ログイン自体が最初の要求（DB を開き、マイグレーションが当たる）
         c = Client(srv.base())
@@ -905,6 +949,25 @@ def main():
         else:
             print(text)
         print(summary_line(r), file=sys.stderr)
+        return
+    if args and args[0] == "--recheck-api":
+        # 採点の誤検出を直したあと、公開・隠しの API の確かめだけをやり直し、結果の JSON の public・hidden・discovery を差し替える
+        # （ビルド済みの作業用コピーで。移行・表記ゆれ・ミューテーションは変えない。差し替える前の値は *_before_recheck に残す）
+        for trial in args[1:]:
+            f = RESULTS / f"{trial}.json"
+            res = json.loads(f.read_text())
+            raw = ROOT / "docs" / "poc" / "results" / "workflow" / "raw" / trial
+            app = Path((raw / "workdir").read_text().strip()) / "app"
+            base = (raw / "baseline-commit").read_text().strip()
+            ov_path = RESULTS / "adapters" / f"{trial}.json"
+            os.environ["W14_OVERRIDE"] = ov_path.read_text() if ov_path.exists() else "{}"
+            w = res["w14"]
+            pub, hid, disc = api_suite(app, Path(tempfile.mkdtemp(prefix=f"w14-recheck-{trial}-")), w["routes"], base)
+            for k, v in (("public", pub), ("hidden", hid), ("discovery", disc)):
+                w.setdefault(f"{k}_before_recheck", w.get(k))
+                w[k] = v
+            f.write_text(json.dumps(res, ensure_ascii=False, indent=2) + "\n")
+            print(trial, "public", "".join("o" if x["pass"] else "x" for x in pub), "hidden", "".join("o" if x["pass"] else "x" for x in hid))
         return
     trial = args[0]
     flags = set(args[1:])
