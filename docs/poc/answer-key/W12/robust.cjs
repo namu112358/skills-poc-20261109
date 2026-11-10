@@ -60,7 +60,8 @@ const { harness, assert, jst } = require("./lib.cjs");
     const first = rs[0];
     assert(first, "要求が無い");
     const waited = (first.closedAt ?? Infinity) - first.t;
-    assert(first.status !== 504 && waited <= 60_000, `打ち切るまで ${Number.isFinite(waited) ? waited + "ms" : "打ち切らない"}（サーバー側で ${first.status ?? "—"}）`);
+    // 60 秒のタイムアウトは合格。打ち切りの検出までの遅れ（計測の誤差）として 2 秒を見込む（2026-11-10 補正。report の判断の記録）
+    assert(first.status !== 504 && waited <= 62_000, `打ち切るまで ${Number.isFinite(waited) ? waited + "ms" : "打ち切らない"}（サーバー側で ${first.status ?? "—"}）`);
     assert((await h.delivered(I.hang, "matsumoto")).length === 1, "再試行で届いていない");
   });
 
