@@ -1,0 +1,215 @@
+diff --git a/src/app/api/instruments/[id]/reservations/route.ts b/src/app/api/instruments/[id]/reservations/route.ts
+index b3d16bc..c1caea5 100644
+--- a/src/app/api/instruments/[id]/reservations/route.ts
++++ b/src/app/api/instruments/[id]/reservations/route.ts
+@@ -16,7 +16,7 @@ export async function GET(_request: Request, { params }: Context) {
+ }
+ 
+ const CONFLICT_MESSAGES = {
+-  not_reservable: "使用停止・廃棄の計測器は予約できません",
++  not_reservable: "修理中・使用停止・廃棄の計測器は予約できません",
+   on_loan: "貸出中の計測器は、返却予定日の翌日から予約できます",
+   conflict: "その期間にはほかの予約があります",
+   past_due: "校正期限を過ぎる日は予約できません",
+diff --git a/src/lib/db/index.ts b/src/lib/db/index.ts
+index 9cbd697..33cc7cf 100644
+--- a/src/lib/db/index.ts
++++ b/src/lib/db/index.ts
+@@ -21,10 +21,17 @@ export function migrate(db: Db, migrations: readonly Migration[] = MIGRATIONS):
+   const current = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+   for (const m of migrations) {
+     if (m.version <= current) continue;
+-    transaction(db, () => {
+-      db.exec(m.sql);
+-      db.exec(`PRAGMA user_version = ${Number(m.version)}`);
+-    });
++    if (m.rebuildsTable) db.exec("PRAGMA foreign_keys = OFF"); // トランザクションの外でしか切り替えられない
++    try {
++      transaction(db, () => {
++        db.exec(m.sql);
++        const broken = db.prepare("PRAGMA foreign_key_check").all();
++        if (broken.length > 0) throw new Error(`migration ${m.version}: foreign key check failed (${broken.length})`);
++        db.exec(`PRAGMA user_version = ${Number(m.version)}`);
++      });
++    } finally {
++      if (m.rebuildsTable) db.exec("PRAGMA foreign_keys = ON");
++    }
+   }
+ }
+ 
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 7e29fdf..d454167 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -7,6 +7,8 @@ export type Migration = {
+   version: number;
+   name: string;
+   sql: string;
++  /** 表を作り直すマイグレーション（SQLite の手順どおり、外部キーの確認を止めて行い、終わったら整合性を確かめる） */
++  rebuildsTable?: boolean;
+ };
+ 
+ export const MIGRATIONS: readonly Migration[] = [
+@@ -198,4 +200,35 @@ export const MIGRATIONS: readonly Migration[] = [
+         BEGIN SELECT RAISE(ABORT, 'instrument_history is append-only'); END;
+     `,
+   },
++  {
++    version: 10,
++    name: "instrument_status_repairing",
++    // 状態に「修理中」（repairing）を足す。SQLite は CHECK 制約を変えられないので、計測器の表を作り直す
++    //（https://www.sqlite.org/lang_altertable.html の手順。列と値はそのまま写す。索引も作り直す）。
++    rebuildsTable: true,
++    sql: `
++      CREATE TABLE instruments_new (
++        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
++        management_no      TEXT NOT NULL UNIQUE,
++        name               TEXT NOT NULL,
++        model              TEXT NOT NULL DEFAULT '',
++        location           TEXT NOT NULL DEFAULT '', -- 旧列（version 7 で場所の一覧に移した。使わない）
++        manager_id         TEXT NOT NULL REFERENCES users(id),
++        interval_months    INTEGER NOT NULL CHECK (interval_months BETWEEN 1 AND 120),
++        last_calibrated_on TEXT NOT NULL, -- YYYY-MM-DD
++        status             TEXT NOT NULL DEFAULT 'in_use'
++                           CHECK (status IN ('in_use', 'on_loan', 'calibrating', 'repairing', 'suspended', 'disposed')),
++        note               TEXT NOT NULL DEFAULT '',
++        importance         TEXT NOT NULL DEFAULT 'B' CHECK (importance IN ('A', 'B', 'C')),
++        location_id        INTEGER REFERENCES locations(id)
++      );
++      INSERT INTO instruments_new (id, management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note, importance, location_id)
++        SELECT id, management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note, importance, location_id FROM instruments;
++      DROP TABLE instruments;
++      ALTER TABLE instruments_new RENAME TO instruments;
++      CREATE INDEX instruments_manager ON instruments(manager_id);
++      CREATE INDEX instruments_importance ON instruments(importance);
++      CREATE INDEX instruments_location ON instruments(location_id);
++    `,
++  },
+ ];
+diff --git a/src/lib/instruments.ts b/src/lib/instruments.ts
+index 8a0c37f..43393b8 100644
+--- a/src/lib/instruments.ts
++++ b/src/lib/instruments.ts
+@@ -3,8 +3,9 @@ import { getDb, transaction, type Db } from "./db/index.ts";
+ import { diffFields, recordHistory } from "./history.ts";
+ import { isValidDate } from "./dates.ts";
+ import { findLocationByName, getLocation } from "./locations.ts";
++import { cancelUpcomingReservations } from "./reservations.ts";
+ 
+-export type InstrumentStatus = "in_use" | "on_loan" | "calibrating" | "suspended" | "disposed";
++export type InstrumentStatus = "in_use" | "on_loan" | "calibrating" | "repairing" | "suspended" | "disposed";
+ 
+ /** 重要度。A = 品質記録に使う計測器。既存の計測器は B。 */
+ export type Importance = "A" | "B" | "C";
+@@ -32,18 +33,22 @@ export function isImportance(value: unknown): value is Importance {
+   return typeof value === "string" && (IMPORTANCES as readonly string[]).includes(value);
+ }
+ 
+-export const INSTRUMENT_STATUSES: readonly InstrumentStatus[] = ["in_use", "on_loan", "calibrating", "suspended", "disposed"];
++export const INSTRUMENT_STATUSES: readonly InstrumentStatus[] = ["in_use", "on_loan", "calibrating", "repairing", "suspended", "disposed"];
+ 
+ export const STATUS_LABELS: Record<InstrumentStatus, string> = {
+   in_use: "使用中",
+   on_loan: "貸出中",
+   calibrating: "校正中",
++  repairing: "修理中",
+   suspended: "使用停止",
+   disposed: "廃棄",
+ };
+ 
+ /** 台帳の編集で直接設定できる状態。貸出中は貸出・返却の操作でだけ変わる。 */
+-export const EDITABLE_STATUSES: readonly InstrumentStatus[] = ["in_use", "calibrating", "suspended", "disposed"];
++export const EDITABLE_STATUSES: readonly InstrumentStatus[] = ["in_use", "calibrating", "repairing", "suspended", "disposed"];
++
++/** 貸出・予約ができない状態（使えない計測器） */
++export const UNUSABLE_STATUSES: readonly InstrumentStatus[] = ["repairing", "suspended", "disposed"];
+ 
+ export function isInstrumentStatus(value: unknown): value is InstrumentStatus {
+   return typeof value === "string" && (INSTRUMENT_STATUSES as readonly string[]).includes(value);
+@@ -293,6 +298,8 @@ export function updateInstrument(
+     if (diff.length > 0) {
+       recordHistory(db, { instrumentId: id, actorId, action: "instrument.updated", summary: "台帳を編集", changes: diff }, now);
+     }
++    // 修理に出したら、校正の不合格と同じく、これからの予約を取り消す
++    if (current.status !== "repairing" && updated.status === "repairing") cancelUpcomingReservations(id, actorId, db, now);
+     return updated;
+   });
+ }
+diff --git a/src/lib/reservations.ts b/src/lib/reservations.ts
+index 27adf98..1e62197 100644
+--- a/src/lib/reservations.ts
++++ b/src/lib/reservations.ts
+@@ -7,7 +7,7 @@ import { calibrationDueOn } from "./calibration-due.ts";
+ import { getDb, transaction, type Db } from "./db/index.ts";
+ import { isValidDate, todayJst } from "./dates.ts";
+ import { recordHistory } from "./history.ts";
+-import { getInstrument, type ValidationResult } from "./instruments.ts";
++import { UNUSABLE_STATUSES, getInstrument, type ValidationResult } from "./instruments.ts";
+ import { currentLoan } from "./loans.ts";
+ 
+ export type ReservationStatus = "active" | "cancelled";
+@@ -139,7 +139,7 @@ export function createReservation(
+   return transaction(db, () => {
+     const instrument = getInstrument(instrumentId, db);
+     if (!instrument) return { ok: false, reason: "not_found" } as const;
+-    if (instrument.status === "suspended" || instrument.status === "disposed") {
++    if (UNUSABLE_STATUSES.includes(instrument.status)) {
+       return { ok: false, reason: "not_reservable" } as const;
+     }
+     // 校正期限を過ぎた計測器を使わせないため、終了日が期限より後の予約は作らない
+@@ -187,7 +187,7 @@ export function cancelReservation(
+  * 計測器を使えなくなったとき（校正の不合格で使用停止・校正に出す発注）に、これから（終了日が今日以降）の予約を取り消す。
+  * 取り消した予約を返す。トランザクションの中で呼ぶ。
+  */
+-export function cancelUpcomingReservations(instrumentId: number, cancelledBy: string, db: Db, now: Date = new Date()): Reservation[] {
++export function cancelUpcomingReservations(instrumentId: number, cancelledBy: string | null, db: Db, now: Date = new Date()): Reservation[] {
+   const rows = db
+     .prepare(`SELECT ${COLUMNS} FROM reservations WHERE instrument_id = ? AND status = 'active' AND end_on >= ? ORDER BY start_on, id`)
+     .all(instrumentId, todayJst(now)) as Row[];
+diff --git a/tests/repairing.test.ts b/tests/repairing.test.ts
+new file mode 100644
+index 0000000..39a2397
+--- /dev/null
++++ b/tests/repairing.test.ts
+@@ -0,0 +1,41 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { DatabaseSync } from "node:sqlite";
++import { createOrder } from "../src/lib/calibration-orders.ts";
++import { migrate, openDb, seed } from "../src/lib/db/index.ts";
++import { MIGRATIONS } from "../src/lib/db/migrations.ts";
++import { listInstruments, updateInstrument } from "../src/lib/instruments.ts";
++import { lendInstrument } from "../src/lib/loans.ts";
++import { createReservation, listReservations } from "../src/lib/reservations.ts";
++
++const NOW = new Date("2026-11-10T01:00:00Z");
++const byNo = (db: DatabaseSync, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!;
++
++describe("repairing", () => {
++  it("keeps all data and references when the instruments table is rebuilt (migration 10)", () => {
++    const db = new DatabaseSync(":memory:");
++    db.exec("PRAGMA foreign_keys = ON");
++    migrate(db, MIGRATIONS.filter((m) => m.version < 10));
++    seed(db);
++    const before = db.prepare("SELECT * FROM instruments ORDER BY id").all();
++    const loans = db.prepare("SELECT COUNT(*) AS n FROM loans").get();
++    migrate(db);
++    assert.deepEqual(db.prepare("SELECT * FROM instruments ORDER BY id").all(), before);
++    assert.deepEqual(db.prepare("SELECT COUNT(*) AS n FROM loans").get(), loans);
++    assert.equal((db.prepare("PRAGMA foreign_keys").get() as { foreign_keys: number }).foreign_keys, 1);
++    db.prepare("UPDATE instruments SET status = 'repairing' WHERE management_no = 'MI-0001'").run();
++  });
++
++  it("cancels upcoming reservations and blocks loans, reservations and orders while repairing", () => {
++    const db = openDb();
++    const id = byNo(db, "MI-0001").id;
++    assert.ok(createReservation(id, "suzuki", { startOn: "2026-11-20", endOn: "2026-11-21" }, db, NOW).ok);
++    updateInstrument(id, { status: "repairing" }, db, "sato", NOW);
++    assert.equal(listReservations(id, db)[0].status, "cancelled");
++    assert.deepEqual(createReservation(id, "suzuki", { startOn: "2026-11-25", endOn: "2026-11-26" }, db, NOW), { ok: false, reason: "not_reservable" });
++    assert.equal(lendInstrument(id, { borrowerId: "suzuki", dueOn: "2026-11-12" }, db, NOW).ok, false);
++    assert.deepEqual(createOrder(id, "sato", { note: "" }, db, NOW), { ok: false, reason: "not_orderable" });
++    updateInstrument(id, { status: "in_use" }, db, "sato", NOW);
++    assert.equal(createReservation(id, "suzuki", { startOn: "2026-11-25", endOn: "2026-11-26" }, db, NOW).ok, true);
++  });
++});

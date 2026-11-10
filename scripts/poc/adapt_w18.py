@@ -7,7 +7,7 @@ API の名前（重要度の項目・予約・場所・発注・履歴・副管�
 名前・値・API」だけで、振る舞いの判定はテストが行う。採点者は下書き（results/workflow/W18/adapters/<系列ID>-r<回>.draft.json）と
 コードを見比べて確かめ、<系列ID>-r<回>.json（引き継ぎは -h1・-h2）として確定する（直したことは report の「判断の記録」に書く）。
 
-  python3 scripts/poc/adapt_w18.py <リポジトリ> <初期状態のコミット> <対象のコミット> <回（1〜6・h1・h2）> [<前の回のアダプター JSON>] [<出力 JSON>]
+  python3 scripts/poc/adapt_w18.py <リポジトリ> <初期状態のコミット> <対象のコミット> <回（1〜6・h1・h2・h3）> [<前の回のアダプター JSON>] [<出力 JSON>]
 """
 import json
 import os
@@ -36,6 +36,7 @@ SECTIONS = {
     "f6": "部署ごとの権限（第 6 回）: 書くことは無い（{}）",
     "h1": "副管理者（引き継ぎ h1）: field（計測器の API の応答にある副管理者の項目名）、set（副管理者を設定する操作 {method, path, body}。{instrumentId}・{subManager}（利用者 ID。解除は null）が使える）",
     "h2": "（引き継ぎ h2）: 書くことは無い（{}）",
+    "h3": "（引き継ぎ h3）: 書くことは無い（{}）。状態の値は依頼で repairing に決めている",
 }
 
 GUIDE = """あなたは採点の補助です。社内アプリ（計測器の校正台帳、Next.js の API Route）に、毎回 1 つずつ足された機能のコードを読み、

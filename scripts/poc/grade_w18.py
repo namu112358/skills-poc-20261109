@@ -12,11 +12,11 @@
 
 使い方:
   python3 scripts/poc/grade_w18.py <試行ID> [--no-mutation]
-      試行 ID は W18r<k>-<候補>-<系列>（第 k 回）か W18h<1|2>-<候補>-<系列>（引き継ぎ）。
+      試行 ID は W18r<k>-<候補>-<系列>（第 k 回）か W18h<1|2|3>-<候補>-<系列>（引き継ぎ）。
       アダプターは results/workflow/W18/adapters/<系列ID>-r<k>.json（系列 ID は <候補>-<系列>。引き継ぎは -h1・-h2）。
       無ければ adapt_w18.py が下書きを作り（.draft.json）、それで採点する（採点者が確かめて確定する）。
       結果は results/workflow/W18/<試行ID>.json。
-  python3 scripts/poc/grade_w18.py --repo <git の作業ディレクトリ> --commit <コミット> --round <1-6|h1|h2>
+  python3 scripts/poc/grade_w18.py --repo <git の作業ディレクトリ> --commit <コミット> --round <1-6|h1|h2|h3>
         --base <初期状態のコミット> --adapter <JSON> [--prev <前の回のコミット>] [--r2 <第 2 回の終わりのコミット>]
         [--out <JSON>] [--no-mutation]
       試行前の確認用（参照の系列・最短の系列）。
@@ -371,7 +371,7 @@ def raw(trial):
 
 
 def series_of(trial):
-    m = re.match(r"^W18(r[1-6]|h[12])-(.+)-(\d+)$", trial)
+    m = re.match(r"^W18(r[1-6]|h[123])-(.+)-(\d+)$", trial)
     if not m:
         sys.exit(f"W18 の試行 ID ではない: {trial}")
     return m.group(1), m.group(2), m.group(3)

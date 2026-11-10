@@ -12,7 +12,7 @@
 # 対照（POC_W7_CONTROL=1）: 前の段階を引き継がず、新しい作業用コピーに、前の段階までの参照実装を当てた状態から始める
 #（候補の記憶が無いときとの差を見るため）。
 # W18（長期品質）: シナリオ W18r1〜W18r6 は 1 つの系列の各回で、<回> は系列の番号。第 2 回以降は前の回の作業用コピーを引き継ぐ。
-# W18h1・W18h2 は引き継ぎテストで、<候補> は系列の候補（動かすのはプラグインなしの固定のエージェント）。docs/poc/tasks/wf-W18-design.md。
+# W18h1〜W18h3 は引き継ぎテストで、<候補> は系列の候補（動かすのはプラグインなしの固定のエージェント）。docs/poc/tasks/wf-W18-design.md。
 # 子セッションの権限は docs/poc/tasks/wf-procedures.md の「権限」のとおり（全許可にはしない）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -37,7 +37,7 @@ fi
 # W18（長期品質。docs/poc/tasks/wf-W18-design.md）:
 #   第 2〜6 回（W18r2〜W18r6）は、前の回の作業用コピー（第 1 回の作業用コピー $TRIALS/W18r1-<候補>-<系列>）と専用 HOME を
 #   そのまま使い、新しいセッションで始める（W7b と同じ。候補の記憶の仕組みは残る）。
-#   引き継ぎ（W18h1・W18h2）は、第 6 回の終わりのアプリを新しい作業用コピーに複製し、プラグインなし・新しい HOME の
+#   引き継ぎ（W18h1〜W18h3）は、第 6 回の終わりのアプリを新しい作業用コピーに複製し、プラグインなし・新しい HOME の
 #   固定のエージェント（baseline と同じ）で行う。試行 ID の <候補> は「どの系列のコードか」を表す。
 HANDOVER_FROM=""
 if [[ "$SCENARIO" =~ ^W18r([2-6])$ ]]; then
@@ -45,7 +45,7 @@ if [[ "$SCENARIO" =~ ^W18r([2-6])$ ]]; then
   WORK="$TRIALS/W18r1-$CAND-$RUN"
   [[ -d "$WORK/app/.git" && -d "$WORK/home" ]] || { echo "$SCENARIO: 引き継ぐ前の回の作業用コピーがない: $WORK" >&2; exit 1; }
   [[ -s "$ROOT/docs/poc/results/workflow/raw/$CONTINUE_FROM/final-commit" ]] || { echo "$SCENARIO: 前の回が終わっていない: $CONTINUE_FROM" >&2; exit 1; }
-elif [[ "$SCENARIO" =~ ^W18h[12]$ ]]; then
+elif [[ "$SCENARIO" =~ ^W18h[123]$ ]]; then
   HANDOVER_FROM="W18r6-$CAND-$RUN"
   [[ -s "$ROOT/docs/poc/results/workflow/raw/$HANDOVER_FROM/final-commit" ]] || { echo "$SCENARIO: 第 6 回が終わっていない: $HANDOVER_FROM" >&2; exit 1; }
 fi

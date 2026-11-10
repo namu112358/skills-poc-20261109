@@ -59,6 +59,21 @@ def questions(trial):
             "cost_usd": round(sum(r.get("cost_usd") or 0 for r in recs), 4)}
 
 
+def cc_version(trial):
+    """その試行の Claude Code の版（最初のステップの init）"""
+    f = RAW / trial / "step1.jsonl"
+    if not f.exists():
+        return None
+    for line in f.open():
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if d.get("type") == "system" and d.get("subtype") == "init":
+            return d.get("claude_code_version")
+    return None
+
+
 def interventions(trial):
     p = RAW / trial / "interventions.log"
     return len([l for l in p.read_text().splitlines() if l.strip()]) if p.exists() else None
@@ -78,7 +93,7 @@ def rate(xs):
 
 def series(sid):
     rounds = {k: load(f"W18r{k}-{sid}") for k in range(1, 7)}
-    hand = {h: load(f"W18{h}-{sid}") for h in ("h1", "h2")}
+    hand = {h: load(f"W18{h}-{sid}") for h in ("h1", "h2", "h3")}
     out = {"series": sid, "rounds": [], "handover": {}}
     prev_pass = None
     accept, keep = [], []
@@ -86,7 +101,7 @@ def series(sid):
         r = rounds[k]
         tid = f"W18r{k}-{sid}"
         row = {"round": k, "graded": r is not None, "cost_usd": round(cost_of(tid), 4), "seconds": raw_num(tid, "elapsed-seconds", int),
-               "interventions": interventions(tid), "questions": questions(tid)}
+               "interventions": interventions(tid), "questions": questions(tid), "claude_code": cc_version(tid)}
         if r:
             feat = f"f{k}"
             cur = [v for key, v in r["points"]["passed"].items() if key.split(":")[0] == feat or (k == 3 and key.startswith("f3-upgrade:"))]
@@ -126,7 +141,7 @@ def series(sid):
     for h, r in hand.items():
         tid = f"W18{h}-{sid}"
         row = {"graded": r is not None, "cost_usd": round(cost_of(tid), 4), "seconds": raw_num(tid, "elapsed-seconds", int),
-               "interventions": interventions(tid)}
+               "interventions": interventions(tid), "claude_code": cc_version(tid)}
         if r:
             items = [v for key, v in r["points"]["passed"].items() if key.split(":")[0] == h]
             after = passed_keys(r, {"base", "f1", "f2", "f3", "f4", "f5", "f6", "f3-upgrade"})
@@ -134,7 +149,8 @@ def series(sid):
             row["regressed"] = sorted(final_pass - after)
             row["kept"] = round(len(final_pass & after) / len(final_pass), 4) if final_pass else 0.0
             row["items"] = {key.split(":")[1]: v for key, v in r["points"]["passed"].items() if key.split(":")[0] == h}
-            hpts[h] = 10 * row["task"] + 2.5 * row["kept"]
+            # 引き継ぎ 25 点を 3 つの課題で分ける（各 25/3 = 課題の通過率 × 20/3 + 後退の無さ × 5/3。2026-11-10 コーディネーター承認）
+            hpts[h] = 20 / 3 * row["task"] + 5 / 3 * row["kept"]
         else:
             hpts[h] = 0.0
         out["handover"][h] = row
@@ -147,7 +163,7 @@ def series(sid):
         "accept": round(25 * rate(accept), 2),
         "final_all": round(20 * (r6["points"]["all"] if r6 else 0), 2),
         "no_regression": round(10 * rate(keep), 2),
-        "handover": round(hpts["h1"] + hpts["h2"], 2),
+        "handover": round(hpts["h1"] + hpts["h2"] + hpts["h3"], 2),
         "design": round(10 * blind["mean"] / 18, 2) if blind.get("mean") is not None else 0.0,
         "test_strength": round(10 * (mut or 0), 2),
     }
@@ -173,7 +189,7 @@ def summary(s):
 def main():
     args = sys.argv[1:]
     if args == ["--all"]:
-        sids = sorted({re.sub(r"^W18(r[1-6]|h[12])-", "", p.stem) for p in RESULTS.glob("W18*.json")})
+        sids = sorted({re.sub(r"^W18(r[1-6]|h[123])-", "", p.stem) for p in RESULTS.glob("W18*.json")})
     else:
         sids = args
     outs = {}

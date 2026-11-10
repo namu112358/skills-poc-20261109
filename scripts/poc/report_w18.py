@@ -75,12 +75,12 @@ def tables():
             vals = series_metric(g[c], fn)
             out.append(f"| {LABELS.get(c, c)} | " + " | ".join(fmt(v) for v in vals) + " |")
         out.append("")
-    out += ["## 引き継ぎ（固定のエージェント）", "", "| 条件 | h1 の通過率 | h1 の後退なし | h2 の通過率 | h2 の後退なし | h1 の費用 | h2 の費用 |", "|---|---:|---:|---:|---:|---:|---:|"]
+    out += ["## 引き継ぎ（固定のエージェント）", "", "| 条件 | h1 の通過率 | h1 の後退なし | h2 の通過率 | h2 の後退なし | h3 の通過率 | h3 の後退なし | h1 の費用 | h2 の費用 | h3 の費用 |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for c in order:
         ss = g[c]
         hv = lambda h, k: mean([s["handover"][h].get(k) for s in ss])  # noqa: E731
-        out.append(f"| {LABELS.get(c, c)} | {fmt(hv('h1', 'task'))} | {fmt(hv('h1', 'kept'))} | {fmt(hv('h2', 'task'))} | {fmt(hv('h2', 'kept'))} | "
-                   f"${fmt(hv('h1', 'cost_usd'))} | ${fmt(hv('h2', 'cost_usd'))} |")
+        out.append(f"| {LABELS.get(c, c)} | " + " | ".join(f"{fmt(hv(h, 'task'))} | {fmt(hv(h, 'kept'))}" for h in ("h1", "h2", "h3"))
+                   + " | " + " | ".join(f"${fmt(hv(h, 'cost_usd'))}" for h in ("h1", "h2", "h3")) + " |")
     (RESULTS / "tables.md").write_text("\n".join(out) + "\n")
     print("\n".join(out))
 
