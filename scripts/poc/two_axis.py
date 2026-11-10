@@ -32,7 +32,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "docs" / "poc" / "results" / "workflow"
 
-SCENARIOS = ["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W9", "W10", "W14", "W15"]
+SCENARIOS = ["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W9", "W10", "W14", "W15", "W19"]
 TITLES = {
     "W1": "小さな変更", "W2": "仕様が明確な機能追加", "W3": "曖昧な要望から要件を固める",
     "W4": "既存コードを横断する大きな変更", "W5": "バグ修正", "W6": "UI 実装からブラウザ検証・PR 作成まで",
@@ -40,6 +40,7 @@ TITLES = {
     "W9": "レビューで不具合を見つける", "W10": "仕様に書かれていない落とし穴がある機能追加",
     # W14・W15 は report_w14.py が md_section を呼ぶ（2026-11-10 ユーザーの指示で summary にも入れた）
     "W14": "安全な DB 移行", "W15": "テストの無い古いコードの改修",
+    "W19": "粗悪な既存実装に引っ張られない",
 }
 LABEL = {
     "baseline": "baseline（候補なし）",
@@ -47,6 +48,8 @@ LABEL = {
     "feature-dev": "Feature Dev",
     "compound-engineering": "Compound Engineering",
     "gstack": "gstack",
+    # W19 の Feature Dev の代理人なし（対照）。report_w14.py が raw/<試行ID>/proxy を見て分ける。W をまたぐ要約の表には出さない
+    "feature-dev-noproxy": "Feature Dev（代理人なし）",
 }
 ORDER = ["superpowers", "feature-dev", "compound-engineering", "gstack", "baseline"]
 
@@ -67,6 +70,8 @@ QUALITY = {
     "W14": [("business", "業務", 25), ("migration", "移行", 30), ("normalize", "表記ゆれ", 15), ("ops", "運用", 5),
             ("design", "設計", 15), ("test_strength", "テスト", 10)],
     "W15": [("business", "新形式", 30), ("golden", "後退なし", 25), ("characterization", "特性テスト", 20),
+            ("design", "設計", 15), ("test_strength", "テスト", 10)],
+    "W19": [("business", "業務", 25), ("structure", "持ち方", 25), ("migration", "移行", 20), ("scope", "範囲", 5),
             ("design", "設計", 15), ("test_strength", "テスト", 10)],
 }
 # 介入の仕組み（定型の「お任せします」で続けさせる）が無い W。W1 は導入前に実施した。

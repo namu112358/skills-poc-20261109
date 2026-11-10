@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""W14・W15 の結果から、scores.json（two_axis.py が読む形）と、Markdown のレポート（<W>/report.md）・同じ内容の HTML（report.html）を作る。
+"""W14・W15・W19 の結果から、scores.json（two_axis.py が読む形）と、Markdown のレポート（<W>/report.md）・同じ内容の HTML（report.html）を作る。
 
-使い方: python3 scripts/poc/report_w14.py W14   （W15 も同じ）
+使い方: python3 scripts/poc/report_w14.py W14   （W15・W19 も同じ）
 
 データ: <W>/<試行ID>.json（grade_w14.py・grade_w15.py）、<W>/blind/scores.json（blind_w14.py・blind_w15.py collect）、
 <W>/adapters/<試行ID>.json（採点者の補正）、<W>/notes.json（採点者の所見・判断の記録。Markdown の文字列のリスト）、
@@ -39,7 +39,38 @@ CONF = {
         "q_total": 9, "o_total": 3,
         "items": [("hidden", "隠れ要件"), ("golden", "黄金テスト（A 社の CSV）")],
     },
+    "W19": {
+        "title": "粗悪な既存実装に引っ張られない",
+        "parts": [("business", "業務", 25), ("structure", "持ち方", 25), ("migration", "移行", 20), ("scope", "範囲", 5),
+                  ("design", "設計", 15), ("test_strength", "テスト", 10)],
+        "q_total": 7, "o_total": 3,
+        "items": [("hidden", "隠れ要件"), ("structure", "データの持ち方・移行・範囲")],
+    },
 }
+# W19 の Feature Dev の代理人なし（raw/<試行ID>/proxy が 0）は、別の候補として並べる
+EXTRA_ORDER = ["feature-dev-noproxy"]
+
+
+def candidate_of(r):
+    if r["candidate"] == "feature-dev" and (RAWDIR / r["trial"] / "proxy").exists() \
+            and (RAWDIR / r["trial"] / "proxy").read_text().strip() == "0":
+        return "feature-dev-noproxy"
+    return r["candidate"]
+
+
+def decisions(trial):
+    """代理人の判断（W19）。po-questions.jsonl の kind=decision の項目。"""
+    p = RAWDIR / trial / "po-questions.jsonl"
+    recs = [json.loads(line) for line in p.read_text().splitlines() if line.strip()] if p.exists() else []
+    out = []
+    for r in recs:
+        for it in r.get("items") or []:
+            if it.get("kind") == "decision":
+                d = it.get("decision") or {}
+                out.append({"question": it.get("question", "")[:160], "chosen": d.get("chosen", ""), "reason": d.get("reason", ""),
+                            "principles": d.get("principles") or [], "assumptions": d.get("assumptions") or [],
+                            "route": r["route"], "before": r["before_implementation"]})
+    return out
 
 
 def questions(trial):
@@ -83,7 +114,7 @@ def build_scores(w):
         parts = sc.score(g, 15 * b["mean"] / 18 if b else None)
         q = questions(trial)
         mu = g.get("mutation") or {}
-        s = {"trial": trial, "candidate": r["candidate"], "run": int(r["run"]), "total": parts["quality"],
+        s = {"trial": trial, "candidate": candidate_of(r), "run": int(r["run"]), "total": parts["quality"],
              **{k: parts[k] for k, _, _ in conf["parts"]},
              "two_axis_quality": {lab: [parts[k] or 0, mx] for k, lab, mx in conf["parts"]},
              "review_detail": b,
@@ -101,6 +132,12 @@ def build_scores(w):
             n = g.get("normalize", {})
             s["normalize_facts"] = {k: n.get(k) for k in ("export_accuracy", "hidden_accuracy", "wrong_links", "unresolved_kept_ratio", "master_rows")}
             s["ops_items"] = {k: g["ops"].get(k) for k in ("O1", "O2")}
+        elif w == "W19":
+            s["structure_items"] = {**g.get("structure", {}).get("checks", {}), **g.get("migration", {}).get("checks", {}),
+                                    **g.get("scope", {}).get("checks", {})}
+            s["migration_facts"] = {k: g.get("migration", {}).get("detail", {}).get(k)
+                                    for k in ("linked_ratio", "unresolved_kept_ratio", "first_request_seconds")}
+            s["decisions"] = decisions(trial)
         else:
             s["golden_items"] = {x["id"]: x["pass"] for x in g.get("golden", [])}
             s["characterization_facts"] = {k: g["characterization"].get(k) for k in ("killed", "legacy_mutants", "found_in_candidate", "order", "order_by")}
@@ -120,7 +157,7 @@ def build_md(w, scores):
     by = {}
     for s in scores:
         by.setdefault(s["candidate"], []).append(s)
-    cands = sorted((c for c in ORDER if c in by), key=lambda c: -statistics.mean(s["total"] for s in by[c]))
+    cands = sorted((c for c in ORDER + EXTRA_ORDER if c in by), key=lambda c: -statistics.mean(s["total"] for s in by[c]))
 
     def mean(c, k):
         return round(statistics.mean(s[k] for s in by[c]), 1)
@@ -188,6 +225,49 @@ def build_md(w, scores):
                 b = sum(mw[k] for k in ("M4", "M5", "M6") if m.get(k))
                 L.append(f"| {LABEL[c]} #{s['run']} | {a} | {b} | {'・'.join(k for k in mw if not m.get(k)) or 'なし'} |")
         L.append("")
+    elif w == "W19":
+        sl = {"S1": "記録の専用の表（6）", "S2": "担当者が extra の外（6）", "S3": "記録が extra に無い（5）", "S4": "新しいコードが点検の情報を extra で読み書きしない（4）",
+              "S5": "索引（4）", "M1": "計測器が消えない・変わらない（3）", "M2": "既存のマイグレーションを書き換えない（2）", "M3": "2 回起動しても壊れない（2）",
+              "M4": "extra.dept が変わらない（3）", "M5": "点検者を利用者に寄せる 95%（3）", "M6": "分からない値を残す（2）", "M7": "最初の応答 30 秒以内（2）",
+              "M8": "前の版で動く（3）", "R1": "要らない部分を壊さない（3）", "R2": "残した課題を書き残す（2）"}
+        L += ["## データの持ち方・移行・範囲の項目ごとの結果（通過した試行の数）", ""]
+        L += ["| 項目（重み） | " + " | ".join(LABEL[c] for c in cands) + " | 計 |", "|---|" + "---|" * (len(cands) + 1)]
+        for i, nm in sl.items():
+            L.append(f"| {i} {nm} | " + " | ".join(f"{sum(1 for s in by[c] if s['structure_items'].get(i))} / {len(by[c])}" for c in cands)
+                     + f" | {sum(1 for s in scores if s['structure_items'].get(i))} / {len(scores)} |")
+        L += ["", "移行の点は、旧データの点検者を移していない（M5 の割合が 5 割未満）試行では M1・M4 だけを数える（grading.md）。", ""]
+        L += ["### 移行の実測（試行ごと）", "", "| 試行 | 点検者を寄せた割合 | 分からない値を残した割合 | 最初の応答（秒） |", "|---|---|---|---|"]
+        for c in cands:
+            for s in sorted(by[c], key=lambda s: s["run"]):
+                m = s["migration_facts"]
+                L.append(f"| {LABEL[c]} #{s['run']} | {m['linked_ratio']} | {m['unresolved_kept_ratio']} | {m['first_request_seconds']} |")
+        L.append("")
+        L += ["## 代理人の判断（試行の中で、候補が人に投げた技術的な判断に代理人が答えたもの）", ""]
+        L += ["| 候補 | 判断の数（平均） | 実装前の割合 | よく使った原則 |", "|---|---|---|---|"]
+        for c in cands:
+            ds = [s["decisions"] for s in by[c]]
+            flat = [d for x in ds for d in x]
+            pr = {}
+            for d in flat:
+                for p in d["principles"]:
+                    pr[p] = pr.get(p, 0) + 1
+            top = "・".join(f"{p}（{n}）" for p, n in sorted(pr.items(), key=lambda x: -x[1])[:3]) or "—"
+            L.append(f"| {LABEL[c]} | {fmt(statistics.mean(len(x) for x in ds))} | "
+                     f"{fmt(sum(1 for d in flat if d['before']) / len(flat) if flat else None, 2)} | {top} |")
+        L += ["", "原則は docs/poc/proxy/principles.md。代理人なし（対照）の試行では、技術的な判断にも「お任せします」と答えた。", ""]
+        L += ["### 判断の一覧（試行ごと）", ""]
+        for c in cands:
+            for s in sorted(by[c], key=lambda s: s["run"]):
+                if not s["decisions"]:
+                    continue
+                L += [f"#### {LABEL[c]} #{s['run']}", "", "| 問い | 決めたこと | 理由 | 原則 | 置いた前提 |", "|---|---|---|---|---|"]
+                for d in s["decisions"]:
+                    cell = lambda x: str(x).replace("|", "／").replace("\n", " ")  # noqa: E731
+                    L.append(f"| {cell(d['question'])} | {cell(d['chosen'])} | {cell(d['reason'])} | {'・'.join(d['principles'])} | "
+                             f"{cell('；'.join(d['assumptions']) or '—')} |")
+                L.append("")
+        if notes.get("proxy_prep"):
+            L += ["### 準備の中の代理人の判断", ""] + [f"- {x}" for x in notes["proxy_prep"]] + [""]
     else:
         L += ["## 黄金テスト（A 社の CSV）の項目ごとの結果（同じ結果になった試行の数）", ""]
         gids = list(scores[0]["golden_items"])

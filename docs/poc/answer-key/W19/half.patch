@@ -1,0 +1,190 @@
+diff --git a/src/app/api/instruments/[id]/inspections/route.ts b/src/app/api/instruments/[id]/inspections/route.ts
+new file mode 100644
+index 0000000..16d11a4
+--- /dev/null
++++ b/src/app/api/instruments/[id]/inspections/route.ts
+@@ -0,0 +1,26 @@
++// GET/POST /api/instruments/:id/inspections — 点検の記録
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { listInspections, recordInspection, validateInspection } from "@/lib/inspections";
++import { getInstrument, parseId } from "@/lib/instruments";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ inspections: listInspections(id) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  const body = ((await readJson(request)) ?? {}) as Record<string, unknown>;
++  const errors = validateInspection(body);
++  if (errors.length) return jsonError(400, "入力内容に誤りがあります", errors);
++  return NextResponse.json({ inspection: recordInspection(id, body), instrument: getInstrument(id) }, { status: 201 });
++}
+diff --git a/src/app/api/instruments/[id]/route.ts b/src/app/api/instruments/[id]/route.ts
+index c31881b..3d844eb 100644
+--- a/src/app/api/instruments/[id]/route.ts
++++ b/src/app/api/instruments/[id]/route.ts
+@@ -1,6 +1,7 @@
+ // GET /api/instruments/:id — 計測器を 1 件取得 / PATCH /api/instruments/:id — 送った項目だけを更新する。ログインが必要。
+ import { NextResponse } from "next/server";
+ import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { canAssignInspector } from "@/lib/inspections";
+ import { getInstrument, managementNoExists, parseId, updateInstrument, validateInstrumentInput } from "@/lib/instruments";
+ import { currentLoan } from "@/lib/loans";
+ 
+@@ -21,9 +22,16 @@ export async function PATCH(request: Request, { params }: Context) {
+   const id = parseId((await params).id);
+   const current = id === undefined ? undefined : getInstrument(id);
+   if (!current) return jsonError(404, "計測器が見つかりません");
+-  const result = validateInstrumentInput(await readJson(request), { partial: true });
++  const body = await readJson(request);
++  const result = validateInstrumentInput(body, { partial: true });
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+   const changes = result.value;
++  // 点検の担当者は extra.inspector_id に入れる（在籍者だけ）
++  const b = (body ?? {}) as Record<string, unknown>;
++  if ("inspectorId" in b) {
++    if (!canAssignInspector(b.inspectorId)) return jsonError(400, "点検の担当者は在籍している利用者から選んでください");
++    changes.extra = { ...(changes.extra ?? {}), inspector_id: b.inspectorId };
++  }
+   if (changes.status !== undefined && current.status === "on_loan") {
+     return jsonError(409, "貸出中の計測器の状態は、返却してから変更してください");
+   }
+diff --git a/src/app/api/instruments/route.ts b/src/app/api/instruments/route.ts
+index 86cc764..559e3a2 100644
+--- a/src/app/api/instruments/route.ts
++++ b/src/app/api/instruments/route.ts
+@@ -17,13 +17,14 @@ export async function GET(request: Request) {
+   const status = params.get("status");
+   const manager = params.get("manager");
+   const dept = params.get("dept");
+-  return NextResponse.json({
+-    instruments: listInstruments({
+-      status: isInstrumentStatus(status) ? status : undefined,
+-      managerId: manager || undefined,
+-      dept: dept || undefined,
+-    }),
++  const inspector = params.get("inspector");
++  let instruments = listInstruments({
++    status: isInstrumentStatus(status) ? status : undefined,
++    managerId: manager || undefined,
++    dept: dept || undefined,
+   });
++  if (inspector) instruments = instruments.filter((i) => i.extra.inspector_id === inspector);
++  return NextResponse.json({ instruments });
+ }
+ 
+ export async function POST(request: Request) {
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index b4bb1e4..86d314d 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -91,4 +91,20 @@ export const MIGRATIONS: readonly Migration[] = [
+     name: "instrument_extra",
+     sql: `ALTER TABLE instruments ADD COLUMN extra TEXT NOT NULL DEFAULT '{}';`,
+   },
++  {
++    version: 6,
++    name: "inspection_records",
++    sql: `
++      CREATE TABLE inspection_records (
++        id            INTEGER PRIMARY KEY AUTOINCREMENT,
++        instrument_id INTEGER NOT NULL REFERENCES instruments(id),
++        inspected_on  TEXT NOT NULL,
++        inspector_id  TEXT NOT NULL REFERENCES users(id),
++        result        TEXT NOT NULL CHECK (result IN ('good', 'needs_repair')),
++        note          TEXT NOT NULL DEFAULT '',
++        recorded_at   TEXT NOT NULL
++      );
++      CREATE INDEX inspection_records_instrument ON inspection_records(instrument_id);
++    `,
++  },
+ ];
+diff --git a/src/lib/inspections.ts b/src/lib/inspections.ts
+new file mode 100644
+index 0000000..ad2e3c8
+--- /dev/null
++++ b/src/lib/inspections.ts
+@@ -0,0 +1,44 @@
++// 定期点検の記録。担当者は計測器のその他の項目（extra.inspector_id）に入れる。
++import { getDb, transaction, type Db } from "./db/index.ts";
++import { isValidDate } from "./dates.ts";
++import { isActiveUser } from "./users.ts";
++
++export type InspectionResult = "good" | "needs_repair";
++export type InspectionRecord = { id: number; instrumentId: number; inspectedOn: string; inspectorId: string; result: InspectionResult; note: string };
++
++export function listInspections(instrumentId: number, db: Db = getDb()): InspectionRecord[] {
++  return db
++    .prepare(
++      `SELECT id, instrument_id AS instrumentId, inspected_on AS inspectedOn, inspector_id AS inspectorId, result, note
++       FROM inspection_records WHERE instrument_id = ? ORDER BY inspected_on DESC, id DESC`,
++    )
++    .all(instrumentId) as InspectionRecord[];
++}
++
++export function lastInspectedOn(instrumentId: number, db: Db = getDb()): string | null {
++  const r = db.prepare("SELECT MAX(inspected_on) AS d FROM inspection_records WHERE instrument_id = ?").get(instrumentId) as { d: string | null };
++  return r.d;
++}
++
++export function validateInspection(b: Record<string, unknown>, db: Db = getDb()): string[] {
++  const errors: string[] = [];
++  if (!isValidDate(b.inspectedOn)) errors.push("点検日は YYYY-MM-DD 形式で入力してください");
++  if (typeof b.inspectorId !== "string" || !isActiveUser(b.inspectorId, db)) errors.push("点検した人は在籍している利用者から選んでください");
++  if (b.result !== "good" && b.result !== "needs_repair") errors.push("結果は good か needs_repair で指定してください");
++  return errors;
++}
++
++export function recordInspection(instrumentId: number, b: Record<string, unknown>, db: Db = getDb(), now = new Date()): InspectionRecord {
++  return transaction(db, () => {
++    const { lastInsertRowid } = db
++      .prepare("INSERT INTO inspection_records (instrument_id, inspected_on, inspector_id, result, note, recorded_at) VALUES (?, ?, ?, ?, ?, ?)")
++      .run(instrumentId, b.inspectedOn as string, b.inspectorId as string, b.result as string, typeof b.note === "string" ? b.note : "", now.toISOString());
++    if (b.result === "needs_repair") db.prepare("UPDATE instruments SET status = 'suspended' WHERE id = ?").run(instrumentId);
++    return listInspections(instrumentId, db).find((r) => r.id === Number(lastInsertRowid))!;
++  });
++}
++
++/** 担当者を extra.inspector_id に入れる前の確認。 */
++export function canAssignInspector(userId: unknown, db: Db = getDb()): boolean {
++  return userId === null || (typeof userId === "string" && isActiveUser(userId, db));
++}
+diff --git a/tests/inspections.test.ts b/tests/inspections.test.ts
+new file mode 100644
+index 0000000..0ccdf25
+--- /dev/null
++++ b/tests/inspections.test.ts
+@@ -0,0 +1,22 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { canAssignInspector, lastInspectedOn, listInspections, recordInspection, validateInspection } from "../src/lib/inspections.ts";
++import { getInstrument, listInstruments } from "../src/lib/instruments.ts";
++
++describe("点検", () => {
++  it("validates and records inspections, suspending on needs_repair", () => {
++    const db = openDb();
++    const id = listInstruments({}, db).find((i) => i.managementNo === "MI-0010")!.id;
++    assert.equal(validateInspection({ inspectedOn: "2026-11-01", inspectorId: "inoue", result: "good" }, db).length, 1);
++    recordInspection(id, { inspectedOn: "2026-11-01", inspectorId: "ito", result: "needs_repair" }, db);
++    assert.equal(getInstrument(id, db)!.status, "suspended");
++    assert.equal(lastInspectedOn(id, db), "2026-11-01");
++    assert.equal(listInspections(id, db).length, 1);
++  });
++  it("only active users can be assigned", () => {
++    const db = openDb();
++    assert.ok(canAssignInspector("sato", db));
++    assert.equal(canAssignInspector("inoue", db), false);
++  });
++});
