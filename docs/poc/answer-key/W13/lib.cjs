@@ -180,13 +180,15 @@ function harness(base, prefix, adapterJson) {
     return id;
   }
   const approverOf = (inst) => (inst.managerId === "inoue" ? "yamada" : inst.managerId);
-  /** 貸し出す（sato が操作し、borrowerId に貸す）。戻り値は status と貸出 ID */
-  async function lend(inst, borrowerId, dueOn) {
-    const r = await call(await as("sato"), "POST", `/api/instruments/${inst.id}/loans`, { borrowerId, dueOn });
+  /** 貸し出す（既定はその計測器の管理者（無効なら代表者）が操作し、borrowerId に貸す）。戻り値は status と貸出 ID。
+   *  貸出の操作者を管理者にするのは、貸出の登録を管理者に限る実装（gstack-1）で、予約と貸出の関係の項目（K04・K05・C10）が
+   *  権限の違いだけで落ちないようにするため（2026-11-10 補正。既存の振る舞いの変化は P02 が sato の操作で見る） */
+  async function lend(inst, borrowerId, dueOn, actor) {
+    const r = await call(await as(actor || approverOf(inst)), "POST", `/api/instruments/${inst.id}/loans`, { borrowerId, dueOn });
     return { status: r.status, loanId: r.json?.loan?.id };
   }
-  async function returnLoan(inst, loanId) {
-    return (await call(await as("sato"), "POST", `/api/instruments/${inst.id}/loans/${loanId}/return`)).status;
+  async function returnLoan(inst, loanId, actor) {
+    return (await call(await as(actor || approverOf(inst)), "POST", `/api/instruments/${inst.id}/loans/${loanId}/return`)).status;
   }
   async function calibrate(inst, calibratedOn, result) {
     return call(await as("sato"), "POST", `/api/instruments/${inst.id}/calibrations`, { calibratedOn, result, agency: "検証用校正機関" });

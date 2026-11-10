@@ -38,9 +38,9 @@ const gone = (s) => s === "cancelled" || s === "absent";
     }
     assert("currentLoan" in (one.json ?? {}), "詳細に currentLoan が無い");
     const inst = await h.instrument();
-    const lend = await h.lend(inst, "suzuki", d(20));
+    const lend = await h.lend(inst, "suzuki", d(20), "sato"); // 既存の振る舞い: 誰でも貸出・返却を登録できる
     assert(lend.status === 201, `貸出: ${lend.status}`);
-    assert((await h.returnLoan(inst, lend.loanId)) === 200, "返却");
+    assert((await h.returnLoan(inst, lend.loanId, "sato")) === 200, "返却");
     const cal = await h.calibrate(inst, d(-1), "fail");
     assert(cal.status === 201 && cal.json?.instrument?.status === "suspended", `不合格: ${cal.status}`);
     const job = await (await h.ctx()).post("/api/jobs/overdue-loans", { headers: { authorization: `Bearer ${process.env.W13_JOBS_TOKEN}` } });
