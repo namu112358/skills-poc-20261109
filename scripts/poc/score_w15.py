@@ -24,7 +24,10 @@ def score(w, design=None):
         + 24 / 9 * sum(1 for x in hid if x["pass"])
     golden = 2.5 * sum(1 for x in gold if x["pass"])
     ch = w.get("characterization", {})
-    c1 = 14 * ch["killed"] / ch["mutants"] if ch.get("mutants") else 0.0
+    # 分母は、初期状態の古い取込処理から作った変異体の全部（legacy_mutants）。候補が古い処理を書き直して元の行が
+    # 残っていない変異体は「検出できなかった」と数える（残った行だけを分母にすると、書き直すほど点が上がるため。試行前の確認で直した）
+    total = ch.get("legacy_mutants") or ch.get("mutants")
+    c1 = 14 * ch.get("killed", 0) / total if total else 0.0
     characterization = c1 + ORDER_POINTS.get(ch.get("order"), 0)
     mu = w.get("mutation") or {}
     test_strength = 10 * (mu.get("killed", 0) / mu["mutants"]) if mu.get("mutants") else 0.0
