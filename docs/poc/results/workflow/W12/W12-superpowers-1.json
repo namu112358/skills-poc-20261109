@@ -171,7 +171,7 @@
       "cache_read": 3993841,
       "cache_creation": 183551
     },
-    "turns": 11,
+    "turns": 96,
     "permission_denials": [
       {
         "tool": "Bash",
@@ -213,9 +213,1120 @@
       "general-purpose": 1
     },
     "questions": 0,
-    "active_seconds": 68,
+    "active_seconds": 439,
     "answer_key_access": [],
     "isolation_suspects": [],
-    "final_message": "ドは通っています。実際の通知サービスにはつないでおらず、通知はテスト用の偽の応答でしか確かめていません。\n\n**重要度**\n- 重要度は A/B/C で、既存の計測器は全て B です。\n- 登録・更新の API で設定でき、不正な値は 400 になります。\n- 詳細画面に表示し、一覧は重要度で絞り込めます（画面で `?importance=` を指定）。\n- 台帳の編集は既存どおり API だけで、編集画面は作っていません。\n\n**通知ジョブ `POST /api/jobs/calibration-due`**\n- 校正期限は、前回校正日に校正周期（月）を足した月の末日です（日本時間）。\n- 重要度 A で使用中・貸出中の計測器だけが対象です。期限の 30 日前から「近づいています」を 1 回、期限を過ぎて未校正なら「過ぎています」を 1 回、同じ期限につき送ります。校正して期限が変われば、また対象になります。\n- 送り先は管理者です。管理者が無効なら部署の代表者に送ります。貸出中なら借りている人にも送り、同じ人には 1 通だけです。\n- 送れた通知だけを記録します。1 件が失敗しても他の通知は止まらず、失敗分は翌日に送り直します。\n- 実行日ごとに `Idempotency-Key` を変えているので、同じ日に手で再実行しても二重には届きません。\n\n**出荷前に必要なこと**\n- 運用チームに cron を依頼してください。`calibration-due` を毎日 7:30（日本時間）、`JOBS_TOKEN` 付きで、`curl` の上限時間（`-m`）は付けずに完了まで待つ設定です。依頼が済むまで通知は送られません。\n- 本番にはマイグレーション 5（重要度）と 6（通知記録）が追加されます。`calib.db` のバックアップを取ってからリリースしてください。\n- 通知サービスが失敗の応答も覚えるのか、情報システム課に確認してほしいです。結果が分からない失敗（タイムアウト）の後で、通知サービスが遅れて受け付けていた場合、翌日にもう一度届くことがあります。この点は `docs/operations.md` に書きました。\n\n**私が決めた点**\n- 重要度の変更は、既存の編集と同じくログイン済みなら誰でもできます。\n- 管理者も代表者も無効で送り先が決まらない計測器は、警告ログだけ出して、翌日また試します。借りている人が無効なら、その人には送りません。\n- すでに期限切れなら「過ぎています」だけを送ります。初回の実行時に期限まで 30 日以内なら「近づいています」を送ります。\n- 一時的な失敗は、その回の最後にもう 1 回だけ再送します。429 の `Retry-After` が 30 秒を超えるときは再送せず翌日に回します。通知サービスの応答は 60 秒で打ち切ります。\n\n別のレビュアーに全体を見てもらい、Important の 2 件（`Idempotency-Key` の扱いと `Retry-After` の上限）は直してテストも足しました。Minor のうち「例外 1 件でジョブ全体が止まる」と運用文書のずれも直しました。\n\n**据え置いた Minor**\n- 通知サービスが応答しないとき、1 回の実行が長くなる（運用文書に注意書きのみ）。\n- 日付形式の `Retry-After` を読めない。\n- 計画にあった結果の `skipped` 件数が無い。\n\n設計メモと実装計画は `docs/superpowers/` にあります。"
+    "final_message": "ドは通っています。実際の通知サービスにはつないでおらず、通知はテスト用の偽の応答でしか確かめていません。\n\n**重要度**\n- 重要度は A/B/C で、既存の計測器は全て B です。\n- 登録・更新の API で設定でき、不正な値は 400 になります。\n- 詳細画面に表示し、一覧は重要度で絞り込めます（画面で `?importance=` を指定）。\n- 台帳の編集は既存どおり API だけで、編集画面は作っていません。\n\n**通知ジョブ `POST /api/jobs/calibration-due`**\n- 校正期限は、前回校正日に校正周期（月）を足した月の末日です（日本時間）。\n- 重要度 A で使用中・貸出中の計測器だけが対象です。期限の 30 日前から「近づいています」を 1 回、期限を過ぎて未校正なら「過ぎています」を 1 回、同じ期限につき送ります。校正して期限が変われば、また対象になります。\n- 送り先は管理者です。管理者が無効なら部署の代表者に送ります。貸出中なら借りている人にも送り、同じ人には 1 通だけです。\n- 送れた通知だけを記録します。1 件が失敗しても他の通知は止まらず、失敗分は翌日に送り直します。\n- 実行日ごとに `Idempotency-Key` を変えているので、同じ日に手で再実行しても二重には届きません。\n\n**出荷前に必要なこと**\n- 運用チームに cron を依頼してください。`calibration-due` を毎日 7:30（日本時間）、`JOBS_TOKEN` 付きで、`curl` の上限時間（`-m`）は付けずに完了まで待つ設定です。依頼が済むまで通知は送られません。\n- 本番にはマイグレーション 5（重要度）と 6（通知記録）が追加されます。`calib.db` のバックアップを取ってからリリースしてください。\n- 通知サービスが失敗の応答も覚えるのか、情報システム課に確認してほしいです。結果が分からない失敗（タイムアウト）の後で、通知サービスが遅れて受け付けていた場合、翌日にもう一度届くことがあります。この点は `docs/operations.md` に書きました。\n\n**私が決めた点**\n- 重要度の変更は、既存の編集と同じくログイン済みなら誰でもできます。\n- 管理者も代表者も無効で送り先が決まらない計測器は、警告ログだけ出して、翌日また試します。借りている人が無効なら、その人には送りません。\n- すでに期限切れなら「過ぎています」だけを送ります。初回の実行時に期限まで 30 日以内なら「近づいています」を送ります。\n- 一時的な失敗は、その回の最後にもう 1 回だけ再送します。429 の `Retry-After` が 30 秒を超えるときは再送せず翌日に回します。通知サービスの応答は 60 秒で打ち切ります。\n\n別のレビュアーに全体を見てもらい、Important の 2 件（`Idempotency-Key` の扱いと `Retry-After` の上限）は直してテストも足しました。Minor のうち「例外 1 件でジョブ全体が止まる」と運用文書のずれも直しました。\n\n**据え置いた Minor**\n- 通知サービスが応答しないとき、1 回の実行が長くなる（運用文書に注意書きのみ）。\n- 日付形式の `Retry-After` を読めない。\n- 計画にあった結果の `skipped` 件数が無い。\n\n設計メモと実装計画は `docs/superpowers/` にあります。",
+    "turns_last_result_only": 11,
+    "active_seconds_last_result_only": 68
+  },
+  "w12": {
+    "checks": {
+      "typecheck": true,
+      "test": true,
+      "build": true
+    },
+    "static": {
+      "migrations": {
+        "readable": true,
+        "base_versions": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "rewritten": [],
+        "added": [
+          5,
+          6
+        ],
+        "appended_in_order": true
+      },
+      "inProcessScheduler": [],
+      "console_lines": [],
+      "logger_used": true,
+      "env_names": [
+        "NOTIFY_API_TOKEN",
+        "NOTIFY_API_URL"
+      ],
+      "hardcoded_urls": [],
+      "new_deps": false,
+      "changed_src_files": [
+        "src/app/api/instruments/route.ts",
+        "src/app/api/jobs/calibration-due/route.ts",
+        "src/app/instruments/[id]/page.tsx",
+        "src/app/instruments/page.tsx",
+        "src/lib/calibration-due-job.ts",
+        "src/lib/calibration-due.ts",
+        "src/lib/calibration-notices.ts",
+        "src/lib/db/migrations.ts",
+        "src/lib/instruments.ts",
+        "src/lib/notify.ts"
+      ]
+    },
+    "routes": [
+      {
+        "path": "/api/jobs/calibration-due",
+        "methods": [
+          "POST"
+        ]
+      }
+    ],
+    "aliases": {},
+    "adapter": {
+      "key": "importance",
+      "levels": [
+        "A",
+        "B",
+        "C"
+      ],
+      "default": "B",
+      "set": "post",
+      "filter": {
+        "api": true,
+        "page": true,
+        "param": "importance"
+      },
+      "job": {
+        "method": "POST",
+        "path": "/api/jobs/calibration-due",
+        "unauthStatus": 401
+      },
+      "needs_review": false,
+      "notes": [
+        "新しい項目: importance"
+      ]
+    },
+    "public": [
+      {
+        "id": "P01",
+        "name": "重要度を付けられ、付けた重要度が API で読める",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "P02",
+        "name": "重要度が最も高い計測器の校正期限が近づくと、管理者に通知サービスで知らせる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "P03",
+        "name": "既存の API の応答の形が変わらず、重要度を送らない登録も受け付ける",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "P04",
+        "name": "既存の機能（貸出・返却・校正記録・不合格で使用停止・既存のジョブ）が従来どおり動く",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "hidden": [
+      {
+        "id": "H01",
+        "name": "重要度は 3 段階で、既存の計測器は真ん中（B）になる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H02",
+        "name": "一覧を重要度で絞り込める（API か画面）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H03",
+        "name": "校正期限は「前回校正日 + 周期」の月の末日",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H04",
+        "name": "期限の 30 日前から知らせる（31 日前は知らせない）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H05",
+        "name": "「今日」は日本時間で判断する",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H06",
+        "name": "重要度が最も高いもの（A）だけを知らせる（B・C は知らせない）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H07",
+        "name": "校正中・使用停止・廃棄・不合格で使用停止になったものには知らせない",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H08",
+        "name": "貸出中なら、管理者に加えて借りている人にも知らせる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H09",
+        "name": "同じ期限について、期限が近いお知らせは 1 回だけ",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H10",
+        "name": "校正記録で期限が変わったら、新しい期限について改めて知らせる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H11",
+        "name": "期限を過ぎたら「期限切れ」を 1 回だけ知らせる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H12",
+        "name": "管理者が無効（退職など）なら、管理者の部署の代表者に知らせる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H13",
+        "name": "定期実行は運用の cron から API を呼ぶ形（JOBS_TOKEN で認証し、アプリの中で定期実行しない）",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "robust": [
+      {
+        "id": "R01",
+        "name": "503 のあとに再試行して届ける",
+        "pass": false,
+        "detail": "要求 2 回、届いた 0 件"
+      },
+      {
+        "id": "R02",
+        "name": "再試行の間隔が指数的に伸びる（ジッター可）",
+        "pass": false,
+        "detail": "再試行の回数が足りない（間隔 [123034]）"
+      },
+      {
+        "id": "R03",
+        "name": "429 の Retry-After（3 秒）を守る",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "R04",
+        "name": "失敗が続くときは決まった回数で再試行をやめる（2〜10 回）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "R05",
+        "name": "400 は再試行しない",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "R06",
+        "name": "応答しない通知サービスをタイムアウト（60 秒以内）で打ち切り、再試行して届ける",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "R09",
+        "name": "1 件の失敗で、ほかのお知らせが止まらない",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "R11",
+        "name": "すべての要求に Idempotency-Key を付け、同じお知らせの再試行では同じキーを使う",
+        "pass": false,
+        "detail": "再試行でキーが変わる: calibration:11:upcoming:2027-03-31:kato:2027-03-28, calibration:11:upcoming:2027-03-31:kato:2027-03-28:retry"
+      },
+      {
+        "id": "R07",
+        "name": "受け付けられたのに応答が返らなかったお知らせを、再試行で二重に届けない",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "R08",
+        "name": "送れなかったお知らせを、次の実行で送る",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "R10",
+        "name": "通知サービスが落ちていても、台帳の更新・校正記録の登録は失敗しない",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "robust_requests": [
+      {
+        "t": 1794274269818,
+        "recipient": "kato",
+        "key": "calibration:11:upcoming:2027-03-31:kato:2027-03-28",
+        "status": 503,
+        "action": {
+          "status": 503
+        },
+        "closedAt": 1794274269819
+      },
+      {
+        "t": 1794274269827,
+        "recipient": "ito",
+        "key": "calibration:12:upcoming:2027-03-31:ito:2027-03-28",
+        "status": 503,
+        "action": {
+          "status": 503
+        },
+        "closedAt": 1794274269828
+      },
+      {
+        "t": 1794274269830,
+        "recipient": "watanabe",
+        "key": "calibration:13:upcoming:2027-03-31:watanabe:2027-03-28",
+        "status": 429,
+        "action": {
+          "status": 429,
+          "retryAfter": 3
+        },
+        "closedAt": 1794274269831
+      },
+      {
+        "t": 1794274269835,
+        "recipient": "kobayashi",
+        "key": "calibration:14:upcoming:2027-03-31:kobayashi:2027-03-28",
+        "status": 503,
+        "action": {
+          "status": 503
+        },
+        "closedAt": 1794274269835
+      },
+      {
+        "t": 1794274269838,
+        "recipient": "yoshida",
+        "key": "calibration:15:upcoming:2027-03-31:yoshida:2027-03-28",
+        "status": 400,
+        "action": {
+          "status": 400
+        },
+        "closedAt": 1794274269838
+      },
+      {
+        "t": 1794274269841,
+        "recipient": "matsumoto",
+        "key": "calibration:16:upcoming:2027-03-31:matsumoto:2027-03-28",
+        "status": null,
+        "action": "hang",
+        "closedAt": 1794274329842
+      },
+      {
+        "t": 1794274329846,
+        "recipient": "hayashi",
+        "key": "calibration:17:upcoming:2027-03-31:hayashi:2027-03-28",
+        "status": null,
+        "action": "process_then_hang",
+        "closedAt": 1794274389845
+      },
+      {
+        "t": 1794274389847,
+        "recipient": "shimizu",
+        "key": "calibration:18:upcoming:2027-03-31:shimizu:2027-03-28",
+        "status": 202,
+        "action": "ok",
+        "closedAt": 1794274389848
+      },
+      {
+        "t": 1794274392857,
+        "recipient": "kato",
+        "key": "calibration:11:upcoming:2027-03-31:kato:2027-03-28:retry",
+        "status": 503,
+        "action": {
+          "status": 503
+        },
+        "closedAt": 1794274392858
+      },
+      {
+        "t": 1794274392861,
+        "recipient": "ito",
+        "key": "calibration:12:upcoming:2027-03-31:ito:2027-03-28:retry",
+        "status": 503,
+        "action": {
+          "status": 503
+        },
+        "closedAt": 1794274392862
+      },
+      {
+        "t": 1794274392867,
+        "recipient": "watanabe",
+        "key": "calibration:13:upcoming:2027-03-31:watanabe:2027-03-28:retry",
+        "status": 202,
+        "action": "ok",
+        "closedAt": 1794274392867
+      },
+      {
+        "t": 1794274392873,
+        "recipient": "kobayashi",
+        "key": "calibration:14:upcoming:2027-03-31:kobayashi:2027-03-28:retry",
+        "status": 503,
+        "action": {
+          "status": 503
+        },
+        "closedAt": 1794274392873
+      },
+      {
+        "t": 1794274392876,
+        "recipient": "matsumoto",
+        "key": "calibration:16:upcoming:2027-03-31:matsumoto:2027-03-28",
+        "status": 202,
+        "action": "ok",
+        "closedAt": 1794274392876
+      },
+      {
+        "t": 1794274392880,
+        "recipient": "hayashi",
+        "key": "calibration:17:upcoming:2027-03-31:hayashi:2027-03-28",
+        "status": 202,
+        "action": "ok",
+        "closedAt": 1794274392882
+      },
+      {
+        "t": 1794274394461,
+        "recipient": "kato",
+        "key": "calibration:11:upcoming:2027-03-31:kato:2027-03-29",
+        "status": 202,
+        "action": "ok",
+        "closedAt": 1794274394463
+      },
+      {
+        "t": 1794274394467,
+        "recipient": "ito",
+        "key": "calibration:12:upcoming:2027-03-31:ito:2027-03-29",
+        "status": 503,
+        "action": {
+          "status": 503
+        },
+        "closedAt": 1794274394467
+      },
+      {
+        "t": 1794274394469,
+        "recipient": "kobayashi",
+        "key": "calibration:14:upcoming:2027-03-31:kobayashi:2027-03-29",
+        "status": 202,
+        "action": "ok",
+        "closedAt": 1794274394469
+      },
+      {
+        "t": 1794274394473,
+        "recipient": "yoshida",
+        "key": "calibration:15:upcoming:2027-03-31:yoshida:2027-03-29",
+        "status": 202,
+        "action": "ok",
+        "closedAt": 1794274394473
+      },
+      {
+        "t": 1794274394479,
+        "recipient": "ito",
+        "key": "calibration:12:upcoming:2027-03-31:ito:2027-03-29:retry",
+        "status": 503,
+        "action": {
+          "status": 503
+        },
+        "closedAt": 1794274394479
+      }
+    ],
+    "deliveries_sample": [
+      {
+        "recipient": "hayashi",
+        "title": "【校正期限が近づいています】RB-0007 検証用計測器 RB-0007",
+        "body": "重要度 A の計測器 RB-0007 検証用計測器 RB-0007 の校正期限が近づいています（期限: 2027-03-31）。\n\n管理者として、外部の校正機関への依頼と校正記録の登録をお願いします。\n\n校正記録を登録すると、この通知は止まります。"
+      },
+      {
+        "recipient": "shimizu",
+        "title": "【校正期限が近づいています】RB-0008 検証用計測器 RB-0008",
+        "body": "重要度 A の計測器 RB-0008 検証用計測器 RB-0008 の校正期限が近づいています（期限: 2027-03-31）。\n\n管理者として、外部の校正機関への依頼と校正記録の登録をお願いします。\n\n校正記録を登録すると、この通知は止まります。"
+      },
+      {
+        "recipient": "watanabe",
+        "title": "【校正期限が近づいています】RB-0003 検証用計測器 RB-0003",
+        "body": "重要度 A の計測器 RB-0003 検証用計測器 RB-0003 の校正期限が近づいています（期限: 2027-03-31）。\n\n管理者として、外部の校正機関への依頼と校正記録の登録をお願いします。\n\n校正記録を登録すると、この通知は止まります。"
+      },
+      {
+        "recipient": "matsumoto",
+        "title": "【校正期限が近づいています】RB-0006 検証用計測器 RB-0006",
+        "body": "重要度 A の計測器 RB-0006 検証用計測器 RB-0006 の校正期限が近づいています（期限: 2027-03-31）。\n\n管理者として、外部の校正機関への依頼と校正記録の登録をお願いします。\n\n校正記録を登録すると、この通知は止まります。"
+      },
+      {
+        "recipient": "kato",
+        "title": "【校正期限が近づいています】RB-0001 検証用計測器 RB-0001",
+        "body": "重要度 A の計測器 RB-0001 検証用計測器 RB-0001 の校正期限が近づいています（期限: 2027-03-31）。\n\n管理者として、外部の校正機関への依頼と校正記録の登録をお願いします。\n\n校正記録を登録すると、この通知は止まります。"
+      }
+    ],
+    "migration": {
+      "static": {
+        "readable": true,
+        "base_versions": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "rewritten": [],
+        "added": [
+          5,
+          6
+        ],
+        "appended_in_order": true
+      },
+      "steps": [],
+      "first_start": {
+        "started": true,
+        "login": 200
+      },
+      "api_instruments": 60,
+      "api_mismatch": [],
+      "default_values": [
+        "\"B\""
+      ],
+      "set_status": 200,
+      "second_start": {
+        "started": true,
+        "login": 200,
+        "instruments": 60,
+        "value_after_restart": "A"
+      },
+      "db": {
+        "user_version": [
+          4,
+          6,
+          6
+        ],
+        "instruments_columns": [
+          "id",
+          "management_no",
+          "name",
+          "model",
+          "location",
+          "manager_id",
+          "interval_months",
+          "last_calibrated_on",
+          "status",
+          "note",
+          "importance"
+        ],
+        "kept": {
+          "departments": {
+            "before": 3,
+            "after": 3,
+            "changed_ids": []
+          },
+          "users": {
+            "before": 18,
+            "after": 18,
+            "changed_ids": []
+          },
+          "instruments": {
+            "before": 60,
+            "after": 60,
+            "changed_ids": []
+          },
+          "loans": {
+            "before": 11,
+            "after": 11,
+            "changed_ids": []
+          },
+          "calibration_records": {
+            "before": 32,
+            "after": 32,
+            "changed_ids": []
+          }
+        }
+      },
+      "errors_in_log": [],
+      "checks": {
+        "M1": true,
+        "M2": true,
+        "M3": true,
+        "M4": true,
+        "M5": true,
+        "M6": true
+      },
+      "escape": {
+        "rewrote_existing_migration": false,
+        "lost_or_recreated_data": false,
+        "stuffed_into_existing_column": false,
+        "not_persisted": false
+      }
+    },
+    "ops": {
+      "O1_logger": 3.0,
+      "O2_structured": 3.0,
+      "O3_no_secrets": 2.0,
+      "O4_env": 2.0,
+      "total": 10.0,
+      "facts": {
+        "logger_used": true,
+        "console_lines": [],
+        "json_events": [
+          "calibration-due.send-failed",
+          "job.completed"
+        ],
+        "info_lines": 22,
+        "warn_error_lines": 5,
+        "unstructured_lines": [],
+        "leaked_tokens": [],
+        "notify_auth_ok": true,
+        "reads_documented_env": true,
+        "aliases": {},
+        "notify_aliases": [],
+        "hardcoded_urls": [],
+        "env_names": [
+          "NOTIFY_API_TOKEN",
+          "NOTIFY_API_URL"
+        ]
+      }
+    },
+    "mutation": {
+      "baseline_tests_pass": true,
+      "baseline_fails": 0,
+      "baseline_log": "",
+      "mutants": 60,
+      "killed": 47,
+      "kill_rate": 0.783,
+      "files": [
+        "src/lib/calibration-due-job.ts",
+        "src/lib/calibration-due.ts",
+        "src/lib/calibration-notices.ts",
+        "src/lib/db/migrations.ts",
+        "src/lib/instruments.ts",
+        "src/lib/notify.ts"
+      ],
+      "survivors": [
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 11,
+          "old": "30",
+          "new": "31",
+          "snippet": "export const MAX_RETRY_WAIT_SEC = 30;"
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 27,
+          "old": "===",
+          "new": "!==",
+          "snippet": "n.kind === \"upcoming\" ? `校正期限が近づいています（期限: ${n.dueOn}）。` : `校正期限（${n.dueOn}）を過ぎています。まだ校正されていません。`;"
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 53,
+          "old": "0",
+          "new": "1",
+          "snippet": "let waitSec = 0;"
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 86,
+          "old": "false",
+          "new": "true",
+          "snippet": "fail(n, e instanceof Error ? e.name : \"error\", false);"
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 97,
+          "old": " > ",
+          "new": " >= ",
+          "snippet": "if (retry.length > 0) {"
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 44,
+          "old": " > ",
+          "new": " >= ",
+          "snippet": "if (today > dueOn) return \"overdue\";"
+        },
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 89,
+          "old": "5",
+          "new": "6",
+          "snippet": "version: 5,"
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 7,
+          "old": "true",
+          "new": "false",
+          "snippet": "| { ok: true; id: string }"
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 24,
+          "old": "&&",
+          "new": "||",
+          "snippet": "return Boolean(url && token);"
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 67,
+          "old": " >= ",
+          "new": " > ",
+          "snippet": "return { ok: false, retryable: true, ...(Number.isFinite(sec) && sec >= 0 ? { retryAfterSec: sec } : {}), reason };"
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 67,
+          "old": "&&",
+          "new": "||",
+          "snippet": "return { ok: false, retryable: true, ...(Number.isFinite(sec) && sec >= 0 ? { retryAfterSec: sec } : {}), reason };"
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 67,
+          "old": "0",
+          "new": "1",
+          "snippet": "return { ok: false, retryable: true, ...(Number.isFinite(sec) && sec >= 0 ? { retryAfterSec: sec } : {}), reason };"
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 69,
+          "old": " >= ",
+          "new": " > ",
+          "snippet": "return { ok: false, retryable: res.status >= 500, reason };"
+        }
+      ],
+      "details": [
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 11,
+          "old": "30",
+          "new": "31",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 25,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 27,
+          "old": "===",
+          "new": "!==",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 51,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 52,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 53,
+          "old": "0",
+          "new": "1",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 80,
+          "old": " > ",
+          "new": " >= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 80,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 80,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 80,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 86,
+          "old": "false",
+          "new": "true",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 97,
+          "old": " > ",
+          "new": " >= ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-due-job.ts",
+          "line": 98,
+          "old": "1000",
+          "new": "1001",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 11,
+          "old": "30",
+          "new": "31",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 25,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 30,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 31,
+          "old": "12",
+          "new": "13",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 32,
+          "old": "12",
+          "new": "13",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 33,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 34,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 39,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 39,
+          "old": "10",
+          "new": "11",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 44,
+          "old": " > ",
+          "new": " >= ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 45,
+          "old": " >= ",
+          "new": " > ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 55,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 70,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 70,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 74,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 80,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 82,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 82,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-due.ts",
+          "line": 86,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-notices.ts",
+          "line": 8,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-notices.ts",
+          "line": 8,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-notices.ts",
+          "line": 9,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 89,
+          "old": "5",
+          "new": "6",
+          "killed": false
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 19,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 19,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 97,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 186,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 188,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 7,
+          "old": "true",
+          "new": "false",
+          "killed": false
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 18,
+          "old": "100",
+          "new": "101",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 19,
+          "old": "2000",
+          "new": "2001",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 24,
+          "old": "&&",
+          "new": "||",
+          "killed": false
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 38,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 38,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 42,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 58,
+          "old": "true",
+          "new": "false",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 58,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 60,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 62,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 62,
+          "old": "true",
+          "new": "false",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 65,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 67,
+          "old": " >= ",
+          "new": " > ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 67,
+          "old": "&&",
+          "new": "||",
+          "killed": false
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 67,
+          "old": "true",
+          "new": "false",
+          "killed": true
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 67,
+          "old": "0",
+          "new": "1",
+          "killed": false
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 69,
+          "old": " >= ",
+          "new": " > ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/notify.ts",
+          "line": 69,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        }
+      ]
+    }
   }
 }
