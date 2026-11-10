@@ -18,4 +18,5 @@ for spec in "$@"; do
   echo "$(date -u +%FT%TZ) trial-exit $id $?" >> "$LOG"
   python3 "$ROOT/scripts/poc/grade_w12.py" "$id" >> "$LOG" 2>&1
   echo "$(date -u +%FT%TZ) graded $id $?" >> "$LOG"
+  python3 "$ROOT/scripts/poc/w12_slim.py" "$id" >> "$LOG" 2>&1
 done
