@@ -1,0 +1,55 @@
+diff --git a/src/lib/legacy/calib-import.ts b/src/lib/legacy/calib-import.ts
+index 8cf7056..b6b464c 100644
+--- a/src/lib/legacy/calib-import.ts
++++ b/src/lib/legacy/calib-import.ts
+@@ -17,7 +17,11 @@ export function importCalibrationCsv(data: Uint8Array, recordedBy: string, db: D
+   if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) {
+     text = new TextDecoder("utf-8").decode(data.subarray(3));
+   } else {
+-    text = new TextDecoder("shift_jis").decode(data);
++    try {
++      text = new TextDecoder("utf-8", { fatal: true }).decode(data);
++    } catch {
++      text = new TextDecoder("shift_jis").decode(data);
++    }
+   }
+   const lines = text.split(/\r\n|\n|\r/);
+   let header: string[] | null = null;
+@@ -25,7 +29,7 @@ export function importCalibrationCsv(data: Uint8Array, recordedBy: string, db: D
+   for (let n = 0; n < lines.length; n++) {
+     const lineNo = n + 1;
+     const raw = lines[n];
+-    if (raw.trim() === "") continue;
++    if (raw.trim() === "" || raw.startsWith("#")) continue;
+     // カンマ区切り（"..." の中のカンマと "" に対応）
+     const cols: string[] = [];
+     let cur = "";
+@@ -47,6 +51,8 @@ export function importCalibrationCsv(data: Uint8Array, recordedBy: string, db: D
+     }
+     cols.push(cur);
+     for (let i = 0; i < cols.length; i++) cols[i] = cols[i].trim();
++    const alias: Record<string, string> = { 機器番号: "管理番号", 校正実施日: "校正日", 判定結果: "判定", 成績書番号: "証明書番号", コメント: "備考" };
++    if (header === null) for (let i = 0; i < cols.length; i++) cols[i] = alias[cols[i]] ?? cols[i];
+     if (header === null) {
+       if (cols.indexOf("管理番号") < 0) {
+         res.errors.push({ line: lineNo, message: "CSV の形式が違います（1 行目に「管理番号」の列がありません）" });
+@@ -60,7 +66,7 @@ export function importCalibrationCsv(data: Uint8Array, recordedBy: string, db: D
+       return i >= 0 && i < cols.length ? cols[i] : "";
+     };
+     let no = get("管理番号");
+-    if (no === "" || no.charAt(0) === "#" || no.charAt(0) === "＃" || no === "合計") continue;
++    if (no === "" || no.charAt(0) === "#" || no.charAt(0) === "＃" || no === "合計" || no === "END") continue;
+     no = no.replace(/[Ａ-Ｚａ-ｚ０-９－]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).toUpperCase();
+     if (/^[A-Z]{2}\d{4}$/.test(no)) no = no.substring(0, 2) + "-" + no.substring(2);
+     // 日付（西暦・和暦）
+@@ -94,8 +100,8 @@ export function importCalibrationCsv(data: Uint8Array, recordedBy: string, db: D
+     d = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+     const j = get("判定");
+     let result: "pass" | "fail";
+-    if (j === "合格" || j === "○" || j === "〇" || j === "OK" || j === "良") result = "pass";
+-    else if (j === "不合格" || j === "×" || j === "NG" || j === "否") result = "fail";
++    if (j === "合格" || j === "○" || j === "〇" || j === "OK" || j === "良" || j === "PASS") result = "pass";
++    else if (j === "不合格" || j === "×" || j === "NG" || j === "否" || j === "FAIL") result = "fail";
+     else if (j === "保留") {
+       res.skipped.push({ line: lineNo, reason: "判定が保留" });
+       continue;

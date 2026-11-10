@@ -17,6 +17,7 @@
 | W9 | `<課題>` | `/superpowers:requesting-code-review <課題>` | 「Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。」+ `<課題>` | `/review <課題>` | `/ce-code-review <課題>` |
 | W10 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W12 | `<課題>`（baseline-conventions も同じ） | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
+| W14・W15 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 
 ### W2 以降の共通の決まり
 
@@ -105,6 +106,13 @@
 - 条件に `baseline-conventions` を足す（候補なし。`CLAUDE.md` の末尾に `wf-W12-conventions.md` の開発規約を足してから baseline コミットを作る。`raw/<試行ID>/conventions` にハッシュを記録）。
 - 介入は最大 2 回（`POC_MAX_NUDGES=2`）。費用の上限は付けない。まとめて流すときは `scripts/poc/run_w12_trials.sh <候補>:<回> ...`（試行のあと `grade_w12.py` で採点する）。
 - 採点は `grade_w12.py`（アダプター・公開・隠し・堅牢さ・旧 DB でのマイグレーション・運用・ミューテーション）→ `blind_w12.py`（ブラインドレビュー）→ `score_w12.py`。
+### W14 の決まり（安全な DB 移行。2026-11-10 追加）
+
+- 設計は [wf-W14-design.md](wf-W14-design.md)、採点は `docs/poc/answer-key/W14/grading.md`。初期状態は `answer-key/W14/base.patch`（W12 の初期状態 + ハンディ端末の API・場所の値の抽出など）を作業用コピーにだけ当てる。課題文は `wf-W14.md` の 1 文だけ。
+- 依頼者への質問は W12 と同じ 2 経路（`ask-po` とメッセージ）。依頼者役は `scripts/poc/answer_persona.py W14`（回答シートは `answer-key/W14/persona.md`）。`AskUserQuestion` は外す。
+- 条件は 5 つ（baseline-conventions は使わない）。全条件で、`docs/poc/standards/generic-dev-standard.md` の汎用の開発標準を作業用コピーの `CLAUDE.md` の末尾に足す（2026-11-10 コーディネーターの連絡）。
+- 介入は最大 2 回。費用の上限は付けない。まとめて流すときは `scripts/poc/run_w14_trials.sh W14 <候補>:<回> ...`。
+- 採点は `grade_w14.py`（新しい DB での公開・隠し、5 万件の旧 DB での移行、表記ゆれ、前の版への戻し、運用、ミューテーション）→ `blind_w14.py` → `score_w14.py`。
 
 ## 権限
 

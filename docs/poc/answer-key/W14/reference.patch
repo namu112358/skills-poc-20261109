@@ -1,0 +1,795 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 7bb98fb..1997d31 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -29,6 +29,7 @@ Next.js（App Router）+ TypeScript + SQLite（Node 標準の `node:sqlite`）
+ - API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/instruments`、`GET/PATCH /api/instruments/:id`、`GET/POST /api/instruments/:id/loans`、`POST /api/instruments/:id/loans/:loanId/return`、`GET/POST /api/instruments/:id/calibrations`。エラーは `{ error, details? }` の JSON で返す。
+ - 定期実行のジョブ: `POST /api/jobs/overdue-loans` など（`docs/operations.md`）。
+ - ハンディ端末アプリ（棚卸し）: `POST /api/handheld/inventory`（`docs/handheld-api.md`）。
++- 場所マスタ: `GET/POST /api/locations`、`PATCH /api/locations/:id`（名前の変更・使用終了）。計測器の設置場所は `locationId` で指定する。
+ 
+ ## コーディング規約
+ 
+diff --git a/docs/operations.md b/docs/operations.md
+index a4eb622..c495654 100644
+--- a/docs/operations.md
++++ b/docs/operations.md
+@@ -29,6 +29,29 @@ curl -fsS -X POST -H "Authorization: Bearer $JOBS_TOKEN" https://calib.internal.
+ | ジョブ | API | 実行時刻 |
+ |---|---|---|
+ | 返却予定日を過ぎた貸出の集計 | `POST /api/jobs/overdue-loans` | 毎日 8:00（日本時間） |
++| 設置場所の移行（残りを場所マスタに結びつける） | `POST /api/jobs/backfill-locations` | 場所マスタのリリース後に 1 回（起動後に裏でも進む。`remaining` が 0 になるまで） |
++
++## 設置場所を場所マスタに移す（2026-11 のリリース）
++
++段階を分けて、台帳を止めずに移す。
++
++1. リリース（マイグレーション version 5）: 場所マスタ（`locations`、正式な 16 か所）と、計測器の `location_id`・`location_status` を足すだけ。
++   既存の行は書き換えないので、起動はすぐ終わる。古い列 `instruments.location` はそのまま残す。
++2. 移行（起動後に裏で 1000 件ずつ。念のため `POST /api/jobs/backfill-locations` を 1 回呼ぶ）: 自由入力の値の表記ゆれ
++   （全角・半角、空白、漢数字、部署名の略、「号車」など）を寄せて場所に結びつける。寄せられない値は元の文字列のまま
++   「確認中」（`location_status = 'unresolved'`）、空欄は「未設定」にする。終わるとログに `location.backfill_completed`
++   （寄せた件数・確認中の件数）が出る。確認中の計測器は一覧の「設置場所: 確認中」で絞り込んで、品質保証部が直す。
++3. 移行の間（来期まで）: 新しい画面・API は場所マスタの ID で書く。古い列 `location` にも場所の名前を書き続ける
++   （経理の固定資産の集計が月末に読むため）。ハンディ端末（`POST /api/handheld/inventory`）は今の形のまま受け付け、
++   送られた文字を場所マスタに照らす（寄せられなければ確認中）。
++4. 古い列を消す（来期、経理の集計を切り替えた後）: 別のマイグレーションで行う。それまでは消さない。
++
++### 戻し方
++
++- 前の版のアプリに戻すだけでよい（DB は戻さない）。前の版は古い列 `location` を読み書きするので、そのまま動く。
++  前の版で登録・変更した計測器は `location_status` が古いままになるので、もう一度この版に戻したら
++  `UPDATE instruments SET location_status = 'pending' WHERE location_id IS NULL AND location <> ''` の後に移行のジョブを呼ぶ。
++- 場所マスタの表と新しい列は残してよい（前の版は使わない）。
+ 
+ 新しいジョブを足すときは、`src/app/api/jobs/<ジョブ名>/route.ts` に置き、`requireJobAuth()`（`src/lib/api.ts`）で認証する。
+ cron の設定は運用チームに依頼する（実行時刻とジョブ名を伝える）。
+diff --git a/src/app/api/instruments/[id]/route.ts b/src/app/api/instruments/[id]/route.ts
+index c31881b..2c27748 100644
+--- a/src/app/api/instruments/[id]/route.ts
++++ b/src/app/api/instruments/[id]/route.ts
+@@ -21,7 +21,7 @@ export async function PATCH(request: Request, { params }: Context) {
+   const id = parseId((await params).id);
+   const current = id === undefined ? undefined : getInstrument(id);
+   if (!current) return jsonError(404, "計測器が見つかりません");
+-  const result = validateInstrumentInput(await readJson(request), { partial: true });
++  const result = validateInstrumentInput(await readJson(request), { partial: true, currentLocationId: current.locationId });
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+   const changes = result.value;
+   if (changes.status !== undefined && current.status === "on_loan") {
+diff --git a/src/app/api/instruments/route.ts b/src/app/api/instruments/route.ts
+index 970f8c3..9a7a93e 100644
+--- a/src/app/api/instruments/route.ts
++++ b/src/app/api/instruments/route.ts
+@@ -4,8 +4,10 @@ import { jsonError, readJson, requireApiUser } from "@/lib/api";
+ import {
+   createInstrument,
+   isInstrumentStatus,
++  isLocationStatus,
+   listInstruments,
+   managementNoExists,
++  parseId,
+   validateInstrumentInput,
+   type InstrumentInput,
+ } from "@/lib/instruments";
+@@ -16,10 +18,14 @@ export async function GET(request: Request) {
+   const params = new URL(request.url).searchParams;
+   const status = params.get("status");
+   const manager = params.get("manager");
++  const locationStatus = params.get("locationStatus");
++  const locationId = parseId(params.get("locationId") ?? undefined);
+   return NextResponse.json({
+     instruments: listInstruments({
+       status: isInstrumentStatus(status) ? status : undefined,
+       managerId: manager || undefined,
++      locationId,
++      locationStatus: isLocationStatus(locationStatus) ? locationStatus : undefined,
+     }),
+   });
+ }
+diff --git a/src/app/api/jobs/backfill-locations/route.ts b/src/app/api/jobs/backfill-locations/route.ts
+new file mode 100644
+index 0000000..d1e910c
+--- /dev/null
++++ b/src/app/api/jobs/backfill-locations/route.ts
+@@ -0,0 +1,18 @@
++// POST /api/jobs/backfill-locations — 移行前の計測器の設置場所を場所マスタに結びつける（リリース後に運用が 1 回呼ぶ。
++// 起動後に裏でも少しずつ進むので、残りがあるときの念のため）。1 回の呼び出しで最大 50 回 × 1000 件。
++import { NextResponse } from "next/server";
++import { requireJobAuth } from "@/lib/api";
++import { backfillLocations } from "@/lib/locations";
++import { getDb } from "@/lib/db";
++import { logger } from "@/lib/logger";
++
++export async function POST(request: Request) {
++  const denied = requireJobAuth(request, "backfill-locations");
++  if (denied) return denied;
++  const result = backfillLocations(getDb(), { maxBatches: 50 });
++  const { unresolved } = getDb().prepare("SELECT COUNT(*) AS unresolved FROM instruments WHERE location_status = 'unresolved'").get() as {
++    unresolved: number;
++  };
++  logger.info("job.completed", { job: "backfill-locations", ...result, totalUnresolved: unresolved });
++  return NextResponse.json({ ...result, totalUnresolved: unresolved });
++}
+diff --git a/src/app/api/locations/[id]/route.ts b/src/app/api/locations/[id]/route.ts
+new file mode 100644
+index 0000000..de1ba7f
+--- /dev/null
++++ b/src/app/api/locations/[id]/route.ts
+@@ -0,0 +1,18 @@
++// PATCH /api/locations/:id — 場所の名前の変更・使用終了（active: false）。場所は消さない（過去の計測器で使うため）。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { parseId } from "@/lib/instruments";
++import { getLocation, updateLocation, validateLocationInput } from "@/lib/locations";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function PATCH(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  const current = id === undefined ? undefined : getLocation(id);
++  if (!current) return jsonError(404, "場所が見つかりません");
++  const result = validateLocationInput(await readJson(request), { partial: true, id: current.id });
++  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
++  return NextResponse.json({ location: updateLocation(current.id, result.value) });
++}
+diff --git a/src/app/api/locations/route.ts b/src/app/api/locations/route.ts
+new file mode 100644
+index 0000000..ef49042
+--- /dev/null
++++ b/src/app/api/locations/route.ts
+@@ -0,0 +1,19 @@
++// GET /api/locations?all=1 — 場所マスタの一覧（既定は使用中だけ。all=1 で使用終了も含む）/ POST /api/locations — 場所を追加する。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { createLocation, listLocations, validateLocationInput } from "@/lib/locations";
++
++export async function GET(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const all = new URL(request.url).searchParams.get("all") === "1";
++  return NextResponse.json({ locations: listLocations({ includeInactive: all }) });
++}
++
++export async function POST(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const result = validateLocationInput(await readJson(request));
++  if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
++  return NextResponse.json({ location: createLocation(result.value.name!) }, { status: 201 });
++}
+diff --git a/src/app/instruments/page.tsx b/src/app/instruments/page.tsx
+index 198d3a7..2d4be51 100644
+--- a/src/app/instruments/page.tsx
++++ b/src/app/instruments/page.tsx
+@@ -1,16 +1,17 @@
+ import { requireUser } from "@/lib/session";
+-import { INSTRUMENT_STATUSES, STATUS_LABELS, isInstrumentStatus, listInstruments } from "@/lib/instruments";
++import { INSTRUMENT_STATUSES, STATUS_LABELS, isInstrumentStatus, isLocationStatus, listInstruments } from "@/lib/instruments";
+ import { listUsers } from "@/lib/users";
+ 
+ type Props = {
+-  searchParams: Promise<{ status?: string }>;
++  searchParams: Promise<{ status?: string; locationStatus?: string }>;
+ };
+ 
+ export default async function InstrumentsPage({ searchParams }: Props) {
+   await requireUser();
+   const params = await searchParams;
+   const status = isInstrumentStatus(params.status) ? params.status : undefined;
+-  const instruments = listInstruments({ status });
++  const locationStatus = isLocationStatus(params.locationStatus) ? params.locationStatus : undefined;
++  const instruments = listInstruments({ status, locationStatus });
+   const names = new Map(listUsers().map((u) => [u.id, u.name]));
+ 
+   return (
+@@ -28,6 +29,14 @@ export default async function InstrumentsPage({ searchParams }: Props) {
+             ))}
+           </select>
+         </label>{" "}
++        <label>
++          設置場所{" "}
++          <select name="locationStatus" defaultValue={locationStatus ?? ""}>
++            <option value="">すべて</option>
++            <option value="unresolved">確認中</option>
++            <option value="unset">未設定</option>
++          </select>
++        </label>{" "}
+         <button type="submit">絞り込む</button>
+       </form>
+       <table>
+@@ -51,7 +60,10 @@ export default async function InstrumentsPage({ searchParams }: Props) {
+               </td>
+               <td>{i.name}</td>
+               <td>{i.model}</td>
+-              <td>{i.location}</td>
++              <td>
++                {i.location || "未設定"}
++                {i.locationStatus === "unresolved" && <span> （確認中）</span>}
++              </td>
+               <td>{names.get(i.managerId) ?? i.managerId}</td>
+               <td>{i.intervalMonths} か月</td>
+               <td>{i.lastCalibratedOn}</td>
+diff --git a/src/lib/db/index.ts b/src/lib/db/index.ts
+index 1352907..df523ee 100644
+--- a/src/lib/db/index.ts
++++ b/src/lib/db/index.ts
+@@ -13,6 +13,7 @@ import {
+   SEED_PASSWORD,
+   SEED_USERS,
+ } from "./seed.ts";
++import { startLocationBackfill } from "../locations.ts";
+ 
+ export type Db = DatabaseSync;
+ 
+@@ -87,6 +88,10 @@ export function transaction<T>(db: Db, fn: () => T): T {
+ const globalForDb = globalThis as unknown as { __pocDb?: Db };
+ 
+ export function getDb(): Db {
+-  globalForDb.__pocDb ??= openDb(process.env.DATABASE_PATH || ":memory:");
++  if (!globalForDb.__pocDb) {
++    globalForDb.__pocDb = openDb(process.env.DATABASE_PATH || ":memory:");
++    // 移行前の計測器の設置場所を、裏で少しずつ場所マスタに結びつける（src/lib/locations.ts）
++    startLocationBackfill(globalForDb.__pocDb);
++  }
+   return globalForDb.__pocDb;
+ }
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 3178071..42239fb 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -85,4 +85,29 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX calibration_records_instrument ON calibration_records(instrument_id);
+     `,
+   },
++  {
++    // 設置場所を場所マスタから選ぶ形にする（1 段階目: 足すだけ）。
++    // - instruments.location（自由入力の文字列）は消さない。移行の間は場所の名前を書き続ける
++    //  （経理の集計が直接読む・前の版のアプリに戻しても動くように）。消すのは来期以降に別のマイグレーションで。
++    // - 既存の計測器は location_status = 'pending' で始まり、src/lib/locations.ts の backfillLocations() が少しずつ寄せる
++    //  （このマイグレーションの中では 5 万件を書き換えない。起動を止めないため）。
++    version: 5,
++    name: "location_master",
++    sql: `
++      CREATE TABLE locations (
++        id     INTEGER PRIMARY KEY AUTOINCREMENT,
++        name   TEXT NOT NULL UNIQUE,
++        active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)) -- 0 = 使用終了（選べないが、過去の計測器の表示には使う）
++      );
++      INSERT INTO locations (name) VALUES
++        ('品質保証部 測定室'), ('品質保証部 校正待ち棚'), ('工事部 倉庫'), ('工事部 車両 1 号'), ('工事部 車両 2 号'),
++        ('工事部 車両 3 号'), ('製造部 第 1 ライン'), ('製造部 第 2 ライン'), ('製造部 第 3 ライン'), ('製造部 恒温室'),
++        ('製造部 検査室'), ('製造部 部品倉庫'), ('技術部 試験室'), ('技術部 電波暗室'), ('大阪営業所'), ('名古屋営業所');
++      ALTER TABLE instruments ADD COLUMN location_id INTEGER REFERENCES locations(id);
++      ALTER TABLE instruments ADD COLUMN location_status TEXT NOT NULL DEFAULT 'pending'
++        CHECK (location_status IN ('pending', 'resolved', 'unresolved', 'unset'));
++      CREATE INDEX instruments_location ON instruments(location_id);
++      CREATE INDEX instruments_location_status ON instruments(location_status);
++    `,
++  },
+ ];
+diff --git a/src/lib/instruments.ts b/src/lib/instruments.ts
+index 18b12e2..6bf5dc3 100644
+--- a/src/lib/instruments.ts
++++ b/src/lib/instruments.ts
+@@ -1,6 +1,7 @@
+ // 計測器の台帳。
+ import { getDb, type Db } from "./db/index.ts";
+ import { isValidDate } from "./dates.ts";
++import { getLocation, resolveLocationText, type LocationStatus } from "./locations.ts";
+ 
+ export type InstrumentStatus = "in_use" | "on_loan" | "calibrating" | "suspended" | "disposed";
+ 
+@@ -9,7 +10,9 @@ export type Instrument = {
+   managementNo: string; // 管理番号（例: MI-0001）
+   name: string;
+   model: string; // 型式
+-  location: string; // 設置場所
++  location: string; // 設置場所の名前（場所マスタの名前。確認中なら元の文字列、未設定なら空）。古いクライアント向けにも残す
++  locationId: number | null; // 場所マスタの ID（未設定・確認中は null）
++  locationStatus: LocationStatus; // resolved = 場所マスタの場所、unresolved = 確認中、unset = 未設定、pending = 移行待ち
+   managerId: string; // 管理者（users.id）
+   intervalMonths: number; // 校正周期（月）
+   lastCalibratedOn: string; // 前回校正日 YYYY-MM-DD
+@@ -37,14 +40,23 @@ export function isInstrumentStatus(value: unknown): value is InstrumentStatus {
+ export type InstrumentFilter = {
+   status?: InstrumentStatus;
+   managerId?: string;
++  locationId?: number;
++  locationStatus?: LocationStatus;
+ };
+ 
++export const LOCATION_STATUSES: readonly LocationStatus[] = ["resolved", "unresolved", "unset", "pending"];
++export function isLocationStatus(value: unknown): value is LocationStatus {
++  return typeof value === "string" && (LOCATION_STATUSES as readonly string[]).includes(value);
++}
++
+ type InstrumentRow = {
+   id: number;
+   management_no: string;
+   name: string;
+   model: string;
+   location: string;
++  location_id: number | null;
++  location_status: LocationStatus;
+   manager_id: string;
+   interval_months: number;
+   last_calibrated_on: string;
+@@ -53,7 +65,7 @@ type InstrumentRow = {
+ };
+ 
+ const COLUMNS =
+-  "id, management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note";
++  "id, management_no, name, model, location, location_id, location_status, manager_id, interval_months, last_calibrated_on, status, note";
+ 
+ function toInstrument(row: InstrumentRow): Instrument {
+   return {
+@@ -62,6 +74,8 @@ function toInstrument(row: InstrumentRow): Instrument {
+     name: row.name,
+     model: row.model,
+     location: row.location,
++    locationId: row.location_id,
++    locationStatus: row.location_status,
+     managerId: row.manager_id,
+     intervalMonths: row.interval_months,
+     lastCalibratedOn: row.last_calibrated_on,
+@@ -75,9 +89,15 @@ export function listInstruments(filter: InstrumentFilter = {}, db: Db = getDb())
+     .prepare(
+       `SELECT ${COLUMNS} FROM instruments
+        WHERE (:status IS NULL OR status = :status) AND (:manager IS NULL OR manager_id = :manager)
++         AND (:location IS NULL OR location_id = :location) AND (:locationStatus IS NULL OR location_status = :locationStatus)
+        ORDER BY management_no`,
+     )
+-    .all({ status: filter.status ?? null, manager: filter.managerId ?? null }) as InstrumentRow[];
++    .all({
++      status: filter.status ?? null,
++      manager: filter.managerId ?? null,
++      location: filter.locationId ?? null,
++      locationStatus: filter.locationStatus ?? null,
++    }) as InstrumentRow[];
+   return rows.map(toInstrument);
+ }
+ 
+@@ -92,7 +112,8 @@ export function parseId(value: unknown): number | undefined {
+   return Number(value);
+ }
+ 
+-export type InstrumentInput = Omit<Instrument, "id">;
++/** 登録・更新で受け付ける内容。設置場所は場所マスタの ID（null = 未設定）で受け付ける。 */
++export type InstrumentInput = Omit<Instrument, "id" | "location" | "locationStatus">;
+ 
+ export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
+ 
+@@ -110,7 +131,7 @@ function text(b: Record<string, unknown>, key: string, max: number, required: bo
+  */
+ export function validateInstrumentInput(
+   body: unknown,
+-  options: { partial?: boolean } = {},
++  options: { partial?: boolean; currentLocationId?: number | null } = {},
+   db: Db = getDb(),
+ ): ValidationResult<Partial<InstrumentInput>> {
+   if (typeof body !== "object" || body === null || Array.isArray(body)) {
+@@ -131,11 +152,23 @@ export function validateInstrumentInput(
+     if (v === undefined) errors.push("名称は 1〜100 文字で入力してください");
+     else value.name = v;
+   }
+-  for (const [key, label] of [["model", "型式"], ["location", "設置場所"]] as const) {
+-    if (key in b || !options.partial) {
+-      const v = key in b ? text(b, key, 100, false) : "";
+-      if (v === undefined) errors.push(`${label}は 100 文字以内で入力してください`);
+-      else value[key] = v;
++  if ("model" in b || !options.partial) {
++    const v = "model" in b ? text(b, "model", 100, false) : "";
++    if (v === undefined) errors.push("型式は 100 文字以内で入力してください");
++    else value.model = v;
++  }
++  if ("location" in b && !("locationId" in b)) {
++    errors.push("設置場所は場所マスタから選んでください（locationId）");
++  }
++  if ("locationId" in b || !options.partial) {
++    const id = "locationId" in b ? b.locationId : null;
++    if (id === null) value.locationId = null;
++    else if (!Number.isInteger(id) || (id as number) < 1) errors.push("設置場所の指定が正しくありません");
++    else {
++      const loc = getLocation(id as number, db);
++      if (!loc) errors.push("その設置場所は場所マスタにありません");
++      else if (!loc.active && options.currentLocationId !== loc.id) errors.push("その設置場所は使用終了のため選べません");
++      else value.locationId = loc.id;
+     }
+   }
+   if ("note" in b || !options.partial) {
+@@ -170,17 +203,27 @@ export function managementNoExists(managementNo: string, db: Db = getDb()): bool
+   return db.prepare("SELECT 1 FROM instruments WHERE management_no = ?").get(managementNo) !== undefined;
+ }
+ 
++/** 場所マスタの ID から、古い列（場所の名前）と状態を決める。 */
++function locationColumns(locationId: number | null, db: Db): { location: string; locationId: number | null; status: LocationStatus } {
++  if (locationId === null) return { location: "", locationId: null, status: "unset" };
++  return { location: getLocation(locationId, db)!.name, locationId, status: "resolved" };
++}
++
+ export function createInstrument(input: InstrumentInput, db: Db = getDb()): Instrument {
++  const loc = locationColumns(input.locationId, db);
+   const { lastInsertRowid } = db
+     .prepare(
+-      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note)
+-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++      `INSERT INTO instruments (management_no, name, model, location, location_id, location_status, manager_id, interval_months,
++         last_calibrated_on, status, note)
++       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     )
+     .run(
+       input.managementNo,
+       input.name,
+       input.model,
+-      input.location,
++      loc.location,
++      loc.locationId,
++      loc.status,
+       input.managerId,
+       input.intervalMonths,
+       input.lastCalibratedOn,
+@@ -190,19 +233,36 @@ export function createInstrument(input: InstrumentInput, db: Db = getDb()): Inst
+   return getInstrument(Number(lastInsertRowid), db)!;
+ }
+ 
+-/** 指定した項目だけを更新する。計測器が無ければ undefined。 */
+-export function updateInstrument(id: number, changes: Partial<InstrumentInput>, db: Db = getDb()): Instrument | undefined {
++/**
++ * 指定した項目だけを更新する。計測器が無ければ undefined。
++ * 設置場所は locationId（場所マスタ）で変える。棚卸しなどの自由入力の文字列は locationText で渡し、場所マスタに照らす。
++ */
++export function updateInstrument(
++  id: number,
++  changes: Partial<InstrumentInput> & { locationText?: string },
++  db: Db = getDb(),
++): Instrument | undefined {
+   const current = getInstrument(id, db);
+   if (!current) return undefined;
+-  const next = { ...current, ...changes };
++  const { locationText, ...rest } = changes;
++  const next = { ...current, ...rest };
++  let loc = { location: current.location, locationId: current.locationId, status: current.locationStatus };
++  if (locationText !== undefined) {
++    const r = resolveLocationText(locationText, db);
++    loc = { location: r.name, locationId: r.locationId, status: r.status };
++  } else if (changes.locationId !== undefined) {
++    loc = locationColumns(changes.locationId, db);
++  }
+   db.prepare(
+-    `UPDATE instruments SET management_no = ?, name = ?, model = ?, location = ?, manager_id = ?, interval_months = ?,
+-       last_calibrated_on = ?, status = ?, note = ? WHERE id = ?`,
++    `UPDATE instruments SET management_no = ?, name = ?, model = ?, location = ?, location_id = ?, location_status = ?, manager_id = ?,
++       interval_months = ?, last_calibrated_on = ?, status = ?, note = ? WHERE id = ?`,
+   ).run(
+     next.managementNo,
+     next.name,
+     next.model,
+-    next.location,
++    loc.location,
++    loc.locationId,
++    loc.status,
+     next.managerId,
+     next.intervalMonths,
+     next.lastCalibratedOn,
+@@ -232,5 +292,6 @@ export function validateInventoryInput(body: unknown): ValidationResult<Inventor
+ export function recordInventory(input: InventoryInput, db: Db = getDb()): Instrument | undefined {
+   const row = db.prepare("SELECT id FROM instruments WHERE management_no = ?").get(input.managementNo) as { id: number } | undefined;
+   if (!row) return undefined;
+-  return updateInstrument(row.id, { location: input.location }, db);
++  // 端末は来月まで自由入力の文字列を送ってくる。場所マスタに照らし、寄せられなければ確認中として残す
++  return updateInstrument(row.id, { locationText: input.location }, db);
+ }
+diff --git a/src/lib/locations.ts b/src/lib/locations.ts
+new file mode 100644
+index 0000000..029f069
+--- /dev/null
++++ b/src/lib/locations.ts
+@@ -0,0 +1,169 @@
++// 場所マスタと、自由入力の設置場所からの移行。
++// - 計測器の設置場所は locations.id（instruments.location_id）で持つ。
++// - 移行の間は古い列 instruments.location（場所の名前）も残して書き続ける（経理の集計が読む・前の版のアプリに戻せるように）。
++//   古い列を消すのは、経理の集計の切り替え（来期）の後に別のマイグレーションで行う。
++// - 自由入力の値は表記ゆれを寄せて場所に結びつける。寄せられない値は元の文字列を残し「確認中」（unresolved）にする。
++import { getDb, transaction, type Db } from "./db/index.ts";
++import { logger } from "./logger.ts";
++
++export type LocationStatus = "resolved" | "unresolved" | "unset" | "pending";
++
++export type Location = { id: number; name: string; active: boolean };
++
++type LocationRow = { id: number; name: string; active: number };
++const toLocation = (r: LocationRow): Location => ({ id: r.id, name: r.name, active: r.active === 1 });
++
++const KANJI_DIGITS: Record<string, string> = { 一: "1", 二: "2", 三: "3", 四: "4", 五: "5", 六: "6", 七: "7", 八: "8", 九: "9" };
++const DEPT_ABBREVIATIONS: [RegExp, string][] = [
++  [/^(品証|品保|品質保証)(?!部)/, "品質保証部"],
++  [/^工事(?!部)/, "工事部"],
++  [/^製造(?!部)/, "製造部"],
++  [/^技術(?!部)/, "技術部"],
++];
++
++/**
++ * 設置場所の文字列を比べるための鍵にする。全角・半角（NFKC）、空白、漢数字（第一・三号）、「号車」、部署名の略を寄せる。
++ * 例: "製造部　第１ライン" / "製造 第一ﾗｲﾝ" / "製造部第 1 ライン" → "製造部第1ライン"
++ */
++export function locationKey(text: string): string {
++  let s = text.normalize("NFKC").replace(/\s+/g, "");
++  s = s.replace(/([一二三四五六七八九])(?=(ライン|号))/g, (d) => KANJI_DIGITS[d]);
++  s = s.replace(/第([一二三四五六七八九])/g, (_m, d: string) => `第${KANJI_DIGITS[d]}`);
++  s = s.replace(/号車/g, "号").replace(/営$/, "営業所");
++  for (const [re, dept] of DEPT_ABBREVIATIONS) s = s.replace(re, dept);
++  return s;
++}
++
++export function listLocations(options: { includeInactive?: boolean } = {}, db: Db = getDb()): Location[] {
++  const rows = db
++    .prepare(`SELECT id, name, active FROM locations WHERE (:all = 1 OR active = 1) ORDER BY id`)
++    .all({ all: options.includeInactive ? 1 : 0 }) as LocationRow[];
++  return rows.map(toLocation);
++}
++
++export function getLocation(id: number, db: Db = getDb()): Location | undefined {
++  const row = db.prepare("SELECT id, name, active FROM locations WHERE id = ?").get(id) as LocationRow | undefined;
++  return row && toLocation(row);
++}
++
++export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
++
++/** 場所の追加・変更の内容を検証する（名前は 1〜100 文字、正式名称の重複は不可）。 */
++export function validateLocationInput(
++  body: unknown,
++  options: { partial?: boolean; id?: number } = {},
++  db: Db = getDb(),
++): ValidationResult<{ name?: string; active?: boolean }> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  const value: { name?: string; active?: boolean } = {};
++  if (!options.partial || "name" in b) {
++    const name = typeof b.name === "string" ? b.name.trim().replace(/\s+/g, " ") : "";
++    if (name === "" || name.length > 100) errors.push("場所の名前は 1〜100 文字で入力してください");
++    else if (findLocationByKey(locationKey(name), db, { exceptId: options.id })) errors.push("同じ場所がすでに登録されています");
++    else value.name = name;
++  }
++  if ("active" in b) {
++    if (typeof b.active !== "boolean") errors.push("使用中かどうか（active）は true か false で指定してください");
++    else value.active = b.active;
++  }
++  return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
++}
++
++export function createLocation(name: string, db: Db = getDb()): Location {
++  const { lastInsertRowid } = db.prepare("INSERT INTO locations (name, active) VALUES (?, 1)").run(name);
++  logger.info("location.created", { locationId: Number(lastInsertRowid) });
++  return getLocation(Number(lastInsertRowid), db)!;
++}
++
++/** 名前の変更・使用終了。名前を変えたら、その場所の計測器の古い列（場所の名前）も書き換える。場所は消さない。 */
++export function updateLocation(id: number, changes: { name?: string; active?: boolean }, db: Db = getDb()): Location | undefined {
++  const current = getLocation(id, db);
++  if (!current) return undefined;
++  transaction(db, () => {
++    if (changes.name !== undefined && changes.name !== current.name) {
++      db.prepare("UPDATE locations SET name = ? WHERE id = ?").run(changes.name, id);
++      db.prepare("UPDATE instruments SET location = ? WHERE location_id = ?").run(changes.name, id);
++    }
++    if (changes.active !== undefined) db.prepare("UPDATE locations SET active = ? WHERE id = ?").run(changes.active ? 1 : 0, id);
++  });
++  logger.info("location.updated", { locationId: id, renamed: changes.name !== undefined, active: changes.active });
++  return getLocation(id, db);
++}
++
++function findLocationByKey(key: string, db: Db, options: { exceptId?: number } = {}): Location | undefined {
++  // 場所は数十件なので、全件の鍵を作って比べる
++  return listLocations({ includeInactive: true }, db).find((l) => l.id !== options.exceptId && locationKey(l.name) === key);
++}
++
++export type Resolution =
++  | { status: "resolved"; locationId: number; name: string }
++  | { status: "unresolved"; locationId: null; name: string }
++  | { status: "unset"; locationId: null; name: "" };
++
++/** 自由入力の設置場所を場所マスタに照らす。空欄は未設定、寄せられなければ確認中（元の文字列を残す）。 */
++export function resolveLocationText(text: string, db: Db = getDb(), cache?: Map<string, Location | null>): Resolution {
++  const raw = text.trim();
++  if (raw.normalize("NFKC").trim() === "") return { status: "unset", locationId: null, name: "" };
++  const key = locationKey(raw);
++  let hit = cache?.get(key);
++  if (hit === undefined) {
++    hit = findLocationByKey(key, db) ?? null;
++    cache?.set(key, hit);
++  }
++  return hit ? { status: "resolved", locationId: hit.id, name: hit.name } : { status: "unresolved", locationId: null, name: raw };
++}
++
++/**
++ * 移行前の計測器（location_status = 'pending'）を、batchSize 件ずつのトランザクションで場所に結びつける。
++ * 1 回のトランザクションを短くして、移行中もほかの書き込みを止めない。maxBatches で 1 回の呼び出しの量を区切れる。
++ */
++export function backfillLocations(
++  db: Db = getDb(),
++  options: { batchSize?: number; maxBatches?: number } = {},
++): { processed: number; resolved: number; unresolved: number; unset: number; remaining: number } {
++  const batchSize = options.batchSize ?? 1000;
++  const counts = { processed: 0, resolved: 0, unresolved: 0, unset: 0 };
++  const cache = new Map<string, Location | null>();
++  const select = db.prepare("SELECT id, location FROM instruments WHERE location_status = 'pending' ORDER BY id LIMIT ?");
++  const update = db.prepare("UPDATE instruments SET location_id = ?, location = ?, location_status = ? WHERE id = ? AND location_status = 'pending'");
++  for (let batch = 0; options.maxBatches === undefined || batch < options.maxBatches; batch++) {
++    const rows = select.all(batchSize) as { id: number; location: string }[];
++    if (rows.length === 0) break;
++    transaction(db, () => {
++      for (const row of rows) {
++        const r = resolveLocationText(row.location, db, cache);
++        // 寄せたものは正式名称、確認中は元の文字列、未設定は空欄を古い列に入れる
++        update.run(r.locationId, r.status === "resolved" ? r.name : row.location, r.status, row.id);
++        counts[r.status]++;
++      }
++    });
++    counts.processed += rows.length;
++  }
++  const { remaining } = db.prepare("SELECT COUNT(*) AS remaining FROM instruments WHERE location_status = 'pending'").get() as {
++    remaining: number;
++  };
++  return { ...counts, remaining };
++}
++
++/** 起動後に、裏で少しずつ移行を進める（1 回 1000 件、間にほかの要求を挟む）。終わったら件数をログに出す。 */
++export function startLocationBackfill(db: Db): void {
++  const total = { processed: 0, resolved: 0, unresolved: 0, unset: 0 };
++  const step = () => {
++    try {
++      const r = backfillLocations(db, { maxBatches: 1 });
++      for (const k of ["processed", "resolved", "unresolved", "unset"] as const) total[k] += r[k];
++      if (r.remaining > 0) {
++        setTimeout(step, 20);
++      } else if (total.processed > 0) {
++        logger.info("location.backfill_completed", total);
++      }
++    } catch (error) {
++      logger.error("location.backfill_failed", { error, ...total });
++    }
++  };
++  setTimeout(step, 0);
++}
+diff --git a/tests/instruments.test.ts b/tests/instruments.test.ts
+index a3e24c1..7533712 100644
+--- a/tests/instruments.test.ts
++++ b/tests/instruments.test.ts
+@@ -50,7 +50,7 @@ describe("validateInstrumentInput", () => {
+     const db = openDb();
+     const r = validateInstrumentInput(VALID, {}, db);
+     assert.equal(r.ok, true);
+-    if (r.ok) assert.deepEqual(r.value, { ...VALID, model: "", location: "", note: "", status: "in_use" });
++    if (r.ok) assert.deepEqual(r.value, { ...VALID, model: "", locationId: null, note: "", status: "in_use" });
+   });
+ 
+   it("rejects invalid values", () => {
+@@ -67,8 +67,17 @@ describe("validateInstrumentInput", () => {
+ 
+   it("validates only the given fields when partial", () => {
+     const db = openDb();
+-    const r = validateInstrumentInput({ location: " 倉庫 " }, { partial: true }, db);
+-    assert.deepEqual(r, { ok: true, value: { location: "倉庫" } });
++    const r = validateInstrumentInput({ locationId: 3 }, { partial: true }, db);
++    assert.deepEqual(r, { ok: true, value: { locationId: 3 } });
++  });
++
++  it("accepts locations only from the master, and not retired ones for new assignments", () => {
++    const db = openDb();
++    assert.equal(validateInstrumentInput({ location: "倉庫" }, { partial: true }, db).ok, false);
++    assert.equal(validateInstrumentInput({ locationId: 999 }, { partial: true }, db).ok, false);
++    db.prepare("UPDATE locations SET active = 0 WHERE id = 3").run();
++    assert.equal(validateInstrumentInput({ locationId: 3 }, { partial: true }, db).ok, false);
++    assert.equal(validateInstrumentInput({ locationId: 3 }, { partial: true, currentLocationId: 3 }, db).ok, true);
+   });
+ });
+ 
+@@ -76,9 +85,11 @@ describe("createInstrument / updateInstrument", () => {
+   it("creates and updates only the given fields", () => {
+     const db = openDb();
+     const created = createInstrument(
+-      { ...VALID, model: "", location: "", note: "", status: "in_use" },
++      { ...VALID, model: "", locationId: 7, note: "", status: "in_use" },
+       db,
+     );
++    assert.equal(created.location, "製造部 第 1 ライン");
++    assert.equal(created.locationStatus, "resolved");
+     assert.equal(getInstrument(created.id, db)?.managementNo, "MI-0100");
+     const updated = updateInstrument(created.id, { status: "calibrating" }, db);
+     assert.equal(updated?.status, "calibrating");
+diff --git a/tests/locations.test.ts b/tests/locations.test.ts
+new file mode 100644
+index 0000000..5ba185c
+--- /dev/null
++++ b/tests/locations.test.ts
+@@ -0,0 +1,84 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { getInstrument, listInstruments, recordInventory, updateInstrument } from "../src/lib/instruments.ts";
++import {
++  backfillLocations,
++  createLocation,
++  locationKey,
++  listLocations,
++  resolveLocationText,
++  updateLocation,
++  validateLocationInput,
++} from "../src/lib/locations.ts";
++
++describe("locationKey", () => {
++  it("normalizes width, spaces, kanji numerals and department abbreviations", () => {
++    const want = locationKey("製造部 第 1 ライン");
++    for (const v of ["製造部　第１ライン", "製造 第一ﾗｲﾝ", "製造部第1ライン", " 製造部 第 1 ライン "]) assert.equal(locationKey(v), want);
++    assert.equal(locationKey("工事車両3号車"), locationKey("工事部 車両 3 号"));
++    assert.equal(locationKey("品証 測定室"), locationKey("品質保証部 測定室"));
++    assert.equal(locationKey("名古屋営"), locationKey("名古屋営業所"));
++    assert.notEqual(locationKey("倉庫"), locationKey("工事部 倉庫"));
++  });
++});
++
++describe("resolveLocationText", () => {
++  it("resolves known places, leaves ambiguous text unresolved and blank as unset", () => {
++    const db = openDb();
++    assert.deepEqual(resolveLocationText("工事部　倉庫", db), { status: "resolved", locationId: 3, name: "工事部 倉庫" });
++    assert.deepEqual(resolveLocationText(" 倉庫 ", db), { status: "unresolved", locationId: null, name: "倉庫" });
++    assert.deepEqual(resolveLocationText("　", db), { status: "unset", locationId: null, name: "" });
++  });
++});
++
++describe("backfillLocations", () => {
++  it("links pending instruments in batches and keeps the original text when it cannot", () => {
++    const db = openDb();
++    db.prepare("UPDATE instruments SET location = '不明' WHERE management_no = 'MI-0010'").run();
++    const r = backfillLocations(db, { batchSize: 3 });
++    assert.equal(r.processed, 10);
++    assert.equal(r.remaining, 0);
++    const byNo = new Map(listInstruments({}, db).map((i) => [i.managementNo, i]));
++    assert.equal(byNo.get("MI-0004")?.location, "製造部 第 2 ライン"); // 「製造部第２ライン」から寄せた
++    assert.equal(byNo.get("MI-0004")?.locationId, 8);
++    assert.deepEqual([byNo.get("MI-0010")?.locationStatus, byNo.get("MI-0010")?.location], ["unresolved", "不明"]);
++    assert.equal(backfillLocations(db).processed, 0); // 2 回目は何もしない
++  });
++
++  it("can stop after a number of batches", () => {
++    const db = openDb();
++    const r = backfillLocations(db, { batchSize: 4, maxBatches: 1 });
++    assert.deepEqual([r.processed, r.remaining], [4, 6]);
++  });
++});
++
++describe("locations", () => {
++  it("renames a place and updates the old text column of its instruments", () => {
++    const db = openDb();
++    backfillLocations(db);
++    updateLocation(3, { name: "工事部 資材倉庫" }, db);
++    const i = listInstruments({ locationId: 3 }, db)[0];
++    assert.equal(i.location, "工事部 資材倉庫");
++    assert.equal((db.prepare("SELECT location FROM instruments WHERE id = ?").get(i.id) as { location: string }).location, "工事部 資材倉庫");
++  });
++
++  it("retires a place without deleting it and rejects duplicates", () => {
++    const db = openDb();
++    updateLocation(16, { active: false }, db);
++    assert.equal(listLocations({}, db).length, 15);
++    assert.equal(listLocations({ includeInactive: true }, db).length, 16);
++    assert.equal(validateLocationInput({ name: "工事部　倉庫" }, {}, db).ok, false);
++    assert.equal(createLocation("技術部 3D プリンタ室", db).active, true);
++  });
++
++  it("keeps the handheld free-text input working", () => {
++    const db = openDb();
++    const a = recordInventory({ managementNo: "MI-0003", location: "製造部 第３ライン" }, db);
++    assert.deepEqual([a?.locationId, a?.location, a?.locationStatus], [9, "製造部 第 3 ライン", "resolved"]);
++    const b = recordInventory({ managementNo: "MI-0003", location: "A社 貸出中" }, db);
++    assert.deepEqual([b?.locationId, b?.location, b?.locationStatus], [null, "A社 貸出中", "unresolved"]);
++    assert.equal(updateInstrument(b!.id, { locationId: 1 }, db)?.location, "品質保証部 測定室");
++    assert.equal(getInstrument(b!.id, db)?.locationStatus, "resolved");
++  });
++});

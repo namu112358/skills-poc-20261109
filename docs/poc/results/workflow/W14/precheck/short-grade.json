@@ -1,0 +1,466 @@
+{
+ "checks": {
+  "typecheck": true,
+  "test": false,
+  "build": true
+ },
+ "static": {
+  "migrations": {
+   "readable": true,
+   "rewritten": [],
+   "added": [
+    5
+   ],
+   "drops_location": true,
+   "rebuilds_instruments": false,
+   "updates_in_sql": true
+  },
+  "logger_used": false,
+  "console_lines": [],
+  "doc_files": [],
+  "doc_rollback": false,
+  "doc_steps": false,
+  "new_deps": false,
+  "changed_src_files": [
+   "src/app/api/handheld/inventory/route.ts",
+   "src/app/api/locations/route.ts",
+   "src/app/instruments/[id]/page.tsx",
+   "src/app/instruments/page.tsx",
+   "src/lib/db/index.ts",
+   "src/lib/db/migrations.ts",
+   "src/lib/instruments.ts"
+  ]
+ },
+ "routes": [
+  {
+   "path": "/api/handheld/inventory",
+   "methods": [
+    "POST"
+   ]
+  },
+  {
+   "path": "/api/locations",
+   "methods": [
+    "GET",
+    "POST"
+   ]
+  }
+ ],
+ "public": [
+  {
+   "id": "P1",
+   "name": "場所マスタの一覧を取得できる",
+   "pass": true,
+   "detail": "/api/locations 8 件"
+  },
+  {
+   "id": "P2",
+   "name": "場所マスタに場所を追加できる",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "P3",
+   "name": "計測器の登録で場所マスタの場所を選べる",
+   "pass": false,
+   "detail": "location が場所の名前になっていない: None"
+  },
+  {
+   "id": "P4",
+   "name": "計測器の編集で場所を変えられ、一覧に場所の名前が出る",
+   "pass": false,
+   "detail": "一覧の場所の名前が変わらない: None"
+  }
+ ],
+ "hidden": [
+  {
+   "id": "H01",
+   "name": "場所マスタに無い場所（存在しない ID・自由入力）では登録できない",
+   "pass": true,
+   "detail": "存在しない ID: 400 / 自由入力: 400"
+  },
+  {
+   "id": "H03",
+   "name": "設置場所は未設定のまま登録できる（必須にしない）",
+   "pass": false,
+   "detail": "場所なしで登録できない: 400 {\"error\":\"入力内容に誤りがあります\",\"details\":[\"設置場所を選んでください\"]}"
+  },
+  {
+   "id": "H04",
+   "name": "使用終了の場所は新しく選べないが、既存の計測器はそのまま表示される",
+   "pass": false,
+   "detail": "場所の変更の API が見つからない"
+  },
+  {
+   "id": "H05",
+   "name": "場所は消さない（使用中の場所を削除できない）",
+   "pass": true,
+   "detail": "削除の API なし"
+  },
+  {
+   "id": "H06",
+   "name": "場所の名前を変えると、計測器の表示（と古い列）も新しい名前になる",
+   "pass": false,
+   "detail": "場所の変更の API が見つからない"
+  },
+  {
+   "id": "H07",
+   "name": "一覧・詳細の location は場所の名前の文字列のまま（古い読み手の互換）",
+   "pass": false,
+   "detail": "一覧の location が文字列でない（古いクライアントが読めない）"
+  },
+  {
+   "id": "H08",
+   "name": "確認中（寄せられない値）の計測器を一覧で絞り込める",
+   "pass": false,
+   "detail": "確認中の計測器を作れていない（H10 が失敗）"
+  },
+  {
+   "id": "H09",
+   "name": "ハンディ端末の自由入力で、寄せられる文字は正式な場所になる",
+   "pass": false,
+   "detail": "端末の送信が受け付けられない: 400 {\"error\":\"入力内容に誤りがあります\",\"details\":[\"設置場所を選んでください\"]}"
+  },
+  {
+   "id": "H10",
+   "name": "ハンディ端末の寄せられない文字は、受け付けて元の文字を残す（どこかの場所にしない）",
+   "pass": false,
+   "detail": "端末の送信が受け付けられない（未送信がたまる）: 400 {\"error\":\"入力内容に誤りがあります\",\"details\":[\"設置場所を選んでください\"]}"
+  },
+  {
+   "id": "H11",
+   "name": "ハンディ端末の API の応答の形・認証が変わっていない",
+   "pass": false,
+   "detail": "応答の形が変わった: 400 {\"error\":\"入力内容に誤りがあります\",\"details\":[\"設置場所を選んでください\"]}"
+  }
+ ],
+ "discovery": {
+  "schema": {
+   "new_tables": [
+    "locations"
+   ],
+   "instrument_new_columns": [
+    "location_id"
+   ],
+   "master": "locations",
+   "name_col": "name",
+   "active_col": null,
+   "fk_col": "location_id",
+   "location_col_kept": false,
+   "notes": []
+  },
+  "api": {
+   "list": "/api/locations",
+   "item": null,
+   "id_key": "locationId",
+   "notes": [],
+   "id_key_candidates": [
+    "locationId",
+    "location_id",
+    "placeId",
+    "siteId"
+   ]
+  }
+ },
+ "migration": {
+  "checks": {
+   "M7": true,
+   "M8": true,
+   "M9": true,
+   "M1": true,
+   "M2": true,
+   "M4": false,
+   "M5": false,
+   "M3": true,
+   "M6": false
+  },
+  "detail": {
+   "first_request_seconds": 0.68,
+   "write_latency_ms_max": 35,
+   "write_failures": 0,
+   "schema": {
+    "new_tables": [
+     "locations"
+    ],
+    "instrument_new_columns": [
+     "location_id"
+    ],
+    "master": "locations",
+    "name_col": "name",
+    "active_col": null,
+    "fk_col": "location_id",
+    "location_col_kept": false,
+    "notes": []
+   },
+   "linked_ratio_of_exact_names": 1.0,
+   "backfill_seconds": 61.0,
+   "lost_rows": 0,
+   "changed_rows": 0,
+   "location_emptied": 0,
+   "m5_key": "locationId",
+   "m5": {
+    "target": "技術部 電波暗室",
+    "old_column": null
+   },
+   "user_version": 5,
+   "rollback": {
+    "shows": null,
+    "get": 500,
+    "list": 500,
+    "create": 500,
+    "edit": 500
+   }
+  }
+ },
+ "normalize": {
+  "available": true,
+  "schema": {
+   "new_tables": [
+    "locations"
+   ],
+   "instrument_new_columns": [
+    "location_id"
+   ],
+   "master": "locations",
+   "name_col": "name",
+   "active_col": null,
+   "fk_col": "location_id",
+   "location_col_kept": false,
+   "notes": []
+  },
+  "export_accuracy": 0.589,
+  "hidden_accuracy": 0.0,
+  "wrong_links": 21247,
+  "wrong_rate": 0.42494,
+  "wrong_examples": [
+   [
+    "工事倉庫",
+    1206
+   ],
+   [
+    "製造部 第 2 ライン ",
+    1072
+   ],
+   [
+    "製造第1ライン",
+    1030
+   ],
+   [
+    "品証 測定室",
+    956
+   ],
+   [
+    "製造部 第3ライン",
+    851
+   ],
+   [
+    "倉庫",
+    743
+   ],
+   [
+    "製造 検査室",
+    703
+   ],
+   [
+    "技術部 試験室 ",
+    702
+   ],
+   [
+    "製造部 部品倉庫 ",
+    611
+   ],
+   [
+    "大阪営",
+    580
+   ]
+  ],
+  "unresolved_kept_ratio": 0.0,
+  "master_rows": 182,
+  "distinct_identities": 16,
+  "split_places": 16
+ },
+ "ops": {
+  "O1": false,
+  "O2": false,
+  "progress_events": [],
+  "total": 0.0
+ },
+ "mutation": {
+  "baseline_tests_pass": false,
+  "baseline_fails": 2,
+  "baseline_log": "s\n    # Subtest: lists unreturned loans whose due date is before today\n    ok 1 - lists unreturned loans whose due date is before today\n      ---\n      duration_ms: 42.426476\n      type: 'test'\n      ...\n    1..1\nok 18 - listOverdueLoans\n  ---\n  duration_ms: 42.578962\n  type: 'suite'\n  ...\n1..18\n# tests 28\n# suites 18\n# pass 27\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1481.052346\n",
+  "mutants": 14,
+  "killed": 5,
+  "kill_rate": 0.357,
+  "files": [
+   "src/lib/db/migrations.ts",
+   "src/lib/instruments.ts"
+  ],
+  "survivors": [
+   {
+    "file": "src/lib/db/migrations.ts",
+    "line": 89,
+    "old": "5",
+    "new": "6",
+    "snippet": "version: 5,"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 134,
+    "old": "||",
+    "new": "&&",
+    "snippet": "if (\"model\" in b || !options.partial) {"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 135,
+    "old": "false",
+    "new": "true",
+    "snippet": "const v = \"model\" in b ? text(b, \"model\", 100, false) : \"\";"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 135,
+    "old": "100",
+    "new": "101",
+    "snippet": "const v = \"model\" in b ? text(b, \"model\", 100, false) : \"\";"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 229,
+    "old": "!",
+    "new": "",
+    "snippet": "if (!Number.isInteger(b.locationId)) errors.push(\"設置場所を選んでください\");"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 230,
+    "old": " > ",
+    "new": " >= ",
+    "snippet": "return errors.length > 0 ? { ok: false, errors } : { ok: true, value: { managementNo: b.managementNo as string, locationId: b.locationId as number } };"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 230,
+    "old": "true",
+    "new": "false",
+    "snippet": "return errors.length > 0 ? { ok: false, errors } : { ok: true, value: { managementNo: b.managementNo as string, locationId: b.locationId as number } };"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 230,
+    "old": "false",
+    "new": "true",
+    "snippet": "return errors.length > 0 ? { ok: false, errors } : { ok: true, value: { managementNo: b.managementNo as string, locationId: b.locationId as number } };"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 230,
+    "old": "0",
+    "new": "1",
+    "snippet": "return errors.length > 0 ? { ok: false, errors } : { ok: true, value: { managementNo: b.managementNo as string, locationId: b.locationId as number } };"
+   }
+  ],
+  "details": [
+   {
+    "file": "src/lib/db/migrations.ts",
+    "line": 89,
+    "old": "5",
+    "new": "6",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 134,
+    "old": "||",
+    "new": "&&",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 134,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 135,
+    "old": "false",
+    "new": "true",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 135,
+    "old": "100",
+    "new": "101",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 136,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 140,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 140,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 140,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 229,
+    "old": "!",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 230,
+    "old": " > ",
+    "new": " >= ",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 230,
+    "old": "true",
+    "new": "false",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 230,
+    "old": "false",
+    "new": "true",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 230,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   }
+  ]
+ },
+ "work": "/tmp/w14-grade-h2g0cpbo"
+}

@@ -170,7 +170,7 @@ W12 で作った次の仕組みは、W12 以外のシナリオからも使える
 | 仕組み | 場所 | 使い方 |
 |---|---|---|
 | 初期状態（校正台帳） | `docs/poc/answer-key/W12/base.patch`（乱れた版は、その上に `base-messy.patch`） | `POC_INJECT_PATCH=<base.patch>[:<追加のパッチ>]` で、作業用コピーにだけ当てる（W12 は既定で当たる）。旧スキーマとデータの DB は `old-db.sql`（version 4） |
-| 依頼者役（ペルソナ） | `scripts/poc/answer_w12.py`（serve: ask-po の受け口、message: メッセージの質問への回答） | `run-trial.sh` に `POC_PERSONA_SHEET=<回答シート>` を渡すと、W12 以外でも有効になる。依頼文は `docs/poc/tasks/wf-<シナリオ>.md`（`POC_PERSONA_TASK` で上書き可）、アプリの名前は `POC_PERSONA_APP`（既定「計測器 校正台帳」）、課題文の末尾の依頼者の役割は `POC_PERSONA_ROLE`。回答シートは W12 の `persona.md` と同じ形（回答のルール・Q・O・D・範囲の外）で書き、作業用コピーには置かない |
+| 依頼者役（ペルソナ） | `scripts/poc/answer_w12.py`（W12）、`scripts/poc/answer_persona.py`（W14・W15。main で W12 の仕組みを一般化したもの） | `run-trial.sh` はシナリオごとに依頼者役を起動する（W12・W13・W14・W15）。新しい W で使うときは、`run-trial.sh` の依頼者役・ask-po・`AskUserQuestion` を外す分岐にそのシナリオを足し、回答シート（`answer-key/<W>/persona.md`。W12 の `persona.md` と同じ形）を用意する。`answer_w12.py` も、回答シート・依頼文・アプリの名前を環境変数（`POC_PERSONA_SHEET`・`POC_PERSONA_TASK`・`POC_PERSONA_APP`）で変えられる |
 | 質問コマンド | `scripts/poc/ask-po` | 依頼者役を使う試行では、`run-trial.sh` が `$WORK/bin` に置いて `PATH` に入れ、`Bash(ask-po:*)` を許可する。`AskUserQuestion` は外す |
 | 質問の記録 | `raw/<試行ID>/po-questions.jsonl` | 経路・時刻・実装前か・項目の分類とシートの ID・回答・依頼者役の費用。集計は `score_w12.py` の `questions()` |
 | 偽の時計・偽の通知サービス | `answer-key/W12/fake-clock.cjs`・`fake-notify.cjs` | 時計はファイル（`POC_FAKE_NOW_FILE`）に書いた時刻から進む。通知サービスは送り先ごとの台本で失敗を混ぜる |
