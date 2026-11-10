@@ -1,0 +1,1042 @@
+{
+ "round": "2",
+ "commit": "3a30538f8279e81b5f1e53850061efbeabf30b5a",
+ "adapter": {
+  "f1": {
+   "key": "importance",
+   "levels": [
+    "A",
+    "B",
+    "C"
+   ],
+   "set": "post",
+   "filter": {
+    "param": "importance"
+   },
+   "job": {
+    "method": "POST",
+    "path": "/api/jobs/calibration-reminders"
+   }
+  },
+  "f2": {
+   "create": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/reservations",
+    "body": {
+     "startOn": "{start}",
+     "endOn": "{end}"
+    },
+    "id": "reservation.id"
+   },
+   "list": {
+    "path": "/api/instruments/{instrumentId}/reservations",
+    "items": "reservations"
+   },
+   "cancel": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+   },
+   "fields": {
+    "id": "id",
+    "status": "status",
+    "start": "startOn",
+    "end": "endOn",
+    "user": "userId"
+   },
+   "status": {
+    "active": [
+     "active"
+    ],
+    "cancelled": [
+     "cancelled"
+    ]
+   }
+  },
+  "f3": {
+   "list": {
+    "path": "/api/locations",
+    "items": "locations"
+   },
+   "create": {
+    "method": "POST",
+    "path": "/api/locations",
+    "body": {
+     "name": "{name}"
+    },
+    "id": "location.id"
+   },
+   "rename": {
+    "method": "PATCH",
+    "path": "/api/locations/{locationId}",
+    "body": {
+     "name": "{name}"
+    }
+   },
+   "delete": {
+    "method": "DELETE",
+    "path": "/api/locations/{locationId}"
+   },
+   "fields": {
+    "id": "id",
+    "name": "name"
+   },
+   "instrumentSet": {
+    "locationId": "{locationId:n}"
+   },
+   "instrumentIdField": "locationId",
+   "filter": {
+    "param": "locationId",
+    "value": "id"
+   }
+  },
+  "f4": {
+   "create": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/calibration-orders",
+    "body": {},
+    "id": "order.id"
+   },
+   "list": {
+    "path": "/api/instruments/{instrumentId}/calibration-orders",
+    "items": "orders"
+   },
+   "fields": {
+    "id": "id",
+    "status": "status",
+    "externalId": "agencyOrderId",
+    "returnOn": "estimatedReturnOn"
+   },
+   "status": {
+    "pending": [
+     "pending"
+    ],
+    "accepted": [
+     "accepted"
+    ],
+    "completed": [
+     "completed"
+    ],
+    "failed": [
+     "failed"
+    ]
+   },
+   "job": {
+    "method": "POST",
+    "path": "/api/jobs/calibration-orders"
+   }
+  },
+  "f5": {
+   "list": {
+    "path": "/api/instruments/{instrumentId}/history",
+    "items": "history"
+   },
+   "fields": {
+    "id": "id"
+   }
+  },
+  "f6": {},
+  "h1": {
+   "field": "subManagerId",
+   "set": {
+    "method": "PATCH",
+    "path": "/api/instruments/{instrumentId}",
+    "body": {
+     "subManagerId": "{subManager}"
+    }
+   }
+  },
+  "h2": {}
+ },
+ "checks": {
+  "typecheck": true,
+  "test": true,
+  "tests_pass": 61,
+  "tests_fail": 0,
+  "build": true
+ },
+ "static": {
+  "inProcessScheduler": [],
+  "migrations": {
+   "readable": true,
+   "prev_versions": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "versions": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "rewritten": [],
+   "added": [
+    6
+   ]
+  },
+  "new_dependencies": []
+ },
+ "suites": {
+  "base": [
+   {
+    "id": "B01",
+    "name": "既存の API の応答の形（一覧・詳細の各項目、詳細の currentLoan）が変わらない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "B02",
+    "name": "既存の機能（登録・編集・貸出・返却・校正記録・不合格で使用停止・既存のジョブとその認証）が従来どおり動く",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "base_seconds": 1,
+  "f1": [
+   {
+    "id": "P01",
+    "name": "重要度を付けられ、付けた重要度が API で読める",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "P02",
+    "name": "重要度が最も高い計測器の校正期限が近づくと、管理者に通知サービスで知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H01",
+    "name": "重要度は 3 段階で、既存の計測器は真ん中（B）になる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H02",
+    "name": "一覧を重要度で絞り込める（API）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H03",
+    "name": "校正期限は「前回校正日 + 周期」の月の末日",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H04",
+    "name": "期限の 30 日前から知らせる（31 日前は知らせない）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H05",
+    "name": "「今日」は日本時間で判断する",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H06",
+    "name": "重要度が最も高いもの（A）だけを知らせる（B・C は知らせない）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H07",
+    "name": "校正中・使用停止・廃棄・不合格で使用停止になったものには知らせない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H08",
+    "name": "貸出中なら、管理者に加えて借りている人にも知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H09",
+    "name": "同じ期限について、期限が近いお知らせは 1 回だけ",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H10",
+    "name": "校正記録で期限が変わったら、新しい期限について改めて知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H11",
+    "name": "期限を過ぎたら「期限切れ」を 1 回だけ知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H12",
+    "name": "管理者が無効（退職など）なら、管理者の部署の代表者に知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H13",
+    "name": "定期実行は運用の cron から API を呼ぶ形（JOBS_TOKEN で認証し、アプリの中で定期実行しない）",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "f1_seconds": 34,
+  "f2": [
+   {
+    "id": "P01",
+    "name": "予約を作れて、一覧で誰が・いつからいつまでかが読める",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K01",
+    "name": "過去の日からは予約できず、今日からはできる。終了日が開始日より前は不可",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K02",
+    "name": "期間が 1 日でも重なる予約はできない（端の日が同じでも）。隣り合う期間はできる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K03",
+    "name": "取り消した予約は枠を空ける",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K04",
+    "name": "貸出中の計測器は、返却予定日までと重なる予約はできず、翌日からはできる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K05",
+    "name": "他人の予約の期間にかかる貸出はしない。予約した本人には予約の期間に貸し出せる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K06",
+    "name": "使用停止・廃棄の計測器は予約できない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K07",
+    "name": "取り消せるのは予約した本人と計測器の管理者で、ほかの人はできない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K08",
+    "name": "校正で不合格になり使用停止になったら、これからの予約は取り消しになる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "K09",
+    "name": "校正期限を過ぎる日は予約できない（期限当日まではできる）",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "f2_seconds": 1
+ },
+ "metrics": {
+  "files": 34,
+  "lines": 2007,
+  "size": {
+   "maxFileLines": 238,
+   "filesOver300": [],
+   "largest": [
+    {
+     "file": "src/lib/instruments.ts",
+     "lines": 238
+    },
+    {
+     "file": "src/lib/reservations.ts",
+     "lines": 178
+    },
+    {
+     "file": "src/app/instruments/[id]/page.tsx",
+     "lines": 142
+    },
+    {
+     "file": "src/lib/db/migrations.ts",
+     "lines": 130
+    },
+    {
+     "file": "src/lib/calibrations.ts",
+     "lines": 128
+    }
+   ],
+   "maxFunctionLines": 127
+  },
+  "complexity": {
+   "functions": 121,
+   "mean": 3.27,
+   "p90": 7,
+   "max": 37,
+   "over10": 3,
+   "worst": [
+    {
+     "file": "src/lib/instruments.ts",
+     "name": "validateInstrumentInput",
+     "line": 127,
+     "lines": 62,
+     "complexity": 37
+    },
+    {
+     "file": "src/lib/calibrations.ts",
+     "name": "validateCalibrationInput",
+     "line": 61,
+     "lines": 24,
+     "complexity": 14
+    },
+    {
+     "file": "src/lib/notify-client.ts",
+     "name": "send",
+     "line": 58,
+     "lines": 39,
+     "complexity": 14
+    },
+    {
+     "file": "src/app/api/instruments/[id]/route.ts",
+     "name": "PATCH",
+     "line": 18,
+     "lines": 17,
+     "complexity": 10
+    },
+    {
+     "file": "src/app/instruments/[id]/page.tsx",
+     "name": "InstrumentDetailPage",
+     "line": 15,
+     "lines": 127,
+     "complexity": 10
+    },
+    {
+     "file": "src/lib/reservations.ts",
+     "name": "validateReservationInput",
+     "line": 95,
+     "lines": 16,
+     "complexity": 10
+    },
+    {
+     "file": "src/app/api/login/route.ts",
+     "name": "POST",
+     "line": 8,
+     "lines": 35,
+     "complexity": 9
+    },
+    {
+     "file": "src/app/api/instruments/[id]/loans/route.ts",
+     "name": "POST",
+     "line": 17,
+     "lines": 15,
+     "complexity": 8
+    }
+   ]
+  },
+  "duplication": {
+   "clones": 10,
+   "duplicatedLines": 69,
+   "lines": 2072,
+   "percentage": 3.33,
+   "examples": [
+    "src/app/api/instruments/[id]/loans/[loanId]/return/route.ts:7 = src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts:7 (8 行)",
+    "src/app/api/instruments/[id]/reservations/route.ts:25 = src/app/api/instruments/[id]/reservations/route.ts:10 (6 行)",
+    "src/app/api/instruments/[id]/loans/route.ts:5 = src/app/api/instruments/[id]/reservations/route.ts:6 (10 行)",
+    "src/app/api/instruments/[id]/loans/route.ts:17 = src/app/api/instruments/[id]/reservations/route.ts:25 (6 行)",
+    "src/app/api/instruments/[id]/calibrations/route.ts:6 = src/app/api/instruments/[id]/reservations/route.ts:6 (10 行)",
+    "src/app/api/instruments/[id]/calibrations/route.ts:15 = src/app/api/instruments/[id]/loans/route.ts:14 (9 行)",
+    "src/app/api/instruments/[id]/route.ts:5 = src/app/api/instruments/[id]/loans/route.ts:5 (9 行)",
+    "src/lib/loans.ts:58 = src/lib/reservations.ts:95 (7 行)",
+    "src/lib/instruments.ts:131 = src/lib/reservations.ts:95 (7 行)",
+    "src/lib/calibrations.ts:61 = src/lib/reservations.ts:95 (7 行)"
+   ]
+  },
+  "lint": {
+   "warnings": 6,
+   "errors": 0,
+   "byRule": {
+    "complexity": 5,
+    "max-lines-per-function": 1
+   }
+  },
+  "tests": {
+   "files": 10,
+   "cases": 61
+  }
+ },
+ "mutation": {
+  "baseline_tests_pass": true,
+  "baseline_fails": 0,
+  "baseline_log": "",
+  "mutants": 60,
+  "killed": 48,
+  "kill_rate": 0.8,
+  "files": [
+   "src/lib/calibration-due.ts",
+   "src/lib/calibration-reminders.ts",
+   "src/lib/db/migrations.ts",
+   "src/lib/instruments.ts",
+   "src/lib/loans.ts",
+   "src/lib/notify-client.ts",
+   "src/lib/reservations.ts"
+  ],
+  "survivors": [
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 20,
+    "old": "1000",
+    "new": "1001",
+    "snippet": "const STALE_CLAIM_MS = 10 * 60 * 1000;"
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 109,
+    "old": ".trim()",
+    "new": "",
+    "snippet": ").run(result.attempts, `${result.status ?? \"\"} ${result.error}`.trim(), key);"
+   },
+   {
+    "file": "src/lib/db/migrations.ts",
+    "line": 112,
+    "old": "6",
+    "new": "7",
+    "snippet": "version: 6,"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 11,
+    "old": "false",
+    "new": "true",
+    "snippet": "| { ok: false; retryable: boolean; status?: number; error: string; attempts: number };"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 32,
+    "old": ".trim()",
+    "new": "",
+    "snippet": "if (/^\\d+$/.test(value.trim())) return Number(value.trim()) * 1000;"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 49,
+    "old": "500",
+    "new": "501",
+    "snippet": "baseDelayMs = 500,"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 59,
+    "old": "0",
+    "new": "1",
+    "snippet": "let last: SendResult = { ok: false, retryable: true, error: \"未送信\", attempts: 0 };"
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 77,
+    "old": "200",
+    "new": "201",
+    "snippet": "const text = (await res.text().catch(() => \"\")).slice(0, 200);"
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 68,
+    "old": " AND ",
+    "new": " OR ",
+    "snippet": "const row = db.prepare(`SELECT ${COLUMNS} FROM reservations WHERE id = ? AND instrument_id = ?`).get(id, instrumentId) as"
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 96,
+    "old": "||",
+    "new": "&&",
+    "snippet": "if (typeof body !== \"object\" || body === null || Array.isArray(body)) {"
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 114,
+    "old": "false",
+    "new": "true",
+    "snippet": "| { ok: false; reason: \"not_found\" | \"not_reservable\" | \"past_due\" | \"on_loan\" | \"conflict\"; dueOn?: string };"
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 157,
+    "old": "false",
+    "new": "true",
+    "snippet": "if (!r || !instrument) return { ok: false, reason: \"not_found\" } as const;"
+   }
+  ],
+  "details": [
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 7,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 9,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 9,
+    "old": "10",
+    "new": "11",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 15,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-due.ts",
+    "line": 19,
+    "old": "30",
+    "new": "31",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 20,
+    "old": "10",
+    "new": "11",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 20,
+    "old": "1000",
+    "new": "1001",
+    "killed": false
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 30,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 41,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 53,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 58,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 75,
+    "old": " > ",
+    "new": " >= ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 84,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 84,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 85,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 89,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/calibration-reminders.ts",
+    "line": 109,
+    "old": ".trim()",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/db/migrations.ts",
+    "line": 112,
+    "old": "6",
+    "new": "7",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 93,
+    "old": " AND ",
+    "new": " OR ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 182,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/loans.ts",
+    "line": 80,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 11,
+    "old": "false",
+    "new": "true",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 32,
+    "old": ".trim()",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 34,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 39,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 49,
+    "old": "500",
+    "new": "501",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 59,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 60,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 75,
+    "old": "true",
+    "new": "false",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 77,
+    "old": "200",
+    "new": "201",
+    "killed": false
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 78,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 78,
+    "old": "500",
+    "new": "501",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 79,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 81,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 85,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 91,
+    "old": " < ",
+    "new": " <= ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 102,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/notify-client.ts",
+    "line": 102,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 68,
+    "old": " AND ",
+    "new": " OR ",
+    "killed": false
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 85,
+    "old": " AND ",
+    "new": " OR ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 86,
+    "old": " AND ",
+    "new": " OR ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 96,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 96,
+    "old": "||",
+    "new": "&&",
+    "killed": false
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 101,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 103,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 104,
+    "old": " < ",
+    "new": " <= ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 107,
+    "old": " > ",
+    "new": " >= ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 108,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 114,
+    "old": "false",
+    "new": "true",
+    "killed": false
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 126,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 127,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 128,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 134,
+    "old": " <= ",
+    "new": " < ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 134,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 140,
+    "old": "true",
+    "new": "false",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 157,
+    "old": "false",
+    "new": "true",
+    "killed": false
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 158,
+    "old": "!==",
+    "new": "===",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 158,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 159,
+    "old": "!==",
+    "new": "===",
+    "killed": true
+   },
+   {
+    "file": "src/lib/reservations.ts",
+    "line": 165,
+    "old": "true",
+    "new": "false",
+    "killed": true
+   }
+  ]
+ },
+ "points": {
+  "current": 1.0,
+  "all": 1.0,
+  "passed": {
+   "base:B01": true,
+   "base:B02": true,
+   "f1:P01": true,
+   "f1:P02": true,
+   "f1:H01": true,
+   "f1:H02": true,
+   "f1:H03": true,
+   "f1:H04": true,
+   "f1:H05": true,
+   "f1:H06": true,
+   "f1:H07": true,
+   "f1:H08": true,
+   "f1:H09": true,
+   "f1:H10": true,
+   "f1:H11": true,
+   "f1:H12": true,
+   "f1:H13": true,
+   "f2:P01": true,
+   "f2:K01": true,
+   "f2:K02": true,
+   "f2:K03": true,
+   "f2:K04": true,
+   "f2:K05": true,
+   "f2:K06": true,
+   "f2:K07": true,
+   "f2:K08": true,
+   "f2:K09": true
+  },
+  "mutation": 0.8
+ },
+ "adapter_drafted": false
+}
