@@ -29,6 +29,8 @@ import statistics
 import sys
 from pathlib import Path
 
+from supplement_report import GROUPS as SUPPLEMENT_GROUPS
+
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "docs" / "poc" / "results" / "workflow"
 
@@ -224,10 +226,13 @@ def compute(w, dir_=None):
         "rank_total": _ranking(cands, "total"), "rank_quality": _ranking(cands, "quality"),
         "rank_efficiency": _ranking(cands, "efficiency"),
     }
-    supp_scores = load_scores(dir_ / "supplement")
-    if supp_scores:
-        srows = [trial_row(w, s, base_cost, base_time) for s in supp_scores]
-        result["supplement"] = {"trials": srows, "candidates": candidate_rows(srows)}
+    # 補足の再試行（ディレクトリごとのまとまり。supplement_report.GROUPS）。本表の平均には混ぜない
+    for key, g in SUPPLEMENT_GROUPS.items():
+        supp_scores = load_scores(dir_ / key)
+        if supp_scores:
+            srows = [trial_row(w, s, base_cost, base_time) for s in supp_scores]
+            result.setdefault("supplements", []).append(
+                {"dir": key, "label": g["short"], "note": g["retry"], "trials": srows, "candidates": candidate_rows(srows)})
     return result
 
 
@@ -356,10 +361,10 @@ def md_section(w, dir_=None):
     if w in REFERENCE_ONLY:
         out += ["参考値（品質・効率に入れない）: " + "、".join(
             f"{LABEL.get(t['candidate'], t['candidate'])} #{t['run']} {k} {v}" for t in _sorted(r["trials"]) for k, v in t["reference"].items()), ""]
-    if "supplement" in r:
-        out += ["### 参考: Feature Dev の補足の再試行（新文言。本表の平均には含めない）", ""]
-        out += _cand_table_md(w, r["supplement"]["candidates"]) + [""]
-        out += _trial_table_md(w, r["supplement"]["trials"]) + [""]
+    for sp in r.get("supplements", []):
+        out += [f"### 参考: {sp['label']}（{sp['note']}。本表の平均には含めない）", ""]
+        out += _cand_table_md(w, sp["candidates"]) + [""]
+        out += _trial_table_md(w, sp["trials"]) + [""]
     out += ["### 計算方法と判断の記録", ""] + [f"- {x}" for x in _method_lines(w, r)] + [""]
     return out
 
@@ -387,10 +392,10 @@ def html_section(w, dir_=None):
     if w in REFERENCE_ONLY:
         parts.append("  <p><small>参考値（品質・効率に入れない）: " + e("、".join(
             f"{LABEL.get(t['candidate'], t['candidate'])} #{t['run']} {k} {v}" for t in _sorted(r["trials"]) for k, v in t["reference"].items())) + "</small></p>")
-    if "supplement" in r:
-        parts += ["  <h3>参考: Feature Dev の補足の再試行（新文言。本表の平均には含めない）</h3>",
-                  "  " + _md_table_to_html(_cand_table_md(w, r["supplement"]["candidates"])),
-                  "  " + _md_table_to_html(_trial_table_md(w, r["supplement"]["trials"]))]
+    for sp in r.get("supplements", []):
+        parts += [f"  <h3>参考: {e(sp['label'])}（{e(sp['note'])}。本表の平均には含めない）</h3>",
+                  "  " + _md_table_to_html(_cand_table_md(w, sp["candidates"])),
+                  "  " + _md_table_to_html(_trial_table_md(w, sp["trials"]))]
     parts += ["  <h3>計算方法と判断の記録</h3>",
               '  <div class="box"><ul>' + "".join(f"<li>{e(x)}</li>" for x in _method_lines(w, r)) + "</ul></div>"]
     return "\n".join(parts) + "\n"
@@ -470,16 +475,16 @@ def summary_md(all_):
         r = all_[w]
         lines += [f"- {x}" for x in conclusions(r)]
         lines += [f"- 詳細: [{w}/report.md]({w}/report.md) の「2 本立ての点数」", ""]
-        if "supplement" in r:
-            sc = r["supplement"]["candidates"][0]
-            lines += [f"- 参考（本表に含めない）: Feature Dev の補足の再試行（新文言 {sc['runs']} 回）は品質 {sc['quality']}・効率 {sc['efficiency']}・総合点 {sc['total']}。", ""]
+        for sp in r.get("supplements", []):
+            sc = sp["candidates"][0]
+            lines += [f"- 参考（本表に含めない）: {sp['label']}（{sp['note']} {sc['runs']} 回）は品質 {sc['quality']}・効率 {sc['efficiency']}・総合点 {sc['total']}。", ""]
 
     lines += ["## 判断の記録", "",
               "- 費用・時間の基準は各 W の baseline（1 回のみ。2 回以上あれば平均）。時間は壁時計の時間（elapsed_seconds）で、従来の採点と同じ。",
               "- W3 の費用は候補のセッションの費用だけで、回答役（answer_w3.py）の費用は含めない（質問を効率から引かない方針に合わせるため）。",
               "- W1 は介入の仕組み（定型の「お任せします」で続けさせる）を導入する前に実施したため、効率は 費用 60 + 時間 40 で計算した。W1 の質問回数は記録が無いため「—」。",
               "- 「品質に差なし」の判定: 最高品質の候補との差が、両者それぞれの 2 回の差の大きい方以下なら差なし。baseline は 1 回だけなので、ばらつきは相手の候補の値を使う。",
-              "- W1・W2 の Feature Dev 補足の再試行（新文言）は参考値として各 report の別表に出し、本表の平均には混ぜない。",
+              "- W1・W2 の Feature Dev 補足の再試行（新文言）と、W1 の Compound Engineering 補足の再試行（/ce-work 入口）は参考値として各 report の別表に出し、本表の平均には混ぜない。",
               "- W14・W15 は 5 条件 × 2 回（baseline も 2 回）で、全条件の作業用コピーの CLAUDE.md に汎用の開発標準を足した。baseline-conventions は使わない（2026-11-10 コーディネーターの連絡）。両 W とも、試行の後に採点の誤検出を直して全試行に当て直した（各 report の判断の記録）。",
               "- W11（実在する OSS の課題）は課題ごとの採点で、この一覧の形（候補 × 2 回の品質・効率）に合わないため載せていない（[W11/report.md](W11/report.md)）。",
               "- W7 は W7b の費用・時間で効率を計算する（W7a 比は参考値）。W4・W6〜W8 の品質の内訳キーは採点スクリプトの作成時に `two_axis.py` の QUALITY に合わせるか、scores.json に `two_axis_quality` を書く。",
@@ -607,9 +612,9 @@ def main(argv):
                   f"  cost×{c['cost_ratio']} time×{c['time_ratio']} int={c['interventions']} q#={c['questions']}")
         for x in conclusions(r):
             print("   ", x)
-        if "supplement" in r:
-            for c in r["supplement"]["candidates"]:
-                print(f"  [supplement] {c['candidate']} q={c['quality']} eff={c['efficiency']} total={c['total']}")
+        for sp in r.get("supplements", []):
+            for c in sp["candidates"]:
+                print(f"  [{sp['dir']}] {c['candidate']} q={c['quality']} eff={c['efficiency']} total={c['total']}")
     if not check:
         write_summary(load_all())
 

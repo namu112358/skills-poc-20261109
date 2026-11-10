@@ -7,6 +7,7 @@
   --cleanup-only: 採点せずに作業用コピーだけを片付ける（ブラインドレビューなどが済んだ後に使う）
   どちらも付けなければ作業用コピーは残す（従来どおり）。
   --supplement:   結果を results/workflow/<シナリオ>/supplement/<試行ID>.json に書く（元の試行と混ぜない補足の再試行用）
+  --supplement-dir=<名前>: 同じく、supplement/ の代わりに <名前>/ に書く（例: supplement-ce-work）
 """
 import json
 import os
@@ -30,7 +31,9 @@ APP = WORK / "app"
 # W7a の作業用コピー・試行 ID への参照は自分の試行の一部として扱い、他の試行への参照とは分けて数える。
 CONTINUED_FROM = (RAW / "continued-from").read_text().strip() if (RAW / "continued-from").exists() else ""
 TRIAL_ID = re.compile(r"\bW\d+[a-z]?-(?:baseline(?:-conventions)?|superpowers|feature-dev|compound-engineering|gstack)-\d+\b")
-OUT = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO / ("supplement" if "--supplement" in FLAGS else "") / f"{TRIAL}.json"
+# --supplement-dir=<名前>: 補足の再試行の置き場所を supplement/ 以外にする（例: supplement-ce-work。--supplement を含む）
+SUPP_DIR = next((f.split("=", 1)[1] for f in FLAGS if f.startswith("--supplement-dir=")), "supplement" if "--supplement" in FLAGS else "")
+OUT = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO / SUPP_DIR / f"{TRIAL}.json"
 
 # 候補が作る管理用ファイル（コード量の集計から除く。過剰さの判定では別に数える）
 TOOL_ARTIFACT = re.compile(r"^(docs/(plans|solutions|superpowers|specs)/|\.compound-engineering/|\.claude/)")

@@ -13,6 +13,7 @@
 
 --supplement: 補足の再試行（supplement/W1-*.json）を採点して supplement/scores.json に書く。
   費用・時間の基準（最安・最速）は元の試行の値に固定し（それより安い・速い場合は 15 点で頭打ち）、元の scores.json は変えない。
+--supplement-dir=<名前>: 同じく、supplement/ の代わりに <名前>/ の再試行を採点する（例: supplement-ce-work）。
 """
 import sys
 import json
@@ -85,9 +86,11 @@ def main():
     min_cost = min(t["transcript"]["cost_usd"] for t in trials)
     min_time = min(t["elapsed_seconds"] for t in trials)
     out = DIR
-    if "--supplement" in sys.argv[1:]:
-        trials, review = load(SUPP)
-        out = SUPP
+    supp_dir = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--supplement-dir=")), None)
+    if supp_dir or "--supplement" in sys.argv[1:]:
+        supp = DIR / supp_dir if supp_dir else SUPP
+        trials, review = load(supp)
+        out = supp
     scores = [score(t, min_cost, min_time, review) for t in trials]
     (out / "scores.json").write_text(json.dumps(scores, ensure_ascii=False, indent=2) + "\n")
     for s in scores:

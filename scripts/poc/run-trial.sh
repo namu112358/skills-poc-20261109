@@ -355,6 +355,14 @@ POST_STEPS=()
 if [[ "$SCENARIO" == W4 && "$CAND" == gstack ]]; then
   STEPS=("/autoplan $TASK" "計画に沿って実装し、変更を git にコミットしてください。" "/review")
 fi
+# Compound Engineering の入口の切り替え（W1 の補足の再試行で追加。2026-11-10）。
+#   POC_CE_ENTRY=work: /ce-plan を通さず、/ce-work <課題> → /ce-code-review にする（小さな作業で計画書を作らない入口）。
+#   既定（空）は従来の手順のまま。使った入口は raw/<ID>/ce-entry に記録する。
+if [[ -n "${POC_CE_ENTRY:-}" ]]; then
+  [[ "$CAND" == compound-engineering && "$POC_CE_ENTRY" == work ]] || { echo "POC_CE_ENTRY は compound-engineering で work のときだけ使える: $POC_CE_ENTRY ($CAND)" >&2; exit 1; }
+  STEPS=("/ce-work $TASK" "/ce-code-review")
+  echo work > "$OUT/ce-entry"
+fi
 if [[ "$SCENARIO" == W6 ]]; then
   # W6 の手順（docs/poc/tasks/wf-procedures.md）。PR はリモートが無いので PR.md に書かせる（課題文に明記）。
   PR_STEP="PR を作成してください（課題文の「確認と PR」のとおり、PR のタイトルと本文を PR.md に書いてコミットします）。"

@@ -1,6 +1,9 @@
-"""W1・W2 のレポートに「補足: 新文言での Feature Dev 再試行」の節を足す（report_w1.py・report_w2.py から使う）。
+"""W1・W2 のレポートに補足の再試行の節を足す（report_w1.py・report_w2.py から使う）。
 
-データは results/workflow/<W>/supplement/ にある。
+補足の再試行は、ディレクトリごとに 1 つのまとまり（GROUPS）で、それぞれ別の節になる。
+  - supplement/: 新文言での Feature Dev 再試行（W1・W2）
+  - supplement-ce-work/: /ce-work 入口での Compound Engineering 再試行（W1。2026-11-10 追加）
+データは results/workflow/<W>/<ディレクトリ>/ にある。
   - scores.json: score_w1.py / score_w2.py の --supplement で作る再試行の点数（元の scores.json とは別）
   - <試行ID>.json: grade.py --supplement の採点結果
   - notes.json: 文章（summary・trials・decisions・isolation）
@@ -11,7 +14,23 @@ import json
 import statistics
 from pathlib import Path
 
-TITLE = "補足: 新文言での Feature Dev 再試行"
+# 補足の再試行のまとまり（ディレクトリ名 → 見出し・比べる元の候補・行の見出し）
+GROUPS = {
+    "supplement": {
+        "title": "補足: 新文言での Feature Dev 再試行",
+        "short": "Feature Dev の補足の再試行",
+        "candidate": "feature-dev",
+        "orig_label": "元の Feature Dev（旧文言 #1・#2 の平均）",
+        "retry": "新文言",
+    },
+    "supplement-ce-work": {
+        "title": "補足: /ce-work 入口での Compound Engineering 再試行",
+        "short": "Compound Engineering の補足の再試行",
+        "candidate": "compound-engineering",
+        "orig_label": "元の Compound Engineering（/ce-plan 入口 #1・#2 の平均）",
+        "retry": "/ce-work 入口",
+    },
+}
 
 # W ごとの内訳の列（キー、見出し、満点）
 PARTS = {
@@ -24,8 +43,8 @@ def e(s):
     return html.escape(str(s))
 
 
-def load(dir_):
-    sdir = Path(dir_) / "supplement"
+def load(dir_, group="supplement"):
+    sdir = Path(dir_) / group
     if not (sdir / "scores.json").exists() or not (sdir / "notes.json").exists():
         return None
     data = json.loads((sdir / "scores.json").read_text())
@@ -43,8 +62,8 @@ def _subagents(trial):
     return f"{trial['transcript']['subagents']}（{detail}）"
 
 
-def _rows(w, original, supp):
-    """表の行（dict のリスト）。元の Feature Dev 2 回の平均、再試行ごと、再試行の平均の順。"""
+def _rows(w, original, supp, g):
+    """表の行（dict のリスト）。元の候補 2 回の平均、再試行ごと、再試行の平均の順。"""
     parts = PARTS[w]
 
     def row(label, ss, subagents, skills, avg=False):
@@ -58,29 +77,33 @@ def _rows(w, original, supp):
         r["avg"] = avg
         return r
 
-    orig = [s for s in original if s["candidate"] == "feature-dev"]
-    rows = [row("元の Feature Dev（旧文言 #1・#2 の平均）", orig,
+    orig = [s for s in original if s["candidate"] == g["candidate"]]
+    rows = [row(g["orig_label"], orig,
                 f"{statistics.mean(s['facts']['subagents'] for s in orig):g}",
                 ", ".join(sorted({k for s in orig for k in s["facts"]["skills_used"]})) or "—", avg=True)]
     for s in supp["scores"]:
         t = supp["trials"][s["trial"]]
-        rows.append(row(f"新文言 #{s['run']}", [s], _subagents(t), ", ".join(s["facts"]["skills_used"]) or "—"))
+        rows.append(row(f"{g['retry']} #{s['run']}", [s], _subagents(t), ", ".join(s["facts"]["skills_used"]) or "—"))
     ss = supp["scores"]
-    rows.append(row(f"新文言の平均（{len(ss)} 回）", ss,
+    rows.append(row(f"{g['retry']}の平均（{len(ss)} 回）", ss,
                     f"{statistics.mean(s['facts']['subagents'] for s in ss):g}",
                     ", ".join(sorted({k for s in ss for k in s["facts"]["skills_used"]})) or "—", avg=True))
     return rows
 
 
 def html_section(w, original, dir_):
-    supp = load(dir_)
+    return "".join(_html_group(w, original, dir_, k, g) for k, g in GROUPS.items())
+
+
+def _html_group(w, original, dir_, key, g):
+    supp = load(dir_, key)
     if not supp:
         return ""
     parts = PARTS[w]
     n = supp["notes"]
     head = "".join(f"<th>{e(h)} / {m}</th>" for _, h, m in parts)
     body = []
-    for r in _rows(w, original, supp):
+    for r in _rows(w, original, supp, g):
         cells = "".join(f'<td class="num">{r[k]}</td>' for k, _, _ in parts)
         tag = "strong" if r["avg"] else "span"
         body.append(f"""
@@ -93,9 +116,9 @@ def html_section(w, original, dir_):
           <td>{e(r['skills'])}</td>
         </tr>""")
     trials = "".join(
-        f"<li><strong>新文言 #{s['run']}</strong>（{s['total']} 点）: {n['trials'].get(s['trial'], '')}</li>" for s in supp["scores"])
+        f"<li><strong>{e(g['retry'])} #{s['run']}</strong>（{s['total']} 点）: {n['trials'].get(s['trial'], '')}</li>" for s in supp["scores"])
     return f"""
-  <h2>{e(TITLE)}</h2>
+  <h2>{e(g['title'])}</h2>
   <div class="box">{''.join(f'<p>{x}</p>' for x in n['summary'])}</div>
   <div class="table-wrap" style="margin-top:12px">
     <table>
@@ -114,22 +137,31 @@ def html_section(w, original, dir_):
 
 
 def md_section(w, original, dir_, md, cell):
-    supp = load(dir_)
+    out = []
+    for k, g in GROUPS.items():
+        sec = _md_group(w, original, dir_, md, cell, k, g)
+        if sec:
+            out += sec
+    return out
+
+
+def _md_group(w, original, dir_, md, cell, key, g):
+    supp = load(dir_, key)
     if not supp:
         return []
     parts = PARTS[w]
     n = supp["notes"]
-    out = [f"## {TITLE}", ""] + [md(x) + "\n" for x in n["summary"]]
+    out = [f"## {g['title']}", ""] + [md(x) + "\n" for x in n["summary"]]
     out += ["| 試行 | 点数 | " + " | ".join(f"{h} / {m}" for _, h, m in parts) + " | 費用 | 時間（分） | サブエージェント | 使われた Skill |",
             "|---|---:|" + "---:|" * len(parts) + "---:|---:|---|---|"]
-    for r in _rows(w, original, supp):
+    for r in _rows(w, original, supp, g):
         label = f"**{r['label']}**" if r["avg"] else r["label"]
         out.append(f"| {label} | {r['total']} | " + " | ".join(str(r[k]) for k, _, _ in parts)
                    + f" | ${r['usd']:.2f} | {r['minutes']:.1f} | {cell(r['subagents'])} | {cell(r['skills'])} |")
     if n.get("table_note"):
         out += ["", md(n["table_note"])]
     out += ["", "### 試行ごとの様子", ""]
-    out += [f"- **新文言 #{s['run']}**（{s['total']} 点）: {md(n['trials'].get(s['trial'], ''))}" for s in supp["scores"]]
+    out += [f"- **{g['retry']} #{s['run']}**（{s['total']} 点）: {md(n['trials'].get(s['trial'], ''))}" for s in supp["scores"]]
     out += ["", "### 判断の記録（補足）", ""] + [f"- {md(x)}" for x in n["decisions"]]
     out += ["", "### 試行間の独立性の確認結果", "", md(n["isolation"]), ""]
     return out
