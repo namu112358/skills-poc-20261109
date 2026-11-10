@@ -35,6 +35,14 @@ if [[ "$SCENARIO" =~ ^W7([b-z])$ ]]; then
 fi
 APP="$WORK/app"
 HOME_DIR="$WORK/home"
+# 依頼者役（ask-po と、メッセージでの質問への回答）を使う試行: W12 と、POC_PERSONA_SHEET（回答シート）を指定した試行
+#（W13 以降で使う。使い方は docs/poc/tasks/wf-W12-design.md §9）。W12 の回答シートは answer-key/W12/persona.md
+PERSONA=""
+if [[ "$SCENARIO" == W12 || -n "${POC_PERSONA_SHEET:-}" ]]; then
+  PERSONA=1
+  export POC_PERSONA_SHEET="${POC_PERSONA_SHEET:-$ROOT/docs/poc/answer-key/W12/persona.md}"
+  [[ "$SCENARIO" != W12 && -z "${POC_PERSONA_TASK:-}" ]] && export POC_PERSONA_TASK="$(cat "$ROOT/docs/poc/tasks/wf-$SCENARIO.md")"
+fi
 OUT="$ROOT/docs/poc/results/workflow/raw/$ID"
 
 if [[ -n "$CONTINUE_FROM" ]]; then
@@ -250,9 +258,9 @@ if [[ "$SCN_NUM" -ge 6 && "$SCN_NUM" != 7 && "$SCN_NUM" != 11 ]]; then
   # 子セッションが起動したサーバー・ブラウザが試行後に残らないよう、終了時にも止める（reap_servers は下で定義）
   trap 'declare -F reap_servers >/dev/null && reap_servers end' EXIT
 fi
-# W12: 依頼者への質問コマンド ask-po を作業用コピーの外（$WORK/bin）に置き、子セッションの PATH に入れて実行を許可する
-#（2026-11-10 コーディネーター承認。CLAUDE.md の例外: 子セッションの許可リストの変更）。依頼者役は下で裏に起動する。
-if [[ "$SCENARIO" == W12 ]]; then
+# 依頼者役を使う試行（W12 など）: 依頼者への質問コマンド ask-po を作業用コピーの外（$WORK/bin）に置き、子セッションの PATH に入れて
+# 実行を許可する（2026-11-10 コーディネーター承認。CLAUDE.md の例外: 子セッションの許可リストの変更）。依頼者役は下で裏に起動する。
+if [[ -n "$PERSONA" ]]; then
   mkdir -p "$WORK/bin"
   cp "$ROOT/scripts/poc/ask-po" "$WORK/bin/ask-po"
   chmod +x "$WORK/bin/ask-po"
@@ -273,10 +281,13 @@ else
   SUFFIX_MODE="${POC_TASK_SUFFIX:-}"
   if [[ -z "$SUFFIX_MODE" ]]; then
     case "$SCENARIO" in W1|W2) SUFFIX_MODE=old ;; W12) SUFFIX_MODE=w12 ;; *) SUFFIX_MODE=new ;; esac
+    [[ -n "$PERSONA" && "$SCENARIO" != W12 ]] && SUFFIX_MODE=persona
   fi
   case "$SUFFIX_MODE" in
     # W12: 依頼者に質問できることを伝える（ask-po と、メッセージでの質問の両方）。工程を省かないことは新文言と同じ
     w12) SUFFIX="この作業は無人で実行しています。依頼者（品質保証部の担当者）に確認したいことがあれば、作業中いつでも ask-po \"<質問>\" コマンドで質問できます（依頼者が答えます。決まっていないことは「お任せします」と返ります）。作業の区切りで、最後のメッセージに依頼者への質問を書いても答えます。ツールの手順にある工程（調査・設計・レビューなど）は省かずに進めてください。作業が終わったら、変更内容を git にコミットしてください。" ;;
+    # 依頼者役を使う W12 以外の試行: W12 と同じ文言で、依頼者の役割だけを POC_PERSONA_ROLE で変える
+    persona) SUFFIX="この作業は無人で実行しています。依頼者（${POC_PERSONA_ROLE:-依頼者}）に確認したいことがあれば、作業中いつでも ask-po \"<質問>\" コマンドで質問できます（依頼者が答えます。決まっていないことは「お任せします」と返ります）。作業の区切りで、最後のメッセージに依頼者への質問を書いても答えます。ツールの手順にある工程（調査・設計・レビューなど）は省かずに進めてください。作業が終わったら、変更内容を git にコミットしてください。" ;;
     old) SUFFIX="この作業は無人で実行しています。確認の質問には答えられないので、課題文に書かれていないことはお任せします。作業が終わったら、変更内容を git にコミットしてください。" ;;
     new) SUFFIX="この作業は無人で実行しています。確認の質問には答えられないので、課題文に書かれていないことの判断はお任せしますが、ツールの手順にある工程（調査・設計・レビューなど）は省かずに進めてください。作業が終わったら、変更内容を git にコミットしてください。" ;;
     *) echo "POC_TASK_SUFFIX は old・new・w12 のいずれか: $SUFFIX_MODE" >&2; exit 1 ;;
@@ -304,7 +315,7 @@ else
     gstack) STEPS=("$TASK" "/review") ;;
   esac
   # W12: 質問はメッセージ本文か ask-po で受ける。質問ツールは無人では答えられないので外す（W3 と同じ）
-  [[ "$SCENARIO" == W12 ]] && EXTRA=(--disallowedTools AskUserQuestion)
+  [[ -n "$PERSONA" ]] && EXTRA=(--disallowedTools AskUserQuestion)
 fi
 # W7a の後の手順（Compound Engineering は学んだことを残す /ce-compound。落とし穴の指摘のやり取りが終わってから行う）
 POST_STEPS=()
@@ -503,18 +514,18 @@ run_step() {  # run_step <番号> <プロンプト>
 }
 
 qa_answer() {  # qa_answer <ステップ> <通し番号>: 回答役に答えさせ、回答文を出す（質問が無ければ何も出さない）
-  if [[ "$SCENARIO" == W12 ]]; then
+  if [[ -n "$PERSONA" ]]; then
     POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_w12.py" message "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$1" "$2"
   else
     POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_w3.py" "$OUT" "$1" "$2"
   fi
 }
 qa_loop() {  # W3・W12: 直前のステップの最後のメッセージに質問があれば、回答役の回答で続ける（上限 MAX_QA 回）
-  [[ "$SCENARIO" == W3 || "$SCENARIO" == W12 ]] || return 0
+  [[ "$SCENARIO" == W3 || -n "$PERSONA" ]] || return 0
   local reply
   while :; do
     # W12 は上限に達したら答えるのをやめる（締め切りの定型文は送らない。続きは介入の定型文で進める）
-    [[ "$SCENARIO" == W12 && "$QA" -ge "$MAX_QA" ]] && { echo "qa limit $MAX_QA reached" >> "$OUT/errors.log"; return 0; }
+    [[ -n "$PERSONA" && "$QA" -ge "$MAX_QA" ]] && { echo "qa limit $MAX_QA reached" >> "$OUT/errors.log"; return 0; }
     if [[ "$QA" -ge "$MAX_QA" ]]; then
       # 上限に達した後も質問が続くときは、締め切りの定型文を 1 回だけ送る（qa-closed.log に記録）
       if [[ ! -s "$OUT/qa-closed.log" ]] && ! over_budget; then
@@ -534,9 +545,9 @@ qa_loop() {  # W3・W12: 直前のステップの最後のメッセージに質�
   done
 }
 
-# W12: 依頼者役（ask-po の受け口）を裏で起動する。試行の終わりに止める
+# 依頼者役（ask-po の受け口）を裏で起動する。試行の終わりに止める
 PO_PID=""
-if [[ "$SCENARIO" == W12 ]]; then
+if [[ -n "$PERSONA" ]]; then
   mkdir -p "$WORK/answerer-home"
   POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_w12.py" serve "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$WORK/po.sock" \
     >> "$OUT/persona.log" 2>&1 &

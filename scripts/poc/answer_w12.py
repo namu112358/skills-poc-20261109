@@ -22,9 +22,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SHEET = ROOT / "docs" / "poc" / "answer-key" / "W12" / "persona.md"
+# 回答シート・依頼文・アプリの名前は環境変数で変えられる（W13 以降で使う。既定は W12。run-trial.sh が渡す）
+SHEET = Path(os.environ.get("POC_PERSONA_SHEET") or ROOT / "docs" / "poc" / "answer-key" / "W12" / "persona.md")
 MODEL = os.environ.get("POC_ANSWER_MODEL", os.environ.get("POC_MODEL", "claude-sonnet-5-5"))
-TASK = "計測器に重要度を付けられるようにして、重要度が高い計測器の校正期限が近づいたら、管理者に社内の通知サービスで知らせてほしい。"
+TASK = (os.environ.get("POC_PERSONA_TASK") or
+        "計測器に重要度を付けられるようにして、重要度が高い計測器の校正期限が近づいたら、管理者に社内の通知サービスで知らせてほしい。").strip()
+APP_NAME = os.environ.get("POC_PERSONA_APP") or "計測器 校正台帳"
 LOCK = threading.Lock()
 
 SCHEMA = {
@@ -52,7 +55,7 @@ SCHEMA = {
     "required": ["has_questions", "items", "reply"],
 }
 
-SYSTEM = f"""あなたは、社内の「計測器 校正台帳」アプリの改善を依頼した「依頼者」の役です。
+SYSTEM = f"""あなたは、社内の「{APP_NAME}」アプリの改善を依頼した「依頼者」の役です。
 依頼文は「{TASK}」だけです。
 開発を担当する AI から届いた質問・メッセージを読み、依頼者への質問・確認があれば、下の回答シートだけを根拠に答えます。
 

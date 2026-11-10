@@ -162,3 +162,18 @@ README から、答えに関わる事実を誤って書く 2 行（「校正周�
 | 最短で動くだけ（`shortest.patch` を乱れた初期状態に当てたもの） | 9.7 | 0 | 5.5（4/11） | 2.0 | 1.7 | 0 | **18.8** |
 
 きれいな初期状態と同じ点数に分かれ、アダプターなど採点の仕組みも変わらず動いた。乱れた初期状態では、古い `log()` を使って新しいコードを書くと、運用の O1（既存の logger を使う）が 0 になり、O2（JSON のログ）も落ちる。
+
+## 9. 他の W（W13〜W17）から使うとき
+
+W12 で作った次の仕組みは、W12 以外のシナリオからも使える（W12 の既定の動作は変えていない）。
+
+| 仕組み | 場所 | 使い方 |
+|---|---|---|
+| 初期状態（校正台帳） | `docs/poc/answer-key/W12/base.patch`（乱れた版は、その上に `base-messy.patch`） | `POC_INJECT_PATCH=<base.patch>[:<追加のパッチ>]` で、作業用コピーにだけ当てる（W12 は既定で当たる）。旧スキーマとデータの DB は `old-db.sql`（version 4） |
+| 依頼者役（ペルソナ） | `scripts/poc/answer_w12.py`（serve: ask-po の受け口、message: メッセージの質問への回答） | `run-trial.sh` に `POC_PERSONA_SHEET=<回答シート>` を渡すと、W12 以外でも有効になる。依頼文は `docs/poc/tasks/wf-<シナリオ>.md`（`POC_PERSONA_TASK` で上書き可）、アプリの名前は `POC_PERSONA_APP`（既定「計測器 校正台帳」）、課題文の末尾の依頼者の役割は `POC_PERSONA_ROLE`。回答シートは W12 の `persona.md` と同じ形（回答のルール・Q・O・D・範囲の外）で書き、作業用コピーには置かない |
+| 質問コマンド | `scripts/poc/ask-po` | 依頼者役を使う試行では、`run-trial.sh` が `$WORK/bin` に置いて `PATH` に入れ、`Bash(ask-po:*)` を許可する。`AskUserQuestion` は外す |
+| 質問の記録 | `raw/<試行ID>/po-questions.jsonl` | 経路・時刻・実装前か・項目の分類とシートの ID・回答・依頼者役の費用。集計は `score_w12.py` の `questions()` |
+| 偽の時計・偽の通知サービス | `answer-key/W12/fake-clock.cjs`・`fake-notify.cjs` | 時計はファイル（`POC_FAKE_NOW_FILE`）に書いた時刻から進む。通知サービスは送り先ごとの台本で失敗を混ぜる |
+| 汎用の開発標準 | `docs/poc/standards/generic-dev-standard.md` | `POC_STANDARD=generic`（今は W12 のときだけ働く。W13 以降で使うときは `run-trial.sh` の条件を広げる） |
+| 試行のモデル | `POC_MODEL` | 試行する側のモデル。依頼者役は `POC_ANSWER_MODEL` で固定する（既定は `POC_MODEL` と同じになるため、Haiku などで試すときは明示する） |
+| 追加条件の流し方 | `scripts/poc/w12_cond_driver.sh <回1> <回2>` | 5 条件 × 2 回を、前半・後半を逆順に 2 本並列。条件は環境変数で渡す（W12 専用の採点 `run_w12_trials.sh` を呼ぶので、W13 以降は同じ形の採点スクリプトを用意する） |
