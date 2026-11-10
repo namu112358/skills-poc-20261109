@@ -6,8 +6,10 @@ const { harness, assert, jst } = require("./lib.cjs");
   const h = harness(process.argv[2], "RB");
   const { check } = h;
   const sato = await h.login("sato");
-  await h.setNow(jst("2027-03-10"));
-  const mk = (managerId) => h.instrument(sato, { managerId, last: "2026-03-31" }); // 期限 2027-03-31（21 日後）
+  // 期限の計算や「近づいた」の日数が候補ごとに違っても対象になるよう、どの決め方でも期限の直前になる日にする
+  //（前回 2026-03-30・周期 12 か月 → 月末なら 2027-03-31、月末にしなければ 2027-03-30。今日は 2027-03-28）
+  await h.setNow(jst("2027-03-28"));
+  const mk = (managerId) => h.instrument(sato, { managerId, last: "2026-03-30" });
   const I = {
     retry: await mk("kato"), backoff: await mk("ito"), retryAfter: await mk("watanabe"), cap: await mk("kobayashi"),
     bad: await mk("yoshida"), hang: await mk("matsumoto"), lost: await mk("hayashi"), control: await mk("shimizu"),
@@ -77,7 +79,7 @@ const { harness, assert, jst } = require("./lib.cjs");
 
   // 2 回目の実行（翌日）。失敗し続けた送り先を直す
   await h.script("kobayashi", [], true);
-  await h.setNow(jst("2027-03-11"));
+  await h.setNow(jst("2027-03-29"));
   const run2 = await h.runJob();
 
   await check("R07", "受け付けられたのに応答が返らなかったお知らせを、再試行で二重に届けない", async () => {
@@ -95,9 +97,9 @@ const { harness, assert, jst } = require("./lib.cjs");
   await check("R10", "通知サービスが落ちていても、台帳の更新・校正記録の登録は失敗しない", async () => {
     await h.mode(true);
     try {
-      const inst = await h.instrument(sato, { managerId: "sato", last: "2026-03-31" });
+      const inst = await h.instrument(sato, { managerId: "sato", last: "2026-03-30" });
       const p = await h.call(sato, "PATCH", `/api/instruments/${inst.id}`, { location: "別の場所" });
-      const c = await h.call(sato, "POST", `/api/instruments/${inst.id}/calibrations`, { calibratedOn: "2027-03-10", result: "pass", agency: "x" });
+      const c = await h.call(sato, "POST", `/api/instruments/${inst.id}/calibrations`, { calibratedOn: "2027-03-28", result: "pass", agency: "x" });
       assert(p.status === 200 && c.status === 201, `更新 ${p.status}、校正記録 ${c.status}`);
     } finally {
       await h.mode(false);

@@ -475,13 +475,14 @@ def evaluate(app, base, work, override=None, mutation=True):
         out["adapter"] = adapter
         extra = {"W12_STATIC": json.dumps({"inProcessScheduler": static["inProcessScheduler"]})}
         logs = {}
-        out["public"], logs["public"], _ = suite(app, work, "public", "public.cjs", adapter, aliases)
-        out["hidden"], logs["hidden"], _ = suite(app, work, "hidden", "hidden.cjs", adapter, aliases, extra)
+        out["public"], logs["public"], pstate = suite(app, work, "public", "public.cjs", adapter, aliases)
+        out["hidden"], logs["hidden"], hstate = suite(app, work, "hidden", "hidden.cjs", adapter, aliases, extra)
         out["robust"], logs["robust"], rstate = suite(app, work, "robust", "robust.cjs", adapter, aliases)
         out["robust_requests"] = [{k: r.get(k) for k in ("t", "recipient", "key", "status", "action", "closedAt")} for r in rstate.get("requests", [])][:200]
         out["deliveries_sample"] = [{k: d.get(k) for k in ("recipient", "title", "body")} for d in rstate.get("deliveries", [])][:5]
         out["migration"] = migration_checks(app, work, adapter, aliases, static)
-        out["ops"] = ops_checks(static, logs, aliases, rstate)
+        all_requests = {"requests": [r for st in (pstate, hstate, rstate) for r in st.get("requests", [])]}
+        out["ops"] = ops_checks(static, logs, aliases, all_requests)
         for k, v in logs.items():
             (work / f"{k}.log.txt").write_text(v)
     else:

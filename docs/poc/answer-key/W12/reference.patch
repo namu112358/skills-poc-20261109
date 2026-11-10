@@ -610,13 +610,13 @@ index 0000000..8b276da
 +});
 diff --git a/tests/calibration-reminders.test.ts b/tests/calibration-reminders.test.ts
 new file mode 100644
-index 0000000..d849ff2
+index 0000000..f2c646e
 --- /dev/null
 +++ b/tests/calibration-reminders.test.ts
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,179 @@
 +import { describe, it } from "node:test";
 +import assert from "node:assert/strict";
-+import { recipientsFor, runCalibrationReminders } from "../src/lib/calibration-reminders.ts";
++import { managerRecipient, message, recipientsFor, runCalibrationReminders } from "../src/lib/calibration-reminders.ts";
 +import { recordCalibration } from "../src/lib/calibrations.ts";
 +import { openDb, type Db } from "../src/lib/db/index.ts";
 +import { createInstrument, updateInstrument, type InstrumentInput } from "../src/lib/instruments.ts";
@@ -751,6 +751,47 @@ index 0000000..d849ff2
 +    const inst = add(db);
 +    assert.equal(updateInstrument(inst.id, { location: "倉庫" }, db)?.importance, "A");
 +  });
++
++  it("skips inactive representatives and inactive borrowers", () => {
++    const db = fresh();
++    db.prepare("UPDATE users SET active = 0 WHERE id = 'yamada'").run();
++    assert.equal(managerRecipient("inoue", db), undefined);
++    assert.equal(managerRecipient("nobody", db), undefined);
++    assert.equal(managerRecipient("sato", db), "sato");
++    const inst = add(db, { managerId: "tanaka" });
++    lendInstrument(inst.id, { borrowerId: "matsumoto", dueOn: "2027-01-20" }, db);
++    db.prepare("UPDATE users SET active = 0 WHERE id = 'matsumoto'").run();
++    assert.deepEqual(recipientsFor({ ...inst, status: "on_loan" }, db), ["tanaka"]);
++  });
++
++  it("writes the due date and an overdue title", () => {
++    const db = fresh();
++    const inst = add(db, { location: "測定室" });
++    const soon = message(inst, "due_soon", "2027-01-31");
++    const over = message(inst, "overdue", "2027-01-31");
++    assert.match(soon.title, /2027-01-31/);
++    assert.doesNotMatch(soon.title, /期限切れ/);
++    assert.match(over.title, /期限切れ/);
++    assert.match(soon.body, /測定室/);
++    assert.match(over.body, /過ぎています/);
++  });
++
++  it("resends a notification left in the sending state for more than 10 minutes", async () => {
++    const db = fresh();
++    const inst = add(db);
++    const r = recorder();
++    await runCalibrationReminders(r.client, db, at("2027-01-10"));
++    db.prepare("UPDATE calibration_notifications SET status = 'sending', claimed_at = ?").run(new Date(at("2027-01-10").getTime() - 9 * 60_000).toISOString());
++    await runCalibrationReminders(r.client, db, at("2027-01-10"));
++    assert.equal(r.sent.length, 1);
++    db.prepare("UPDATE calibration_notifications SET claimed_at = ?").run(new Date(at("2027-01-10").getTime() - 11 * 60_000).toISOString());
++    const s = await runCalibrationReminders(r.client, db, at("2027-01-10"));
++    assert.equal(r.sent.length, 2);
++    assert.equal(s.sent, 1);
++    assert.match(r.sent[1].key, new RegExp(`-${inst.id}-`));
++    const row = db.prepare("SELECT status, attempts, last_error FROM calibration_notifications").get() as { status: string; attempts: number; last_error: string | null };
++    assert.deepEqual({ ...row }, { status: "sent", attempts: 2, last_error: null });
++  });
 +});
 diff --git a/tests/instruments.test.ts b/tests/instruments.test.ts
 index a3e24c1..f599ed5 100644
@@ -796,13 +837,13 @@ index a3e24c1..f599ed5 100644
 +});
 diff --git a/tests/notify-client.test.ts b/tests/notify-client.test.ts
 new file mode 100644
-index 0000000..4196d18
+index 0000000..9dc52d1
 --- /dev/null
 +++ b/tests/notify-client.test.ts
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,131 @@
 +import { describe, it } from "node:test";
 +import assert from "node:assert/strict";
-+import { backoffDelay, createNotifyClient, parseRetryAfter } from "../src/lib/notify-client.ts";
++import { backoffDelay, createNotifyClient, notifyClientFromEnv, parseRetryAfter } from "../src/lib/notify-client.ts";
 +
 +type Call = { url: string; headers: Record<string, string>; body: unknown };
 +
@@ -896,5 +937,38 @@ index 0000000..4196d18
 +    assert.equal(parseRetryAfter("Wed, 01 Jan 2031 00:00:10 GMT", Date.parse("2031-01-01T00:00:00Z")), 10000);
 +    assert.equal(parseRetryAfter(null), undefined);
 +    assert.equal(parseRetryAfter("soon"), undefined);
++  });
++});
++
++describe("notify client details", () => {
++  it("retries 500 but not other 4xx, and reports the status when the body is empty", async () => {
++    const r1 = client([new Response("", { status: 500 }), json(202)]);
++    assert.equal((await r1.c.send(N, "k6")).ok, true);
++    const r2 = client([new Response("", { status: 404 })]);
++    const res = await r2.c.send(N, "k7");
++    assert.deepEqual(res, { ok: false, retryable: false, status: 404, error: "HTTP 404", attempts: 1 });
++  });
++
++  it("reports timeouts and network errors as retryable", async () => {
++    const timeout = Object.assign(new Error("t"), { name: "TimeoutError" });
++    const { c } = client([timeout, timeout, timeout, timeout]);
++    const r = await c.send(N, "k8");
++    assert.equal(r.ok, false);
++    if (!r.ok) {
++      assert.equal(r.retryable, true);
++      assert.match(r.error, /タイムアウト/);
++      assert.equal(r.attempts, 4);
++    }
++  });
++
++  it("parses padded seconds and past dates", () => {
++    assert.equal(parseRetryAfter(" 7 "), 7000);
++    assert.equal(parseRetryAfter("Wed, 01 Jan 2031 00:00:00 GMT", Date.parse("2031-01-01T00:00:10Z")), 0);
++  });
++
++  it("is created from the documented environment variables only when both are set", () => {
++    assert.equal(notifyClientFromEnv({ NOTIFY_API_URL: "http://x" } as unknown as NodeJS.ProcessEnv), undefined);
++    assert.equal(notifyClientFromEnv({ NOTIFY_API_TOKEN: "t" } as unknown as NodeJS.ProcessEnv), undefined);
++    assert.ok(notifyClientFromEnv({ NOTIFY_API_URL: "http://x", NOTIFY_API_TOKEN: "t" } as unknown as NodeJS.ProcessEnv));
 +  });
 +});
