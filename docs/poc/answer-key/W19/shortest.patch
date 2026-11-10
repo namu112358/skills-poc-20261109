@@ -1,0 +1,64 @@
+diff --git a/src/app/api/instruments/[id]/inspections/route.ts b/src/app/api/instruments/[id]/inspections/route.ts
+new file mode 100644
+index 0000000..cfef97d
+--- /dev/null
++++ b/src/app/api/instruments/[id]/inspections/route.ts
+@@ -0,0 +1,32 @@
++// GET/POST /api/instruments/:id/inspections — 点検の記録（その他の項目 extra.inspections に入れる）
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { getInstrument, parseId, updateInstrument } from "@/lib/instruments";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  const inst = id === undefined ? undefined : getInstrument(id);
++  if (!inst) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ inspections: (inst.extra.inspections as unknown[]) ?? [] });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  const inst = id === undefined ? undefined : getInstrument(id);
++  if (!inst) return jsonError(404, "計測器が見つかりません");
++  const body = (await readJson(request)) as Record<string, unknown> | undefined;
++  if (!body || typeof body.inspectedOn !== "string") return jsonError(400, "点検日を入れてください");
++  const list = Array.isArray(inst.extra.inspections) ? inst.extra.inspections : [];
++  const record = { inspectedOn: body.inspectedOn, inspectorId: body.inspectorId, result: body.result, note: body.note ?? "" };
++  const updated = updateInstrument(inst.id, {
++    extra: { inspections: [record, ...list], last_inspected: body.inspectedOn },
++    ...(body.result === "needs_repair" ? { status: "suspended" as const } : {}),
++  });
++  return NextResponse.json({ inspection: record, instrument: updated }, { status: 201 });
++}
+diff --git a/src/app/api/instruments/route.ts b/src/app/api/instruments/route.ts
+index 86cc764..641c007 100644
+--- a/src/app/api/instruments/route.ts
++++ b/src/app/api/instruments/route.ts
+@@ -17,13 +17,15 @@ export async function GET(request: Request) {
+   const status = params.get("status");
+   const manager = params.get("manager");
+   const dept = params.get("dept");
+-  return NextResponse.json({
+-    instruments: listInstruments({
+-      status: isInstrumentStatus(status) ? status : undefined,
+-      managerId: manager || undefined,
+-      dept: dept || undefined,
+-    }),
++  const inspector = params.get("inspector");
++  let instruments = listInstruments({
++    status: isInstrumentStatus(status) ? status : undefined,
++    managerId: manager || undefined,
++    dept: dept || undefined,
+   });
++  // 点検の担当者は extra.inspector_id
++  if (inspector) instruments = instruments.filter((i) => i.extra.inspector_id === inspector);
++  return NextResponse.json({ instruments });
+ }
+ 
+ export async function POST(request: Request) {

@@ -13,6 +13,12 @@ docs/poc/answer-key/<W>/persona.md の回答シートから答える。run-trial
 記録（1 行 1 回の問い合わせ）: route（ask-po / message）・時刻・実装前か（その時点で src/・tests/ に baseline からの変更が無いか）・
   項目ごとの分類（kind）と回答に使ったシートの ID（Q・O・D）・回答・依頼者役の費用（候補の費用とは別）。
 依頼者役は候補の試行とは別の claude -p（ツールなし・設定なし・専用 HOME・作業用コピーの外）で動く。
+
+人間の代理人（W19 から。PROXY_SCENARIOS のシナリオで、環境変数 POC_PROXY が 0 でないとき）:
+  候補が人に投げる技術的な判断（案の選択・計画の承認・進めてよいか・やり直すか）には、「お任せします」ではなく
+  人間の代理人として docs/poc/proxy/principles.md の原則で決めて答える。業務の事実は従来どおり回答シートだけから答える。
+  判断は items の kind=decision と decision（決めたこと・理由・原則の ID・置いた前提）に記録し、report で人に報告する。
+  POC_PROXY=0 のとき（対照の試行）は、従来どおり技術的な判断にも「お任せします」と答える。
 """
 import json
 import os
@@ -30,6 +36,9 @@ SHEET = ROOT / "docs" / "poc" / "answer-key" / SCENARIO / "persona.md"
 MODEL = os.environ.get("POC_ANSWER_MODEL", os.environ.get("POC_MODEL", "claude-sonnet-5-5"))
 TASK = (ROOT / "docs" / "poc" / "tasks" / f"wf-{SCENARIO}.md").read_text().strip()
 LOCK = threading.Lock()
+PROXY_SCENARIOS = {"W19"}
+PROXY = SCENARIO in PROXY_SCENARIOS and os.environ.get("POC_PROXY", "1") != "0"
+PRINCIPLES = ROOT / "docs" / "poc" / "proxy" / "principles.md"
 
 SCHEMA = {
     "type": "object",
@@ -41,9 +50,14 @@ SCHEMA = {
                 "type": "object",
                 "properties": {
                     "question": {"type": "string", "description": "候補の質問（要約してよい）"},
-                    "kind": {"type": "string", "enum": ["requirement", "operations", "documented", "confirmation", "other"],
+                    "kind": {"type": "string", "enum": ["requirement", "operations", "documented", "confirmation", "decision", "other"],
                              "description": "requirement=業務の決まり（Q）を聞く、operations=運用の事情（O）を聞く、documented=文書に既に書いてあること（D）、"
-                                            "confirmation=案の承認・進めてよいかの確認、other=それ以外（範囲の外・お任せ）"},
+                                            "confirmation=案の承認・進めてよいかの確認（代理人がいないとき）、decision=代理人が技術的な判断を下したもの、"
+                                            "other=それ以外（範囲の外・お任せ）"},
+                    "decision": {"type": "object", "description": "kind=decision のときだけ。代理人が決めた内容",
+                                 "properties": {"chosen": {"type": "string"}, "reason": {"type": "string"},
+                                                "principles": {"type": "array", "items": {"type": "string"}},
+                                                "assumptions": {"type": "string"}}},
                     "sheet_ids": {"type": "array", "items": {"type": "string"},
                                   "description": "回答に使ったシートの項目 ID（Q・O・D の番号。例 Q1・O2・D3）。お任せします・単なる承認なら空"},
                     "answer": {"type": "string"},
@@ -70,6 +84,23 @@ SYSTEM = f"""あなたは、社内の「計測器 校正台帳」アプリの改
 
 --- 回答シート ---
 {SHEET.read_text()}
+"""
+
+if PROXY:
+    SYSTEM += f"""
+
+--- 追加の役割: 人間の代理人 ---
+あなたは依頼者であると同時に、開発チーム側の「人間の代理人」も務めます。
+- 業務の事実（何を作りたいか・業務の決まり・運用の事情）は、これまでどおり回答シートだけを根拠に答える。代理人の原則で業務の事実を作らない。
+- 開発を担当する AI が人に技術的な判断を求めたとき（例: 案 A・B・C のどれにするか、この計画・設計で進めてよいか、やり方を変えるか）は、
+  「お任せします」と言わず、下の原則に沿って必ず決めて答える。その質問は kind を decision にし、decision に
+  決めたこと（chosen）・理由（reason）・使った原則の ID（principles、例 P1）・置いた前提（assumptions）を書く。
+- 技術的な判断に業務の事実が足りないときは、推測で業務の事実を作らず、足りない点を「依頼者として」回答シートの範囲で答えるか、
+  シートに無ければ前提として assumptions に書く。
+- reply では、代理人として決めたことと理由を短く伝える（原則の ID は reply に書かない）。
+
+--- 代理人の原則 ---
+{PRINCIPLES.read_text()}
 """
 
 
@@ -132,7 +163,7 @@ def record(raw, app, baseline, route, message, extra):
         p = raw / "po-questions.jsonl"
         n = (len(p.read_text().splitlines()) if p.exists() else 0) + 1
         rec = {"n": n, "route": route, "asked_at": t0, "answered_at": now_iso(), "before_implementation": before,
-               "message": message[:4000], **extra, **res}
+               "message": message[:4000], "proxy": PROXY, **extra, **res}
         with p.open("a") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return rec

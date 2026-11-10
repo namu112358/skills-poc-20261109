@@ -1,0 +1,386 @@
+{
+ "checks": {
+  "typecheck": true,
+  "test": true,
+  "build": true
+ },
+ "static": {
+  "migrations": {
+   "readable": true,
+   "rewritten": [],
+   "added": [
+    6
+   ],
+   "drops_location": false,
+   "rebuilds_instruments": false,
+   "updates_in_sql": false
+  },
+  "logger_used": false,
+  "console_lines": [],
+  "doc_files": [],
+  "doc_rollback": false,
+  "doc_steps": false,
+  "new_deps": false,
+  "changed_src_files": [
+   "src/app/api/instruments/[id]/inspections/route.ts",
+   "src/app/api/instruments/[id]/route.ts",
+   "src/app/api/instruments/route.ts",
+   "src/lib/db/migrations.ts",
+   "src/lib/inspections.ts"
+  ]
+ },
+ "routes": [
+  {
+   "path": "/api/instruments/[id]/inspections",
+   "methods": [
+    "GET",
+    "POST"
+   ]
+  },
+  {
+   "path": "/api/instruments/[id]",
+   "methods": [
+    "GET",
+    "PATCH"
+   ]
+  },
+  {
+   "path": "/api/instruments",
+   "methods": [
+    "GET",
+    "POST"
+   ]
+  }
+ ],
+ "public": [
+  {
+   "id": "P1",
+   "name": "計測器に点検の担当者を付けられる",
+   "pass": true,
+   "detail": "PATCH /api/instruments/[id] {inspectorId}"
+  },
+  {
+   "id": "P2",
+   "name": "点検の記録（点検日・点検した人・結果・メモ）を足せる",
+   "pass": true,
+   "detail": "/api/instruments/[id]/inspections ('inspectedOn', 'inspectorId', 'result') good=good"
+  },
+  {
+   "id": "P3",
+   "name": "点検の記録を見られる",
+   "pass": true,
+   "detail": ""
+  }
+ ],
+ "hidden": [
+  {
+   "id": "H01",
+   "name": "在籍していない人は担当者に選べない",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "H02",
+   "name": "点検した人も在籍している人に限る",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "H03",
+   "name": "1 台に何回分も記録が残る（履歴）",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "H04",
+   "name": "点検の記録は消せない",
+   "pass": true,
+   "detail": "record id 1"
+  },
+  {
+   "id": "H05",
+   "name": "次の点検予定日は「最後の点検日 + 周期（既定 3 か月）」",
+   "pass": false,
+   "detail": "次の点検予定日（最後の点検日 + 3 か月）が見えない"
+  },
+  {
+   "id": "H06",
+   "name": "点検の記録が無い計測器は「未点検」と分かる",
+   "pass": false,
+   "detail": "未点検の計測器が分からない"
+  },
+  {
+   "id": "H07",
+   "name": "担当者で絞り込める",
+   "pass": true,
+   "detail": "?inspector=kato"
+  },
+  {
+   "id": "H08",
+   "name": "担当者ごとに、点検が遅れている台数が分かる",
+   "pass": false,
+   "detail": "担当者ごとの、点検が遅れている台数が分からない"
+  },
+  {
+   "id": "H09",
+   "name": "要修理なら計測器を使用停止にする",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "H10",
+   "name": "担当部署・その他の項目の API は今までどおり（互換）",
+   "pass": true,
+   "detail": ""
+  }
+ ],
+ "discovery": {
+  "routes": [
+   {
+    "path": "/api/instruments/[id]/inspections",
+    "methods": [
+     "GET",
+     "POST"
+    ]
+   },
+   {
+    "path": "/api/instruments/[id]",
+    "methods": [
+     "GET",
+     "PATCH"
+    ]
+   },
+   {
+    "path": "/api/instruments",
+    "methods": [
+     "GET",
+     "POST"
+    ]
+   }
+  ],
+  "assign": [
+   "PATCH",
+   "/api/instruments/[id]",
+   "inspectorId",
+   false
+  ],
+  "record": [
+   "POST",
+   "/api/instruments/[id]/inspections",
+   "inspectedOn",
+   "inspectorId",
+   "result",
+   null
+  ],
+  "filter_key": "inspector",
+  "db": "/tmp/w19-grade-f2l_vf_q/api.db"
+ },
+ "structure": {
+  "checks": {
+   "S1": true,
+   "S2": false,
+   "S3": true,
+   "S4": true,
+   "S5": false
+  },
+  "detail": {
+   "new_tables": [
+    "inspection_records"
+   ],
+   "instrument_new_columns": [],
+   "record_tables": [
+    "inspection_records"
+   ],
+   "assign_outside": [],
+   "assign_in_extra": true,
+   "records_in_extra": [],
+   "new_extra_refs": [
+    "src/app/api/instruments/route.ts: if (inspector) instruments = instruments.filter((i) => i.extra.inspector_id === inspector);"
+   ],
+   "index_assign": false,
+   "index_records": true
+  }
+ },
+ "migration": {
+  "checks": {
+   "M7": true,
+   "M1": true,
+   "M2": true,
+   "M4": true,
+   "M5": false,
+   "M6": true,
+   "M3": true,
+   "M8": true
+  },
+  "detail": {
+   "first_request_seconds": 0.65,
+   "lost_rows": 0,
+   "changed_rows": 0,
+   "dept_changed": 0,
+   "linked_ratio": 0.0,
+   "unresolved_kept_ratio": 1.0,
+   "rollback": {
+    "list": 200,
+    "get": 200,
+    "patch": 200,
+    "page": 200
+   }
+  }
+ },
+ "scope": {
+  "checks": {
+   "R1": true,
+   "R2": false
+  }
+ },
+ "mutation": {
+  "baseline_tests_pass": true,
+  "baseline_fails": 0,
+  "baseline_log": "",
+  "mutants": 15,
+  "killed": 11,
+  "kill_rate": 0.733,
+  "files": [
+   "src/lib/db/migrations.ts",
+   "src/lib/inspections.ts"
+  ],
+  "survivors": [
+   {
+    "file": "src/lib/db/migrations.ts",
+    "line": 95,
+    "old": "6",
+    "new": "7",
+    "snippet": "version: 6,"
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 26,
+    "old": "!==",
+    "new": "===",
+    "snippet": "if (typeof b.inspectorId !== \"string\" || !isActiveUser(b.inspectorId, db)) errors.push(\"点検した人は在籍している利用者から選んでください\");"
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 27,
+    "old": "!==",
+    "new": "===",
+    "snippet": "if (b.result !== \"good\" && b.result !== \"needs_repair\") errors.push(\"結果は good か needs_repair で指定してください\");"
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 37,
+    "old": "===",
+    "new": "!==",
+    "snippet": "return listInspections(instrumentId, db).find((r) => r.id === Number(lastInsertRowid))!;"
+   }
+  ],
+  "details": [
+   {
+    "file": "src/lib/db/migrations.ts",
+    "line": 95,
+    "old": "6",
+    "new": "7",
+    "killed": false
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 25,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 26,
+    "old": "!==",
+    "new": "===",
+    "killed": false
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 26,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 26,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 27,
+    "old": "!==",
+    "new": "===",
+    "killed": true
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 27,
+    "old": "!==",
+    "new": "===",
+    "killed": false
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 27,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 35,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 36,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 37,
+    "old": "===",
+    "new": "!==",
+    "killed": false
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 43,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 43,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 43,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/inspections.ts",
+    "line": 43,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   }
+  ]
+ },
+ "work": "/tmp/w19-grade-f2l_vf_q"
+}
