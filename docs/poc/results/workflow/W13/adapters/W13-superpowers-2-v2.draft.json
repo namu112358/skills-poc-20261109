@@ -1,0 +1,67 @@
+{
+  "phase": "v2",
+  "commit": "HEAD",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "approve": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/approve"
+    },
+    "reject": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/reject",
+      "body": {
+        "reason": "検証のため"
+      }
+    },
+    "fields": {
+      "id": "id",
+      "status": "status",
+      "start": "startOn",
+      "end": "endOn",
+      "user": "reserverId"
+    },
+    "status": {
+      "pending": [
+        "\"pending\""
+      ],
+      "approved": [
+        "\"approved\""
+      ],
+      "rejected": [
+        "\"rejected\""
+      ]
+    },
+    "jobs": [],
+    "notes": "status は単一の項目ではなく、取り消しは cancelledAt で表現される（status は pending/approved/rejected のみ）。ただし一覧は取り消し・却下済みを返さない（HOLDING 条件）ので、取消・却下後の確認は一覧からの消失で行う必要がある。そのため status を配列にして取消を判定させる形にはしていない。期限切れ（expired）の状態・定期ジョブは無い（期限が過ぎた仮予約は承認・却下時に 409 expired になり、終了日が過ぎると一覧から消えるだけ）。予約者が管理者（承認者）本人だと作成時から approved になる。"
+  },
+  "cost_usd": 0.072996
+}

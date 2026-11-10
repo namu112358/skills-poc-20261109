@@ -1,0 +1,54 @@
+{
+  "phase": "v1",
+  "commit": "635fa1760471bc65efa84abc1adcecdb376e3622",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/calibrations.ts",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "fields": {
+      "id": "id",
+      "status": [
+        "cancelledAt"
+      ],
+      "start": "startOn",
+      "end": "endOn",
+      "user": "reserverId"
+    },
+    "status": {
+      "active": [
+        "null"
+      ],
+      "cancelled": [
+        "@notnull"
+      ]
+    },
+    "jobs": [],
+    "notes": "v1。予約者はログイン中の本人。一覧（GET）は取り消し済みや終了日を過ぎた予約を返さない（listActiveReservations）ため、取消後の予約は一覧に出ず、cancelled の状態は一覧からは確認できない。status は cancelledAt（null=有効、非 null=取消）の組み合わせで表現した。取消の応答は {reservation: {...}} で cancelledAt が入る。承認・却下の API は無い。ジョブ API は無い。"
+  },
+  "cost_usd": 0.0661652
+}

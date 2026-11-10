@@ -1,0 +1,75 @@
+{
+  "phase": "v2",
+  "commit": "HEAD",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/api/reservations/awaiting-approval/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/calibrations.ts",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations?status=pending",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "approve": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/approve"
+    },
+    "reject": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/reject",
+      "body": {
+        "reason": "検証のため"
+      }
+    },
+    "fields": {
+      "id": "id",
+      "status": "status",
+      "start": "startOn",
+      "end": "endOn",
+      "user": "reserverId"
+    },
+    "status": {
+      "pending": [
+        "pending"
+      ],
+      "approved": [
+        "confirmed"
+      ],
+      "rejected": [
+        "rejected"
+      ],
+      "cancelled": [
+        "cancelled"
+      ],
+      "expired": [
+        "expired"
+      ]
+    },
+    "jobs": [],
+    "notes": "一覧 API は ?status= 未指定だと「これからの仮予約と確定」だけを返し、却下・期限切れ・取消は含まない。全状態を一括で取る方法はなく、状態ごとに ?status=pending|confirmed|rejected|expired|cancelled を指定して呼ぶ必要がある。list の path は代表として ?status=pending を付けたが、テスト側で状態に応じてクエリを差し替えること（指定なしなら pending と confirmed が混在）。未指定の一覧は終了日が今日以降のものに限られる。期限切れは保存されず今日から判定される（ジョブ無し）。予約者はログイン中の本人で本文に user は不要。承認する人本人（管理者、無効なら部署代表者）が登録した予約は 201 の時点で confirmed になる。承認・却下は管理者（無効なら代表者）のみ、取消は予約者本人と管理者のみ。reservations.ts の末尾（approve/reject の実装）は途中で切れており未確認。"
+  },
+  "cost_usd": 0.0854892
+}

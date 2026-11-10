@@ -44,6 +44,7 @@ else
   rm -rf "$WORK" "$OUT"; mkdir -p "$APP" "$HOME_DIR" "$OUT"
 fi
 echo "$WORK" > "$OUT/workdir"
+echo "$MODEL" > "$OUT/model"
 [[ -n "$W7_CONTROL" ]] && echo 1 > "$OUT/control"
 
 # 1) 評価用アプリのコピー（node_modules を含む）と、常時有効な Skills・MCP
@@ -63,7 +64,14 @@ if [[ "$SCENARIO" == W11-* ]]; then
   OSS_TASK="${SCENARIO#W11-}"
   python3 "$ROOT/scripts/poc/oss/oss.py" copy-app "$OSS_TASK" "$APP" "$WORK" > "$OUT/oss-setup.log" 2>&1
 else
+if [[ "$SCENARIO" == W13 ]]; then
+  # W13: ディスクの割り当てを使い切らないよう、node_modules はハードリンクで写す（依存の追加は許可していないので中身は同じ。
+  # W12 で容量が尽きて試行が止まったため。2026-11-10）
+  ( cd "$APP_SRC" && tar --exclude=./node_modules --exclude=./.next -cf - . ) | ( cd "$APP" && tar -xf - )
+  cp -al "$APP_SRC/node_modules" "$APP/node_modules"
+else
 cp -a "$APP_SRC/." "$APP/"
+fi
 rm -rf "$APP/.next" "$APP"/*.tsbuildinfo
 fi
 mkdir -p "$APP/.claude/skills"
@@ -83,6 +91,13 @@ INJECT="${POC_INJECT_PATCH:-}"
 [[ -z "$INJECT" && "$SCENARIO" == W7a ]] && INJECT="$ROOT/docs/poc/answer-key/W7/base.patch"
 # W12: 題材（計測器の校正台帳）の初期状態を当てる（docs/poc/tasks/wf-W12-design.md）
 [[ -z "$INJECT" && "$SCENARIO" == W12 ]] && INJECT="$ROOT/docs/poc/answer-key/W12/base.patch"
+# W12 の追加条件「乱れた初期状態」（POC_W12_BASE=messy）: base.patch の上に base-messy.patch を当てる（設計書 §5）
+if [[ "${POC_W12_BASE:-}" == messy && "$SCENARIO" == W12 ]]; then
+  INJECT="$INJECT:$ROOT/docs/poc/answer-key/W12/base-messy.patch"
+  echo messy > "$OUT/base-variant"
+elif [[ -n "${POC_W12_BASE:-}" ]]; then
+  echo "POC_W12_BASE は W12 で messy のときだけ使える: ${POC_W12_BASE} ($SCENARIO)" >&2; exit 1
+fi
 # W13: 同じ題材の初期状態（W12 の base.patch の写し。docs/poc/tasks/wf-W13-design.md）
 [[ -z "$INJECT" && "$SCENARIO" == W13 ]] && INJECT="$ROOT/docs/poc/answer-key/W13/base.patch"
 # W14・W15: 同じ題材に、その W に必要なものを足した初期状態（docs/poc/tasks/wf-W14-design.md・wf-W15-design.md）
@@ -119,9 +134,18 @@ if [[ "$CAND" == baseline-conventions ]]; then
   cat "$ROOT/docs/poc/tasks/wf-$SCENARIO-conventions.md" >> "$APP/CLAUDE.md"
   sha256sum "$ROOT/docs/poc/tasks/wf-$SCENARIO-conventions.md" | sed "s#$ROOT/##" > "$OUT/conventions"
 fi
-# W14・W15: W13 と同じく、全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準を足す
-# （2026-11-10 コーディネーターの連絡・ユーザー承認。W13 の分岐とぶつからないよう別に足した）
-if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 || ( "$SCENARIO" == W20 && -f "$E2_DIR/standard" ) ]]; then
+# 汎用の開発標準（W12 の追加条件。POC_STANDARD=generic、W12 のときだけ）: docs/poc/standards/generic-dev-standard.md の
+# 区切り（コメント）より下を、そのまま CLAUDE.md の末尾に足す。試行 ID は回の番号 11・12 で区別する（設計書 §5）。
+if [[ "${POC_STANDARD:-}" == generic && "$SCENARIO" == W12 ]]; then
+  STD="$ROOT/docs/poc/standards/generic-dev-standard.md"
+  { echo; sed -n '/^-->$/,$p' "$STD" | tail -n +2; } >> "$APP/CLAUDE.md"
+  sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/standard"
+elif [[ -n "${POC_STANDARD:-}" ]]; then
+  echo "POC_STANDARD は W12 で generic のときだけ使える: ${POC_STANDARD} ($SCENARIO)" >&2; exit 1
+fi
+# W13・W14・W15: 全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準（docs/poc/standards/generic-dev-standard.md の
+# 区切りのコメントより下。全 W 同じ文面）を足す（2026-11-10 コーディネーター・ユーザー承認）。初期状態の一部なので候補からは差分に見えない
+if [[ "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 || ( "$SCENARIO" == W20 && -f "$E2_DIR/standard" ) ]]; then
   STD="$ROOT/docs/poc/standards/generic-dev-standard.md"
   { echo; sed '1,/^-->$/d' "$STD"; } >> "$APP/CLAUDE.md"
   sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/dev-standard"

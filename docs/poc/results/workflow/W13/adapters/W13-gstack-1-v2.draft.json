@@ -1,0 +1,67 @@
+{
+  "phase": "v2",
+  "commit": "HEAD",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "approve": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/approve"
+    },
+    "reject": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/reject",
+      "body": {
+        "reason": "検証のため"
+      }
+    },
+    "fields": {
+      "id": "id",
+      "status": "status",
+      "start": "startOn",
+      "end": "endOn",
+      "user": "reserverId"
+    },
+    "status": {
+      "pending": [
+        "pending"
+      ],
+      "approved": [
+        "approved"
+      ],
+      "rejected": [
+        "rejected"
+      ]
+    },
+    "jobs": [],
+    "notes": "一覧（reservations）は仮予約・承認済みのみ返し、取消・却下・期限切れの予約は含まれない。却下された予約は同じ応答の rejected 配列にある（期間が終わっていないもののみ）。期限切れ（expired）は status 値として保存されず、一覧からも消えるだけなので status には書いていない。取消（cancelled）も status 値ではなく cancelled_at で表され、一覧・応答には cancelledAt があるのみで status は変わらない（キャンセル応答の status は元のまま）。期限切れ処理のジョブ API は無い。予約者が承認する人本人の場合は作成時にそのまま approved になる。"
+  },
+  "cost_usd": 0.0753516
+}

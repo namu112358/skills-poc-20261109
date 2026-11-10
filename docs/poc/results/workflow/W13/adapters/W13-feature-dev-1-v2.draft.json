@@ -1,0 +1,72 @@
+{
+  "phase": "v2",
+  "commit": "HEAD",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/approve/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/reject/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/approvals/page.tsx",
+    "src/app/instruments/[id]/page.tsx",
+    "src/app/instruments/decision-forms.tsx",
+    "src/app/instruments/page.tsx",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservation-rules.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "approve": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/approve"
+    },
+    "reject": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/reject",
+      "body": {
+        "reason": "検証のため"
+      }
+    },
+    "fields": {
+      "id": "id",
+      "status": [
+        "status",
+        "approvedAt",
+        "rejectedAt"
+      ],
+      "start": "startOn",
+      "end": "endOn",
+      "user": "userId"
+    },
+    "status": {
+      "pending": [
+        "\"active\"|null|null"
+      ],
+      "cancelled": [
+        "\"cancelled\"|null|null"
+      ]
+    },
+    "jobs": [],
+    "notes": "状態は status（active/consumed/cancelled）と approvedAt・rejectedAt の組み合わせで決まる。pending は active で approvedAt が null。approved は active で approvedAt に日時が入るが、日時の値は列挙できないため status に書いていない（\"active\"|<日時>|null に当たるもの）。rejected は status が cancelled で rejectedAt に日時が入る形で、同じ理由で書いていない。expired は DB に保存されず、表示時に active のまま endOn が今日より前かどうかで導くだけなので書いていない。一覧 API（listActiveReservations）は status が active で endOn が今日以降のものしか返さないため、取消・却下・期限切れの予約は一覧に出ない。承認・取消・却下の結果は各 API の応答（reservation）で確認する必要がある。計測器の管理者（無効なときは部署の代表者）が自分で予約すると、最初から承認済みになる。承認・却下ができるのは承認者だけ。期限切れの処理を行うジョブ API は無い。"
+  },
+  "cost_usd": 0.1252036
+}
