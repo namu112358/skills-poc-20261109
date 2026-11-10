@@ -16,11 +16,11 @@
     },
     "test": {
       "pass": true,
-      "log": "trument / returnLoan\n  ---\n  duration_ms: 109.885277\n  type: 'suite'\n  ...\n# Subtest: validateLoanInput\n    # Subtest: requires an active borrower and a real date\n    ok 1 - requires an active borrower and a real date\n      ---\n      duration_ms: 46.117457\n      type: 'test'\n      ...\n    1..1\nok 27 - validateLoanInput\n  ---\n  duration_ms: 46.350118\n  type: 'suite'\n  ...\n# Subtest: listOverdueLoans\n    # Subtest: lists unreturned loans whose due date is before today\n    ok 1 - lists unreturned loans whose due date is before today\n      ---\n      duration_ms: 47.087689\n      type: 'test'\n      ...\n    1..1\nok 28 - listOverdueLoans\n  ---\n  duration_ms: 47.245789\n  type: 'suite'\n  ...\n1..28\n# tests 46\n# suites 28\n# pass 46\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2192.911185\n"
+      "log": "trument / returnLoan\n  ---\n  duration_ms: 126.048197\n  type: 'suite'\n  ...\n# Subtest: validateLoanInput\n    # Subtest: requires an active borrower and a real date\n    ok 1 - requires an active borrower and a real date\n      ---\n      duration_ms: 47.745633\n      type: 'test'\n      ...\n    1..1\nok 27 - validateLoanInput\n  ---\n  duration_ms: 47.931448\n  type: 'suite'\n  ...\n# Subtest: listOverdueLoans\n    # Subtest: lists unreturned loans whose due date is before today\n    ok 1 - lists unreturned loans whose due date is before today\n      ---\n      duration_ms: 49.006234\n      type: 'test'\n      ...\n    1..1\nok 28 - listOverdueLoans\n  ---\n  duration_ms: 49.167667\n  type: 'suite'\n  ...\n1..28\n# tests 46\n# suites 28\n# pass 46\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1319.666927\n"
     },
     "build": {
       "pass": true,
-      "log": "ƒ /api/instruments/[id]/calibrations\n├ ƒ /api/instruments/[id]/loans\n├ ƒ /api/instruments/[id]/loans/[loanId]/return\n├ ƒ /api/jobs/calibration-due\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:572) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:565) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:567) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      "log": "/instruments/[id]/calibrations\n├ ƒ /api/instruments/[id]/loans\n├ ƒ /api/instruments/[id]/loans/[loanId]/return\n├ ƒ /api/jobs/calibration-due\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:25463) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:25470) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:25465) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
     }
   },
   "e2e": [],
@@ -370,6 +370,12 @@
         "detail": "要求 1 回、届いた 0 件"
       },
       {
+        "id": "R11",
+        "name": "すべての要求に Idempotency-Key を付け、同じお知らせの再試行では同じキーを使う",
+        "pass": false,
+        "detail": "再試行の要求 1 回、キー: calibration:11:2027-03-30:due_soon:kato"
+      },
+      {
         "id": "R02",
         "name": "再試行の間隔が指数的に伸びる（ジッター可）",
         "pass": false,
@@ -382,10 +388,10 @@
         "detail": "再試行していない（0 回）"
       },
       {
-        "id": "R04",
-        "name": "失敗が続くときは決まった回数で再試行をやめる（2〜10 回）",
+        "id": "R06",
+        "name": "応答しない通知サービスをタイムアウト（60 秒以内）で打ち切り、再試行して届ける",
         "pass": false,
-        "detail": "要求 0 回（ジョブ 502、1535ms）"
+        "detail": "要求が無い"
       },
       {
         "id": "R05",
@@ -394,22 +400,16 @@
         "detail": "要求 0 回"
       },
       {
-        "id": "R06",
-        "name": "応答しない通知サービスをタイムアウト（60 秒以内）で打ち切り、再試行して届ける",
-        "pass": false,
-        "detail": "要求が無い"
-      },
-      {
         "id": "R09",
         "name": "1 件の失敗で、ほかのお知らせが止まらない",
         "pass": false,
-        "detail": "失敗と同じ実行の、ほかの送り先に届いていない"
+        "detail": "400 と同じ実行の、ほかの送り先に届いていない"
       },
       {
-        "id": "R11",
-        "name": "すべての要求に Idempotency-Key を付け、同じお知らせの再試行では同じキーを使う",
-        "pass": true,
-        "detail": ""
+        "id": "R04",
+        "name": "失敗が続くときは決まった回数で再試行をやめる（2〜10 回）",
+        "pass": false,
+        "detail": "要求 0 回（ジョブ 200、1513ms）"
       },
       {
         "id": "R07",
@@ -421,7 +421,7 @@
         "id": "R08",
         "name": "送れなかったお知らせを、次の実行で送る",
         "pass": false,
-        "detail": "2 回目の実行のあと届いた件数 0（ジョブ 502）"
+        "detail": "2 回目の実行のあと届いた件数 0（ジョブ 200）"
       },
       {
         "id": "R10",
@@ -432,27 +432,126 @@
     ],
     "robust_requests": [
       {
-        "t": 1794274789719,
+        "t": 1794275714048,
         "recipient": "kato",
         "key": "calibration:11:2027-03-30:due_soon:kato",
         "status": 503,
         "action": {
           "status": 503
         },
-        "closedAt": 1794274789719
+        "closedAt": 1794275714049
       },
       {
-        "t": 1794274791286,
+        "t": 1794275715596,
         "recipient": "kato",
         "key": "calibration:11:2027-03-30:due_soon:kato",
         "status": 503,
         "action": {
           "status": 503
         },
-        "closedAt": 1794274791286
+        "closedAt": 1794275715597
+      },
+      {
+        "t": 1794275717155,
+        "recipient": "kato",
+        "key": "calibration:11:2027-03-30:due_soon:kato",
+        "status": 202,
+        "action": "ok",
+        "closedAt": 1794275717155
+      },
+      {
+        "t": 1794275717169,
+        "recipient": "ito",
+        "key": "calibration:12:2027-03-30:due_soon:ito",
+        "status": 503,
+        "action": {
+          "status": 503
+        },
+        "closedAt": 1794275717170
+      },
+      {
+        "t": 1794275718700,
+        "recipient": "ito",
+        "key": "calibration:12:2027-03-30:due_soon:ito",
+        "status": 503,
+        "action": {
+          "status": 503
+        },
+        "closedAt": 1794275718700
+      },
+      {
+        "t": 1794275720222,
+        "recipient": "ito",
+        "key": "calibration:12:2027-03-30:due_soon:ito",
+        "status": 503,
+        "action": {
+          "status": 503
+        },
+        "closedAt": 1794275720223
+      },
+      {
+        "t": 1794275721754,
+        "recipient": "ito",
+        "key": "calibration:12:2027-03-30:due_soon:ito",
+        "status": 503,
+        "action": {
+          "status": 503
+        },
+        "closedAt": 1794275721754
+      },
+      {
+        "t": 1794275723278,
+        "recipient": "ito",
+        "key": "calibration:12:2027-03-30:due_soon:ito",
+        "status": 202,
+        "action": "ok",
+        "closedAt": 1794275723278
+      },
+      {
+        "t": 1794275723283,
+        "recipient": "watanabe",
+        "key": "calibration:13:2027-03-30:due_soon:watanabe",
+        "status": 429,
+        "action": {
+          "status": 429,
+          "retryAfter": 3
+        },
+        "closedAt": 1794275723284
+      },
+      {
+        "t": 1794275724830,
+        "recipient": "watanabe",
+        "key": "calibration:13:2027-03-30:due_soon:watanabe",
+        "status": 202,
+        "action": "ok",
+        "closedAt": 1794275724830
+      },
+      {
+        "t": 1794275724838,
+        "recipient": "matsumoto",
+        "key": "calibration:14:2027-03-30:due_soon:matsumoto",
+        "status": null,
+        "action": "hang",
+        "closedAt": 1794275769837
       }
     ],
-    "deliveries_sample": [],
+    "deliveries_sample": [
+      {
+        "recipient": "kato",
+        "title": "【校正期限が近づいています】RB-0001 検証用計測器 RB-0001",
+        "body": "重要度 A の計測器「RB-0001 検証用計測器 RB-0001」の校正期限は 2027-03-30 です（あと 2 日）。\n外部の校正機関への手配に 3〜4 週間かかります。早めに手配してください。\n設置場所: 検証室\n校正周期: 12 か月 / 前回校正日: 2026-03-30"
+      },
+      {
+        "recipient": "ito",
+        "title": "【校正期限が近づいています】RB-0002 検証用計測器 RB-0002",
+        "body": "重要度 A の計測器「RB-0002 検証用計測器 RB-0002」の校正期限は 2027-03-30 です（あと 2 日）。\n外部の校正機関への手配に 3〜4 週間かかります。早めに手配してください。\n設置場所: 検証室\n校正周期: 12 か月 / 前回校正日: 2026-03-30"
+      },
+      {
+        "recipient": "watanabe",
+        "title": "【校正期限が近づいています】RB-0003 検証用計測器 RB-0003",
+        "body": "重要度 A の計測器「RB-0003 検証用計測器 RB-0003」の校正期限は 2027-03-30 です（あと 1 日）。\n外部の校正機関への手配に 3〜4 週間かかります。早めに手配してください。\n設置場所: 検証室\n校正周期: 12 か月 / 前回校正日: 2026-03-30"
+      }
+    ],
     "migration": {
       "static": {
         "readable": true,
@@ -563,8 +662,8 @@
           "job.completed",
           "job.failed"
         ],
-        "info_lines": 41,
-        "warn_error_lines": 4,
+        "info_lines": 47,
+        "warn_error_lines": 13,
         "unstructured_lines": [],
         "leaked_tokens": [],
         "notify_auth_ok": true,
