@@ -461,6 +461,9 @@ def ops_checks(static, logs, aliases, notify_state):
 def evaluate(app, base, work, override=None, mutation=True):
     app = Path(app)
     work = Path(work)
+    # 採点し直すときに前回の DB・時計のファイルが残らないよう、採点用の作業場所は毎回空にする（試行の作業用コピーの中の grade-w12/ だけ）
+    if work.exists() and work.name in ("grade-w12",) or str(work).startswith(tempfile.gettempdir() + "/w12-grade-"):
+        shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True, exist_ok=True)
     checks = {}
     for name, cmd in [("typecheck", "npm run typecheck"), ("test", "npm test"), ("build", "npm run build")]:

@@ -57,7 +57,10 @@ const NAME_HINT = /importan|priority|critical|重要|rank|grade|level|class|tier
     out.key = best.key;
     out.levels = best.levels;
     if (typeof best.levels[0] === "number") { out.needs_review = true; notes.push("値が数値で、どれが高いかを自動で決められない（仮に大きい方を高いとした）"); }
-    out.default = (detail ?? seed)?.[best.key] ?? null;
+    // 既存の計測器の重要度: 初期データの計測器でいちばん多い値（初期データの一部を見本として A にした候補もいるため。2026-11-10 補正）
+    const counts = new Map();
+    for (const i of list) counts.set(JSON.stringify(i[best.key] ?? null), (counts.get(JSON.stringify(i[best.key] ?? null)) ?? 0) + 1);
+    out.default = JSON.parse([...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "null");
     // 登録のときに重要度を受け付けるか
     const r = await j(await c.post("/api/instruments", { data: { ...probeBody("AD-0002"), [best.key]: best.levels[0] } }));
     out.set = r?.instrument && (await get(r.instrument.id))?.[best.key] === best.levels[0] ? "post" : "patch";
