@@ -92,10 +92,11 @@ def draft(repo, base, commit, round_, prev_adapter=None, work=None):
     system = GUIDE.format(example=REF.read_text(), sections="・".join(keys), guide="\n".join(f"- {k}: {SECTIONS[k]}" for k in keys))
     home = Path(work or "/tmp/w18-adapt-home")
     home.mkdir(parents=True, exist_ok=True)
-    p = subprocess.run(["claude", "-p", prompt, "--model", MODEL, "--tools", "", "--strict-mcp-config", "--setting-sources", "",
+    # コードが大きいとコマンドの引数に入りきらないので、依頼は標準入力で渡す
+    p = subprocess.run(["claude", "-p", "--model", MODEL, "--tools", "", "--strict-mcp-config", "--setting-sources", "",
                         "--no-session-persistence", "--system-prompt", system, "--output-format", "json"],
                        cwd=home, env=dict(os.environ, HOME=str(Path.home())), capture_output=True, text=True, timeout=1200,
-                       stdin=subprocess.DEVNULL)
+                       input=prompt)
     out = {"round": str(round_), "commit": commit, "files": [n for n, _ in files], "adapter": None, "cost_usd": 0.0}
     try:
         o = json.loads(p.stdout)

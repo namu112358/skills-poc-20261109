@@ -105,9 +105,9 @@ def review(out):
             prompt = f"{ctx}\n\n--- 採点するコード ---\n{f.read_text()[:300000]}"
             home = BLIND / f"home-{rv}"
             home.mkdir(parents=True, exist_ok=True)
-            p = subprocess.run(["claude", "-p", prompt, "--model", MODEL, "--tools", "", "--strict-mcp-config", "--setting-sources", "",
+            p = subprocess.run(["claude", "-p", "--model", MODEL, "--tools", "", "--strict-mcp-config", "--setting-sources", "",
                                 "--no-session-persistence", "--system-prompt", system, "--json-schema", json.dumps(SCHEMA),
-                                "--output-format", "json"], cwd=home, capture_output=True, text=True, timeout=1800, stdin=subprocess.DEVNULL)
+                                "--output-format", "json"], cwd=home, capture_output=True, text=True, timeout=1800, input=prompt)
             try:
                 o = json.loads(p.stdout)
                 so = o.get("structured_output") or json.loads(o.get("result") or "{}")
