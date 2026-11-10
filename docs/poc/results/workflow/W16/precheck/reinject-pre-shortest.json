@@ -1,0 +1,48 @@
+{
+  "name": "pre-shortest",
+  "tests_before": {
+    "exit": 0,
+    "fail": 0
+  },
+  "causes": {
+    "A": {
+      "fixed": true,
+      "tries": [
+        {
+          "edits": [
+            {
+              "file": "src/lib/calibration-reminders.ts",
+              "old": "status IN ('sent', 'pending') LIMIT 1",
+              "new": "status = 'sent' LIMIT 1"
+            }
+          ],
+          "explanation": "多重起動対策に当たるのは、alreadySent が送信中（pending）の記録も「送信済み」とみなす部分だけです。重なって動いた別の実行が作った pending を見て送信を飛ばす仕組みなので、元の `status = 'sent'` に戻して無効にしました。maxAttempts: 1 は同じ実行内の再試行による二重送信への対策なので、手を付けていません。Idempotency-Key・ログ・そのほかの振る舞いも変えていません。",
+          "ok": true,
+          "why": "",
+          "incident": {
+            "I1": false,
+            "I2": false,
+            "I3": false,
+            "I4": false,
+            "I5": false,
+            "_facts": true
+          },
+          "dir": "/tmp/w16-reinject-tec6zm9d/app"
+        }
+      ],
+      "status": "checked",
+      "guarded": false,
+      "tests_after": {
+        "exit": 0,
+        "fail": 0
+      },
+      "log": ""
+    },
+    "B": {
+      "fixed": false,
+      "status": "not_fixed",
+      "guarded": false
+    }
+  },
+  "cost_usd": 0.033079
+}

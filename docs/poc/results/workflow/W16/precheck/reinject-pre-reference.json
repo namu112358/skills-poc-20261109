@@ -1,0 +1,81 @@
+{
+  "name": "pre-reference",
+  "tests_before": {
+    "exit": 0,
+    "fail": 0
+  },
+  "causes": {
+    "A": {
+      "fixed": true,
+      "tries": [
+        {
+          "edits": [
+            {
+              "file": "src/lib/job-lock.ts",
+              "old": "WHERE job_locks.expires_at <= excluded.acquired_at`",
+              "new": "WHERE 1 = 1`"
+            }
+          ],
+          "explanation": "job-lock.ts の acquireJobLock で、競合時の上書き条件（既存ロックの expires_at が切れている場合のみ取得）を「WHERE 1 = 1」に変えました。ロックが常に取れるので、重なった 2 つの実行がどちらも送信に進みます。Idempotency-Key の作り方・再試行・ログ・ほかの振る舞いは変えていません。型も変わりません。",
+          "ok": true,
+          "why": "",
+          "incident": {
+            "I1": false,
+            "I2": false,
+            "I3": true,
+            "I4": true,
+            "I5": true,
+            "_facts": true
+          },
+          "dir": "/tmp/w16-reinject-qpi0tn4q/app"
+        }
+      ],
+      "status": "checked",
+      "guarded": true,
+      "tests_after": {
+        "exit": 1,
+        "fail": 2
+      },
+      "log": "ers\n    # Subtest: caps the delay and applies jitter\n    ok 1 - caps the delay and applies jitter\n      ---\n      duration_ms: 0.884876\n      type: 'test'\n      ...\n    # Subtest: parses Retry-After seconds and dates\n    ok 2 - parses Retry-After seconds and dates\n      ---\n      duration_ms: 0.340595\n      type: 'test'\n      ...\n    1..2\nok 23 - backoff helpers\n  ---\n  duration_ms: 1.537534\n  type: 'suite'\n  ...\n# Subtest: notify client details\n    # Subtest: retries 500 but not other 4xx, and reports the status when the body is empty\n    ok 1 - retries 500 but not other 4xx, and reports the status when the body is empty\n      ---\n      duration_ms: 1.214428\n      type: 'test'\n      ...\n    # Subtest: reports timeouts and network errors as retryable\n    ok 2 - reports timeouts and network errors as retryable\n      ---\n      duration_ms: 1.038628\n      type: 'test'\n      ...\n    # Subtest: parses padded seconds and past dates\n    ok 3 - parses padded seconds and past dates\n      ---\n      duration_ms: 0.304436\n      type: 'test'\n      ...\n    # Subtest: is created from the documented environment variables only when both are set\n    ok 4 - is created from the documented environment variables only when both are set\n      ---\n      duration_ms: 0.179603\n      type: 'test'\n      ...\n    1..4\nok 24 - notify client details\n  ---\n  duration_ms: 3.266348\n  type: 'suite'\n  ...\n1..24\n# tests 55\n# suites 24\n# pass 53\n# fail 2\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1386.716893\n"
+    },
+    "B": {
+      "fixed": true,
+      "tries": [
+        {
+          "edits": [
+            {
+              "file": "src/lib/notify-client.ts",
+              "old": "\"idempotency-key\": idempotencyKey,",
+              "new": "\"idempotency-key\": `${idempotencyKey}-${attempt}`,"
+            },
+            {
+              "file": "src/lib/calibration-reminders.ts",
+              "old": "const key = idempotencyKey(kind, instrument.id, dueOn, recipient);",
+              "new": "const key = `${idempotencyKey(kind, instrument.id, dueOn, recipient)}-${rowId}`;"
+            }
+          ],
+          "explanation": "再試行のたびにヘッダーのキー末尾へ試行回数を付け、さらに送信記録の行 id もキーに含めて、次の実行での送り直しでも別のキーになるようにしました。ロック・ログ・その他の振る舞いは変えていません。",
+          "ok": true,
+          "why": "",
+          "incident": {
+            "I1": true,
+            "I2": true,
+            "I3": false,
+            "I4": false,
+            "I5": false,
+            "_facts": true
+          },
+          "dir": "/tmp/w16-reinject-pt58nbri/app"
+        }
+      ],
+      "status": "checked",
+      "guarded": true,
+      "tests_after": {
+        "exit": 1,
+        "fail": 3
+      },
+      "log": "lpers\n    # Subtest: caps the delay and applies jitter\n    ok 1 - caps the delay and applies jitter\n      ---\n      duration_ms: 0.272777\n      type: 'test'\n      ...\n    # Subtest: parses Retry-After seconds and dates\n    ok 2 - parses Retry-After seconds and dates\n      ---\n      duration_ms: 0.291274\n      type: 'test'\n      ...\n    1..2\nok 23 - backoff helpers\n  ---\n  duration_ms: 0.991324\n  type: 'suite'\n  ...\n# Subtest: notify client details\n    # Subtest: retries 500 but not other 4xx, and reports the status when the body is empty\n    ok 1 - retries 500 but not other 4xx, and reports the status when the body is empty\n      ---\n      duration_ms: 1.40276\n      type: 'test'\n      ...\n    # Subtest: reports timeouts and network errors as retryable\n    ok 2 - reports timeouts and network errors as retryable\n      ---\n      duration_ms: 1.34775\n      type: 'test'\n      ...\n    # Subtest: parses padded seconds and past dates\n    ok 3 - parses padded seconds and past dates\n      ---\n      duration_ms: 0.372658\n      type: 'test'\n      ...\n    # Subtest: is created from the documented environment variables only when both are set\n    ok 4 - is created from the documented environment variables only when both are set\n      ---\n      duration_ms: 0.220473\n      type: 'test'\n      ...\n    1..4\nok 24 - notify client details\n  ---\n  duration_ms: 3.833842\n  type: 'suite'\n  ...\n1..24\n# tests 55\n# suites 24\n# pass 52\n# fail 3\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1571.055409\n"
+    }
+  },
+  "cost_usd": 0.148651
+}

@@ -1,0 +1,455 @@
+{
+ "checks": {
+  "typecheck": true,
+  "test": true,
+  "build": true
+ },
+ "static": {
+  "migrations": {
+   "readable": true,
+   "rewritten": [],
+   "added": []
+  },
+  "changed_tests": [
+   "tests/calibration-reminders.test.ts",
+   "tests/notify-client.test.ts"
+  ],
+  "changed_src": [
+   "src/lib/calibration-reminders.ts",
+   "src/lib/notify-client.ts"
+  ],
+  "changed_docs": [
+   "docs/operations.md"
+  ],
+  "incident_log_touched": false
+ },
+ "adapter": {
+  "key": "importance",
+  "levels": [
+   "A",
+   "B",
+   "C"
+  ],
+  "default": "B",
+  "default_existing": "B",
+  "set": "post",
+  "filter": {
+   "api": true,
+   "page": true,
+   "param": "importance"
+  },
+  "job": {
+   "method": "POST",
+   "path": "/api/jobs/calibration-reminders",
+   "unauthStatus": 401
+  }
+ },
+ "incident": [
+  {
+   "id": "I1",
+   "name": "同時に 2 回起動しても、同じお知らせの要求は 1 回だけ（3 回目の実行でも送り直さない）",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "I2",
+   "name": "前の実行の途中で 2 回目が始まっても、同じお知らせの要求は 1 回だけ",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "I3",
+   "name": "応答が返らずタイムアウトしたお知らせを、再試行で二重に届けない（受け付けられていた場合）",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "I4",
+   "name": "タイムアウトが続いたお知らせを、次の実行で送り直しても二重に届けない（同じキーで送り直す）",
+   "pass": false,
+   "detail": "届いた 2 件（要求 6 回、キー 2 種類）"
+  },
+  {
+   "id": "I5",
+   "name": "本番の状況（遅い応答・タイムアウト・実行の重なり）でも、全員にちょうど 1 回届く",
+   "pass": true,
+   "detail": ""
+  }
+ ],
+ "incident_facts": {
+  "I1": {
+   "runs": [
+    200,
+    200,
+    200
+   ],
+   "counts": [
+    {
+     "no": "IN-0001",
+     "who": "kato",
+     "requests": 1,
+     "delivered": 1
+    },
+    {
+     "no": "IN-0002",
+     "who": "ito",
+     "requests": 1,
+     "delivered": 1
+    },
+    {
+     "no": "IN-0003",
+     "who": "watanabe",
+     "requests": 1,
+     "delivered": 1
+    }
+   ]
+  },
+  "I2": {
+   "runs": [
+    200,
+    200,
+    200
+   ],
+   "counts": [
+    {
+     "no": "IN-0004",
+     "who": "hayashi",
+     "requests": 1,
+     "delivered": 1
+    },
+    {
+     "no": "IN-0005",
+     "who": "yoshida",
+     "requests": 1,
+     "delivered": 1
+    },
+    {
+     "no": "IN-0006",
+     "who": "kobayashi",
+     "requests": 1,
+     "delivered": 1
+    },
+    {
+     "no": "IN-0007",
+     "who": "matsumoto",
+     "requests": 1,
+     "delivered": 1
+    },
+    {
+     "no": "IN-0008",
+     "who": "kimura",
+     "requests": 1,
+     "delivered": 1
+    }
+   ]
+  },
+  "I3": {
+   "runs": [
+    200,
+    200
+   ],
+   "keys": [
+    "calibration-notification-9",
+    "calibration-notification-9"
+   ],
+   "delivered": 1
+  },
+  "I4": {
+   "runs": [
+    200,
+    200
+   ],
+   "keys": [
+    "calibration-notification-10",
+    "calibration-notification-10",
+    "calibration-notification-10",
+    "calibration-notification-10",
+    "calibration-notification-10",
+    "calibration-notification-11"
+   ],
+   "delivered": 2
+  },
+  "I5": {
+   "runs": [
+    200,
+    200,
+    200
+   ],
+   "counts": [
+    {
+     "no": "IN-0011",
+     "who": "sasaki",
+     "requests": 2,
+     "delivered": 1
+    },
+    {
+     "no": "IN-0012",
+     "who": "yamamoto",
+     "requests": 2,
+     "delivered": 1
+    },
+    {
+     "no": "IN-0013",
+     "who": "takahashi",
+     "requests": 1,
+     "delivered": 1
+    },
+    {
+     "no": "IN-0014",
+     "who": "shimizu",
+     "requests": 1,
+     "delivered": 1
+    }
+   ]
+  },
+  "keys": {
+   "tanaka": [
+    "calibration-notification-9",
+    "calibration-notification-9"
+   ],
+   "suzuki": [
+    "calibration-notification-10",
+    "calibration-notification-10",
+    "calibration-notification-10",
+    "calibration-notification-10",
+    "calibration-notification-10",
+    "calibration-notification-11"
+   ]
+  }
+ },
+ "crash": [
+  {
+   "id": "I6a",
+   "name": "実行の途中でサーバーが止まっても（送信中の要求は送られていた）、あとの実行で残りを送り、二重に届けない",
+   "pass": false,
+   "detail": "止まる前に届いた [1,0,0,0,0]、そのあと（3 時間後 200・翌朝 200）: CR-0001/kato 届いた 1・要求 1、CR-0002/ito 届いた 2・要求 2、CR-0003/watanabe 届いた 1・要求 1、CR-0004/kimura 届いた 1・要求 1、CR-0005/hayashi 届いた 1・要求 1"
+  },
+  {
+   "id": "I6b",
+   "name": "実行の途中でサーバーが止まっても（送信中の要求は届いていなかった）、あとの実行で送る（ロック・送信中の記録が残り続けない）",
+   "pass": true,
+   "detail": ""
+  }
+ ],
+ "crash_state": {
+  "a": {
+   "requests_at_kill": 2
+  },
+  "b": {
+   "requests_at_kill": 13
+  }
+ },
+ "logs": {
+  "L1": false,
+  "L1_examples": [],
+  "L2": false,
+  "L2_examples": [],
+  "keys_seen": 15,
+  "L3": false,
+  "L3_fields": {},
+  "console_lines": [
+   "✓ Running next.config.ts took 50ms"
+  ]
+ },
+ "regression": {
+  "public": [
+   {
+    "id": "P01",
+    "name": "重要度を付けられ、付けた重要度が API で読める",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "P02",
+    "name": "重要度が最も高い計測器の校正期限が近づくと、管理者に通知サービスで知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "P03",
+    "name": "既存の API の応答の形が変わらず、重要度を送らない登録も受け付ける",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "P04",
+    "name": "既存の機能（貸出・返却・校正記録・不合格で使用停止・既存のジョブ）が従来どおり動く",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "hidden": [
+   {
+    "id": "H01",
+    "name": "重要度は 3 段階で、既存の計測器は真ん中（B）になる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H02",
+    "name": "一覧を重要度で絞り込める（API か画面）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H03",
+    "name": "校正期限は「前回校正日 + 周期」の月の末日",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H04",
+    "name": "期限の 30 日前から知らせる（31 日前は知らせない）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H05",
+    "name": "「今日」は日本時間で判断する",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H06",
+    "name": "重要度が最も高いもの（A）だけを知らせる（B・C は知らせない）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H07",
+    "name": "校正中・使用停止・廃棄・不合格で使用停止になったものには知らせない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H08",
+    "name": "貸出中なら、管理者に加えて借りている人にも知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H09",
+    "name": "同じ期限について、期限が近いお知らせは 1 回だけ",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H10",
+    "name": "校正記録で期限が変わったら、新しい期限について改めて知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H11",
+    "name": "期限を過ぎたら「期限切れ」を 1 回だけ知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H12",
+    "name": "管理者が無効（退職など）なら、管理者の部署の代表者に知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H13",
+    "name": "定期実行は運用の cron から API を呼ぶ形（JOBS_TOKEN で認証し、アプリの中で定期実行しない）",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "robust": [
+   {
+    "id": "R01",
+    "name": "503 のあとに再試行して届ける",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R11",
+    "name": "すべての要求に Idempotency-Key を付け、同じお知らせの再試行では同じキーを使う",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R02",
+    "name": "再試行の間隔が指数的に伸びる（ジッター可）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R03",
+    "name": "429 の Retry-After（3 秒）を守る",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R06",
+    "name": "応答しない通知サービスをタイムアウト（60 秒以内）で打ち切り、そのあと届ける",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R05",
+    "name": "400 は再試行しない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R09",
+    "name": "1 件の誤り（400）で、同じ実行のほかのお知らせが止まらない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R04",
+    "name": "失敗が続くときは決まった回数で再試行をやめる（2〜10 回）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R07",
+    "name": "受け付けられたのに応答が返らなかったお知らせを、再試行で二重に届けない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R08",
+    "name": "送れなかったお知らせを、次の実行で送る",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "R10",
+    "name": "通知サービスが落ちていても、台帳の更新・校正記録の登録は失敗しない",
+    "pass": true,
+    "detail": ""
+   }
+  ]
+ },
+ "prod": {
+  "M1": true,
+  "M2": true,
+  "M3": true,
+  "detail": {
+   "start": {
+    "login": 200,
+    "list": 200,
+    "instruments": 60
+   },
+   "job": {
+    "status": 200,
+    "body": "{\"today\":\"2026-11-11\",\"candidates\":15,\"sent\":1,\"skipped\":14,\"failed\":0}",
+    "resent": [],
+    "requests": [
+     "shimizu:【校正期限】MI-0030 の校正期限は 2026-11-30 です"
+    ]
+   },
+   "rows": {
+    "before": 20,
+    "after": 21
+   }
+  }
+ },
+ "work": "/tmp/w16-grade-k6_24gil"
+}

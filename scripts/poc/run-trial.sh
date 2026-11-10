@@ -87,6 +87,8 @@ INJECT="${POC_INJECT_PATCH:-}"
 [[ -z "$INJECT" && "$SCENARIO" == W13 ]] && INJECT="$ROOT/docs/poc/answer-key/W13/base.patch"
 # W14・W15: 同じ題材に、その W に必要なものを足した初期状態（docs/poc/tasks/wf-W14-design.md・wf-W15-design.md）
 [[ -z "$INJECT" && ( "$SCENARIO" == W14 || "$SCENARIO" == W15 ) ]] && INJECT="$ROOT/docs/poc/answer-key/$SCENARIO/base.patch"
+# W16: W12 の課題（重要度と校正期限の通知）を実装済みの版に不具合を仕込み、本番のログ（incident/）を置いた初期状態（docs/poc/tasks/wf-W16-design.md）
+[[ -z "$INJECT" && "$SCENARIO" == W16 ]] && INJECT="$ROOT/docs/poc/answer-key/W16/base.patch"
 # W7 の対照: 初期状態 + 前の段階までの参照実装（例: W7b なら base.patch:reference-W7a.patch）。POC_INJECT_PATCH は : 区切りで複数書ける
 if [[ -z "$INJECT" && -n "$W7_CONTROL" ]]; then
   INJECT="$ROOT/docs/poc/answer-key/W7/base.patch"
@@ -112,7 +114,7 @@ if [[ "$CAND" == baseline-conventions ]]; then
 fi
 # W14・W15: W13 と同じく、全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準を足す
 # （2026-11-10 コーディネーターの連絡・ユーザー承認。W13 の分岐とぶつからないよう別に足した）
-if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 ]]; then
+if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W16 ]]; then
   STD="$ROOT/docs/poc/standards/generic-dev-standard.md"
   { echo; sed '1,/^-->$/d' "$STD"; } >> "$APP/CLAUDE.md"
   sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/dev-standard"
@@ -262,8 +264,8 @@ if [[ "$SCENARIO" == W13 ]]; then
   CHILD_ENV+=(PATH="$WORK/bin:$PATH")
 fi
 # W14・W15: W12 と同じ ask-po（依頼者役は answer_persona.py。回答シートは answer-key/<W>/persona.md）。
-# 許可リストへの追加は ask-po だけ（2026-11-10 コーディネーター承認）
-if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 ]]; then
+# 許可リストへの追加は ask-po だけ（2026-11-10 コーディネーター承認）。W16 も同じ（CLAUDE.md の例外としてコーディネーター承認済み）
+if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W16 ]]; then
   mkdir -p "$WORK/bin"
   cp "$ROOT/scripts/poc/ask-po" "$WORK/bin/ask-po"
   chmod +x "$WORK/bin/ask-po"
@@ -287,7 +289,7 @@ else
     # W13 も依頼者に質問できるので W12 と同じ文言
     [[ "$SCENARIO" == W13 ]] && SUFFIX_MODE=w12
     # W14・W15 も依頼者（品質保証部の担当者）に質問できるので同じ文言
-    [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 ]] && SUFFIX_MODE=w12
+    [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W16 ]] && SUFFIX_MODE=w12
   fi
   case "$SUFFIX_MODE" in
     # W12: 依頼者に質問できることを伝える（ask-po と、メッセージでの質問の両方）。工程を省かないことは新文言と同じ
@@ -321,7 +323,7 @@ else
   # W12: 質問はメッセージ本文か ask-po で受ける。質問ツールは無人では答えられないので外す（W3 と同じ）
   [[ "$SCENARIO" == W12 ]] && EXTRA=(--disallowedTools AskUserQuestion)
   [[ "$SCENARIO" == W13 ]] && EXTRA=(--disallowedTools AskUserQuestion)
-  [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 ]] && EXTRA=(--disallowedTools AskUserQuestion)
+  [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W16 ]] && EXTRA=(--disallowedTools AskUserQuestion)
 fi
 # W7a の後の手順（Compound Engineering は学んだことを残す /ce-compound。落とし穴の指摘のやり取りが終わってから行う）
 POST_STEPS=()
@@ -353,8 +355,8 @@ if [[ "$SCENARIO" == W8 ]]; then
     gstack) STEPS=("/autoplan $TASK" "/ship") ;;
   esac
 fi
-if [[ "$SCENARIO" == W5 || "$SCENARIO" == W11-B* ]]; then
-  # W5 の手順（W11 の不具合の課題も同じ）（docs/poc/tasks/wf-procedures.md）。gstack は /qa、Compound Engineering は /ce-debug に課題を渡す。
+if [[ "$SCENARIO" == W5 || "$SCENARIO" == W11-B* || "$SCENARIO" == W16 ]]; then
+  # W5 の手順（W11 の不具合の課題、W16 の障害の調査も同じ）（docs/poc/tasks/wf-procedures.md）。gstack は /qa、Compound Engineering は /ce-debug に課題を渡す。
   case "$CAND" in
     baseline|superpowers|feature-dev) STEPS=("$TASK") ;;
     compound-engineering) STEPS=("/ce-debug $TASK") ;;
@@ -398,7 +400,7 @@ NUDGE="お任せします。確認は不要なので、課題を最後まで実�
 MAX_QA="${POC_MAX_QA_ROUNDS:-10}"
 QA_CLOSE="質問はここまでで締め切ります。残りはお任せします。ここまでの回答をもとに要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
 [[ "$SCENARIO" == W3 ]] && NUDGE="お任せします。確認は不要なので、要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
-[[ "$SCENARIO" == W5 || "$SCENARIO" == W11-B* ]] && NUDGE="お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。"
+[[ "$SCENARIO" == W5 || "$SCENARIO" == W11-B* || "$SCENARIO" == W16 ]] && NUDGE="お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。"
 # W7: 手順を終えた後、落とし穴 2 件を判定し（scripts/poc/check_w7.py）、避けられなかったものをレビューの定型の指摘で直させる回数の上限。
 # 判定にかかった時間は所要時間から除く（check-seconds）。W7 以外は 0（判定しない）。
 MAX_FEEDBACK="${POC_MAX_FEEDBACK:-0}"
@@ -520,7 +522,7 @@ run_step() {  # run_step <番号> <プロンプト>
 }
 
 qa_answer() {  # qa_answer <ステップ> <通し番号>: 回答役に答えさせ、回答文を出す（質問が無ければ何も出さない）
-  if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 ]]; then
+  if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W16 ]]; then
     POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_persona.py" "$SCENARIO" message "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$1" "$2"
   elif [[ "$SCENARIO" == W13 ]]; then
     POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_w13.py" message "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$1" "$2"
@@ -531,11 +533,11 @@ qa_answer() {  # qa_answer <ステップ> <通し番号>: 回答役に答えさ�
   fi
 }
 qa_loop() {  # W3・W12: 直前のステップの最後のメッセージに質問があれば、回答役の回答で続ける（上限 MAX_QA 回）
-  [[ "$SCENARIO" == W3 || "$SCENARIO" == W12 || "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 ]] || return 0
+  [[ "$SCENARIO" == W3 || "$SCENARIO" == W12 || "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W16 ]] || return 0
   local reply
   while :; do
     # W12 は上限に達したら答えるのをやめる（締め切りの定型文は送らない。続きは介入の定型文で進める）
-    [[ ( "$SCENARIO" == W12 || "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 ) && "$QA" -ge "$MAX_QA" ]] && { echo "qa limit $MAX_QA reached" >> "$OUT/errors.log"; return 0; }
+    [[ ( "$SCENARIO" == W12 || "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W16 ) && "$QA" -ge "$MAX_QA" ]] && { echo "qa limit $MAX_QA reached" >> "$OUT/errors.log"; return 0; }
     if [[ "$QA" -ge "$MAX_QA" ]]; then
       # 上限に達した後も質問が続くときは、締め切りの定型文を 1 回だけ送る（qa-closed.log に記録）
       if [[ ! -s "$OUT/qa-closed.log" ]] && ! over_budget; then
@@ -575,8 +577,8 @@ if [[ "$SCENARIO" == W13 ]]; then
   trap 'declare -F reap_servers >/dev/null && reap_servers end; [[ -n "$PO_PID" ]] && kill "$PO_PID" 2>/dev/null' EXIT
   for _ in $(seq 1 20); do [[ -S "$WORK/po.sock" ]] && break; sleep 0.5; done
 fi
-# W14・W15: 依頼者役（answer_persona.py）を W12 と同じく裏で起動する
-if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 ]]; then
+# W14・W15・W16: 依頼者役（answer_persona.py）を W12 と同じく裏で起動する
+if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W16 ]]; then
   mkdir -p "$WORK/answerer-home"
   POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_persona.py" "$SCENARIO" serve "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$WORK/po.sock" \
     >> "$OUT/persona.log" 2>&1 &

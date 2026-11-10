@@ -1,0 +1,307 @@
+diff --git a/src/app/api/jobs/calibration-reminders/route.ts b/src/app/api/jobs/calibration-reminders/route.ts
+index 556e669..780fc3d 100644
+--- a/src/app/api/jobs/calibration-reminders/route.ts
++++ b/src/app/api/jobs/calibration-reminders/route.ts
+@@ -2,7 +2,7 @@
+ //（運用の cron が毎朝 7:30 JST に呼ぶ。docs/operations.md）。
+ import { NextResponse } from "next/server";
+ import { jsonError, requireJobAuth } from "@/lib/api";
+-import { runCalibrationReminders } from "@/lib/calibration-reminders";
++import { runCalibrationRemindersExclusive } from "@/lib/calibration-reminders";
+ import { logger } from "@/lib/logger";
+ import { notifyClientFromEnv } from "@/lib/notify-client";
+ 
+@@ -15,8 +15,12 @@ export async function POST(request: Request) {
+     return jsonError(500, "通知サービスの設定がありません");
+   }
+   const started = Date.now();
+-  logger.info("job.started", { job: "calibration-reminders" });
+-  const summary = await runCalibrationReminders(client);
+-  logger.info("job.completed", { job: "calibration-reminders", ...summary, durationMs: Date.now() - started });
+-  return NextResponse.json(summary);
++  const result = await runCalibrationRemindersExclusive(client, undefined, undefined);
++  if ("alreadyRunning" in result) {
++    // cron の呼び直しなどで、前の実行が終わる前に呼ばれた。送らずに終える（前の実行がすべて送る）
++    logger.warn("job.already_running", { job: "calibration-reminders", runningRunId: result.alreadyRunning });
++    return NextResponse.json({ alreadyRunning: true, runningRunId: result.alreadyRunning }, { status: 409 });
++  }
++  logger.info("job.completed", { job: "calibration-reminders", runId: result.runId, ...result.summary, durationMs: Date.now() - started });
++  return NextResponse.json({ runId: result.runId, ...result.summary });
+ }
+diff --git a/src/lib/calibration-reminders.ts b/src/lib/calibration-reminders.ts
+index d34925c..ca9ad64 100644
+--- a/src/lib/calibration-reminders.ts
++++ b/src/lib/calibration-reminders.ts
+@@ -5,8 +5,13 @@
+ // - 送り先: 管理者（無効なら管理者の部署の代表者）。貸出中なら借りている人にも送る。
+ // - 送った記録は calibration_notifications に残し、送信済み（sent）の期限・種類・送り先には二度送らない。
+ //   1 件の失敗で残りを止めず、失敗したもの（failed）は次の実行で送り直す。
++// - 二重送信を防ぐ決まり（2026-11-10 の障害の対策）:
++//   - 同時に 2 つの実行が動かないよう、ジョブのロック（job-lock.ts）を取ってから送る。取れなければ何もしない。
++//   - Idempotency-Key は「種類・計測器・期限・送り先」で決まる値にし、再試行でも次の実行での送り直しでも同じ値を使う。
++//     タイムアウトした要求も通知サービス側では送られていることがあるため（docs/notify-api.md）。
+ import { calibrationDueOn, dueState } from "./calibration-due.ts";
+ import { getDb, type Db } from "./db/index.ts";
++import { acquireJobLock } from "./job-lock.ts";
+ import { todayJst } from "./dates.ts";
+ import { listInstruments, type Instrument } from "./instruments.ts";
+ import { currentLoan } from "./loans.ts";
+@@ -16,6 +21,8 @@ import { getDepartment, getUserDetail } from "./users.ts";
+ 
+ export type ReminderKind = "due_soon" | "overdue";
+ 
++export const JOB_NAME = "calibration-reminders";
++
+ export type ReminderSummary = { today: string; candidates: number; sent: number; skipped: number; failed: number };
+ 
+ /** 管理者の代わりの送り先。管理者が無効なら、管理者の部署の代表者（有効な人）。見つからなければ undefined。 */
+@@ -40,9 +47,9 @@ export function recipientsFor(instrument: Instrument, db: Db = getDb()): string[
+   return out;
+ }
+ 
+-/** 通知サービスに渡す Idempotency-Key（送信記録の行ごと）。 */
+-export function idempotencyKey(notificationRowId: number): string {
+-  return `calibration-notification-${notificationRowId}`;
++/** 通知サービスに渡す Idempotency-Key。同じお知らせ（種類・計測器・期限・送り先）には、いつ送り直しても同じ値。 */
++export function idempotencyKey(kind: ReminderKind, instrumentId: number, dueOn: string, recipient: string): string {
++  return `calibration-${kind}-${instrumentId}-${dueOn}-${recipient}`;
+ }
+ 
+ export function message(instrument: Instrument, kind: ReminderKind, dueOn: string) {
+@@ -82,10 +89,27 @@ function createRecord(db: Db, t: Target, now: Date): number {
+   return Number(lastInsertRowid);
+ }
+ 
++/** ロックを取って実行する。ほかの実行が動いていれば、送らずに { alreadyRunning } を返す。 */
++export async function runCalibrationRemindersExclusive(
++  client: NotifyClient,
++  db: Db = getDb(),
++  now: Date = new Date(),
++): Promise<{ runId: string; summary: ReminderSummary } | { alreadyRunning: string }> {
++  const got = acquireJobLock(JOB_NAME, db, now);
++  if (!got.lock) return { alreadyRunning: got.heldBy };
++  logger.info("job.started", { job: JOB_NAME, runId: got.lock.runId });
++  try {
++    return { runId: got.lock.runId, summary: await runCalibrationReminders(client, db, now, got.lock.runId) };
++  } finally {
++    got.lock.release();
++  }
++}
++
+ export async function runCalibrationReminders(
+   client: NotifyClient,
+   db: Db = getDb(),
+   now: Date = new Date(),
++  runId?: string,
+ ): Promise<ReminderSummary> {
+   const today = todayJst(now);
+   const summary: ReminderSummary = { today, candidates: 0, sent: 0, skipped: 0, failed: 0 };
+@@ -103,8 +127,9 @@ export async function runCalibrationReminders(
+         continue;
+       }
+       const rowId = createRecord(db, target, now);
+-      const result = await client.send({ recipient, ...message(instrument, kind, dueOn) }, idempotencyKey(rowId));
+-      const fields = { instrumentId: instrument.id, managementNo: instrument.managementNo, kind, dueOn, recipient, attempts: result.attempts };
++      const key = idempotencyKey(kind, instrument.id, dueOn, recipient);
++      const result = await client.send({ recipient, ...message(instrument, kind, dueOn) }, key);
++      const fields = { runId, instrumentId: instrument.id, managementNo: instrument.managementNo, kind, dueOn, recipient, idempotencyKey: key, attempts: result.attempts };
+       if (result.ok) {
+         db.prepare(
+           "UPDATE calibration_notifications SET status = 'sent', attempts = ?, notification_id = ?, sent_at = ? WHERE id = ?",
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 0b537f8..6ab9cbf 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -108,4 +108,18 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX calibration_notifications_target ON calibration_notifications(instrument_id, kind, due_on, recipient_id);
+     `,
+   },
++  {
++    version: 6,
++    name: "job_locks",
++    sql: `
++      -- 定期実行のジョブの多重起動を防ぐロック（2026-11-10 の二重送信の対策）。
++      -- 実行中のジョブが 1 行を持ち、expires_at を過ぎた行（途中でプロセスが止まったなど）は次の実行が引き継ぐ。
++      CREATE TABLE job_locks (
++        job         TEXT PRIMARY KEY,
++        run_id      TEXT NOT NULL,
++        acquired_at TEXT NOT NULL, -- ISO 8601（UTC）
++        expires_at  TEXT NOT NULL  -- ISO 8601（UTC）
++      );
++    `,
++  },
+ ];
+diff --git a/src/lib/job-lock.ts b/src/lib/job-lock.ts
+new file mode 100644
+index 0000000..62ae347
+--- /dev/null
++++ b/src/lib/job-lock.ts
+@@ -0,0 +1,40 @@
++// 定期実行のジョブの多重起動を防ぐロック（DB の job_locks）。
++// 運用の cron は応答が遅いと呼び直すため（docs/operations.md）、前の実行が終わる前に同じジョブが来ることがある。
++// ロックには期限があり、期限を過ぎたロック（途中でプロセスが止まったなど）は次の実行が引き継ぐ。
++import { randomUUID } from "node:crypto";
++import { getDb, type Db } from "./db/index.ts";
++
++/** ロックの期限。ジョブがこれより長く動くことは想定しない（通知サービスが遅くても 1 件あたり 1 分程度）。 */
++export const JOB_LOCK_TTL_MS = 60 * 60 * 1000;
++
++export type JobLock = { job: string; runId: string; release(): void };
++
++/** ロックを取れれば返す。ほかの実行が持っていれば undefined（その実行の run_id は heldBy で返す）。 */
++export function acquireJobLock(
++  job: string,
++  db: Db = getDb(),
++  now: Date = new Date(),
++  ttlMs: number = JOB_LOCK_TTL_MS,
++): { lock: JobLock } | { lock: undefined; heldBy: string } {
++  const runId = randomUUID();
++  const { changes } = db
++    .prepare(
++      `INSERT INTO job_locks (job, run_id, acquired_at, expires_at) VALUES (?, ?, ?, ?)
++       ON CONFLICT (job) DO UPDATE SET run_id = excluded.run_id, acquired_at = excluded.acquired_at, expires_at = excluded.expires_at
++       WHERE job_locks.expires_at <= excluded.acquired_at`,
++    )
++    .run(job, runId, now.toISOString(), new Date(now.getTime() + ttlMs).toISOString());
++  if (changes === 0) {
++    const held = db.prepare("SELECT run_id FROM job_locks WHERE job = ?").get(job) as { run_id: string } | undefined;
++    return { lock: undefined, heldBy: held?.run_id ?? "" };
++  }
++  return {
++    lock: {
++      job,
++      runId,
++      release: () => {
++        db.prepare("DELETE FROM job_locks WHERE job = ? AND run_id = ?").run(job, runId);
++      },
++    },
++  };
++}
+diff --git a/src/lib/notify-client.ts b/src/lib/notify-client.ts
+index 740e668..c3fe4ec 100644
+--- a/src/lib/notify-client.ts
++++ b/src/lib/notify-client.ts
+@@ -1,6 +1,8 @@
+ // 社内通知サービス（docs/notify-api.md）のクライアント。
+ // - 503・429・通信エラー・タイムアウトは、指数バックオフ（ジッター付き）で決まった回数まで再試行する。429 は Retry-After を守る。
+ // - 400・401 などは再試行しない（送り直しても結果が変わらないため）。
++// - 同じお知らせの再試行には同じ Idempotency-Key を付ける。タイムアウトした要求も通知サービス側では送られていることがあり、
++//   別のキーで送り直すと二重に届くため（断られた要求はキーが記録されないので、同じキーで送り直してよい。docs/notify-api.md）。
+ // fetch・待ち時間・乱数は差し替えられる（テスト用）。
+ import { logger } from "./logger.ts";
+ 
+@@ -65,7 +67,7 @@ export function createNotifyClient(options: NotifyClientOptions): NotifyClient {
+             headers: {
+               authorization: `Bearer ${token}`,
+               "content-type": "application/json",
+-              "idempotency-key": `${idempotencyKey}-${attempt}`,
++              "idempotency-key": idempotencyKey,
+             },
+             body: JSON.stringify({ category: "calibration", ...n }),
+             signal: AbortSignal.timeout(timeoutMs),
+@@ -90,7 +92,7 @@ export function createNotifyClient(options: NotifyClientOptions): NotifyClient {
+         }
+         if (attempt < maxAttempts) {
+           const waitMs = Math.max(retryAfterMs ?? 0, backoffDelay(attempt, baseDelayMs, maxDelayMs, random));
+-          if (!last.ok) logger.warn("notify.retry", { recipient: n.recipient, attempt, status: last.status, error: last.error, waitMs });
++          if (!last.ok) logger.warn("notify.retry", { recipient: n.recipient, idempotencyKey, attempt, status: last.status, error: last.error, waitMs });
+           await sleep(waitMs);
+         }
+       }
+diff --git a/tests/calibration-reminders.test.ts b/tests/calibration-reminders.test.ts
+index a42cf72..57dc7f7 100644
+--- a/tests/calibration-reminders.test.ts
++++ b/tests/calibration-reminders.test.ts
+@@ -1,6 +1,13 @@
+ import { describe, it } from "node:test";
+ import assert from "node:assert/strict";
+-import { managerRecipient, message, recipientsFor, runCalibrationReminders } from "../src/lib/calibration-reminders.ts";
++import {
++  managerRecipient,
++  message,
++  recipientsFor,
++  runCalibrationReminders,
++  runCalibrationRemindersExclusive,
++} from "../src/lib/calibration-reminders.ts";
++import { acquireJobLock } from "../src/lib/job-lock.ts";
+ import { recordCalibration } from "../src/lib/calibrations.ts";
+ import { openDb, type Db } from "../src/lib/db/index.ts";
+ import { createInstrument, updateInstrument, type InstrumentInput } from "../src/lib/instruments.ts";
+@@ -167,4 +174,48 @@ describe("runCalibrationReminders", () => {
+     const row = db.prepare("SELECT status, attempts, notification_id FROM calibration_notifications WHERE instrument_id = ?").get(inst.id) as Record<string, unknown>;
+     assert.deepEqual({ ...row }, { status: "sent", attempts: 2, notification_id: "ntf_42" });
+   });
++
++  it("does not send twice when a second run starts before the first one finishes", async () => {
++    const db = fresh();
++    add(db, { managerId: "kato" });
++    add(db, { managerId: "ito" });
++    const r = recorder();
++    const slow: NotifyClient = {
++      async send(n, key) {
++        await new Promise((resolve) => setTimeout(resolve, 20));
++        return r.client.send(n, key);
++      },
++    };
++    const [a, b] = await Promise.all([
++      runCalibrationRemindersExclusive(slow, db, at("2027-01-10")),
++      runCalibrationRemindersExclusive(slow, db, at("2027-01-10")),
++    ]);
++    assert.equal(r.sent.length, 2);
++    assert.ok("alreadyRunning" in a || "alreadyRunning" in b);
++    // 終われば次の実行はロックを取れるが、送信済みなので送らない
++    const c = await runCalibrationRemindersExclusive(slow, db, at("2027-01-10"));
++    assert.ok("summary" in c && c.summary.skipped === 2);
++    assert.equal(r.sent.length, 2);
++  });
++
++  it("takes over a lock left by a run that stopped halfway once it has expired", () => {
++    const db = fresh();
++    const t0 = at("2027-01-10");
++    assert.ok(acquireJobLock("x", db, t0, 60_000).lock);
++    assert.equal(acquireJobLock("x", db, new Date(t0.getTime() + 59_000), 60_000).lock, undefined);
++    assert.ok(acquireJobLock("x", db, new Date(t0.getTime() + 60_000), 60_000).lock);
++  });
++
++  it("uses the same idempotency key when a failed notice is sent again on a later run", async () => {
++    const db = fresh();
++    const inst = add(db, { managerId: "kato" });
++    let fail = true;
++    const r = recorder(() => (fail ? { ok: false, retryable: true, error: "タイムアウト", attempts: 5 } : { ok: true, id: "n", attempts: 1 }));
++    await runCalibrationReminders(r.client, db, at("2027-01-10"));
++    fail = false;
++    await runCalibrationReminders(r.client, db, at("2027-01-11"));
++    assert.equal(r.sent.length, 2);
++    assert.equal(r.sent[0].key, r.sent[1].key);
++    assert.match(r.sent[0].key, new RegExp(`due_soon-${inst.id}-2027-01-31-kato`));
++  });
+ });
+diff --git a/tests/notify-client.test.ts b/tests/notify-client.test.ts
+index 0283b97..6999d5f 100644
+--- a/tests/notify-client.test.ts
++++ b/tests/notify-client.test.ts
+@@ -42,19 +42,20 @@ describe("notify client", () => {
+     assert.deepEqual(await c.send(N, "k1"), { ok: true, id: "ntf_1", attempts: 1 });
+     assert.equal(calls[0].url, "http://notify.test/v1/notifications");
+     assert.equal(calls[0].headers.authorization, "Bearer t0ken");
+-    assert.equal(calls[0].headers["idempotency-key"], "k1-1");
++    assert.equal(calls[0].headers["idempotency-key"], "k1");
+     assert.deepEqual(calls[0].body, { category: "calibration", ...N });
+   });
+ 
+-  it("retries 503 and network errors with growing delays", async () => {
++  it("retries 503, timeouts and network errors with growing delays and the same key", async () => {
+     const sleeps: number[] = [];
+-    const { c, calls } = client([json(503), new TypeError("fetch failed"), json(202, { id: "x" })], sleeps);
++    const timeout = Object.assign(new Error("t"), { name: "TimeoutError" });
++    const { c, calls } = client([json(503), timeout, json(202, { id: "x" })], sleeps);
+     const r = await c.send(N, "k2");
+     assert.equal(r.ok, true);
+     assert.deepEqual(sleeps, [100, 200]);
+     assert.deepEqual(
+       calls.map((x) => x.headers["idempotency-key"]),
+-      ["k2-1", "k2-2", "k2-3"],
++      ["k2", "k2", "k2"],
+     );
+   });
+ 

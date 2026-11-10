@@ -1,0 +1,48 @@
+{
+  "name": "pre-half",
+  "tests_before": {
+    "exit": 0,
+    "fail": 0
+  },
+  "causes": {
+    "A": {
+      "fixed": false,
+      "status": "not_fixed",
+      "guarded": false
+    },
+    "B": {
+      "fixed": true,
+      "tries": [
+        {
+          "edits": [
+            {
+              "file": "src/lib/notify-client.ts",
+              "old": "\"idempotency-key\": idempotencyKey,",
+              "new": "\"idempotency-key\": `${idempotencyKey}-${attempt}`,"
+            }
+          ],
+          "explanation": "notify-client.ts の再試行ループ内で、Idempotency-Key ヘッダーの末尾に試行回数（-${attempt}）を付けて、試行のたびに別のキーを送るようにしました。これで修正前の挙動に戻ります。呼び出し側の idempotencyKey 関数、ロック、ログなどは変えていません。",
+          "ok": true,
+          "why": "",
+          "incident": {
+            "I1": false,
+            "I2": false,
+            "I3": false,
+            "I4": false,
+            "I5": false,
+            "_facts": true
+          },
+          "dir": "/tmp/w16-reinject-60v6lx2p/app"
+        }
+      ],
+      "status": "checked",
+      "guarded": true,
+      "tests_after": {
+        "exit": 1,
+        "fail": 2
+      },
+      "log": "ers\n    # Subtest: caps the delay and applies jitter\n    ok 1 - caps the delay and applies jitter\n      ---\n      duration_ms: 0.166993\n      type: 'test'\n      ...\n    # Subtest: parses Retry-After seconds and dates\n    ok 2 - parses Retry-After seconds and dates\n      ---\n      duration_ms: 0.211762\n      type: 'test'\n      ...\n    1..2\nok 23 - backoff helpers\n  ---\n  duration_ms: 0.763243\n  type: 'suite'\n  ...\n# Subtest: notify client details\n    # Subtest: retries 500 but not other 4xx, and reports the status when the body is empty\n    ok 1 - retries 500 but not other 4xx, and reports the status when the body is empty\n      ---\n      duration_ms: 0.964024\n      type: 'test'\n      ...\n    # Subtest: reports timeouts and network errors as retryable\n    ok 2 - reports timeouts and network errors as retryable\n      ---\n      duration_ms: 0.998308\n      type: 'test'\n      ...\n    # Subtest: parses padded seconds and past dates\n    ok 3 - parses padded seconds and past dates\n      ---\n      duration_ms: 0.333881\n      type: 'test'\n      ...\n    # Subtest: is created from the documented environment variables only when both are set\n    ok 4 - is created from the documented environment variables only when both are set\n      ---\n      duration_ms: 0.170582\n      type: 'test'\n      ...\n    1..4\nok 24 - notify client details\n  ---\n  duration_ms: 2.765781\n  type: 'suite'\n  ...\n1..24\n# tests 52\n# suites 24\n# pass 50\n# fail 2\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1328.047074\n"
+    }
+  },
+  "cost_usd": 0.034857
+}

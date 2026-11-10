@@ -17,6 +17,7 @@
 | W9 | `<課題>` | `/superpowers:requesting-code-review <課題>` | 「Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。」+ `<課題>` | `/review <課題>` | `/ce-code-review <課題>` |
 | W10 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 | W14・W15 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
+| W16 | `<課題>` | `<課題>`（`systematic-debugging` などの自動発火） | `<課題>`（通常の指示） | `/qa <課題>` | `/ce-debug <課題>` |
 
 ### W2 以降の共通の決まり
 
@@ -105,6 +106,13 @@
 - 条件は 5 つ（baseline-conventions は使わない）。全条件で、`docs/poc/standards/generic-dev-standard.md` の汎用の開発標準を作業用コピーの `CLAUDE.md` の末尾に足す（2026-11-10 コーディネーターの連絡）。
 - 介入は最大 2 回。費用の上限は付けない。まとめて流すときは `scripts/poc/run_w14_trials.sh W14 <候補>:<回> ...`。
 - 採点は `grade_w14.py`（新しい DB での公開・隠し、5 万件の旧 DB での移行、表記ゆれ、前の版への戻し、運用、ミューテーション）→ `blind_w14.py` → `score_w14.py`。
+
+### W16 の決まり（ログから障害の原因を探す。2026-11-10 追加）
+
+- 設計は [wf-W16-design.md](wf-W16-design.md)、採点は `docs/poc/answer-key/W16/grading.md`。初期状態は `answer-key/W16/base.patch`（W12 の初期状態 + W12 の課題を実装した版に不具合を 2 つ仕込んだもの + 本番のログ `incident/2026-11-10/`）を作業用コピーにだけ当てる。課題文は `wf-W16.md`（苦情の 1 文 + ログの置き場所の 1 文）。
+- 入口は W5（バグ修正）と同じ。依頼者への質問は W12 と同じ 2 経路（`ask-po` とメッセージ）。依頼者役は `scripts/poc/answer_persona.py W16`（回答シートは `answer-key/W16/persona.md`）。`AskUserQuestion` は外す。
+- 条件は 5 つ。全条件で汎用の開発標準を作業用コピーの `CLAUDE.md` の末尾に足す。介入は W5 の定型文で最大 2 回。費用の上限は付けない。
+- まとめて流すときは `scripts/poc/run_w16_trials.sh <候補>:<回> ...`（試行 → `grade_w16.py` → `reinject_w16.py` → `judge_w16.py` → `w16_slim.py`）。全試行の後に `blind_w16.py` → `score_w16.py`。
 
 ## 権限
 

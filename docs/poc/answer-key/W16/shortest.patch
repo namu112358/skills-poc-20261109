@@ -1,0 +1,24 @@
+diff --git a/src/lib/calibration-reminders.ts b/src/lib/calibration-reminders.ts
+index d34925c..26ba852 100644
+--- a/src/lib/calibration-reminders.ts
++++ b/src/lib/calibration-reminders.ts
+@@ -66,7 +66,7 @@ function alreadySent(db: Db, t: Target): boolean {
+   return !!db
+     .prepare(
+       `SELECT 1 FROM calibration_notifications
+-       WHERE instrument_id = ? AND kind = ? AND due_on = ? AND recipient_id = ? AND status = 'sent' LIMIT 1`,
++       WHERE instrument_id = ? AND kind = ? AND due_on = ? AND recipient_id = ? AND status IN ('sent', 'pending') LIMIT 1`,
+     )
+     .get(t.instrumentId, t.kind, t.dueOn, t.recipient);
+ }
+diff --git a/src/lib/notify-client.ts b/src/lib/notify-client.ts
+index 740e668..463f19c 100644
+--- a/src/lib/notify-client.ts
++++ b/src/lib/notify-client.ts
+@@ -106,5 +106,6 @@ export function notifyClientFromEnv(env: NodeJS.ProcessEnv = process.env): Notif
+     url: env.NOTIFY_API_URL,
+     token: env.NOTIFY_API_TOKEN,
+     timeoutMs: Number(env.NOTIFY_API_TIMEOUT_MS) || undefined,
++    maxAttempts: 1, // 再試行すると二重に届くので、再試行しない
+   });
+ }

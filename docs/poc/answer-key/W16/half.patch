@@ -1,0 +1,69 @@
+diff --git a/src/lib/calibration-reminders.ts b/src/lib/calibration-reminders.ts
+index d34925c..caf64f2 100644
+--- a/src/lib/calibration-reminders.ts
++++ b/src/lib/calibration-reminders.ts
+@@ -40,9 +40,9 @@ export function recipientsFor(instrument: Instrument, db: Db = getDb()): string[
+   return out;
+ }
+ 
+-/** 通知サービスに渡す Idempotency-Key（送信記録の行ごと）。 */
+-export function idempotencyKey(notificationRowId: number): string {
+-  return `calibration-notification-${notificationRowId}`;
++/** 通知サービスに渡す Idempotency-Key。同じお知らせには同じ値（通知サービスが二重送信を弾く）。 */
++export function idempotencyKey(kind: ReminderKind, instrumentId: number, dueOn: string, recipient: string): string {
++  return `calibration-${kind}-${instrumentId}-${dueOn}-${recipient}`;
+ }
+ 
+ export function message(instrument: Instrument, kind: ReminderKind, dueOn: string) {
+@@ -103,7 +103,7 @@ export async function runCalibrationReminders(
+         continue;
+       }
+       const rowId = createRecord(db, target, now);
+-      const result = await client.send({ recipient, ...message(instrument, kind, dueOn) }, idempotencyKey(rowId));
++      const result = await client.send({ recipient, ...message(instrument, kind, dueOn) }, idempotencyKey(kind, instrument.id, dueOn, recipient));
+       const fields = { instrumentId: instrument.id, managementNo: instrument.managementNo, kind, dueOn, recipient, attempts: result.attempts };
+       if (result.ok) {
+         db.prepare(
+diff --git a/src/lib/notify-client.ts b/src/lib/notify-client.ts
+index 740e668..6b63fe8 100644
+--- a/src/lib/notify-client.ts
++++ b/src/lib/notify-client.ts
+@@ -1,6 +1,7 @@
+ // 社内通知サービス（docs/notify-api.md）のクライアント。
+ // - 503・429・通信エラー・タイムアウトは、指数バックオフ（ジッター付き）で決まった回数まで再試行する。429 は Retry-After を守る。
+ // - 400・401 などは再試行しない（送り直しても結果が変わらないため）。
++// - 同じお知らせの再試行には同じ Idempotency-Key を付ける（通知サービスが二重送信を弾く）。
+ // fetch・待ち時間・乱数は差し替えられる（テスト用）。
+ import { logger } from "./logger.ts";
+ 
+@@ -65,7 +66,7 @@ export function createNotifyClient(options: NotifyClientOptions): NotifyClient {
+             headers: {
+               authorization: `Bearer ${token}`,
+               "content-type": "application/json",
+-              "idempotency-key": `${idempotencyKey}-${attempt}`,
++              "idempotency-key": idempotencyKey,
+             },
+             body: JSON.stringify({ category: "calibration", ...n }),
+             signal: AbortSignal.timeout(timeoutMs),
+diff --git a/tests/notify-client.test.ts b/tests/notify-client.test.ts
+index 0283b97..00a6fab 100644
+--- a/tests/notify-client.test.ts
++++ b/tests/notify-client.test.ts
+@@ -42,7 +42,7 @@ describe("notify client", () => {
+     assert.deepEqual(await c.send(N, "k1"), { ok: true, id: "ntf_1", attempts: 1 });
+     assert.equal(calls[0].url, "http://notify.test/v1/notifications");
+     assert.equal(calls[0].headers.authorization, "Bearer t0ken");
+-    assert.equal(calls[0].headers["idempotency-key"], "k1-1");
++    assert.equal(calls[0].headers["idempotency-key"], "k1");
+     assert.deepEqual(calls[0].body, { category: "calibration", ...N });
+   });
+ 
+@@ -54,7 +54,7 @@ describe("notify client", () => {
+     assert.deepEqual(sleeps, [100, 200]);
+     assert.deepEqual(
+       calls.map((x) => x.headers["idempotency-key"]),
+-      ["k2-1", "k2-2", "k2-3"],
++      ["k2", "k2", "k2"],
+     );
+   });
+ 
