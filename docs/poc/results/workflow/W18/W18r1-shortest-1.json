@@ -1,0 +1,439 @@
+{
+ "round": "1",
+ "commit": "2471aa8f2f5415142e93cfa8cc40a20bf4355824",
+ "adapter": {
+  "f1": {
+   "key": "priority",
+   "levels": [
+    "high",
+    "normal"
+   ],
+   "set": "post",
+   "filter": {},
+   "job": {
+    "method": "POST",
+    "path": "/api/notify-due"
+   }
+  },
+  "f2": {
+   "create": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/reservations",
+    "body": {
+     "startOn": "{start}",
+     "endOn": "{end}"
+    },
+    "id": "reservation.id"
+   },
+   "list": {
+    "path": "/api/instruments/{instrumentId}/reservations",
+    "items": "reservations"
+   },
+   "cancel": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+   },
+   "fields": {
+    "id": "id",
+    "status": "status",
+    "start": "startOn",
+    "end": "endOn",
+    "user": "userId"
+   },
+   "status": {
+    "active": [
+     "reserved"
+    ],
+    "cancelled": [
+     "cancelled"
+    ]
+   }
+  },
+  "f3": {
+   "list": {
+    "path": "/api/locations",
+    "items": "locations"
+   },
+   "create": {
+    "method": "POST",
+    "path": "/api/locations",
+    "body": {
+     "name": "{name}"
+    },
+    "id": "location.id"
+   },
+   "rename": {
+    "method": "PATCH",
+    "path": "/api/locations/{locationId}",
+    "body": {
+     "name": "{name}"
+    }
+   },
+   "delete": {
+    "method": "DELETE",
+    "path": "/api/locations/{locationId}"
+   },
+   "fields": {
+    "id": "id",
+    "name": "name"
+   },
+   "instrumentSet": {
+    "location": "{name}"
+   },
+   "filter": {
+    "param": "location",
+    "value": "name"
+   }
+  },
+  "f4": {
+   "create": {
+    "method": "POST",
+    "path": "/api/instruments/{instrumentId}/order",
+    "body": {},
+    "id": "order.id"
+   },
+   "list": {
+    "path": "/api/instruments/{instrumentId}/order",
+    "items": "orders"
+   },
+   "fields": {
+    "id": "id",
+    "status": "status",
+    "externalId": "order_id",
+    "returnOn": "return_on"
+   },
+   "status": {
+    "accepted": [
+     "ordered"
+    ]
+   }
+  },
+  "f5": {
+   "list": {
+    "path": "/api/instruments/{instrumentId}/history",
+    "items": "history"
+   },
+   "fields": {
+    "id": "id"
+   }
+  },
+  "f6": {}
+ },
+ "checks": {
+  "typecheck": true,
+  "test": true,
+  "tests_pass": 27,
+  "tests_fail": 0,
+  "build": true
+ },
+ "static": {
+  "inProcessScheduler": [],
+  "migrations": {
+   "readable": true,
+   "prev_versions": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "versions": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "rewritten": [
+    3
+   ],
+   "added": []
+  },
+  "new_dependencies": []
+ },
+ "suites": {
+  "base": [
+   {
+    "id": "B01",
+    "name": "既存の API の応答の形（一覧・詳細の各項目、詳細の currentLoan）が変わらない",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "B02",
+    "name": "既存の機能（登録・編集・貸出・返却・校正記録・不合格で使用停止・既存のジョブとその認証）が従来どおり動く",
+    "pass": true,
+    "detail": ""
+   }
+  ],
+  "base_seconds": 1,
+  "f1": [
+   {
+    "id": "P01",
+    "name": "重要度を付けられ、付けた重要度が API で読める",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "P02",
+    "name": "重要度が最も高い計測器の校正期限が近づくと、管理者に通知サービスで知らせる",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H01",
+    "name": "重要度は 3 段階で、既存の計測器は真ん中（B）になる",
+    "pass": false,
+    "detail": "段階の数: [\"high\",\"normal\"]"
+   },
+   {
+    "id": "H02",
+    "name": "一覧を重要度で絞り込める（API）",
+    "pass": false,
+    "detail": "絞り込みの項目が見つからない（アダプター）"
+   },
+   {
+    "id": "H03",
+    "name": "校正期限は「前回校正日 + 周期」の月の末日",
+    "pass": false,
+    "detail": "期限（02-28）の 8 日前に届いていない"
+   },
+   {
+    "id": "H04",
+    "name": "期限の 30 日前から知らせる（31 日前は知らせない）",
+    "pass": false,
+    "detail": "31 日前: 0 件、30 日前: 0 件"
+   },
+   {
+    "id": "H05",
+    "name": "「今日」は日本時間で判断する",
+    "pass": false,
+    "detail": "日本時間 02-28: 0 件、日本時間 03-01 00:30: 0 件"
+   },
+   {
+    "id": "H06",
+    "name": "重要度が最も高いもの（A）だけを知らせる（B・C は知らせない）",
+    "pass": true,
+    "detail": ""
+   },
+   {
+    "id": "H07",
+    "name": "校正中・使用停止・廃棄・不合格で使用停止になったものには知らせない",
+    "pass": false,
+    "detail": "calibrating: 1 件、suspended: 1 件、disposed: 1 件、不合格: 1 件"
+   },
+   {
+    "id": "H08",
+    "name": "貸出中なら、管理者に加えて借りている人にも知らせる",
+    "pass": false,
+    "detail": "管理者 tanaka: 1 件、借りている人 matsumoto: 0 件"
+   },
+   {
+    "id": "H09",
+    "name": "同じ期限について、期限が近いお知らせは 1 回だけ",
+    "pass": false,
+    "detail": "0 件"
+   },
+   {
+    "id": "H10",
+    "name": "校正記録で期限が変わったら、新しい期限について改めて知らせる",
+    "pass": false,
+    "detail": "最初: 0 件、校正の翌日: 0 件、新しい期限の 21 日前: 1 件"
+   },
+   {
+    "id": "H11",
+    "name": "期限を過ぎたら「期限切れ」を 1 回だけ知らせる",
+    "pass": false,
+    "detail": "件数の推移（09-20, 10-01, 10-02, 10-20）: [1,1,1,1]（期待 [1,2,2,2]）"
+   },
+   {
+    "id": "H12",
+    "name": "管理者が無効（退職など）なら、管理者の部署の代表者に知らせる",
+    "pass": false,
+    "detail": "代表者 yamada: 0 件、無効な inoue: 0 件"
+   },
+   {
+    "id": "H13",
+    "name": "定期実行は運用の cron から API を呼ぶ形（JOBS_TOKEN で認証し、アプリの中で定期実行しない）",
+    "pass": false,
+    "detail": "トークンなしで 200"
+   }
+  ],
+  "f1_seconds": 33
+ },
+ "metrics": {
+  "files": 28,
+  "lines": 1387,
+  "size": {
+   "maxFileLines": 221,
+   "filesOver300": [],
+   "largest": [
+    {
+     "file": "src/lib/instruments.ts",
+     "lines": 221
+    },
+    {
+     "file": "src/lib/calibrations.ts",
+     "lines": 125
+    },
+    {
+     "file": "src/lib/loans.ts",
+     "lines": 112
+    },
+    {
+     "file": "src/app/instruments/[id]/page.tsx",
+     "lines": 107
+    },
+    {
+     "file": "src/lib/db/index.ts",
+     "lines": 93
+    }
+   ],
+   "maxFunctionLines": 95
+  },
+  "complexity": {
+   "functions": 85,
+   "mean": 3.18,
+   "p90": 6,
+   "max": 35,
+   "over10": 2,
+   "worst": [
+    {
+     "file": "src/lib/instruments.ts",
+     "name": "validateInstrumentInput",
+     "line": 114,
+     "lines": 58,
+     "complexity": 35
+    },
+    {
+     "file": "src/lib/calibrations.ts",
+     "name": "validateCalibrationInput",
+     "line": 60,
+     "lines": 24,
+     "complexity": 14
+    },
+    {
+     "file": "src/app/api/instruments/[id]/route.ts",
+     "name": "PATCH",
+     "line": 18,
+     "lines": 17,
+     "complexity": 10
+    },
+    {
+     "file": "src/app/api/login/route.ts",
+     "name": "POST",
+     "line": 8,
+     "lines": 35,
+     "complexity": 9
+    },
+    {
+     "file": "src/app/instruments/[id]/page.tsx",
+     "name": "InstrumentDetailPage",
+     "line": 12,
+     "lines": 95,
+     "complexity": 9
+    },
+    {
+     "file": "src/lib/loans.ts",
+     "name": "validateLoanInput",
+     "line": 57,
+     "lines": 12,
+     "complexity": 8
+    },
+    {
+     "file": "src/app/api/instruments/[id]/loans/route.ts",
+     "name": "POST",
+     "line": 17,
+     "lines": 15,
+     "complexity": 7
+    },
+    {
+     "file": "src/lib/db/index.ts",
+     "name": "(無名)",
+     "line": 33,
+     "lines": 29,
+     "complexity": 7
+    }
+   ]
+  },
+  "duplication": {
+   "clones": 6,
+   "duplicatedLines": 42,
+   "lines": 1419,
+   "percentage": 2.96,
+   "examples": [
+    "src/app/api/instruments/[id]/loans/route.ts:17 = src/app/api/instruments/[id]/loans/route.ts:9 (6 行)",
+    "src/app/api/instruments/[id]/calibrations/route.ts:6 = src/app/api/instruments/[id]/loans/route.ts:5 (10 行)",
+    "src/app/api/instruments/[id]/calibrations/route.ts:15 = src/app/api/instruments/[id]/loans/route.ts:14 (9 行)",
+    "src/app/api/instruments/[id]/route.ts:5 = src/app/api/instruments/[id]/loans/route.ts:5 (9 行)",
+    "src/lib/instruments.ts:118 = src/lib/loans.ts:57 (7 行)",
+    "src/lib/calibrations.ts:60 = src/lib/loans.ts:57 (7 行)"
+   ]
+  },
+  "lint": {
+   "warnings": 5,
+   "errors": 0,
+   "byRule": {
+    "complexity": 3,
+    "no-console": 1,
+    "max-lines-per-function": 1
+   }
+  },
+  "tests": {
+   "files": 6,
+   "cases": 27
+  }
+ },
+ "mutation": {
+  "baseline_tests_pass": true,
+  "baseline_fails": 0,
+  "baseline_log": "",
+  "mutants": 1,
+  "killed": 0,
+  "kill_rate": 0.0,
+  "files": [
+   "src/lib/instruments.ts"
+  ],
+  "survivors": [
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 169,
+    "old": "===",
+    "new": "!==",
+    "snippet": "if (\"priority\" in b) value.priority = b.priority === \"high\" ? \"high\" : \"normal\";"
+   }
+  ],
+  "details": [
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 169,
+    "old": "===",
+    "new": "!==",
+    "killed": false
+   }
+  ]
+ },
+ "points": {
+  "current": 0.2,
+  "all": 0.294,
+  "passed": {
+   "base:B01": true,
+   "base:B02": true,
+   "f1:P01": true,
+   "f1:P02": true,
+   "f1:H01": false,
+   "f1:H02": false,
+   "f1:H03": false,
+   "f1:H04": false,
+   "f1:H05": false,
+   "f1:H06": true,
+   "f1:H07": false,
+   "f1:H08": false,
+   "f1:H09": false,
+   "f1:H10": false,
+   "f1:H11": false,
+   "f1:H12": false,
+   "f1:H13": false
+  },
+  "mutation": 0.0
+ },
+ "adapter_drafted": false
+}
