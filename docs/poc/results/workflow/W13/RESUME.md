@@ -1,16 +1,17 @@
 # W13 再開メモ（担当セッションが止まったときに引き継ぐため）
 
-最終更新: 2026-11-10 10:20 UTC
+最終更新: 2026-11-10 10:45 UTC
 
 ## 終わっていること
 
 - 設計・正解データ・採点の仕組み（`docs/poc/tasks/wf-W13-design.md`、`docs/poc/answer-key/W13/`、`scripts/poc/grade_w13.py` ほか）。コーディネーター確認済み。
-- 試行 10 本のうち 9 本（superpowers-1・feature-dev-1/2・gstack-1/2・compound-engineering-1/2・baseline-1/2）。各試行のアダプターは確定済み（`W13/adapters/<ID>-v1.json`・`-v2.json`）。
-- superpowers-2 は 5 時間の上限で失敗したため、10:13 UTC からやり直し中（失敗の記録は `raw/W13-superpowers-2.usage-limit-1/`）。
+- 試行 10 本すべて（superpowers-2 は 5 時間の上限で失敗し、10:13 UTC にやり直して完了）。アダプターは全試行で確定済み。
+- 補正 3・4 の前の条件での採点（`W13/prefix/`）。
+- ブラインドレビューの資料（`blind_w13.py prepare`、対応表 `W13/blind/mapping.json`）。レビュー担当 2 名を起動済み（結果は `W13/blind/reviewer-1.json`・`-2.json`）。
+- `report_w13.py`（文章は `W13/notes.json` から）、`two_axis.py` に W13。
 
 ## 残っていること（この順）
 
-1. superpowers-2 を終える（`scripts/poc/run_w13_trials.sh superpowers:2`。採点・片付けまで自動）。アダプターの下書きを確かめて確定する。
 2. 全 10 本を最終版の採点で採点し直す: `for t in ...; do python3 scripts/poc/grade_w13.py W13-$t-$n; done`。
 3. 補正 3・4 の前の条件での採点: `python3 scripts/poc/grade_w13.py <ID> --prefix`（結果は `W13/prefix/`。report の表に使う）。
 4. ブラインドレビュー: `python3 scripts/poc/blind_w13.py prepare <dir>` → 独立したサブエージェント 2 名（昇順・降順）→ `W13/blind/reviewer-1.json`・`-2.json` → `blind_w13.py collect`。
