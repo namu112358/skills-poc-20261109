@@ -135,7 +135,8 @@ function harness(base, prefix, adapterJson) {
   }
   function matches(v, raw) {
     if (JSON.stringify(v) === JSON.stringify(raw)) return true;
-    if (typeof v !== "string" || typeof raw !== "string" || !v.includes("|")) return false;
+    // 1 項目だけの組み合わせ（fields.status が要素 1 つの配列）でも "*"・"@notnull" を使えるようにする（2026-11-10 補正）
+    if (typeof v !== "string" || typeof raw !== "string" || !(v.includes("|") || v === "*" || v === "@notnull")) return false;
     const a = v.split("|"), b = raw.split("|");
     return a.length === b.length && a.every((p, i) => partMatch(p, b[i]));
   }

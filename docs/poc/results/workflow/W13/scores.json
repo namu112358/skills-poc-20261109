@@ -4,13 +4,13 @@
       "trial": "W13-baseline-1",
       "candidate": "baseline",
       "run": 1,
-      "total": 82.3,
+      "total": 95.6,
       "v1": 13.75,
       "change": 25.0,
       "unchanged": 14.38,
       "migration": 20,
       "stale": 5.0,
-      "design": 0.0,
+      "design": 13.33,
       "test_strength": 4.17,
       "regressions": [],
       "v1_items": {
@@ -130,7 +130,45 @@
         ],
         "errors": []
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R09",
+        "totals": [
+          15,
+          17
+        ],
+        "mean": 16.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            2
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            3
+          ],
+          "f": [
+            2,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "reservation-conflicts.ts に重なりの条件を置き、期限切れは開始日の翌日に日付から判定する。境界は追加のテストで確かめた。v6 は既定値 approved で移行テストもある。ただし押さえる条件の SQL が listReservations にもあって 2 か所に分かれ、却下の理由は Reservation 型に出していない。取消できる人も管理者のままで、承認者と食い違う。運用文書の更新もない。",
+          "reservation-conflicts.ts で重なりを共通化し、開始日の翌日の期限切れを日付から判定している。v6 で既存の予約を approved にする移行も、31 日の予約を含めてテストした。ただし期間を押さえる条件の SQL が listReservations と reservation-conflicts の 2 か所に重複し、expired が状態として表に出ていない。期限切れの仮予約は取り消せてしまう。コミットと CLAUDE.md の API 記述には、自己承認・代表者・14 日を既存の予約にかけないことなどの判断がまとまっている。"
+        ]
+      },
       "questions": {
         "all": {
           "total": 15,
@@ -468,13 +506,13 @@
       "trial": "W13-baseline-2",
       "candidate": "baseline",
       "run": 2,
-      "total": 82.7,
+      "total": 95.2,
       "v1": 13.75,
       "change": 25.0,
       "unchanged": 14.38,
       "migration": 20,
       "stale": 5.0,
-      "design": 0.0,
+      "design": 12.5,
       "test_strength": 4.58,
       "regressions": [],
       "v1_items": {
@@ -594,7 +632,45 @@
         ],
         "errors": []
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R01",
+        "totals": [
+          15,
+          15
+        ],
+        "mean": 15.0,
+        "items": {
+          "a": [
+            3,
+            2
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            2
+          ],
+          "f": [
+            2,
+            2
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "承認・却下を decide に集約し、押さえる条件 HOLDING を 1 か所にまとめ、期限切れは日付から導く。出荷済みの v5 は変えず v6 でテーブルを作り直し、既存の予約を確定として残すことを移行テストで確かめている。ただし旧値 active を『確定』の意味に読み替えて使い続けていて紛らわしく、運用文書にリリース時の注意がない。",
+          "既存の status 列に pending/rejected を足し、テーブルを作り直す v6 マイグレーションで既存の予約を確定のまま移した。状態は 1 列にまとまっており、isExpired で期限切れを判定し、HOLDING 条件も 1 か所にある。一方で、未返却の貸出は currentLoan を使わず直接 SQL で引いており、代表者が有効かどうかも確かめていない。管理者が自分の予約を自分で承認しなければならない点や、本人の仮予約でも貸出できる点は意図の説明が薄く、operations.md への運用上の注意も書いていない。"
+        ]
+      },
       "questions": {
         "all": {
           "total": 12,
@@ -851,10 +927,7 @@
           "build": true
         },
         "peeked": false,
-        "adapters_drafted": [
-          "v1",
-          "v2"
-        ],
+        "adapters_drafted": [],
         "failed": [
           {
             "phase": "v1",
@@ -921,13 +994,13 @@
       "trial": "W13-compound-engineering-1",
       "candidate": "compound-engineering",
       "run": 1,
-      "total": 84.4,
+      "total": 99.0,
       "v1": 15.0,
       "change": 25.0,
       "unchanged": 15.0,
       "migration": 20,
       "stale": 5.0,
-      "design": 0.0,
+      "design": 14.58,
       "test_strength": 4.42,
       "regressions": [],
       "v1_items": {
@@ -1049,7 +1122,45 @@
         ],
         "errors": []
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R10",
+        "totals": [
+          17,
+          18
+        ],
+        "mean": 17.5,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            2,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "statusOf で取消・却下・期限切れ・仮予約・確定を優先順位つきで 1 か所で決め、押さえる条件も HOLDS_DAYS_SQL にまとめた。承認・却下・取消を状態ごとに拒み、同じ操作の繰り返しにも同じ結果を返す。v6 の移行テスト、運用文書の戻し方、承認者がいないときは予約を受け付けないこともそろっている。ただし仮定を『依頼者に確認していない点』としてはっきり書いてはいない。",
+          "statusOf で、取消・却下・期限切れ・仮予約・確定を 1 か所で導き、HOLDING_DAYS_SQL と decideReservation で、許されない遷移を理由つきで拒否している。v6 で既存の予約を confirmed のまま移すことを v5 の DB からテストし、operations.md にロールバック時の注意を書いた。inclusiveDays を dates.ts に置き、校正不合格の連動・承認待ち一覧・?status= の型ガードなど、既存の規約に沿っている。取消ルートの 500 も後から直した。"
+        ]
+      },
       "questions": {
         "all": {
           "total": 29,
@@ -1591,16 +1702,654 @@
       }
     },
     {
+      "trial": "W13-compound-engineering-2",
+      "candidate": "compound-engineering",
+      "run": 2,
+      "total": 93.7,
+      "v1": 12.5,
+      "change": 22.9,
+      "unchanged": 15.0,
+      "migration": 20,
+      "stale": 5.0,
+      "design": 13.75,
+      "test_strength": 4.58,
+      "regressions": [],
+      "v1_items": {
+        "P01": true,
+        "P02": true,
+        "K01": true,
+        "K02": true,
+        "K03": true,
+        "K04": true,
+        "K05": true,
+        "K06": true,
+        "K07": false,
+        "K08": false
+      },
+      "final_items": {
+        "P02": true,
+        "P03": true,
+        "K01": true,
+        "K02": true,
+        "K03": true,
+        "K04": true,
+        "K05": true,
+        "K06": true,
+        "K07": true,
+        "K08": true,
+        "C01": true,
+        "C02": true,
+        "C03": false,
+        "C04": true,
+        "C05": true,
+        "C06": true,
+        "C07": true,
+        "C08": true,
+        "C09": true,
+        "C10": true
+      },
+      "migration_items": {
+        "N1": true,
+        "N2": true,
+        "N3": true,
+        "N4": true,
+        "N5": true,
+        "N6": true,
+        "S1": true
+      },
+      "migration_static": {
+        "versions": {
+          "base": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "v1": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "final": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "v1_rewrote_base": [],
+        "final_rewrote_shipped": [],
+        "final_added": [
+          6
+        ],
+        "stale_status_values": [],
+        "stale_hits": []
+      },
+      "prod": {
+        "made": [
+          {
+            "key": "A",
+            "user": "suzuki",
+            "no": "MI-0001",
+            "start": "2026-11-20",
+            "end": "2026-11-22",
+            "id": 1,
+            "v1_status": "active"
+          },
+          {
+            "key": "B",
+            "user": "suzuki",
+            "no": "MI-0014",
+            "start": "2026-12-01",
+            "end": "2026-12-20",
+            "id": 2,
+            "v1_status": "active"
+          },
+          {
+            "key": "D",
+            "user": "sato",
+            "no": "MI-0009",
+            "start": "2026-11-16",
+            "end": "2026-11-18",
+            "id": 3,
+            "v1_status": "active"
+          },
+          {
+            "key": "C",
+            "user": "tanaka",
+            "no": "MI-0006",
+            "start": "2026-11-25",
+            "end": "2026-11-26",
+            "id": 4,
+            "cancelled": true,
+            "v1_status": "?\"\\\"2026-11-09T22:30:00.190Z\\\"\""
+          }
+        ],
+        "errors": []
+      },
+      "review_detail": {
+        "code": "R04",
+        "totals": [
+          16,
+          17
+        ],
+        "mean": 16.5,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            2,
+            2
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "有効な予約の条件を ACTIVE_RESERVATION_SQL の 1 か所にまとめ、予約・貸出・一覧・校正不合格での取消が同じ条件を使う。v6 は既定値 approved の ADD COLUMN で、移行テストと運用メモもある。ただし承認できるのは管理者だけで、管理者が無効のときの代わりの人を決めておらず、その判断を仮定として書いていない。状態は status と cancelled_at の 2 つの列で持っている。",
+          "ACTIVE_RESERVATION_SQL を reservation-overlap.ts の 1 か所に置き、重なり・一覧・貸出・校正不合格での取消が同じ定義を使う。期限切れ（開始日の翌日）と許されない遷移（expired/not_pending/rejected の取消）を明確に拒否している。v6 の既定値による移行も v5 との組み合わせでテストし、計画文書・operations.md・古いテスト（31 日）も更新した。承認者を管理者だけに固定し、管理者が無効なときの扱いが無いまま、それを仮定として書いていない点が弱い。"
+        ]
+      },
+      "questions": {
+        "all": {
+          "total": 24,
+          "by_route": {
+            "ask-po": 17,
+            "message": 7
+          },
+          "hit": 17,
+          "hit_rate": 0.71,
+          "reask": 0,
+          "before_impl": 22,
+          "before_impl_rate": 0.92,
+          "q_ids": [
+            "Q1",
+            "Q3",
+            "Q4",
+            "Q5",
+            "Q6",
+            "Q7",
+            "Q8",
+            "Q10"
+          ],
+          "c_ids": [
+            "C2",
+            "C4",
+            "C5",
+            "C6",
+            "C7",
+            "C10",
+            "C11",
+            "C12"
+          ]
+        },
+        "v1": {
+          "total": 16,
+          "by_route": {
+            "ask-po": 10,
+            "message": 6
+          },
+          "hit": 11,
+          "hit_rate": 0.69,
+          "reask": 0,
+          "before_impl": 15,
+          "before_impl_rate": 0.94,
+          "q_ids": [
+            "Q1",
+            "Q3",
+            "Q4",
+            "Q5",
+            "Q6",
+            "Q7",
+            "Q8",
+            "Q10"
+          ],
+          "c_ids": []
+        },
+        "v2": {
+          "total": 8,
+          "by_route": {
+            "ask-po": 7,
+            "message": 1
+          },
+          "hit": 6,
+          "hit_rate": 0.75,
+          "reask": 0,
+          "before_impl": 7,
+          "before_impl_rate": 0.88,
+          "q_ids": [],
+          "c_ids": [
+            "C2",
+            "C4",
+            "C5",
+            "C6",
+            "C7",
+            "C10",
+            "C11",
+            "C12"
+          ]
+        },
+        "asked_c11": true,
+        "persona_cost_usd": 0.3291,
+        "errors": [],
+        "items": [
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q1",
+              "Q3"
+            ],
+            "before": true,
+            "question": "予約は日単位の期間（開始日〜返却予定日）で、同じ計測器で期間が重なる予約は受け付けない、という理解でよいか",
+            "answer": "はい。日単位で、開始日と終了日の両端を含む。1日でも重なる予約は不可で、終了日と開始日が同じ日も重なり。取り消した予約は数えない。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q5"
+            ],
+            "before": true,
+            "question": "予約期間になったら自動で貸出中にせず、予約者が当日従来の貸出操作をする形で、予約は枠を押さえるだけでよいか",
+            "answer": "予約期間にかかる貸出は予約した本人以外にはしない。本人には期間内なら貸し出せる。自動で貸出中にするか等はお任せ。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q7"
+            ],
+            "before": true,
+            "question": "(3) 予約の取り消しは、予約した本人のほかに誰ができるか（管理者・部署の代表者など）",
+            "answer": "予約を取り消せるのは、予約した本人と、その計測器の管理者です。ほかの人は取り消せないようにしてください。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q6",
+              "Q4"
+            ],
+            "before": true,
+            "question": "(4) 予約できる計測器の状態（校正中・使用停止・廃棄は不可でよいか）",
+            "answer": "使用停止と廃棄の計測器は予約できないようにしてください。校正中の扱いはお任せします。貸出中の計測器は、返却予定日の翌日からなら予約できます。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q8"
+            ],
+            "before": true,
+            "question": "予約後に計測器が使用停止などになった場合の予約の扱い",
+            "answer": "校正で不合格になって使用停止になった計測器の、これからの予約は取り消しにしてください。予約した人には管理者が連絡します。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": true,
+            "question": "(5) 予約の完了・前日のリマインド・取り消しを社内通知サービスで知らせる必要はあるか",
+            "answer": "通知は今回は要りません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "V1b"
+            ],
+            "before": true,
+            "question": "(6) 予約の期間に上限（最長何日、何日先まで）はあるか",
+            "answer": "期間の上限は今は決めていないので、お任せします。何日先まで予約できるかも、お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [],
+            "before": true,
+            "question": "(7) 台帳の編集で手動で使用停止・廃棄にした場合、その計測器のこれからの予約は取り消しにするか、残すか",
+            "answer": "校正不合格の場合以外は決めていないので、お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q10"
+            ],
+            "before": true,
+            "question": "(8) 予約・取り消しは API で行い、計測器の詳細画面に予約の一覧を表示する形（画面の予約フォームは今回なし）でよいか",
+            "answer": "計測器の詳細で、これからの予約（取り消したものは除く）を、誰が・いつからいつまで、で見られるようにしてください。予約の画面の作りや置き場所はお任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q10"
+            ],
+            "before": true,
+            "question": "(9) 予約の一覧は、ログインしている人なら誰でも、予約した人の名前も含めて見られる形でよいか",
+            "answer": "予約した人の名前も含めて、誰が・いつからいつまでが見えるようにしてください。見られる人の範囲については、お任せします。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "V1b"
+            ],
+            "before": true,
+            "question": "予約の長さの上限を最長31日、予約できるのを90日先までとしてよいか",
+            "answer": "期間の上限は今は決めていないので、お任せします。何日先まで予約できるかもお任せします。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q6"
+            ],
+            "before": true,
+            "question": "校正中の計測器は予約できるとしてよいか",
+            "answer": "校正中の計測器の予約はお任せします。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q8"
+            ],
+            "before": true,
+            "question": "台帳の編集で手動で使用停止・廃棄にした場合、予約はそのまま残す扱いでよいか",
+            "answer": "校正不合格のとき以外の扱いは決めていないので、お任せします。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q10"
+            ],
+            "before": true,
+            "question": "予約・取り消しの画面フォームは今回作らず、API だけでよいか",
+            "answer": "予約の画面の作りや置き場所はお任せします。計測器の詳細で、これからの予約を誰が・いつからいつまで見られるようにしてください。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q10"
+            ],
+            "before": true,
+            "question": "予約の一覧は、ログイン済みの全員が予約者名つきで見られる形でよいか",
+            "answer": "予約した人の名前も含めて、誰が・いつからいつまでが見えるようにしてください。見られる人の範囲はお任せします。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": false,
+            "question": "レビューを本来の形で実行したい場合、承認できる環境で再実行するか、承認なしで実行できる許可設定を追加するか、どちらにするか。",
+            "answer": "お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C11"
+            ],
+            "before": true,
+            "question": "昨日から本番にある既存の予約は、承認済み（確定）として扱ってよいか",
+            "answer": "はい、確定した予約としてそのまま有効にしてください。取り消した予約は取り消しのままです。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C11",
+              "C7"
+            ],
+            "before": true,
+            "question": "14 日を超える既存の予約はそのまま残してよいか（上限は今後の新しい予約から）",
+            "answer": "はい、そのまま残してください。期間の上限（開始日と終了日を含めて 14 日まで）は、これから入る予約にだけかけてください。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C5",
+              "C10"
+            ],
+            "before": true,
+            "question": "仮予約の間も、その期間は他の人の予約や貸出を止めて押さえるか",
+            "answer": "仮予約の間も期間は押さえてください。仮予約と重なる予約はできず、先に申し込んだ人を優先します。貸出も、仮予約と確定した予約は他の人には止めます。却下・取り消し・期限切れの予約は止めません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C4",
+              "C2"
+            ],
+            "before": true,
+            "question": "管理者が予約を断る「却下」の操作は必要か",
+            "answer": "はい、必要です。その計測器の管理者が仮予約を却下できるようにしてください。理由は書けると助かりますが、無くてもかまいません。却下された予約は枠を空けます。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": true,
+            "question": "管理者本人が自分の管理する計測器を予約した場合は、承認なしで確定としてよいか",
+            "answer": "そこはお任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C12"
+            ],
+            "before": true,
+            "question": "管理者が承認待ちに気づく方法は、詳細画面に仮予約を表示するだけでよいか。通知は不要か",
+            "answer": "通知は今回も要りません。管理者が自分の承認する仮予約を見つけられるようにしてください。一覧などで、形はお任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C6"
+            ],
+            "before": true,
+            "question": "仮予約の「期限切れ」を設ける意図か。設けるならどの時点で期限切れにするか（終了日を過ぎた予約のことではないか）。承認は開始日を過ぎてからでもできてよいか。",
+            "answer": "はい、仮予約の期限切れのことです。開始日を過ぎても（開始日の翌日になっても）承認されていない仮予約は、期限切れとして無効にし、枠を空けます。期限切れの予約は承認できません。開始日の当日のうちなら承認できます。"
+          },
+          {
+            "route": "message",
+            "phase": "v2",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": false,
+            "question": "レビューを本来の形で実行するため、承認できる環境で再実行するか、承認なしで実行できる許可設定を追加するか、どちらにするか。",
+            "answer": "お任せします。"
+          }
+        ]
+      },
+      "rework": {
+        "change_cost_usd": 3.5179,
+        "change_seconds": 602,
+        "v1_cost_usd": 4.491129199999999,
+        "v1_seconds": 765,
+        "change_lines": {
+          "added": 496,
+          "deleted": 31
+        },
+        "v1_lines_added": 713,
+        "interventions_v1": 0,
+        "interventions_v2": 0,
+        "v1_leftovers": false
+      },
+      "facts": {
+        "v1_checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "peeked": false,
+        "adapters_drafted": [],
+        "failed": [
+          {
+            "phase": "v1",
+            "id": "K07",
+            "detail": "取り消した予約が残っている"
+          },
+          {
+            "phase": "v1",
+            "id": "K08",
+            "detail": "予約の状態: ?\"\\\"2026-11-09T22:30:00.012Z\\\"\""
+          },
+          {
+            "phase": "v2",
+            "id": "C03",
+            "detail": "代表者の承認: 403"
+          }
+        ],
+        "mutants": 60,
+        "killed": 55,
+        "interventions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "cost_usd": 8.009,
+        "elapsed_seconds": 1367,
+        "active_seconds": 1105,
+        "turns": 268,
+        "subagents": 12,
+        "skills_used": [
+          "compound-engineering:ce-code-review",
+          "compound-engineering:ce-doc-review",
+          "compound-engineering:ce-simplify-code"
+        ],
+        "denials": 20,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W13-compound-engineering-2/app && git log --oneline | head; git status --short; find src tests docs -type f | sort; cat src/lib/db/migrations.ts; cat docs/operations.md"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W13-compound-engineering-2/app && git log --oneline | head -5; git status --short; find src tests docs -type f | sort; cat src/lib/db/migrations.ts; cat docs/operations"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"A=/tmp/poc-trials/W13-compound-engineering-2/app; git -C $A log --oneline | head -5; git -C $A status --short; find $A/src $A/tests $A/docs -type f | sort; cat $A/src/lib/db/migrations.ts"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"A=/tmp/poc-trials/W13-compound-engineering-2/app; cat $A/src/lib/api.ts $A/src/lib/logger.ts $A/src/lib/db/index.ts $A/package.json | cut -c1-200; sed -n 1,200p $A/src/lib/db/seed.ts | cu"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W13-compound-engineering-2/app && git branch --show-current; git status --short --untracked-files=all | head; git remote -v | head -2; git log origin/HEAD..HEAD --oneli"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"node --experimental-strip-types --no-warnings --test tests/reservations.test.ts tests/db.test.ts 2>&1 | grep -E \\\"^# (tests|pass|fail)|not ok|Error|expected|actual\\\" | head -30\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'EOF'\\np='tests/reservations.test.ts'\\ns=open(p).read()\\ns=s.replace('''import { openDb } from \\\"../src/lib/db/index.ts\\\";\\n''','''import { DatabaseSync } from \\\"node:sqlite\\\""
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"(npm run start -- -p 3187 > /tmp/claude-0/-tmp-poc-trials-W13-compound-engineering-2-app/fc98e7ab-54a2-44a0-b018-452b2e400299/scratchpad/server.log 2>&1 &) ; sleep 4; B=http://localhost:3"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"(npm run start -- -p 3187 > /tmp/claude-0/-tmp-poc-trials-W13-compound-engineering-2-app/fc98e7ab-54a2-44a0-b018-452b2e400299/scratchpad/server.log 2>&1 &); sleep 5; bash /tmp/claude-0/-t"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"sleep 4; bash /tmp/claude-0/-tmp-poc-trials-W13-compound-engineering-2-app/fc98e7ab-54a2-44a0-b018-452b2e400299/scratchpad/smoke.sh\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W13-compound-engineering-2-app/fc98e7ab-54a2-44a0-b018-452b2e400299/scratchpad/smoke.sh\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W13-compound-engineering-2/plugins/compound-engineering/skills/ce-simplify-code/references && cut -c1-900 reviewer-dispatch.md; ls personas; git -C /tmp/poc-trials/W13-"
+          }
+        ],
+        "commits": [
+          "e8bab13 refactor: 承認待ちの一覧の列の指定を COLUMNS の重複なしにする",
+          "66c6db7 feat: 予約の承認・却下の API と、承認待ち・状態の画面表示を追加",
+          "83c118e feat: 予約を管理者の承認制にし、新しい予約の期間を最長 14 日にする",
+          "ff2838e docs: 貸出予約の管理者承認と期間上限の変更の実装計画を追加",
+          "af9211c test: 校正不合格の予約取り消しが失敗したときのロールバックを確認する",
+          "90012c4 refactor: 予約の重なり判定を 1 か所にまとめる",
+          "3236d51 feat: 貸出予約の API と詳細画面の表示を追加",
+          "d499224 feat: 計測器の貸出予約の仕組みを追加",
+          "c54b273 docs: 計測器の貸出予約の実装計画を追加"
+        ],
+        "errors": "",
+        "questions": 24
+      }
+    },
+    {
       "trial": "W13-feature-dev-1",
       "candidate": "feature-dev",
       "run": 1,
-      "total": 77.8,
+      "total": 89.5,
       "v1": 13.75,
       "change": 20.8,
       "unchanged": 14.38,
       "migration": 20,
       "stale": 5.0,
-      "design": 0.0,
+      "design": 11.67,
       "test_strength": 3.92,
       "regressions": [],
       "v1_items": {
@@ -1722,7 +2471,45 @@
         ],
         "errors": []
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R03",
+        "totals": [
+          15,
+          13
+        ],
+        "mean": 14.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            2,
+            1
+          ],
+          "c": [
+            2,
+            1
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            2
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "業務ルールを純関数の reservation-rules.ts に分け、canDecide/isTentative で判定をまとめていて層の分け方は良い。しかし仮予約を『active かつ approved_at が NULL』、却下を『cancelled かつ rejected_at あり』で表しており、状態が複数の列から導かれて分かりにくい。『却下は取消で行う』という古いテストも残っている。v6/v7 の移行と仮定の列挙は丁寧。",
+          "reservation-rules.ts の純粋関数による層分けはよい。しかし承認を approved_at、却下を status='cancelled' と rejected_at で表したため、状態が 3 か所に散らばり、作り直しを避けた継ぎ足しになっている。仮予約は開始日を過ぎても終了日まで期間を押さえ続け、開始日での期限切れが無い。却下 API を足した後も「取消で却下する」古いテストが残っている。マイグレーション 6・7 の移行（UPDATE で承認済みにする）と、仮定の明示は丁寧である。"
+        ]
+      },
       "questions": {
         "all": {
           "total": 11,
@@ -1995,16 +2782,572 @@
       }
     },
     {
+      "trial": "W13-feature-dev-2",
+      "candidate": "feature-dev",
+      "run": 2,
+      "total": 91.4,
+      "v1": 13.75,
+      "change": 20.8,
+      "unchanged": 14.38,
+      "migration": 20,
+      "stale": 5.0,
+      "design": 12.92,
+      "test_strength": 4.58,
+      "regressions": [],
+      "v1_items": {
+        "P01": true,
+        "P02": true,
+        "K01": true,
+        "K02": true,
+        "K03": true,
+        "K04": true,
+        "K05": true,
+        "K06": true,
+        "K07": true,
+        "K08": false
+      },
+      "final_items": {
+        "P02": true,
+        "P03": true,
+        "K01": true,
+        "K02": true,
+        "K03": true,
+        "K04": true,
+        "K05": true,
+        "K06": true,
+        "K07": true,
+        "K08": false,
+        "C01": true,
+        "C02": true,
+        "C03": true,
+        "C04": true,
+        "C05": true,
+        "C06": false,
+        "C07": true,
+        "C08": true,
+        "C09": true,
+        "C10": false
+      },
+      "migration_items": {
+        "N1": true,
+        "N2": true,
+        "N3": true,
+        "N4": true,
+        "N5": true,
+        "N6": true,
+        "S1": true
+      },
+      "migration_static": {
+        "versions": {
+          "base": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "v1": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "final": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "v1_rewrote_base": [],
+        "final_rewrote_shipped": [],
+        "final_added": [
+          6
+        ],
+        "stale_status_values": [],
+        "stale_hits": []
+      },
+      "prod": {
+        "made": [
+          {
+            "key": "A",
+            "user": "suzuki",
+            "no": "MI-0001",
+            "start": "2026-11-20",
+            "end": "2026-11-22",
+            "id": 1,
+            "v1_status": "active"
+          },
+          {
+            "key": "B",
+            "user": "suzuki",
+            "no": "MI-0014",
+            "start": "2026-12-01",
+            "end": "2026-12-20",
+            "id": 2,
+            "v1_status": "active"
+          },
+          {
+            "key": "D",
+            "user": "sato",
+            "no": "MI-0009",
+            "start": "2026-11-16",
+            "end": "2026-11-18",
+            "id": 3,
+            "v1_status": "active"
+          },
+          {
+            "key": "C",
+            "user": "tanaka",
+            "no": "MI-0006",
+            "start": "2026-11-25",
+            "end": "2026-11-26",
+            "id": 4,
+            "cancelled": true,
+            "v1_status": "absent"
+          }
+        ],
+        "errors": []
+      },
+      "review_detail": {
+        "code": "R06",
+        "totals": [
+          15,
+          16
+        ],
+        "mean": 15.5,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            1,
+            1
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            2,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "承認と却下を 1 つのルートと decideReservation にまとめ、管理者が無効なときは部署の代表者が承認する。v6 の移行と運用文書は妥当。ただし仮予約に期限切れが無く、承認されるまで期間を押さえ続ける（運用文書で明記はしている）。開始日を過ぎても承認できてしまうため、状態の遷移として弱い。",
+          "HOLDING 定数・approverIdOf・NOTICES の集約など、既存の作りに自然に組み込み、operations.md に API 互換の注意を詳しく書いている。v6 の移行テストも 14 日を超える既存の予約を含めて確かめている。ただし仮予約には期限が無く、開始日や終了日を過ぎても承認・却下でき、期間を押さえ続ける。これは文書に明記しているが、状態と遷移の扱いとしては弱い。"
+        ]
+      },
+      "questions": {
+        "all": {
+          "total": 20,
+          "by_route": {
+            "ask-po": 15,
+            "message": 5
+          },
+          "hit": 13,
+          "hit_rate": 0.65,
+          "reask": 0,
+          "before_impl": 15,
+          "before_impl_rate": 0.75,
+          "q_ids": [
+            "Q1",
+            "Q2",
+            "Q3",
+            "Q4",
+            "Q5",
+            "Q6",
+            "Q7",
+            "Q9"
+          ],
+          "c_ids": [
+            "C2",
+            "C3",
+            "C4",
+            "C5",
+            "C7",
+            "C9",
+            "C10",
+            "C11"
+          ]
+        },
+        "v1": {
+          "total": 13,
+          "by_route": {
+            "ask-po": 8,
+            "message": 5
+          },
+          "hit": 7,
+          "hit_rate": 0.54,
+          "reask": 0,
+          "before_impl": 8,
+          "before_impl_rate": 0.62,
+          "q_ids": [
+            "Q1",
+            "Q2",
+            "Q3",
+            "Q4",
+            "Q5",
+            "Q6",
+            "Q7",
+            "Q9"
+          ],
+          "c_ids": []
+        },
+        "v2": {
+          "total": 7,
+          "by_route": {
+            "ask-po": 7,
+            "message": 0
+          },
+          "hit": 6,
+          "hit_rate": 0.86,
+          "reask": 0,
+          "before_impl": 7,
+          "before_impl_rate": 1.0,
+          "q_ids": [],
+          "c_ids": [
+            "C2",
+            "C3",
+            "C4",
+            "C5",
+            "C7",
+            "C9",
+            "C10",
+            "C11"
+          ]
+        },
+        "asked_c11": true,
+        "persona_cost_usd": 0.1284,
+        "errors": [],
+        "items": [
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q1",
+              "Q9"
+            ],
+            "before": true,
+            "question": "1) 予約の項目は借りる人・貸出開始日・返却予定日でよいか（日単位、時刻なし）",
+            "answer": "日単位で、開始日と終了日を決め、両端の日を含みます（11/20〜11/22なら3日間）。日付は日本時間です。予約するのはログインしている本人です。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q3",
+              "Q4"
+            ],
+            "before": true,
+            "question": "2) 同じ計測器で期間が重なる予約は不可でよいか。貸出中でも返却予定日より後なら予約できるか",
+            "answer": "はい、1日でも重なる予約はできません（前の予約の終了日と次の開始日が同じ日も重なりです）。取り消した予約は数えません。貸出中は、返却予定日の翌日からなら予約できます。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q6"
+            ],
+            "before": true,
+            "question": "3) 予約できる計測器の状態、校正中の扱い、次回校正期限が予約期間中に切れる場合",
+            "answer": "使用停止と廃棄の計測器は予約できません。校正中の予約はお任せします。次回校正期限が切れる場合の扱いは決めていないので、お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q7"
+            ],
+            "before": true,
+            "question": "4) 予約を取り消せるのは予約した本人・計測器の管理者のどちらか",
+            "answer": "予約した本人と、その計測器の管理者の両方が取り消せます。ほかの人は取り消せません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": true,
+            "question": "5) 貸出開始日に予約した人へ通知するか",
+            "answer": "通知は今回は要らないので、作らなくて大丈夫です。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q5"
+            ],
+            "before": true,
+            "question": "6) 開始日が来たら貸出に自動で切り替えるか、現場が通常の貸出操作をするか",
+            "answer": "自動で切り替えるかどうかはお任せします。ただ、予約が入っている期間にかかる貸出は、予約した本人以外にはしないようにしてください。予約した本人には、予約期間の中なら貸し出せます。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": true,
+            "question": "7) 予約した人が退職・休職（無効）になった場合の扱い",
+            "answer": "そこは決めていないので、お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q2"
+            ],
+            "before": true,
+            "question": "8) 過去の日付は不可でよいか、何か月先まで予約できるか",
+            "answer": "過去の日からは予約できませんが、今日からは予約できます。終了日は開始日より前にできません。何日先まで予約できるかはお任せします。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": false,
+            "question": "予約できる期間を今日から180日先までにしてよいか",
+            "answer": "何日先まで予約できるかはお任せします。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q6"
+            ],
+            "before": false,
+            "question": "校正中の計測器や、校正期限が予約期間中に切れる場合も予約できるとしてよいか",
+            "answer": "校正中の予約はお任せします。校正期限が切れる場合の扱いも決めていないのでお任せします。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": false,
+            "question": "退職・休職した人の予約の扱い（新規予約は断る、貸出は止めない、管理者が取消可）でよいか",
+            "answer": "そこは決めていないので、お任せします。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": false,
+            "question": "返却予定日を過ぎても未返却の計測器の、翌日からの予約をそのまま受け付けてよいか",
+            "answer": "そこは決めていないので、お任せします。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": false,
+            "question": "予約や取消の操作画面（フォーム・ボタン）が必要か",
+            "answer": "画面の作りや置き場所はお任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C2",
+              "C3"
+            ],
+            "before": true,
+            "question": "承認できるのは計測器の管理者だけでよいか。管理者本人が予約した場合は自分で承認できるか。管理者が退職済みの計測器は誰が承認するか。",
+            "answer": "承認・却下するのは、台帳の管理者の欄の人だけです。予約した本人やほかの人はできません。管理者が退職・休職などで無効のときは、その管理者の部署の代表者が承認・却下します。管理者が自分の計測器を自分で予約した場合の承認は、お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C5"
+            ],
+            "before": true,
+            "question": "仮予約の間、ほかの人はその期間を予約できないか。それとも仮予約同士は重なってよく、承認時に他を自動却下するか。",
+            "answer": "仮予約の段階でもその期間は押さえてください。仮予約と重なる予約はできません。先に申し込んだ人を優先します。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C10"
+            ],
+            "before": true,
+            "question": "仮予約は、予約期間の貸出をほかの人に対して止めるか（承認済みだけ止めるのでよいか）。",
+            "answer": "ほかの人の貸出を止めるのは、仮予約と確定した予約の両方です。却下・取り消し・期限切れの予約は貸出を止めません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C4",
+              "C9"
+            ],
+            "before": true,
+            "question": "管理者が却下する操作は必要か。却下と予約者本人による取消は同じ扱いでよいか。",
+            "answer": "はい、管理者は仮予約を却下できるようにしてください。理由は書けると助かりますが、無くてもかまいません。却下された予約は枠が空き、その期間にほかの人が予約できます。予約した本人は、仮予約も確定した予約も取り消せます。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C11"
+            ],
+            "before": true,
+            "question": "本番にすでにある予約は承認済みとして扱ってよいか。14日を超える既存の予約もそのまま有効でよいか。",
+            "answer": "はい、本番に出てから入った予約は、14日を超えるものも含め、確定した予約としてそのまま有効にしてください。もう予定を組んでいるためです。期間の上限はこれから入る予約にだけかけます。取り消した予約は取り消しのままです。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C7"
+            ],
+            "before": true,
+            "question": "14日は開始日と終了日を含めて14日間でよいか。今日から何日先までの上限（現在180日）は変えないか。",
+            "answer": "はい、開始日と終了日を含めて14日までです（11/1〜11/14はよく、11/1〜11/15はだめです）。何日先まで予約できるかは、お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": true,
+            "question": "承認や却下を予約者に通知するか。",
+            "answer": "通知は今回は要らないので、作らなくて大丈夫です。"
+          }
+        ]
+      },
+      "rework": {
+        "change_cost_usd": 1.3235,
+        "change_seconds": 305,
+        "v1_cost_usd": 2.5277833000000003,
+        "v1_seconds": 383,
+        "change_lines": {
+          "added": 468,
+          "deleted": 22
+        },
+        "v1_lines_added": 610,
+        "interventions_v1": 0,
+        "interventions_v2": 0,
+        "v1_leftovers": false
+      },
+      "facts": {
+        "v1_checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "peeked": false,
+        "adapters_drafted": [],
+        "failed": [
+          {
+            "phase": "v1",
+            "id": "K08",
+            "detail": "予約の状態: active"
+          },
+          {
+            "phase": "v2",
+            "id": "K08",
+            "detail": "予約の状態: approved"
+          },
+          {
+            "phase": "v2",
+            "id": "C06",
+            "detail": "開始日の翌日の承認: 200"
+          },
+          {
+            "phase": "v2",
+            "id": "C10",
+            "detail": "期限切れの仮予約と重なる貸出: 409"
+          }
+        ],
+        "mutants": 60,
+        "killed": 55,
+        "interventions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "cost_usd": 3.8513,
+        "elapsed_seconds": 688,
+        "active_seconds": 635,
+        "turns": 118,
+        "subagents": 9,
+        "skills_used": [],
+        "denials": 5,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\nnew='''  {\\n    version: 5,\\n    name: \\\"reservations\\\",\\n    sql: `\\n      CREATE TABLE reservations (\\n        id     "
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'PYEOF'\\np='src/lib/loans.ts'\\ns=open(p).read()\\ns=s.replace('import { isValidDate } from \\\"./dates.ts\\\";','import { isValidDate, todayJst } from \\\"./dates.ts\\\";')\\ns=s.replac"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat >> src/lib/reservations.ts <<'EOF'\\n\\n/** 予約の操作の結果として画面と API の応答に出す文言。 */\\nexport const RESERVATION_NOTICES = {\\n  created: { kind: \\\"status\\\", text: \\\"予約しました\\\" },\\n  cancelled: { kin"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"(npm run start -- -p 3411 >/tmp/claude-0/srv.log 2>&1 &) ; sleep 5\\nB=http://localhost:3411; J=/tmp/claude-0/cj\\ncurl -s -c $J -o /dev/null -w \\\"login %{http_code}\\\\n\\\" -d \\\"userId=sato&p"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat >> tests/reservations.test.ts <<'EOF'\\n\\ndescribe(\\\"reservation length limit\\\", () => {\\n  it(\\\"allows up to 14 days counting both ends, and no more\\\", () => {\\n    assert.equal(MAX_R"
+          }
+        ],
+        "commits": [
+          "c5dfe45 予約を管理者の承認制にし、1 件の予約を最大 14 日にする",
+          "083dcaa 予約の操作画面（予約フォーム・取消ボタン）を追加",
+          "354d7ab 計測器の貸出予約を追加"
+        ],
+        "errors": "",
+        "questions": 20
+      }
+    },
+    {
       "trial": "W13-gstack-1",
       "candidate": "gstack",
       "run": 1,
-      "total": 79.8,
+      "total": 92.3,
       "v1": 12.75,
       "change": 25.0,
       "unchanged": 12.38,
       "migration": 20,
       "stale": 5.0,
-      "design": 0.0,
+      "design": 12.5,
       "test_strength": 4.67,
       "regressions": [],
       "v1_items": {
@@ -2124,7 +3467,45 @@
         ],
         "errors": []
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R02",
+        "totals": [
+          15,
+          15
+        ],
+        "mean": 15.0,
+        "items": {
+          "a": [
+            2,
+            2
+          ],
+          "b": [
+            2,
+            3
+          ],
+          "c": [
+            2,
+            2
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            2
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "v6 は ADD COLUMN で既定値を approved にしており、14 日を超える既存の予約も有効なまま残る。テストも足りている。依頼者に確認した仕様、旧版に戻す手順、API 利用者への影響を文書に書いている。一方で、却下を status と cancelled_at の両方に記録して状態を二重に持ち、90 日先の上限という依頼にない制限も足した。date 計算と JSON の解釈を局所で作り直している。",
+          "ACTIVE 条件を 1 か所にまとめ、開始日の翌日に期限切れになる判定や承認者が無効なときの代表者への切り替えも筋よく入っている。ただし却下のときに cancelled_at も書くため、状態が status と cancelled_at の 2 か所に分かれて読みにくい。daysBetween を dates.ts に置かず、貸出も直接 SQL で引いている。operations.md のロールバック手順と API 利用者への影響の説明は手厚い。一方、最初の版で既存の貸出 API に 403 や過去日の 400 を足し、互換性を変えている。"
+        ]
+      },
       "questions": {
         "all": {
           "total": 19,
@@ -2525,16 +3906,640 @@
       }
     },
     {
+      "trial": "W13-gstack-2",
+      "candidate": "gstack",
+      "run": 2,
+      "total": 97.0,
+      "v1": 13.75,
+      "change": 25.0,
+      "unchanged": 14.38,
+      "migration": 20,
+      "stale": 5.0,
+      "design": 14.58,
+      "test_strength": 4.25,
+      "regressions": [],
+      "v1_items": {
+        "P01": true,
+        "P02": true,
+        "K01": true,
+        "K02": true,
+        "K03": true,
+        "K04": true,
+        "K05": true,
+        "K06": false,
+        "K07": true,
+        "K08": true
+      },
+      "final_items": {
+        "P02": true,
+        "P03": true,
+        "K01": true,
+        "K02": true,
+        "K03": true,
+        "K04": true,
+        "K05": true,
+        "K06": false,
+        "K07": true,
+        "K08": true,
+        "C01": true,
+        "C02": true,
+        "C03": true,
+        "C04": true,
+        "C05": true,
+        "C06": true,
+        "C07": true,
+        "C08": true,
+        "C09": true,
+        "C10": true
+      },
+      "migration_items": {
+        "N1": true,
+        "N2": true,
+        "N3": true,
+        "N4": true,
+        "N5": true,
+        "N6": true,
+        "S1": true
+      },
+      "migration_static": {
+        "versions": {
+          "base": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "v1": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "final": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "v1_rewrote_base": [],
+        "final_rewrote_shipped": [],
+        "final_added": [
+          6
+        ],
+        "stale_status_values": [
+          "@notnull"
+        ],
+        "stale_hits": []
+      },
+      "prod": {
+        "made": [
+          {
+            "key": "A",
+            "user": "suzuki",
+            "no": "MI-0001",
+            "start": "2026-11-20",
+            "end": "2026-11-22",
+            "id": 1,
+            "v1_status": "active"
+          },
+          {
+            "key": "B",
+            "user": "suzuki",
+            "no": "MI-0014",
+            "start": "2026-12-01",
+            "end": "2026-12-20",
+            "id": 2,
+            "v1_status": "active"
+          },
+          {
+            "key": "D",
+            "user": "sato",
+            "no": "MI-0009",
+            "start": "2026-11-16",
+            "end": "2026-11-18",
+            "id": 3,
+            "v1_status": "active"
+          },
+          {
+            "key": "C",
+            "user": "tanaka",
+            "no": "MI-0006",
+            "start": "2026-11-25",
+            "end": "2026-11-26",
+            "id": 4,
+            "cancelled": true,
+            "v1_status": "absent"
+          }
+        ],
+        "errors": []
+      },
+      "review_detail": {
+        "code": "R07",
+        "totals": [
+          17,
+          18
+        ],
+        "mean": 17.5,
+        "items": {
+          "a": [
+            2,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "state（pending/approved/rejected/expired）を toReservation で一度だけ導き、isCancellable と canDecide で許される遷移を明確にした。承認時の二重予約の確認、終わった予約は取り消せないことも押さえている。v6 は既定値 approved で移行テストがあり、運用文書には旧版へ戻す SQL と API の互換の注意がある。ただし開始日の範囲の日付計算を作り直している。",
+          "status 列と、日付から導く state（expired）・finished で状態を表し、HOLDING・isCancellable・canDecideReservation で許される遷移を 1 か所ずつにまとめた。承認時の重なりの再確認や、仮予約の本人には貸出しないことまで扱っている。v6 で既存の予約を承認済みのまま残すことを v5 の DB から確かめ、30 日の古いテストも 14 日に更新した。operations.md に、ロールバックの SQL と API 利用者向けの変更点（?scope=all による互換）を書いている。"
+        ]
+      },
+      "questions": {
+        "all": {
+          "total": 24,
+          "by_route": {
+            "ask-po": 20,
+            "message": 4
+          },
+          "hit": 15,
+          "hit_rate": 0.62,
+          "reask": 0,
+          "before_impl": 14,
+          "before_impl_rate": 0.58,
+          "q_ids": [
+            "Q1",
+            "Q2",
+            "Q3",
+            "Q4",
+            "Q5",
+            "Q7",
+            "Q8",
+            "Q11"
+          ],
+          "c_ids": [
+            "C2",
+            "C3",
+            "C4",
+            "C5",
+            "C6",
+            "C8",
+            "C10",
+            "C11"
+          ]
+        },
+        "v1": {
+          "total": 14,
+          "by_route": {
+            "ask-po": 11,
+            "message": 3
+          },
+          "hit": 8,
+          "hit_rate": 0.57,
+          "reask": 0,
+          "before_impl": 6,
+          "before_impl_rate": 0.43,
+          "q_ids": [
+            "Q1",
+            "Q2",
+            "Q3",
+            "Q4",
+            "Q5",
+            "Q7",
+            "Q8",
+            "Q11"
+          ],
+          "c_ids": []
+        },
+        "v2": {
+          "total": 10,
+          "by_route": {
+            "ask-po": 9,
+            "message": 1
+          },
+          "hit": 7,
+          "hit_rate": 0.7,
+          "reask": 0,
+          "before_impl": 8,
+          "before_impl_rate": 0.8,
+          "q_ids": [
+            "Q11"
+          ],
+          "c_ids": [
+            "C2",
+            "C3",
+            "C4",
+            "C5",
+            "C6",
+            "C8",
+            "C10",
+            "C11"
+          ]
+        },
+        "asked_c11": true,
+        "persona_cost_usd": 0.2777,
+        "errors": [],
+        "items": [
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q1",
+              "Q2"
+            ],
+            "before": true,
+            "question": "(1) 予約は借りたい期間（開始日〜終了日）を日付で指定する形でよいか",
+            "answer": "はい。日単位で、開始日と終了日の両方の日を含みます。日付は日本時間で、過去の日からは予約できず、終了日は開始日より前にできません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q3",
+              "Q4"
+            ],
+            "before": true,
+            "question": "(2) 期間が重なる予約は拒否（二重予約不可）でよいか",
+            "answer": "はい。同じ計測器で1日でも重なる予約はできません（前の終了日と次の開始日が同じ日も重なり）。取り消した予約は数えません。貸出中の計測器は返却予定日の翌日から予約できます。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q7"
+            ],
+            "before": true,
+            "question": "(3) 予約した本人と計測器の管理者だけが取り消せる、でよいか",
+            "answer": "はい、そのとおりです。ほかの人は取り消せません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": true,
+            "question": "(4) 予約期間中に次回校正期限が来る場合は、警告のみ／拒否／気にしない のどれか",
+            "answer": "お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q5"
+            ],
+            "before": true,
+            "question": "(5) 予約があるとき、他の人がその期間にかかる貸出をすることを止めるか",
+            "answer": "はい、止めてください。予約した本人以外には貸しません。本人には予約期間の中なら貸し出せます。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": true,
+            "question": "(6) 予約から実際の貸出への自動変換は不要（貸出は従来どおり手動）でよいか",
+            "answer": "お任せします。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": false,
+            "question": "画面に予約の入力フォームや取り消しボタンも必要か",
+            "answer": "画面のデザインや置き場所はお任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "V1b"
+            ],
+            "before": false,
+            "question": "(a) 予約の期間に上限（最長日数、何日先まで）を設けるか",
+            "answer": "期間の上限は今は決めていないので、お任せします。何日先まで予約できるかもお任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": false,
+            "question": "(b) 予約した本人に貸し出したら、予約を消化済み（終了）にするか",
+            "answer": "お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": false,
+            "question": "(c) 退職・休職した人の予約は無視してよいか",
+            "answer": "お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q8"
+            ],
+            "before": false,
+            "question": "(d) 計測器が廃棄になったとき、その予約を自動で取り消すか",
+            "answer": "校正で不合格になって使用停止になった計測器は、これからの予約を取り消しにしてほしいです。廃棄の場合はお任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q5"
+            ],
+            "before": false,
+            "question": "(e) 予約者を借りる人として、他の人が代わりに貸出を登録できてよいか",
+            "answer": "予約の期間にかかる貸出は、予約した本人以外にはしない、というのが希望です。細かい実現方法はお任せします。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q11"
+            ],
+            "before": false,
+            "question": "1 人あたりの予約件数の上限を決めてほしい",
+            "answer": "同じ人が同じ計測器を、期間が重ならなければ何件予約してもよいです。"
+          },
+          {
+            "route": "message",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q8"
+            ],
+            "before": false,
+            "question": "廃棄・使用停止（編集画面で変更した場合）のときの予約の扱いを決めてほしい",
+            "answer": "校正で不合格になって使用停止になった場合だけ、これからの予約を取り消してほしいです。廃棄や編集画面での使用停止の場合はお任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C2",
+              "C3"
+            ],
+            "before": true,
+            "question": "承認できるのは、その計測器の管理者だけでよいですか。",
+            "answer": "はい、台帳の管理者の欄の人だけです。予約した本人やほかの人は承認・却下できません。管理者が退職・休職などで無効のときは、その管理者の部署の代表者が承認・却下します。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": true,
+            "question": "管理者本人が予約した場合は、承認なしで確定でよいですか。",
+            "answer": "お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C5",
+              "C10"
+            ],
+            "before": true,
+            "question": "仮予約の期間は、ほかの人の予約や貸出を止めますか。",
+            "answer": "はい、仮予約の段階でもその期間は押さえます。仮予約と重なる予約はできず、先に申し込んだ人を優先します。貸出も、仮予約と確定した予約は止めます。却下・取り消し・期限切れの予約は止めません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C4",
+              "C8"
+            ],
+            "before": true,
+            "question": "承認しない場合の「却下」を用意しますか。理由の入力は必要ですか。",
+            "answer": "はい、管理者が仮予約を却下できるようにしてください。理由は書けると助かりますが、無くてもかまいません。却下された予約は枠を空けます。承認・却下できるのは仮予約だけです。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C11"
+            ],
+            "before": true,
+            "question": "すでに入っている予約は「承認済み」として扱ってよいですか。14日を超える既存の予約はそのまま残しますか。",
+            "answer": "はい、本番に出てから入った予約は14日を超えるものも含めて、確定した予約としてそのまま有効にしてください。期間の上限はこれから入る予約にだけかけます。取り消した予約は取り消しのままです。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": true,
+            "question": "承認・却下したとき、予約した人に通知は要りますか。",
+            "answer": "通知は今回は要りません。画面で状態を見るだけでかまいません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C6"
+            ],
+            "before": true,
+            "question": "『期限切れ』の仮予約とは、承認されないまま開始日を過ぎたもの（開始日の当日までは承認できる）、でよいですか。",
+            "answer": "はい。開始日の翌日になっても承認されていない仮予約は期限切れとして無効にし、枠を空けます。期限切れの予約は承認できません。開始日の当日のうちなら承認できます。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": true,
+            "question": "管理者も部署の代表者も無効のときの扱いはお任せしてよいですか（今回は何もせず仮予約のまま残す）。",
+            "answer": "お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "other",
+            "sheet_ids": [
+              "C10"
+            ],
+            "before": false,
+            "question": "仮予約（承認待ち）をした本人に、承認前でも貸し出せてしまう。(A)承認されるまでは本人にも貸さない／(B)今のまま本人には貸せる、のどちらにするか（お任せも可）",
+            "answer": "仮予約の本人に承認前に貸すかどうかは決めていないのでお任せします。ほかの人への貸出は仮予約の間も止めてください。"
+          },
+          {
+            "route": "message",
+            "phase": "v2",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q11"
+            ],
+            "before": false,
+            "question": "仮予約を重ねて枠を押さえる使い方が現場で出たら、1 人あたりの仮予約の件数制限を入れるか。",
+            "answer": "件数の上限は要りません。同じ人が同じ計測器を、期間が重ならなければ何件予約してもよいです。"
+          }
+        ]
+      },
+      "rework": {
+        "change_cost_usd": 6.0778,
+        "change_seconds": 1008,
+        "v1_cost_usd": 4.000671500000001,
+        "v1_seconds": 736,
+        "change_lines": {
+          "added": 691,
+          "deleted": 52
+        },
+        "v1_lines_added": 673,
+        "interventions_v1": 0,
+        "interventions_v2": 0,
+        "v1_leftovers": false
+      },
+      "facts": {
+        "v1_checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "peeked": false,
+        "adapters_drafted": [],
+        "failed": [
+          {
+            "phase": "v1",
+            "id": "K06",
+            "detail": "suspended: 201"
+          },
+          {
+            "phase": "v2",
+            "id": "K06",
+            "detail": "suspended: 201"
+          }
+        ],
+        "mutants": 60,
+        "killed": 51,
+        "interventions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "cost_usd": 10.0785,
+        "elapsed_seconds": 1744,
+        "active_seconds": 1647,
+        "turns": 253,
+        "subagents": 28,
+        "skills_used": [],
+        "denials": 18,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\nidx=s.rstrip().rfind(\\\"];\\\")\\nadd='''  {\\n    version: 5,\\n    name: \\\"reservations\\\",\\n    sql: `\\n      CREATE TABLE r"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'PYEOF'\\np='src/lib/reservations.ts'\\ns=open(p).read()\\ns=s.replace('import { currentLoan } from \\\"./loans.ts\\\";\\\\n','')\\ns=s.replace('''    const loan = currentLoan(instrumen"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat > \\\"src/app/instruments/[id]/reservation-controls.tsx\\\" <<'EOF'\\n\\\"use client\\\";\\n// 予約の入力フォームと取り消しボタン。API を呼び、結果をその場に表示する。認可は API 側で行う。\\nimport { useRouter } from \\\"next/navigation\\\""
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'PYEOF'\\np='CLAUDE.md'\\ns=open(p).read()\\ns=s.replace(\\\"校正不合格で使用停止になると、終わっていない予約は取り消される。\\\",\\\"校正不合格で使用停止になると、終わっていない予約は取り消される（廃棄や、編集画面での使用停止では取り消さない）。同じ人の予約の件数に上限はない。\\\",1)\\nope"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat > /tmp/claude-0/-tmp-poc-trials-W13-gstack-2-app/3443fb26-4964-455a-9c59-0f3199e0ddb6/scratchpad/edit.py <<'PYEOF'\\nimport re\\np='src/lib/reservations.ts'\\ns=open(p).read()\\n\\ns=s.rep"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"printf '\\\\n%s\\\\n' 'type DecisionProps = { instrumentId: number; reservationId: number; period: string };\\n\\n/** 管理者向け: 仮予約の承認と、理由（任意）を添えた却下。 */\\nexport function ReservationDecision({ inst"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"G=~/.claude/skills/gstack/bin; $G/gstack-review-log --start review | tail -1; $G/gstack-review-log --start adversarial-review | tail -1; git status --short; git diff HEAD --stat | tail -3"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"~/.claude/skills/gstack/bin/gstack-review-log --start review | tail -1; ~/.claude/skills/gstack/bin/gstack-review-log --start adversarial-review | tail -1; git status --short; git diff HE"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"/tmp/poc-trials/W13-gstack-2/home/.claude/skills/gstack/bin/gstack-review-log --start review\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"/tmp/poc-trials/W13-gstack-2/home/.claude/skills/gstack/bin/gstack-review-log --start adversarial-review\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"git status --short && git diff HEAD --numstat | awk '{n+=$1+$2} END {print \\\"DIFF_LINES\\\", n}'\"}"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cd /tmp/poc-trials/W13-gstack-2/app/src/app/api/instruments/\\\\[id\\\\]/reservations && cat \\\\[reservationId\\\\]/approve/route.ts \\\\[reservationId\\\\]/reject/route.ts \\\\[reservationId\\\\]/cance"
+          }
+        ],
+        "commits": [
+          "2631cf0 予約のレビュー指摘を反映（一覧 API の互換・承認時の二重予約防止ほか）",
+          "c2091c5 予約を管理者の承認制にし、1 回の予約を最長 14 日にする",
+          "35bf61e 予約の件数に上限がないこと・取り消しの範囲を明記し、テストを追加",
+          "3524abe 予約のレビュー指摘を反映",
+          "6156c4a 計測器の詳細画面に予約フォームと取り消しボタンを追加",
+          "786be77 計測器の貸出予約を追加"
+        ],
+        "errors": "step5 killed leftover: /bin/bash -c source /tmp/poc-trials/W13-gstack-2/home/.claude/shell-snapshots/snapshot-bash-1794295984206-6gobc6.sh 2>/d\nstep5 killed leftover: npm exec next start -p 3918                 \nstep5 killed leftover: next-server (v16.4.3)                                                      \nstep5 killed leftover: next-server (v16.4.3)                                                      \nstepend killed leftover: next-server (v16.4.3)                                                      \n",
+        "questions": 24
+      }
+    },
+    {
       "trial": "W13-superpowers-1",
       "candidate": "superpowers",
       "run": 1,
-      "total": 80.5,
+      "total": 91.7,
       "v1": 13.75,
       "change": 22.9,
       "unchanged": 14.38,
       "migration": 20,
       "stale": 5.0,
-      "design": 0.0,
+      "design": 11.25,
       "test_strength": 4.42,
       "regressions": [],
       "v1_items": {
@@ -2654,7 +4659,45 @@
         ],
         "errors": []
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R05",
+        "totals": [
+          14,
+          13
+        ],
+        "mean": 13.5,
+        "items": {
+          "a": [
+            3,
+            2
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            2
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            2
+          ],
+          "f": [
+            1,
+            1
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "HOLDING_SQL で押さえる条件をまとめ、decideReservation で承認と却下を 1 つの関数にしていて簡潔。v6 は既定値 approved で、移行テストもある。管理者が無効なときの承認者を決めておらず、コミットメッセージにも運用文書にも仮定や確認事項がない。期限切れを『開始日まで』と書いた説明が、当日まで有効にしている実装と少しずれている。",
+          "HOLDING_SQL で仮予約の期限切れ（開始日の翌日）を扱い、v6 の既定値で既存の予約を確定にしてテストもしている。しかし承認者は管理者に固定で、退職・休職の管理者を考えておらず、そのことを仮定としても書いていない。listUpcomingReservations の引数順を変えて viewerId を足し、既存の呼び出しの形を変えた。貸出は直接 SQL で引いている。コミットと文書は短く、運用上の注意（API の 201 が仮予約になることなど）も無い。"
+        ]
+      },
       "questions": {
         "all": {
           "total": 12,
@@ -2948,6 +4991,472 @@
         "commits": [
           "658119f 予約を管理者の承認制にし、期間を最大 14 日にする",
           "5934849 計測器の貸出予約を追加する"
+        ],
+        "errors": "",
+        "questions": 12
+      }
+    },
+    {
+      "trial": "W13-superpowers-2",
+      "candidate": "superpowers",
+      "run": 2,
+      "total": 89.3,
+      "v1": 13.75,
+      "change": 20.8,
+      "unchanged": 14.38,
+      "migration": 20,
+      "stale": 5.0,
+      "design": 10.83,
+      "test_strength": 4.58,
+      "regressions": [],
+      "v1_items": {
+        "P01": true,
+        "P02": true,
+        "K01": true,
+        "K02": true,
+        "K03": true,
+        "K04": true,
+        "K05": true,
+        "K06": true,
+        "K07": true,
+        "K08": false
+      },
+      "final_items": {
+        "P02": true,
+        "P03": true,
+        "K01": true,
+        "K02": true,
+        "K03": true,
+        "K04": true,
+        "K05": true,
+        "K06": true,
+        "K07": true,
+        "K08": false,
+        "C01": true,
+        "C02": true,
+        "C03": true,
+        "C04": true,
+        "C05": true,
+        "C06": false,
+        "C07": true,
+        "C08": true,
+        "C09": true,
+        "C10": false
+      },
+      "migration_items": {
+        "N1": true,
+        "N2": true,
+        "N3": true,
+        "N4": true,
+        "N5": true,
+        "N6": true,
+        "S1": true
+      },
+      "migration_static": {
+        "versions": {
+          "base": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "v1": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "final": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "v1_rewrote_base": [],
+        "final_rewrote_shipped": [],
+        "final_added": [
+          6
+        ],
+        "stale_status_values": [],
+        "stale_hits": []
+      },
+      "prod": {
+        "made": [
+          {
+            "key": "A",
+            "user": "suzuki",
+            "no": "MI-0001",
+            "start": "2026-11-20",
+            "end": "2026-11-22",
+            "id": 1,
+            "v1_status": "active"
+          },
+          {
+            "key": "B",
+            "user": "suzuki",
+            "no": "MI-0014",
+            "start": "2026-12-01",
+            "end": "2026-12-20",
+            "id": 2,
+            "v1_status": "active"
+          },
+          {
+            "key": "D",
+            "user": "sato",
+            "no": "MI-0009",
+            "start": "2026-11-16",
+            "end": "2026-11-18",
+            "id": 3,
+            "v1_status": "active"
+          },
+          {
+            "key": "C",
+            "user": "tanaka",
+            "no": "MI-0006",
+            "start": "2026-11-25",
+            "end": "2026-11-26",
+            "id": 4,
+            "cancelled": true,
+            "v1_status": "absent"
+          }
+        ],
+        "errors": []
+      },
+      "review_detail": {
+        "code": "R08",
+        "totals": [
+          12,
+          14
+        ],
+        "mean": 13.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            2,
+            3
+          ],
+          "c": [
+            1,
+            1
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            2
+          ],
+          "f": [
+            1,
+            2
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "最小限の差分で承認制と 14 日の上限を入れ、v6 の移行テストもある。しかし仮予約の期限切れが無く、承認されない仮予約が終了日まで期間を押さえ続ける。承認の可否も終了日で判定している。代表者が無効かどうかを確かめておらず、コミットメッセージも文書も仮定をほとんど書いていない。",
+          "HOLDING 定数で、期間を押さえる条件を重なり・一覧・取消・貸出で共通にし、v6 の既定値による移行もテストした。しかし期限切れの扱いは、決定のときに end_on < today を見るだけで、仮予約は開始日を過ぎても終了日まで期間を押さえ続ける。approverOf は代表者が有効かを確かめていない。取消できる人を管理者から approverOf に変えたことを説明していない。コミットは 1 つで仮定の記述が少なく、operations.md も更新していない。"
+        ]
+      },
+      "questions": {
+        "all": {
+          "total": 12,
+          "by_route": {
+            "ask-po": 12,
+            "message": 0
+          },
+          "hit": 11,
+          "hit_rate": 0.92,
+          "reask": 0,
+          "before_impl": 12,
+          "before_impl_rate": 1.0,
+          "q_ids": [
+            "Q1",
+            "Q3",
+            "Q5",
+            "Q6",
+            "Q7",
+            "Q9"
+          ],
+          "c_ids": [
+            "C2",
+            "C3",
+            "C4",
+            "C5",
+            "C7",
+            "C10",
+            "C11"
+          ]
+        },
+        "v1": {
+          "total": 6,
+          "by_route": {
+            "ask-po": 6,
+            "message": 0
+          },
+          "hit": 5,
+          "hit_rate": 0.83,
+          "reask": 0,
+          "before_impl": 6,
+          "before_impl_rate": 1.0,
+          "q_ids": [
+            "Q1",
+            "Q3",
+            "Q5",
+            "Q6",
+            "Q7",
+            "Q9"
+          ],
+          "c_ids": []
+        },
+        "v2": {
+          "total": 6,
+          "by_route": {
+            "ask-po": 6,
+            "message": 0
+          },
+          "hit": 6,
+          "hit_rate": 1.0,
+          "reask": 0,
+          "before_impl": 6,
+          "before_impl_rate": 1.0,
+          "q_ids": [],
+          "c_ids": [
+            "C2",
+            "C3",
+            "C4",
+            "C5",
+            "C7",
+            "C10",
+            "C11"
+          ]
+        },
+        "asked_c11": true,
+        "persona_cost_usd": 0.1184,
+        "errors": [],
+        "items": [
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q1",
+              "Q3"
+            ],
+            "before": true,
+            "question": "(1) 予約は将来の期間を押さえる形か、先着順の順番待ちか",
+            "answer": "期間を押さえる形です。日単位で開始日と終了日を決め、両端の日を含みます。同じ計測器で1日でも重なる予約はできません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q9"
+            ],
+            "before": true,
+            "question": "(2) 予約できる人は誰か（本人のみ／管理者が代理可）",
+            "answer": "ログインしている本人が予約します。代理で予約することはありません。部署は問わず誰でも予約できます。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q5"
+            ],
+            "before": true,
+            "question": "(3) 予約日に自動で貸出中にするか、現在の貸出操作で人が貸し出すか",
+            "answer": "自動で貸出中にする想定はありません。貸出は今の操作で構いません。ただし予約が入っている期間にかかる貸出は、予約した本人以外にはしないでください。本人には予約期間の中なら貸し出せます。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q6"
+            ],
+            "before": true,
+            "question": "(4) 校正期限が予約期間中に切れる計測器や、使用停止・廃棄の計測器は予約不可でよいか",
+            "answer": "使用停止と廃棄の計測器は予約できないようにしてください。校正期限が期間中に切れる場合や校正中の計測器の扱いは、お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q7"
+            ],
+            "before": true,
+            "question": "(5) 予約の取消は誰ができるか",
+            "answer": "予約した本人と、その計測器の管理者です。ほかの人は取り消せません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v1",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": true,
+            "question": "(6) 予約時の通知（docs/notify-api.md）は必要か",
+            "answer": "通知は今回は要りません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C5"
+            ],
+            "before": true,
+            "question": "(1) 仮予約の期間も、ほかの人が重ねて予約できない扱い（枠を押さえる）でよいか",
+            "answer": "はい。仮予約の段階でもその期間は押さえ、重なる予約はできません。先に申し込んだ人を優先します。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C10"
+            ],
+            "before": true,
+            "question": "(2) 仮予約のあいだも、その期間にかかる他の人の貸出を止めるか、承認された予約だけ止めるか",
+            "answer": "仮予約も確定した予約も、ほかの人の貸出を止めます。却下・取り消し・期限切れの予約は止めません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C2",
+              "C3"
+            ],
+            "before": true,
+            "question": "(3) 承認・却下できるのは計測器の管理者だけか。管理者が自分で予約したときはすぐ承認済みにしてよいか",
+            "answer": "その計測器の管理者（台帳の管理者の欄の人）だけです。予約した本人やほかの人はできません。ただし管理者が退職・休職などで無効になっているときは、その管理者の部署の代表者が承認・却下します。管理者が自分の計測器を自分で予約したときの扱いは、お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C4",
+              "C10"
+            ],
+            "before": true,
+            "question": "(4) 却下と取消はどちらも予約が消える扱い（同じ）でよいか。却下の理由の入力は要るか",
+            "answer": "どちらも枠が空き、ほかの人が予約できるようになり、貸出も止めません。却下の理由は書けると助かりますが、無くても構いません。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C11"
+            ],
+            "before": true,
+            "question": "(5) 昨日から入っている既存の予約は承認済みとして扱ってよいか。14日を超えていてもそのままでよいか",
+            "answer": "はい。本番に出てから入った予約は、14日を超えるものも含めて、確定した予約としてそのまま有効にしてください。現場がもう予定を組んでいるためです。期間の上限はこれから入る予約にだけかけてください。取り消した予約は取り消しのままです。"
+          },
+          {
+            "route": "ask-po",
+            "phase": "v2",
+            "kind": "change",
+            "sheet_ids": [
+              "C7"
+            ],
+            "before": true,
+            "question": "(6) 最大14日は、開始日と終了日を両方数えて14日まででよいか",
+            "answer": "はい。開始日と終了日を含めて14日までです。11/1〜11/14 はよく、11/1〜11/15 はだめです。"
+          }
+        ]
+      },
+      "rework": {
+        "change_cost_usd": 0.4088,
+        "change_seconds": 175,
+        "v1_cost_usd": 0.5059869,
+        "v1_seconds": 184,
+        "change_lines": {
+          "added": 328,
+          "deleted": 27
+        },
+        "v1_lines_added": 378,
+        "interventions_v1": 0,
+        "interventions_v2": 0,
+        "v1_leftovers": false
+      },
+      "facts": {
+        "v1_checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "peeked": false,
+        "adapters_drafted": [],
+        "failed": [
+          {
+            "phase": "v1",
+            "id": "K08",
+            "detail": "予約の状態: active"
+          },
+          {
+            "phase": "v2",
+            "id": "K08",
+            "detail": "予約の状態: approved"
+          },
+          {
+            "phase": "v2",
+            "id": "C06",
+            "detail": "開始日の翌日の承認: 200"
+          },
+          {
+            "phase": "v2",
+            "id": "C10",
+            "detail": "期限切れの仮予約と重なる貸出: 409"
+          }
+        ],
+        "mutants": 60,
+        "killed": 55,
+        "interventions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "cost_usd": 0.9148,
+        "elapsed_seconds": 359,
+        "active_seconds": 331,
+        "turns": 53,
+        "subagents": 0,
+        "skills_used": [
+          "superpowers:brainstorming"
+        ],
+        "denials": 3,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\ni=s.rindex(\\\"];\\\")\\nadd='''  {\\n    version: 5,\\n    name: \\\"reservations\\\",\\n    sql: `\\n      CREATE TABLE reservation"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat >> src/lib/dates.ts <<'EOF'\\n\\n/** 開始日と終了日の両方を数えた日数（2026-11-01〜2026-11-14 なら 14）。どちらも有効な YYYY-MM-DD であること。 */\\nexport function inclusiveDays(startOn: string, endOn: string): number {\\"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat >> tests/reservations.test.ts <<'EOF'\\n\\ndescribe(\\\"承認制（仮予約）\\\", () => {\\n  const period = { startOn: \\\"2026-11-15\\\", endOn: \\\"2026-11-17\\\" };\\n\\n  it(\\\"creates a pending reservation, "
+          }
+        ],
+        "commits": [
+          "10cd108 予約を管理者の承認制にし、期間を最大 14 日にする",
+          "82c1f5f 計測器の貸出予約を追加"
         ],
         "errors": "",
         "questions": 12

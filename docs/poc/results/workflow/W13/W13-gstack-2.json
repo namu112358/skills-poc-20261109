@@ -16,11 +16,11 @@
     },
     "test": {
       "pass": true,
-      "log": "ibration suspends the instrument\n    ok 5 - cancels upcoming reservations when a failed calibration suspends the instrument\n      ---\n      duration_ms: 49.580695\n      type: 'test'\n      ...\n    1..5\nok 32 - reservation edge cases\n  ---\n  duration_ms: 230.500051\n  type: 'suite'\n  ...\n# Subtest: reservation count\n    # Subtest: lets the same person reserve the same instrument any number of times when periods do not overlap\n    ok 1 - lets the same person reserve the same instrument any number of times when periods do not overlap\n      ---\n      duration_ms: 63.238136\n      type: 'test'\n      ...\n    1..1\nok 33 - reservation count\n  ---\n  duration_ms: 63.425645\n  type: 'suite'\n  ...\n1..33\n# tests 66\n# suites 33\n# pass 66\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2868.791057\n"
+      "log": "ibration suspends the instrument\n    ok 5 - cancels upcoming reservations when a failed calibration suspends the instrument\n      ---\n      duration_ms: 40.159292\n      type: 'test'\n      ...\n    1..5\nok 32 - reservation edge cases\n  ---\n  duration_ms: 205.842263\n  type: 'suite'\n  ...\n# Subtest: reservation count\n    # Subtest: lets the same person reserve the same instrument any number of times when periods do not overlap\n    ok 1 - lets the same person reserve the same instrument any number of times when periods do not overlap\n      ---\n      duration_ms: 42.435927\n      type: 'test'\n      ...\n    1..1\nok 33 - reservation count\n  ---\n  duration_ms: 42.540033\n  type: 'suite'\n  ...\n1..33\n# tests 66\n# suites 33\n# pass 66\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1840.373008\n"
     },
     "build": {
       "pass": true,
-      "log": "ationId]/approve\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/cancel\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/reject\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:29187) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:29180) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:29186) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      "log": "ationId]/approve\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/cancel\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/reject\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:11361) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:11355) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:11362) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
     }
   },
   "e2e": [],
@@ -290,13 +290,8 @@
             "@notnull"
           ]
         },
-        "jobs": [],
-        "notes": "v1 のため承認・却下の API は無い。予約者はログイン中の本人（本文に user は不要）。一覧は取り消し済み（cancelledAt が null でない）の予約を返さず、予約者が無効（退職・休職）の予約も除外するため、cancelled の状態は一覧に現れない（取消後は一覧から消える）。status は cancelledAt の値を JSON 化した文字列（null なら \"null\"）で判定する想定。取消は予約した本人か計測器の管理者のみ可能。日付は YYYY-MM-DD でそのまま送れる。開始日は日本時間の今日以降、最長 30 日、365 日先まで。"
+        "jobs": []
       },
-      "drafted": [
-        "v1",
-        "v2"
-      ],
       "v2": {
         "create": {
           "method": "POST",
@@ -348,8 +343,7 @@
             "expired"
           ]
         },
-        "jobs": [],
-        "notes": "一覧は既定だと仮予約・承認済みだけなので ?scope=all を付けた。取り消した予約は cancelled_at が入るだけで、一覧（listReservations）には出ない（取り消し後は一覧から消える）ため cancelled は status に書いていない。status は期限切れを表せる state（pending/approved/rejected/expired）を使った。API の status 項目は expired を返さない。期限切れは開始日の翌日になった未承認の仮予約で、定期ジョブの API は無く表示時に算出される。cancelReservation の実装は提示コードの末尾が切れていて確認できていない。予約者がログイン中の本人なので create に {user} は不要。承認者（管理者本人）が予約すると自動で approved になる。"
+        "jobs": []
       }
     },
     "v1_commit": "35bf61ee46a84cee7aaf02d3e1e83ee00f302fee",

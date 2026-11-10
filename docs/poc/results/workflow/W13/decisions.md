@@ -25,3 +25,6 @@
   補正前の採点は `grade_w13.py <試行ID> --prefix`（`W13_PREFIX=1`。結果は `W13/prefix/`、点数には使わない）。
 - 2026-11-10 07:52 UTC superpowers-2 は 5 時間の使用量の上限（10:10 UTC リセット）に当たり、全ステップが「You've hit your 5-hour limit」で終わった（45 秒、採点に使えない）。
   リセット後の 10:13 UTC に同じ回の番号で最初からやり直した。上限に当たった記録は `raw/W13-superpowers-2.usage-limit-1/`・`W13/failed-usage-limit/` に退避した（採点に使わない）。
+- 2026-11-10 10:50 UTC 最終版での採点し直しの後に、アダプターの状態の対応の不具合を直した: 状態を 1 項目だけの組み合わせ（`fields.status` が要素 1 つの配列）で表すとき、
+  `@notnull`・`*` が使われず、取消済みの予約を一覧に出す実装（compound-engineering-2 の v1）で取消が「知らない状態」になり、K07・K08 を誤って不合格にしていた。
+  直した後、この書き方のアダプターを使う 5 試行（compound-engineering-1/2・feature-dev-2・gstack-2・superpowers-2）を、最終版と補正前の両方で採点し直した（ほかの試行の判定には影響しない）。

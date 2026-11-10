@@ -16,11 +16,11 @@
     },
     "test": {
       "pass": true,
-      "log": "me to borrow\n    ok 4 - ignores a reservation of an inactive user, who cannot come to borrow\n      ---\n      duration_ms: 41.638172\n      type: 'test'\n      ...\n    # Subtest: allows lending again once the reservation is cancelled\n    ok 5 - allows lending again once the reservation is cancelled\n      ---\n      duration_ms: 45.541824\n      type: 'test'\n      ...\n    # Subtest: counts a reservation that starts today (Japan time) as blocking\n    ok 6 - counts a reservation that starts today (Japan time) as blocking\n      ---\n      duration_ms: 42.247021\n      type: 'test'\n      ...\n    1..6\nok 29 - lendInstrument with reservations\n  ---\n  duration_ms: 293.224787\n  type: 'suite'\n  ...\n1..29\n# tests 61\n# suites 29\n# pass 61\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1758.800062\n"
+      "log": "me to borrow\n    ok 4 - ignores a reservation of an inactive user, who cannot come to borrow\n      ---\n      duration_ms: 48.803165\n      type: 'test'\n      ...\n    # Subtest: allows lending again once the reservation is cancelled\n    ok 5 - allows lending again once the reservation is cancelled\n      ---\n      duration_ms: 51.629566\n      type: 'test'\n      ...\n    # Subtest: counts a reservation that starts today (Japan time) as blocking\n    ok 6 - counts a reservation that starts today (Japan time) as blocking\n      ---\n      duration_ms: 67.469966\n      type: 'test'\n      ...\n    1..6\nok 29 - lendInstrument with reservations\n  ---\n  duration_ms: 305.456087\n  type: 'suite'\n  ...\n1..29\n# tests 61\n# suites 29\n# pass 61\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1802.842752\n"
     },
     "build": {
       "pass": true,
-      "log": "s/[id]/reservations\n├ ƒ /api/instruments/[id]/reservations/[reservationId]\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/[decision]\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:23097) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:23103) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:23104) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      "log": "ruments/[id]/reservations\n├ ƒ /api/instruments/[id]/reservations/[reservationId]\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/[decision]\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:933) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:934) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:940) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
     }
   },
   "e2e": [],
@@ -200,7 +200,9 @@
         },
         "fields": {
           "id": "id",
-          "status": "cancelledAt",
+          "status": [
+            "cancelledAt"
+          ],
           "start": "startOn",
           "end": "endOn",
           "user": "reserverId"
@@ -208,15 +210,13 @@
         "status": {
           "active": [
             "null"
+          ],
+          "cancelled": [
+            "@notnull"
           ]
         },
-        "jobs": [],
-        "notes": "取消は DELETE（JSON 応答）。POST はフォーム用で 303 リダイレクトを返すため DELETE を採用。一覧は取り消し済みと終了日が過去の予約を返さないため、cancelled は一覧に現れない（cancelled の状態値は書いていない）。status は cancelledAt 列で、有効な予約は null。予約者はログイン中の本人で body に user は不要。日付は YYYY-MM-DD の JST。"
+        "jobs": []
       },
-      "drafted": [
-        "v1",
-        "v2"
-      ],
       "v2": {
         "create": {
           "method": "POST",
@@ -273,8 +273,7 @@
             "\"rejected\"|@notnull"
           ]
         },
-        "jobs": [],
-        "notes": "取消は cancelledAt（日時）で表し、status 自体は変わらないので status を [status, cancelledAt] の組み合わせにした。一覧（GET）は今日以降にかかる、取り消されておらず却下もされていない予約だけを返す（却下・取消の予約は一覧に出ない）ため、rejected・cancelled の状態は一覧からは確認できない可能性が高い。期限切れ（expired）の状態・ジョブは無い。取消は DELETE（JSON 応答）で、POST は同じパスでフォーム用の 303 リダイレクト。承認の API は JSON のとき Content-Type: application/json が必要。承認者は計測器の管理者（不在なら部署の代表者）で、管理者本人が予約すると即 approved になる。decideReservation の後半はコードが途中で切れていて未確認。"
+        "jobs": []
       }
     },
     "v1_commit": "083dcaa976382d61d61258570d8138a3afec6c75",
@@ -391,7 +390,7 @@
         "id": "K08",
         "name": "校正で不合格になり使用停止になったら、これからの予約は取り消しになる",
         "pass": false,
-        "detail": "予約の状態: ?null"
+        "detail": "予約の状態: active"
       }
     ],
     "final_tests": [
@@ -526,7 +525,7 @@
             "start": "2026-11-20",
             "end": "2026-11-22",
             "id": 1,
-            "v1_status": "?null"
+            "v1_status": "active"
           },
           {
             "key": "B",
@@ -535,7 +534,7 @@
             "start": "2026-12-01",
             "end": "2026-12-20",
             "id": 2,
-            "v1_status": "?null"
+            "v1_status": "active"
           },
           {
             "key": "D",
@@ -544,7 +543,7 @@
             "start": "2026-11-16",
             "end": "2026-11-18",
             "id": 3,
-            "v1_status": "?null"
+            "v1_status": "active"
           },
           {
             "key": "C",

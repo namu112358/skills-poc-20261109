@@ -16,11 +16,11 @@
     },
     "test": {
       "pass": true,
-      "log": "ctInput\n    # Subtest: makes the reason optional and limits it to 200 characters\n    ok 1 - makes the reason optional and limits it to 200 characters\n      ---\n      duration_ms: 0.688316\n      type: 'test'\n      ...\n    1..1\nok 26 - validateRejectInput\n  ---\n  duration_ms: 0.832131\n  type: 'suite'\n  ...\n# Subtest: migration 6 (reservation approval)\n    # Subtest: keeps existing reservations as confirmed and cancelled ones cancelled\n    ok 1 - keeps existing reservations as confirmed and cancelled ones cancelled\n      ---\n      duration_ms: 44.244035\n      type: 'test'\n      ...\n    1..1\nok 27 - migration 6 (reservation approval)\n  ---\n  duration_ms: 44.378593\n  type: 'suite'\n  ...\n1..27\n# tests 63\n# suites 27\n# pass 63\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 3560.950834\n"
+      "log": "ctInput\n    # Subtest: makes the reason optional and limits it to 200 characters\n    ok 1 - makes the reason optional and limits it to 200 characters\n      ---\n      duration_ms: 0.545776\n      type: 'test'\n      ...\n    1..1\nok 26 - validateRejectInput\n  ---\n  duration_ms: 0.644038\n  type: 'suite'\n  ...\n# Subtest: migration 6 (reservation approval)\n    # Subtest: keeps existing reservations as confirmed and cancelled ones cancelled\n    ok 1 - keeps existing reservations as confirmed and cancelled ones cancelled\n      ---\n      duration_ms: 42.783426\n      type: 'test'\n      ...\n    1..1\nok 27 - migration 6 (reservation approval)\n  ---\n  duration_ms: 42.896024\n  type: 'suite'\n  ...\n1..27\n# tests 63\n# suites 27\n# pass 63\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2303.796561\n"
     },
     "build": {
       "pass": true,
-      "log": "ervationId]/approve\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/cancel\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/reject\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:1295) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:1312) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:1320) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      "log": "ationId]/approve\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/cancel\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/reject\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:31768) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:31774) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:31775) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
     }
   },
   "e2e": [],
@@ -209,15 +209,13 @@
           ],
           "cancelled": [
             "cancelled"
+          ],
+          "consumed": [
+            "fulfilled"
           ]
         },
-        "jobs": [],
-        "notes": "v1 段階。承認・却下の API は無い。予約者は本人（ログイン中のユーザー）。status に fulfilled（貸出済み）があるが共通の状態名に対応が無いため省略。終了日を過ぎた active は画面表示のみ「期限切れ」で、API の status は active のまま。取消は予約した本人か計測器の管理者のみ。"
+        "jobs": []
       },
-      "drafted": [
-        "v1",
-        "v2"
-      ],
       "v2": {
         "create": {
           "method": "POST",
@@ -267,10 +265,12 @@
           ],
           "cancelled": [
             "cancelled"
+          ],
+          "consumed": [
+            "fulfilled"
           ]
         },
-        "jobs": [],
-        "notes": "状態は DB の status をそのまま返し、承認済み（確定）は 'active'。期限切れ（expired）は状態の更新をせず、日付（pending は開始日が今日より前、active は終了日が今日より前）から API 側で判断する仕組みで、一覧の status には 'expired' という値は出ない。そのため status の expired は書いていない。'fulfilled'（貸出済み）は loans API 経由で発生する別状態で、共通の状態名には対応させていない。ジョブは無い。"
+        "jobs": []
       }
     },
     "v1_commit": "ad33c1f82a56fe305335d370b46b72a5cba47d9f",

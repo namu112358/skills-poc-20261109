@@ -16,11 +16,11 @@
     },
     "test": {
       "pass": true,
-      "log": "st: refuses everyone else, including a department representative, and keeps the reservation\n    ok 3 - refuses everyone else, including a department representative, and keeps the reservation\n      ---\n      duration_ms: 42.44383\n      type: 'test'\n      ...\n    # Subtest: does not cancel twice\n    ok 4 - does not cancel twice\n      ---\n      duration_ms: 42.394877\n      type: 'test'\n      ...\n    # Subtest: treats a reservation of another instrument as not found\n    ok 5 - treats a reservation of another instrument as not found\n      ---\n      duration_ms: 43.591147\n      type: 'test'\n      ...\n    1..5\nok 29 - cancelReservation\n  ---\n  duration_ms: 224.854517\n  type: 'suite'\n  ...\n1..29\n# tests 74\n# suites 29\n# pass 74\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2352.952319\n"
+      "log": "t: refuses everyone else, including a department representative, and keeps the reservation\n    ok 3 - refuses everyone else, including a department representative, and keeps the reservation\n      ---\n      duration_ms: 40.328958\n      type: 'test'\n      ...\n    # Subtest: does not cancel twice\n    ok 4 - does not cancel twice\n      ---\n      duration_ms: 40.319783\n      type: 'test'\n      ...\n    # Subtest: treats a reservation of another instrument as not found\n    ok 5 - treats a reservation of another instrument as not found\n      ---\n      duration_ms: 41.128829\n      type: 'test'\n      ...\n    1..5\nok 29 - cancelReservation\n  ---\n  duration_ms: 203.471155\n  type: 'suite'\n  ...\n1..29\n# tests 74\n# suites 29\n# pass 74\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2106.681539\n"
     },
     "build": {
       "pass": true,
-      "log": "nstruments/[id]/reservations/[reservationId]/cancel\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/reject\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/reservations/pending\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:5268) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:5274) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:5267) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      "log": "ruments/[id]/reservations/[reservationId]/cancel\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/reject\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/reservations/pending\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:21783) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:21789) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:21790) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
     }
   },
   "e2e": [],
@@ -326,7 +326,9 @@
         },
         "fields": {
           "id": "id",
-          "status": "cancelledAt",
+          "status": [
+            "cancelledAt"
+          ],
           "start": "startOn",
           "end": "endOn",
           "user": "reserverId"
@@ -339,13 +341,8 @@
             "@notnull"
           ]
         },
-        "jobs": [],
-        "notes": "v1 には承認・却下・期限切れの仕組みは無い。状態は専用の項目ではなく cancelledAt（null なら有効、日時なら取消済み）で表される。list は既定で有効な予約だけなので、取り消し済みも見るため ?cancelled=1 を付けた。一覧は終了日が今日以降の予約だけを返す（過去の予約は出ない）。予約者はログイン中の本人。取消は予約した本人か計測器の管理者のみ。"
+        "jobs": []
       },
-      "drafted": [
-        "v1",
-        "v2"
-      ],
       "v2": {
         "create": {
           "method": "POST",
@@ -401,8 +398,7 @@
             "\"approved\"|@notnull"
           ]
         },
-        "jobs": [],
-        "notes": "状態は status と cancelledAt の組み合わせ。取り消しは cancelledAt が非 null（元の status は pending か approved のまま残る）。却下済みの予約は取り消せないので rejected|@notnull は無い。expired は保存されず、開始日の翌日以降の未承認の仮予約が一覧から消えるだけなので status には書いていない（期限切れの予約は一覧に出ない）。list は取り消し済み・却下済みも見えるよう ?cancelled=1 を付けた。ただし一覧は終了日が今日以降の予約だけ。期限切れ処理のジョブは無い。reject の本文は note（reason ではない）。管理者自身の予約は最初から approved になる。"
+        "jobs": []
       }
     },
     "v1_commit": "af9211c4e2fff935824c85a18a038c668ac4dee6",
@@ -519,7 +515,7 @@
         "id": "K08",
         "name": "校正で不合格になり使用停止になったら、これからの予約は取り消しになる",
         "pass": false,
-        "detail": "予約の状態: ?\"2026-11-09T22:30:00.015Z\""
+        "detail": "予約の状態: ?\"\\\"2026-11-09T22:30:00.012Z\\\"\""
       }
     ],
     "final_tests": [
@@ -654,7 +650,7 @@
             "start": "2026-11-20",
             "end": "2026-11-22",
             "id": 1,
-            "v1_status": "?null"
+            "v1_status": "active"
           },
           {
             "key": "B",
@@ -663,7 +659,7 @@
             "start": "2026-12-01",
             "end": "2026-12-20",
             "id": 2,
-            "v1_status": "?null"
+            "v1_status": "active"
           },
           {
             "key": "D",
@@ -672,7 +668,7 @@
             "start": "2026-11-16",
             "end": "2026-11-18",
             "id": 3,
-            "v1_status": "?null"
+            "v1_status": "active"
           },
           {
             "key": "C",
@@ -682,7 +678,7 @@
             "end": "2026-11-26",
             "id": 4,
             "cancelled": true,
-            "v1_status": "?\"2026-11-09T22:30:00.185Z\""
+            "v1_status": "?\"\\\"2026-11-09T22:30:00.190Z\\\"\""
           }
         ],
         "errors": []
@@ -720,7 +716,7 @@
               "id": "facts",
               "name": "記録",
               "pass": true,
-              "detail": "{\"statuses\":[\"\\\"\\\\\\\"approved\\\\\\\"|null\\\"\",\"\\\"\\\\\\\"approved\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.185Z\\\\\\\"\\\"\"],\"found\":{\"A\":{\"id\":1,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"B\":{\"id\":2,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"D\":{\"id\":3,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"C\":{\"id\":4,\"status\":\"cancelled\",\"raw\":\"\\\"approved\\\"|\\\"2026-11-09T22:30:00.185Z\\\"\"}}}"
+              "detail": "{\"statuses\":[\"\\\"\\\\\\\"approved\\\\\\\"|null\\\"\",\"\\\"\\\\\\\"approved\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.190Z\\\\\\\"\\\"\"],\"found\":{\"A\":{\"id\":1,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"B\":{\"id\":2,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"D\":{\"id\":3,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"C\":{\"id\":4,\"status\":\"cancelled\",\"raw\":\"\\\"approved\\\"|\\\"2026-11-09T22:30:00.190Z\\\"\"}}}"
             }
           ],
           "user_version": 6,
@@ -757,7 +753,7 @@
               "id": "facts",
               "name": "記録",
               "pass": true,
-              "detail": "{\"statuses\":[\"\\\"\\\\\\\"approved\\\\\\\"|null\\\"\",\"\\\"\\\\\\\"approved\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.185Z\\\\\\\"\\\"\"],\"found\":{\"A\":{\"id\":1,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"B\":{\"id\":2,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"D\":{\"id\":3,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"C\":{\"id\":4,\"status\":\"cancelled\",\"raw\":\"\\\"approved\\\"|\\\"2026-11-09T22:30:00.185Z\\\"\"}}}"
+              "detail": "{\"statuses\":[\"\\\"\\\\\\\"approved\\\\\\\"|null\\\"\",\"\\\"\\\\\\\"approved\\\\\\\"|\\\\\\\"2026-11-09T22:30:00.190Z\\\\\\\"\\\"\"],\"found\":{\"A\":{\"id\":1,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"B\":{\"id\":2,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"D\":{\"id\":3,\"status\":\"approved\",\"raw\":\"\\\"approved\\\"|null\"},\"C\":{\"id\":4,\"status\":\"cancelled\",\"raw\":\"\\\"approved\\\"|\\\"2026-11-09T22:30:00.190Z\\\"\"}}}"
             }
           ],
           "user_version": 6,
