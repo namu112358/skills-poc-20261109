@@ -1,0 +1,94 @@
+diff --git a/src/app/api/instruments/[id]/reservations/[rid]/cancel/route.ts b/src/app/api/instruments/[id]/reservations/[rid]/cancel/route.ts
+new file mode 100644
+index 0000000..d4f8ee7
+--- /dev/null
++++ b/src/app/api/instruments/[id]/reservations/[rid]/cancel/route.ts
+@@ -0,0 +1,10 @@
++import { NextResponse } from "next/server";
++import { requireApiUser } from "@/lib/api";
++import { cancel } from "@/lib/reservations";
++
++export async function POST(_r: Request, { params }: { params: Promise<{ rid: string }> }) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  cancel(Number((await params).rid));
++  return NextResponse.json({ ok: true });
++}
+diff --git a/src/app/api/instruments/[id]/reservations/route.ts b/src/app/api/instruments/[id]/reservations/route.ts
+new file mode 100644
+index 0000000..c7414a6
+--- /dev/null
++++ b/src/app/api/instruments/[id]/reservations/route.ts
+@@ -0,0 +1,20 @@
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { listReservations, reserve } from "@/lib/reservations";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_r: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  return NextResponse.json({ reservations: listReservations(Number((await params).id)) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const b = (await readJson(request)) as { startOn: string; endOn: string };
++  const id = reserve(Number((await params).id), user.id, b.startOn, b.endOn);
++  if (id === undefined) return jsonError(409, "重なる予約があります");
++  return NextResponse.json({ reservation: { id } }, { status: 201 });
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index adb70b5..1465bd5 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -86,4 +86,18 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX calibration_records_instrument ON calibration_records(instrument_id);
+     `,
+   },
++  {
++    version: 5,
++    name: "reservations",
++    sql: `
++      CREATE TABLE reservations (
++        id INTEGER PRIMARY KEY AUTOINCREMENT,
++        instrument_id INTEGER NOT NULL,
++        user_id TEXT NOT NULL,
++        start_on TEXT NOT NULL,
++        end_on TEXT NOT NULL,
++        status TEXT NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'cancelled'))
++      );
++    `,
++  },
+ ];
+diff --git a/src/lib/reservations.ts b/src/lib/reservations.ts
+new file mode 100644
+index 0000000..c75eca8
+--- /dev/null
++++ b/src/lib/reservations.ts
+@@ -0,0 +1,23 @@
++import { getDb } from "./db/index.ts";
++
++export function listReservations(instrumentId: number) {
++  return getDb()
++    .prepare("SELECT id, user_id AS userId, start_on AS startOn, end_on AS endOn, status FROM reservations WHERE instrument_id = ?")
++    .all(instrumentId);
++}
++
++export function reserve(instrumentId: number, userId: string, startOn: string, endOn: string) {
++  const db = getDb();
++  const hit = db
++    .prepare("SELECT 1 FROM reservations WHERE instrument_id = ? AND status = 'reserved' AND start_on <= ? AND end_on >= ?")
++    .get(instrumentId, endOn, startOn);
++  if (hit) return undefined;
++  const r = db
++    .prepare("INSERT INTO reservations (instrument_id, user_id, start_on, end_on) VALUES (?, ?, ?, ?)")
++    .run(instrumentId, userId, startOn, endOn);
++  return Number(r.lastInsertRowid);
++}
++
++export function cancel(id: number) {
++  getDb().prepare("UPDATE reservations SET status = 'cancelled' WHERE id = ?").run(id);
++}

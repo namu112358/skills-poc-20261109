@@ -1,0 +1,845 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index e5517d3..118e59b 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -26,7 +26,7 @@ Next.js（App Router）+ TypeScript + SQLite（Node 標準の `node:sqlite`）
+ 
+ - 初期ユーザーは `src/lib/db/seed.ts`（パスワードは共通で `password`。PoC の検証用）。`/login` からログインする。
+ - セッションは DB の `sessions` テーブルと Cookie `poc_session`（`src/lib/auth.ts`）。ページでは `requireUser()`、API Route では `requireApiUser()`（`src/lib/session.ts`・`src/lib/api.ts`）でログインを確認する。
+-- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/instruments`、`GET/PATCH /api/instruments/:id`、`GET/POST /api/instruments/:id/loans`、`POST /api/instruments/:id/loans/:loanId/return`、`GET/POST /api/instruments/:id/calibrations`、`GET/POST /api/locations`、`PATCH/DELETE /api/locations/:id`。エラーは `{ error, details? }` の JSON で返す。
++- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/instruments`、`GET/PATCH /api/instruments/:id`、`GET/POST /api/instruments/:id/loans`、`POST /api/instruments/:id/loans/:loanId/return`、`GET/POST /api/instruments/:id/calibrations`、`GET/POST /api/locations`、`PATCH/DELETE /api/locations/:id`、`GET/POST /api/instruments/:id/calibration-orders`、`GET /api/instruments/:id/history`。エラーは `{ error, details? }` の JSON で返す。
+ - 定期実行のジョブ: `POST /api/jobs/overdue-loans` など（`docs/operations.md`）。
+ 
+ ## コーディング規約
+diff --git a/src/app/api/instruments/[id]/calibration-orders/route.ts b/src/app/api/instruments/[id]/calibration-orders/route.ts
+index 6055a77..c37ba7e 100644
+--- a/src/app/api/instruments/[id]/calibration-orders/route.ts
++++ b/src/app/api/instruments/[id]/calibration-orders/route.ts
+@@ -36,6 +36,6 @@ export async function POST(request: Request, { params }: Context) {
+   await notifyCancelledReservations(notifyClientFromEnv(), instrument, result.cancelledReservations);
+   const agency = agencyClientFromEnv();
+   if (!agency) logger.error("calibration_order.misconfigured", { orderId: result.order.id, missing: "AGENCY_API_URL / AGENCY_API_KEY" });
+-  const order = agency ? await sendOrder(agency, result.order.id) : result.order;
++  const order = agency ? await sendOrder(agency, result.order.id, undefined, undefined, user.id) : result.order;
+   return NextResponse.json({ order, cancelledReservations: result.cancelledReservations.length }, { status: 201 });
+ }
+diff --git a/src/app/api/instruments/[id]/history/route.ts b/src/app/api/instruments/[id]/history/route.ts
+new file mode 100644
+index 0000000..397d4ab
+--- /dev/null
++++ b/src/app/api/instruments/[id]/history/route.ts
+@@ -0,0 +1,15 @@
++// GET /api/instruments/:id/history — 計測器の変更履歴（新しい順）。履歴は追記だけで、変更・削除の API は無い。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { listHistory } from "@/lib/history";
++import { getInstrument, parseId } from "@/lib/instruments";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ history: listHistory(id) });
++}
+diff --git a/src/app/api/instruments/[id]/loans/[loanId]/return/route.ts b/src/app/api/instruments/[id]/loans/[loanId]/return/route.ts
+index 093fd0e..6e2b927 100644
+--- a/src/app/api/instruments/[id]/loans/[loanId]/return/route.ts
++++ b/src/app/api/instruments/[id]/loans/[loanId]/return/route.ts
+@@ -12,6 +12,6 @@ export async function POST(_request: Request, { params }: Context) {
+   const p = await params;
+   const id = parseId(p.id);
+   const loanId = parseId(p.loanId);
+-  const loan = id === undefined || loanId === undefined ? undefined : returnLoan(id, loanId);
++  const loan = id === undefined || loanId === undefined ? undefined : returnLoan(id, loanId, undefined, undefined, user.id);
+   return loan ? NextResponse.json({ loan }) : jsonError(404, "返却されていない貸出が見つかりません");
+ }
+diff --git a/src/app/api/instruments/[id]/loans/route.ts b/src/app/api/instruments/[id]/loans/route.ts
+index 325a086..58c4d9c 100644
+--- a/src/app/api/instruments/[id]/loans/route.ts
++++ b/src/app/api/instruments/[id]/loans/route.ts
+@@ -21,7 +21,7 @@ export async function POST(request: Request, { params }: Context) {
+   if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
+   const input = validateLoanInput(await readJson(request));
+   if (!input.ok) return jsonError(400, "入力内容に誤りがあります", input.errors);
+-  const result = lendInstrument(id, input.value);
++  const result = lendInstrument(id, input.value, undefined, undefined, user.id);
+   if (!result.ok) {
+     if (result.reason === "not_found") return jsonError(404, "計測器が見つかりません");
+     if (result.reason === "reserved") return jsonError(409, "返却予定日までの期間に、ほかの人の予約があります");
+diff --git a/src/app/api/instruments/[id]/route.ts b/src/app/api/instruments/[id]/route.ts
+index c31881b..6282cdd 100644
+--- a/src/app/api/instruments/[id]/route.ts
++++ b/src/app/api/instruments/[id]/route.ts
+@@ -30,5 +30,5 @@ export async function PATCH(request: Request, { params }: Context) {
+   if (changes.managementNo !== undefined && changes.managementNo !== current.managementNo && managementNoExists(changes.managementNo)) {
+     return jsonError(409, "その管理番号はすでに登録されています");
+   }
+-  return NextResponse.json({ instrument: updateInstrument(current.id, changes) });
++  return NextResponse.json({ instrument: updateInstrument(current.id, changes, undefined, user.id) });
+ }
+diff --git a/src/app/api/instruments/route.ts b/src/app/api/instruments/route.ts
+index 2cc4d3e..bb65e54 100644
+--- a/src/app/api/instruments/route.ts
++++ b/src/app/api/instruments/route.ts
+@@ -37,5 +37,5 @@ export async function POST(request: Request) {
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+   const input = result.value as InstrumentInput;
+   if (managementNoExists(input.managementNo)) return jsonError(409, "その管理番号はすでに登録されています");
+-  return NextResponse.json({ instrument: createInstrument(input) }, { status: 201 });
++  return NextResponse.json({ instrument: createInstrument(input, undefined, user.id) }, { status: 201 });
+ }
+diff --git a/src/app/instruments/[id]/page.tsx b/src/app/instruments/[id]/page.tsx
+index 73fb552..e84029a 100644
+--- a/src/app/instruments/[id]/page.tsx
++++ b/src/app/instruments/[id]/page.tsx
+@@ -3,6 +3,7 @@ import { RESULT_LABELS, listCalibrations } from "@/lib/calibrations";
+ import { calibrationDueOn } from "@/lib/calibration-due";
+ import { ORDER_STATUS_LABELS, listOrders } from "@/lib/calibration-orders";
+ import { IMPORTANCE_LABELS, STATUS_LABELS, getInstrument, parseId } from "@/lib/instruments";
++import { FIELD_LABELS, listHistory } from "@/lib/history";
+ import { listLoans } from "@/lib/loans";
+ import { RESERVATION_STATUS_LABELS, listReservations } from "@/lib/reservations";
+ import { todayJst } from "@/lib/dates";
+@@ -22,6 +23,8 @@ export default async function InstrumentDetailPage({ params }: Props) {
+   const loans = listLoans(instrument.id);
+   const calibrations = listCalibrations(instrument.id);
+   const orders = listOrders(instrument.id);
++  const history = listHistory(instrument.id);
++  const show = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v));
+   const today = todayJst();
+   const reservations = listReservations(instrument.id).filter((r) => r.status !== "cancelled" && r.endOn >= today);
+   const nameOf = (userId: string) => getUser(userId)?.name ?? userId;
+@@ -166,6 +169,37 @@ export default async function InstrumentDetailPage({ params }: Props) {
+           </tbody>
+         </table>
+       )}
++      <h2>変更履歴</h2>
++      {history.length === 0 ? (
++        <p>変更履歴はありません。</p>
++      ) : (
++        <table data-testid="history">
++          <thead>
++            <tr>
++              <th>日時</th>
++              <th>変更した人</th>
++              <th>内容</th>
++              <th>変更前 → 変更後</th>
++            </tr>
++          </thead>
++          <tbody>
++            {history.map((h) => (
++              <tr key={h.id}>
++                <td>{h.at}</td>
++                <td>{h.actorId ? nameOf(h.actorId) : "システム"}</td>
++                <td>{h.summary}</td>
++                <td>
++                  {h.changes.map((c) => (
++                    <div key={c.field}>
++                      {FIELD_LABELS[c.field] ?? c.field}: {show(c.from)} → {show(c.to)}
++                    </div>
++                  ))}
++                </td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++      )}
+     </main>
+   );
+ }
+diff --git a/src/lib/calibration-orders.ts b/src/lib/calibration-orders.ts
+index 00f5d10..4401bb2 100644
+--- a/src/lib/calibration-orders.ts
++++ b/src/lib/calibration-orders.ts
+@@ -7,6 +7,7 @@
+ import { randomUUID } from "node:crypto";
+ import type { AgencyClient } from "./agency-client.ts";
+ import { getDb, transaction, type Db } from "./db/index.ts";
++import { recordHistory } from "./history.ts";
+ import { getInstrument, type Instrument, type ValidationResult } from "./instruments.ts";
+ import { logger } from "./logger.ts";
+ import type { NotifyClient } from "./notify-client.ts";
+@@ -126,8 +127,23 @@ export function createOrder(
+       )
+       .run(instrumentId, `calib-order-${randomUUID()}`, requestedBy, now.toISOString(), input.note);
+     db.prepare("UPDATE instruments SET status = 'calibrating' WHERE id = ?").run(instrumentId);
++    const order = getOrder(Number(lastInsertRowid), db)!;
++    recordHistory(
++      db,
++      {
++        instrumentId,
++        actorId: requestedBy,
++        action: "order.requested",
++        summary: "校正機関に発注（未送信）",
++        changes: [
++          { field: "status", from: instrument.status, to: "calibrating" },
++          { field: "order", from: null, to: { id: order.id, status: "pending" } },
++        ],
++      },
++      now,
++    );
+     const cancelledReservations = cancelUpcomingReservations(instrumentId, requestedBy, db, now);
+-    return { ok: true, order: getOrder(Number(lastInsertRowid), db)!, cancelledReservations } as const;
++    return { ok: true, order, cancelledReservations } as const;
+   });
+ }
+ 
+@@ -141,7 +157,13 @@ function claim(db: Db, id: number, now: Date): boolean {
+ }
+ 
+ /** 未送信の発注を受付システムに送る。送れたら受付済みにする。送れなければ未送信のまま残す（400 などは failed）。 */
+-export async function sendOrder(client: AgencyClient, orderId: number, db: Db = getDb(), now: Date = new Date()): Promise<CalibrationOrder | undefined> {
++export async function sendOrder(
++  client: AgencyClient,
++  orderId: number,
++  db: Db = getDb(),
++  now: Date = new Date(),
++  actorId: string | null = null, // 発注の操作の続きで送るときは発注した人、ジョブの送り直しは null（システム）
++): Promise<CalibrationOrder | undefined> {
+   if (!claim(db, orderId, now)) return getOrder(orderId, db);
+   const order = getOrder(orderId, db)!;
+   const instrument = getInstrument(order.instrumentId, db)!;
+@@ -153,15 +175,39 @@ export async function sendOrder(client: AgencyClient, orderId: number, db: Db =
+   });
+   const fields = { orderId, instrumentId: instrument.id, managementNo: instrument.managementNo, attempts: result.attempts };
+   if (result.ok) {
+-    db.prepare(
+-      `UPDATE calibration_orders SET status = 'accepted', agency_order_id = ?, estimated_return_on = ?, attempts = attempts + ?,
+-         accepted_at = ?, last_error = NULL, claimed_at = NULL WHERE id = ? AND status = 'pending'`,
+-    ).run(result.orderId, result.estimatedReturnOn, result.attempts, new Date().toISOString(), orderId);
++    transaction(db, () => {
++      const { changes } = db
++        .prepare(
++          `UPDATE calibration_orders SET status = 'accepted', agency_order_id = ?, estimated_return_on = ?, attempts = attempts + ?,
++             accepted_at = ?, last_error = NULL, claimed_at = NULL WHERE id = ? AND status = 'pending'`,
++        )
++        .run(result.orderId, result.estimatedReturnOn, result.attempts, new Date().toISOString(), orderId);
++      if (changes > 0) {
++        recordHistory(db, {
++          instrumentId: instrument.id,
++          actorId,
++          action: "order.accepted",
++          summary: `校正機関が受付（受付番号 ${result.orderId}・返却予定日 ${result.estimatedReturnOn ?? "未定"}）`,
++          changes: [{ field: "order", from: { id: orderId, status: "pending" }, to: { id: orderId, status: "accepted", agencyOrderId: result.orderId, estimatedReturnOn: result.estimatedReturnOn } }],
++        }, now);
++      }
++    });
+     logger.info("calibration_order.accepted", { ...fields, agencyOrderId: result.orderId, estimatedReturnOn: result.estimatedReturnOn });
+   } else {
+-    db.prepare(
+-      "UPDATE calibration_orders SET status = ?, attempts = attempts + ?, last_error = ?, claimed_at = NULL WHERE id = ? AND status = 'pending'",
+-    ).run(result.retryable ? "pending" : "failed", result.attempts, `${result.status ?? ""} ${result.error}`.trim(), orderId);
++    transaction(db, () => {
++      db.prepare(
++        "UPDATE calibration_orders SET status = ?, attempts = attempts + ?, last_error = ?, claimed_at = NULL WHERE id = ? AND status = 'pending'",
++      ).run(result.retryable ? "pending" : "failed", result.attempts, `${result.status ?? ""} ${result.error}`.trim(), orderId);
++      if (!result.retryable) {
++        recordHistory(db, {
++          instrumentId: instrument.id,
++          actorId,
++          action: "order.failed",
++          summary: `校正機関が発注を受け付けなかった（${result.status ?? ""}）`,
++          changes: [{ field: "order", from: { id: orderId, status: "pending" }, to: { id: orderId, status: "failed" } }],
++        }, now);
++      }
++    });
+     const log = result.retryable ? logger.warn : logger.error;
+     log("calibration_order.send_failed", { ...fields, status: result.status, retryable: result.retryable, error: result.error });
+   }
+@@ -185,11 +231,25 @@ export async function sendPendingOrders(client: AgencyClient, db: Db = getDb(),
+ }
+ 
+ /** 校正記録を登録したとき、その計測器の進行中の発注を完了にする。トランザクションの中で呼ぶ。 */
+-export function completeOpenOrders(instrumentId: number, db: Db, now: Date = new Date()): number {
+-  const { changes } = db
+-    .prepare("UPDATE calibration_orders SET status = 'completed', completed_at = ? WHERE instrument_id = ? AND status IN ('pending', 'accepted')")
+-    .run(now.toISOString(), instrumentId);
+-  return Number(changes);
++export function completeOpenOrders(instrumentId: number, db: Db, actorId: string | null, now: Date = new Date()): number {
++  const open = db
++    .prepare("SELECT id, status FROM calibration_orders WHERE instrument_id = ? AND status IN ('pending', 'accepted')")
++    .all(instrumentId) as { id: number; status: OrderStatus }[];
++  for (const o of open) {
++    db.prepare("UPDATE calibration_orders SET status = 'completed', completed_at = ? WHERE id = ?").run(now.toISOString(), o.id);
++    recordHistory(
++      db,
++      {
++        instrumentId,
++        actorId,
++        action: "order.completed",
++        summary: "校正の発注が完了（校正記録の登録）",
++        changes: [{ field: "order", from: { id: o.id, status: o.status }, to: { id: o.id, status: "completed" } }],
++      },
++      now,
++    );
++  }
++  return open.length;
+ }
+ 
+ /** 発注で取り消した予約を、予約した人に知らせる。通知サービスの失敗は記録だけして、発注は止めない。 */
+diff --git a/src/lib/calibrations.ts b/src/lib/calibrations.ts
+index 91520d8..551acfa 100644
+--- a/src/lib/calibrations.ts
++++ b/src/lib/calibrations.ts
+@@ -5,6 +5,7 @@
+ import { getDb, transaction, type Db } from "./db/index.ts";
+ import { isValidDate } from "./dates.ts";
+ import { getInstrument, type Instrument, type ValidationResult } from "./instruments.ts";
++import { diffFields, recordHistory } from "./history.ts";
+ import { logger } from "./logger.ts";
+ import { completeOpenOrders } from "./calibration-orders.ts";
+ import { cancelUpcomingReservations } from "./reservations.ts";
+@@ -110,13 +111,29 @@ export function recordCalibration(
+          WHERE id = ?`,
+       ).run(input.calibratedOn, instrumentId);
+     } else {
++      // 使用停止になった計測器の、これからの予約は取り消す（予約した人には管理者が連絡する。下で取り消す）
+       db.prepare("UPDATE instruments SET status = 'suspended' WHERE id = ?").run(instrumentId);
+-      // 使用停止になった計測器の、これからの予約は取り消す（予約した人には管理者が連絡する）
+-      cancelUpcomingReservations(instrumentId, recordedBy, db, now);
+     }
+-    completeOpenOrders(instrumentId, db, now);
++    const after = getInstrument(instrumentId, db)!;
++    recordHistory(
++      db,
++      {
++        instrumentId,
++        actorId: recordedBy,
++        action: "calibration.recorded",
++        summary: `校正記録（${input.calibratedOn}・${RESULT_LABELS[input.result]}・${input.agency}）`,
++        changes: [
++          { field: "calibration", from: null, to: { calibratedOn: input.calibratedOn, result: input.result, agency: input.agency } },
++          ...diffFields(instrument, after, ["lastCalibratedOn", "status"]),
++        ],
++      },
++      now,
++    );
++    // 使用停止で取り消した予約・完了にした発注も、それぞれ履歴に残る（reservations.ts・calibration-orders.ts）
++    if (input.result === "fail") cancelUpcomingReservations(instrumentId, recordedBy, db, now);
++    completeOpenOrders(instrumentId, db, recordedBy, now);
+     const record = toRecord(db.prepare(`SELECT ${COLUMNS} FROM calibration_records WHERE id = ?`).get(Number(lastInsertRowid)) as Row);
+-    return { record, instrument: getInstrument(instrumentId, db)! };
++    return { record, instrument: after };
+   });
+   if (result?.record.result === "fail") {
+     logger.warn("calibration.failed", {
+diff --git a/src/lib/db/index.ts b/src/lib/db/index.ts
+index 311eb81..9cbd697 100644
+--- a/src/lib/db/index.ts
++++ b/src/lib/db/index.ts
+@@ -72,8 +72,23 @@ export function openDb(path: string = ":memory:", options: { seed?: boolean } =
+   return db;
+ }
+ 
+-/** fn を 1 つのトランザクションで実行する。例外が出たらロールバックして投げ直す。 */
++/**
++ * fn を 1 つのトランザクションで実行する。例外が出たらロールバックして投げ直す。
++ * すでにトランザクションの中なら、その中で（セーブポイントを使って）実行する（台帳の処理が履歴の記録などを入れ子で呼ぶため）。
++ */
+ export function transaction<T>(db: Db, fn: () => T): T {
++  if (db.isTransaction) {
++    db.exec("SAVEPOINT nested");
++    try {
++      const result = fn();
++      db.exec("RELEASE nested");
++      return result;
++    } catch (e) {
++      db.exec("ROLLBACK TO nested");
++      db.exec("RELEASE nested");
++      throw e;
++    }
++  }
+   db.exec("BEGIN");
+   try {
+     const result = fn();
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index e3e91ef..7e29fdf 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -177,4 +177,25 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE UNIQUE INDEX calibration_orders_open ON calibration_orders(instrument_id) WHERE status IN ('pending', 'accepted');
+     `,
+   },
++  {
++    version: 9,
++    name: "instrument_history",
++    // 計測器の変更履歴（監査用）。追記だけで、更新・削除はトリガーで拒否する。actor_id が NULL ならシステム（定期ジョブなど）。
++    sql: `
++      CREATE TABLE instrument_history (
++        id            INTEGER PRIMARY KEY AUTOINCREMENT,
++        instrument_id INTEGER NOT NULL REFERENCES instruments(id),
++        at            TEXT NOT NULL, -- ISO 8601（UTC）
++        actor_id      TEXT REFERENCES users(id),
++        action        TEXT NOT NULL, -- instrument.updated など
++        summary       TEXT NOT NULL, -- 画面に出す短い説明
++        changes       TEXT NOT NULL DEFAULT '[]' -- JSON: [{ field, from, to }]
++      );
++      CREATE INDEX instrument_history_instrument ON instrument_history(instrument_id, at);
++      CREATE TRIGGER instrument_history_no_update BEFORE UPDATE ON instrument_history
++        BEGIN SELECT RAISE(ABORT, 'instrument_history is append-only'); END;
++      CREATE TRIGGER instrument_history_no_delete BEFORE DELETE ON instrument_history
++        BEGIN SELECT RAISE(ABORT, 'instrument_history is append-only'); END;
++    `,
++  },
+ ];
+diff --git a/src/lib/history.ts b/src/lib/history.ts
+new file mode 100644
+index 0000000..e453abc
+--- /dev/null
++++ b/src/lib/history.ts
+@@ -0,0 +1,70 @@
++// 計測器の変更履歴（監査用）。誰が（利用者 ID。定期ジョブなど人以外は null =「システム」）・いつ・何を（項目ごとの変更前・変更後）。
++// - 台帳を変える処理（instruments・loans・calibrations・reservations・calibration-orders）が、同じトランザクションの中で recordHistory を呼ぶ。
++//   失敗した操作はロールバックされるので履歴も残らない。
++// - 履歴は追記だけ。DB のトリガー（マイグレーション version 9）で更新・削除を拒否する。API にも更新・削除は無い。
++// - 設置場所は名前で残す（後で場所の名前を変えても、当時の名前のまま）。
++import { getDb, type Db } from "./db/index.ts";
++
++export type HistoryChange = { field: string; from: unknown; to: unknown };
++
++export type HistoryEntry = {
++  id: number;
++  instrumentId: number;
++  at: string; // ISO 8601（UTC）
++  actorId: string | null; // null = システム（定期ジョブなど）
++  action: string;
++  summary: string;
++  changes: HistoryChange[];
++};
++
++/** 履歴の項目名の表示名（画面用）。 */
++export const FIELD_LABELS: Record<string, string> = {
++  managementNo: "管理番号",
++  name: "名称",
++  model: "型式",
++  location: "設置場所",
++  managerId: "管理者",
++  intervalMonths: "校正周期（月）",
++  lastCalibratedOn: "前回校正日",
++  status: "状態",
++  importance: "重要度",
++  note: "備考",
++};
++
++export function recordHistory(
++  db: Db,
++  entry: { instrumentId: number; actorId: string | null; action: string; summary: string; changes?: HistoryChange[] },
++  now: Date = new Date(),
++): void {
++  db.prepare("INSERT INTO instrument_history (instrument_id, at, actor_id, action, summary, changes) VALUES (?, ?, ?, ?, ?, ?)").run(
++    entry.instrumentId,
++    now.toISOString(),
++    entry.actorId,
++    entry.action,
++    entry.summary,
++    JSON.stringify(entry.changes ?? []),
++  );
++}
++
++/** 2 つの値の組で、変わった項目だけを changes にする。 */
++export function diffFields<T extends Record<string, unknown>>(before: T, after: T, fields: readonly (keyof T & string)[]): HistoryChange[] {
++  return fields.filter((f) => before[f] !== after[f]).map((f) => ({ field: f, from: before[f], to: after[f] }));
++}
++
++type Row = { id: number; instrument_id: number; at: string; actor_id: string | null; action: string; summary: string; changes: string };
++
++/** 計測器の履歴を新しい順に返す。 */
++export function listHistory(instrumentId: number, db: Db = getDb()): HistoryEntry[] {
++  const rows = db
++    .prepare("SELECT id, instrument_id, at, actor_id, action, summary, changes FROM instrument_history WHERE instrument_id = ? ORDER BY at DESC, id DESC")
++    .all(instrumentId) as Row[];
++  return rows.map((r) => ({
++    id: r.id,
++    instrumentId: r.instrument_id,
++    at: r.at,
++    actorId: r.actor_id,
++    action: r.action,
++    summary: r.summary,
++    changes: JSON.parse(r.changes) as HistoryChange[],
++  }));
++}
+diff --git a/src/lib/instruments.ts b/src/lib/instruments.ts
+index 125f25b..8a0c37f 100644
+--- a/src/lib/instruments.ts
++++ b/src/lib/instruments.ts
+@@ -1,5 +1,6 @@
+ // 計測器の台帳。
+-import { getDb, type Db } from "./db/index.ts";
++import { getDb, transaction, type Db } from "./db/index.ts";
++import { diffFields, recordHistory } from "./history.ts";
+ import { isValidDate } from "./dates.ts";
+ import { findLocationByName, getLocation } from "./locations.ts";
+ 
+@@ -218,47 +219,80 @@ export function managementNoExists(managementNo: string, db: Db = getDb()): bool
+   return db.prepare("SELECT 1 FROM instruments WHERE management_no = ?").get(managementNo) !== undefined;
+ }
+ 
+-export function createInstrument(input: InstrumentInput, db: Db = getDb()): Instrument {
+-  const { lastInsertRowid } = db
+-    .prepare(
+-      `INSERT INTO instruments (management_no, name, model, location_id, manager_id, interval_months, last_calibrated_on, status, importance, note)
+-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+-    )
+-    .run(
+-      input.managementNo,
+-      input.name,
+-      input.model,
+-      input.locationId,
+-      input.managerId,
+-      input.intervalMonths,
+-      input.lastCalibratedOn,
+-      input.status,
+-      input.importance,
+-      input.note,
+-    );
+-  return getInstrument(Number(lastInsertRowid), db)!;
++/** 履歴に残す台帳の項目（設置場所は名前で残す） */
++const HISTORY_FIELDS = [
++  "managementNo",
++  "name",
++  "model",
++  "location",
++  "managerId",
++  "intervalMonths",
++  "lastCalibratedOn",
++  "status",
++  "importance",
++  "note",
++] as const;
++
++/** 計測器を登録する。actorId は登録した人（履歴に残す）。 */
++export function createInstrument(input: InstrumentInput, db: Db = getDb(), actorId: string | null = null, now: Date = new Date()): Instrument {
++  return transaction(db, () => {
++    const { lastInsertRowid } = db
++      .prepare(
++        `INSERT INTO instruments (management_no, name, model, location_id, manager_id, interval_months, last_calibrated_on, status, importance, note)
++         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++      )
++      .run(
++        input.managementNo,
++        input.name,
++        input.model,
++        input.locationId,
++        input.managerId,
++        input.intervalMonths,
++        input.lastCalibratedOn,
++        input.status,
++        input.importance,
++        input.note,
++      );
++    const created = getInstrument(Number(lastInsertRowid), db)!;
++    const changes = HISTORY_FIELDS.map((f) => ({ field: f, from: null, to: created[f] }));
++    recordHistory(db, { instrumentId: created.id, actorId, action: "instrument.created", summary: "台帳に登録", changes }, now);
++    return created;
++  });
+ }
+ 
+-/** 指定した項目だけを更新する。計測器が無ければ undefined。 */
+-export function updateInstrument(id: number, changes: Partial<InstrumentInput>, db: Db = getDb()): Instrument | undefined {
+-  const current = getInstrument(id, db);
+-  if (!current) return undefined;
+-  const next = { ...current, ...changes };
+-  db.prepare(
+-    `UPDATE instruments SET management_no = ?, name = ?, model = ?, location_id = ?, manager_id = ?, interval_months = ?,
+-       last_calibrated_on = ?, status = ?, importance = ?, note = ? WHERE id = ?`,
+-  ).run(
+-    next.managementNo,
+-    next.name,
+-    next.model,
+-    next.locationId,
+-    next.managerId,
+-    next.intervalMonths,
+-    next.lastCalibratedOn,
+-    next.status,
+-    next.importance,
+-    next.note,
+-    id,
+-  );
+-  return getInstrument(id, db);
++/** 指定した項目だけを更新する。計測器が無ければ undefined。変わった項目を履歴に残す（actorId は変更した人）。 */
++export function updateInstrument(
++  id: number,
++  changes: Partial<InstrumentInput>,
++  db: Db = getDb(),
++  actorId: string | null = null,
++  now: Date = new Date(),
++): Instrument | undefined {
++  return transaction(db, () => {
++    const current = getInstrument(id, db);
++    if (!current) return undefined;
++    const next = { ...current, ...changes };
++    db.prepare(
++      `UPDATE instruments SET management_no = ?, name = ?, model = ?, location_id = ?, manager_id = ?, interval_months = ?,
++         last_calibrated_on = ?, status = ?, importance = ?, note = ? WHERE id = ?`,
++    ).run(
++      next.managementNo,
++      next.name,
++      next.model,
++      next.locationId,
++      next.managerId,
++      next.intervalMonths,
++      next.lastCalibratedOn,
++      next.status,
++      next.importance,
++      next.note,
++      id,
++    );
++    const updated = getInstrument(id, db)!;
++    const diff = diffFields(current, updated, HISTORY_FIELDS);
++    if (diff.length > 0) {
++      recordHistory(db, { instrumentId: id, actorId, action: "instrument.updated", summary: "台帳を編集", changes: diff }, now);
++    }
++    return updated;
++  });
+ }
+diff --git a/src/lib/loans.ts b/src/lib/loans.ts
+index aa8fec5..0b8d560 100644
+--- a/src/lib/loans.ts
++++ b/src/lib/loans.ts
+@@ -1,6 +1,7 @@
+ // 計測器の貸出と返却。貸し出すと計測器の状態は「貸出中」、返却すると「使用中」に戻る。
+ import { getDb, transaction, type Db } from "./db/index.ts";
+ import { isValidDate, todayJst } from "./dates.ts";
++import { recordHistory } from "./history.ts";
+ import { getInstrument } from "./instruments.ts";
+ import { isActiveUser } from "./users.ts";
+ import type { ValidationResult } from "./instruments.ts";
+@@ -71,7 +72,13 @@ export function validateLoanInput(body: unknown, db: Db = getDb()): ValidationRe
+ export type LendResult = { ok: true; loan: Loan } | { ok: false; reason: "not_found" | "not_available" | "reserved" };
+ 
+ /** 使用中の計測器を貸し出す。使用中でなければ貸し出せない。今日〜返却予定日に他人の予約があれば貸し出さない。 */
+-export function lendInstrument(instrumentId: number, input: LoanInput, db: Db = getDb(), now: Date = new Date()): LendResult {
++export function lendInstrument(
++  instrumentId: number,
++  input: LoanInput,
++  db: Db = getDb(),
++  now: Date = new Date(),
++  actorId: string | null = null,
++): LendResult {
+   return transaction(db, () => {
+     const instrument = getInstrument(instrumentId, db);
+     if (!instrument) return { ok: false, reason: "not_found" } as const;
+@@ -84,19 +91,55 @@ export function lendInstrument(instrumentId: number, input: LoanInput, db: Db =
+       .run(instrumentId, input.borrowerId, now.toISOString(), input.dueOn);
+     db.prepare("UPDATE instruments SET status = 'on_loan' WHERE id = ?").run(instrumentId);
+     const loan = db.prepare(`SELECT ${COLUMNS} FROM loans WHERE id = ?`).get(Number(lastInsertRowid)) as LoanRow;
++    recordHistory(
++      db,
++      {
++        instrumentId,
++        actorId,
++        action: "loan.lent",
++        summary: `${input.borrowerId} に貸出（返却予定日 ${input.dueOn}）`,
++        changes: [
++          { field: "status", from: instrument.status, to: "on_loan" },
++          { field: "borrowerId", from: null, to: input.borrowerId },
++          { field: "dueOn", from: null, to: input.dueOn },
++        ],
++      },
++      now,
++    );
+     return { ok: true, loan: toLoan(loan) } as const;
+   });
+ }
+ 
+ /** 貸出を返却済みにし、計測器を使用中に戻す。対象の貸出が無い・返却済みなら undefined。 */
+-export function returnLoan(instrumentId: number, loanId: number, db: Db = getDb(), now: Date = new Date()): Loan | undefined {
++export function returnLoan(
++  instrumentId: number,
++  loanId: number,
++  db: Db = getDb(),
++  now: Date = new Date(),
++  actorId: string | null = null,
++): Loan | undefined {
+   return transaction(db, () => {
+     const { changes } = db
+       .prepare("UPDATE loans SET returned_at = ? WHERE id = ? AND instrument_id = ? AND returned_at IS NULL")
+       .run(now.toISOString(), loanId, instrumentId);
+     if (changes === 0) return undefined;
+-    db.prepare("UPDATE instruments SET status = 'in_use' WHERE id = ? AND status = 'on_loan'").run(instrumentId);
+-    return toLoan(db.prepare(`SELECT ${COLUMNS} FROM loans WHERE id = ?`).get(loanId) as LoanRow);
++    const back = db.prepare("UPDATE instruments SET status = 'in_use' WHERE id = ? AND status = 'on_loan'").run(instrumentId);
++    const loan = toLoan(db.prepare(`SELECT ${COLUMNS} FROM loans WHERE id = ?`).get(loanId) as LoanRow);
++    recordHistory(
++      db,
++      {
++        instrumentId,
++        actorId,
++        action: "loan.returned",
++        summary: `${loan.borrowerId} から返却`,
++        changes: [
++          ...(back.changes > 0 ? [{ field: "status", from: "on_loan", to: "in_use" }] : []),
++          { field: "borrowerId", from: loan.borrowerId, to: null },
++        ],
++      },
++      now,
++    );
++    return loan;
+   });
+ }
+ 
+diff --git a/src/lib/reservations.ts b/src/lib/reservations.ts
+index f4ddc56..27adf98 100644
+--- a/src/lib/reservations.ts
++++ b/src/lib/reservations.ts
+@@ -6,6 +6,7 @@
+ import { calibrationDueOn } from "./calibration-due.ts";
+ import { getDb, transaction, type Db } from "./db/index.ts";
+ import { isValidDate, todayJst } from "./dates.ts";
++import { recordHistory } from "./history.ts";
+ import { getInstrument, type ValidationResult } from "./instruments.ts";
+ import { currentLoan } from "./loans.ts";
+ 
+@@ -56,6 +57,20 @@ function toReservation(r: Row): Reservation {
+   };
+ }
+ 
++function reservationHistory(r: Reservation, actorId: string | null, action: string, label: string) {
++  const cancelled = action === "reservation.cancelled";
++  return {
++    instrumentId: r.instrumentId,
++    actorId,
++    action,
++    summary: `${label}（${r.userId}・${r.startOn}〜${r.endOn}）`,
++    changes: [
++      { field: "reservation", from: cancelled ? { id: r.id, userId: r.userId, startOn: r.startOn, endOn: r.endOn } : null,
++        to: cancelled ? null : { id: r.id, userId: r.userId, startOn: r.startOn, endOn: r.endOn } },
++    ],
++  };
++}
++
+ /** 計測器の予約（取消を含む）を開始日の順に返す。 */
+ export function listReservations(instrumentId: number, db: Db = getDb()): Reservation[] {
+   const rows = db
+@@ -137,6 +152,7 @@ export function createReservation(
+       .prepare("INSERT INTO reservations (instrument_id, user_id, start_on, end_on, created_at) VALUES (?, ?, ?, ?, ?)")
+       .run(instrumentId, userId, input.startOn, input.endOn, now.toISOString());
+     const row = db.prepare(`SELECT ${COLUMNS} FROM reservations WHERE id = ?`).get(Number(lastInsertRowid)) as Row;
++    recordHistory(db, reservationHistory(toReservation(row), userId, "reservation.created", "予約"), now);
+     return { ok: true, reservation: toReservation(row) } as const;
+   });
+ }
+@@ -162,6 +178,7 @@ export function cancelReservation(
+       userId,
+       id,
+     );
++    recordHistory(db, reservationHistory(r, userId, "reservation.cancelled", "予約の取消"), now);
+     return { ok: true, reservation: getReservation(instrumentId, id, db)! } as const;
+   });
+ }
+@@ -175,6 +192,9 @@ export function cancelUpcomingReservations(instrumentId: number, cancelledBy: st
+     .prepare(`SELECT ${COLUMNS} FROM reservations WHERE instrument_id = ? AND status = 'active' AND end_on >= ? ORDER BY start_on, id`)
+     .all(instrumentId, todayJst(now)) as Row[];
+   const cancel = db.prepare("UPDATE reservations SET status = 'cancelled', cancelled_at = ?, cancelled_by = ? WHERE id = ?");
+-  for (const r of rows) cancel.run(now.toISOString(), cancelledBy, r.id);
++  for (const r of rows) {
++    cancel.run(now.toISOString(), cancelledBy, r.id);
++    recordHistory(db, reservationHistory(toReservation(r), cancelledBy, "reservation.cancelled", "予約の取消（計測器を使えなくなったため）"), now);
++  }
+   return rows.map((r) => ({ ...toReservation(r), status: "cancelled", cancelledAt: now.toISOString(), cancelledBy }));
+ }
+diff --git a/tests/history.test.ts b/tests/history.test.ts
+new file mode 100644
+index 0000000..7f4696e
+--- /dev/null
++++ b/tests/history.test.ts
+@@ -0,0 +1,96 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import type { AgencyClient } from "../src/lib/agency-client.ts";
++import { recordCalibration } from "../src/lib/calibrations.ts";
++import { createOrder, sendOrder } from "../src/lib/calibration-orders.ts";
++import { openDb } from "../src/lib/db/index.ts";
++import { listHistory } from "../src/lib/history.ts";
++import { createInstrument, listInstruments, updateInstrument } from "../src/lib/instruments.ts";
++import { lendInstrument, returnLoan } from "../src/lib/loans.ts";
++import { createLocation, renameLocation } from "../src/lib/locations.ts";
++import { cancelReservation, createReservation } from "../src/lib/reservations.ts";
++
++const NOW = new Date("2026-11-10T01:00:00Z");
++const byNo = (db: ReturnType<typeof openDb>, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!;
++
++describe("instrument history", () => {
++  it("records who changed which field from what to what, newest first", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001");
++    updateInstrument(inst.id, { name: "DMM 新", importance: "A" }, db, "sato", new Date("2026-11-10T01:00:00Z"));
++    updateInstrument(inst.id, { note: "棚 3" }, db, "kimura", new Date("2026-11-10T02:00:00Z"));
++    const h = listHistory(inst.id, db);
++    assert.equal(h.length, 2);
++    assert.equal(h[0].actorId, "kimura");
++    assert.deepEqual(h[1].changes, [
++      { field: "name", from: "デジタルマルチメータ", to: "DMM 新" },
++      { field: "importance", from: "B", to: "A" },
++    ]);
++  });
++
++  it("does not record an update that changes nothing", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001");
++    updateInstrument(inst.id, { name: inst.name }, db, "sato");
++    assert.equal(listHistory(inst.id, db).length, 0);
++  });
++
++  it("keeps the location name at the time of the change", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001");
++    const loc = createLocation("第 2 測定室", db);
++    assert.ok(loc.ok);
++    updateInstrument(inst.id, { locationId: loc.location.id }, db, "sato");
++    renameLocation(loc.location.id, "第 3 測定室", db);
++    assert.deepEqual(listHistory(inst.id, db)[0].changes, [{ field: "location", from: "品質保証部 測定室", to: "第 2 測定室" }]);
++  });
++
++  it("records registration, loans, returns, calibrations, reservations and orders", async () => {
++    const db = openDb();
++    const inst = createInstrument(
++      { managementNo: "HS-0001", name: "x", model: "", locationId: null, note: "", managerId: "sato", intervalMonths: 12, lastCalibratedOn: "2026-01-01", status: "in_use", importance: "B" },
++      db,
++      "sato",
++      NOW,
++    );
++    const loan = lendInstrument(inst.id, { borrowerId: "suzuki", dueOn: "2026-11-12" }, db, NOW, "kimura");
++    assert.ok(loan.ok);
++    returnLoan(inst.id, loan.loan.id, db, NOW, "kimura");
++    const r = createReservation(inst.id, "tanaka", { startOn: "2026-11-20", endOn: "2026-11-21" }, db, NOW);
++    assert.ok(r.ok);
++    cancelReservation(inst.id, r.reservation.id, "tanaka", db, NOW);
++    createReservation(inst.id, "tanaka", { startOn: "2026-11-22", endOn: "2026-11-23" }, db, NOW);
++    const o = createOrder(inst.id, "sato", { note: "" }, db, NOW);
++    assert.ok(o.ok);
++    const client: AgencyClient = { order: async () => ({ ok: true, orderId: "AG-1", estimatedReturnOn: "2026-11-24", attempts: 1 }) };
++    await sendOrder(client, o.order.id, db, NOW);
++    recordCalibration(inst.id, { calibratedOn: "2026-11-20", result: "fail", agency: "東日本計測サービス", certificateNo: "" }, "kato", db, NOW);
++    const actions = listHistory(inst.id, db).map((h) => `${h.action}:${h.actorId ?? "system"}`).reverse();
++    assert.deepEqual(actions, [
++      "instrument.created:sato",
++      "loan.lent:kimura",
++      "loan.returned:kimura",
++      "reservation.created:tanaka",
++      "reservation.cancelled:tanaka",
++      "reservation.created:tanaka",
++      "order.requested:sato",
++      "reservation.cancelled:sato",
++      "order.accepted:system",
++      "calibration.recorded:kato",
++      "order.completed:kato",
++    ]);
++    const cal = listHistory(inst.id, db).find((h) => h.action === "calibration.recorded")!;
++    assert.ok(cal.changes.some((c) => c.field === "status" && c.from === "calibrating" && c.to === "suspended"));
++  });
++
++  it("does not record failed operations and refuses to change or delete history", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0002"); // 貸出中
++    assert.equal(lendInstrument(inst.id, { borrowerId: "suzuki", dueOn: "2026-11-30" }, db, NOW, "sato").ok, false);
++    assert.equal(listHistory(inst.id, db).length, 0);
++    updateInstrument(inst.id, { note: "x" }, db, "sato");
++    assert.throws(() => db.prepare("UPDATE instrument_history SET actor_id = 'kato'").run());
++    assert.throws(() => db.prepare("DELETE FROM instrument_history").run());
++    assert.equal(listHistory(inst.id, db).length, 1);
++  });
++});

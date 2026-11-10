@@ -1,0 +1,79 @@
+diff --git a/src/app/api/locations/[id]/route.ts b/src/app/api/locations/[id]/route.ts
+new file mode 100644
+index 0000000..1e2afb2
+--- /dev/null
++++ b/src/app/api/locations/[id]/route.ts
+@@ -0,0 +1,18 @@
++import { NextResponse } from "next/server";
++import { readJson, requireApiUser } from "@/lib/api";
++import { getDb } from "@/lib/db";
++
++export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const b = (await readJson(request)) as { name: string };
++  getDb().prepare("UPDATE locations SET name = ? WHERE id = ?").run(b.name, Number((await params).id));
++  return NextResponse.json({ ok: true });
++}
++
++export async function DELETE(_r: Request, { params }: { params: Promise<{ id: string }> }) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  getDb().prepare("DELETE FROM locations WHERE id = ?").run(Number((await params).id));
++  return NextResponse.json({ ok: true });
++}
+diff --git a/src/app/api/locations/route.ts b/src/app/api/locations/route.ts
+new file mode 100644
+index 0000000..1e07a7a
+--- /dev/null
++++ b/src/app/api/locations/route.ts
+@@ -0,0 +1,17 @@
++import { NextResponse } from "next/server";
++import { readJson, requireApiUser } from "@/lib/api";
++import { getDb } from "@/lib/db";
++
++export async function GET() {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  return NextResponse.json({ locations: getDb().prepare("SELECT id, name FROM locations").all() });
++}
++
++export async function POST(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const b = (await readJson(request)) as { name: string };
++  const r = getDb().prepare("INSERT INTO locations (name) VALUES (?)").run(b.name);
++  return NextResponse.json({ location: { id: Number(r.lastInsertRowid), name: b.name } }, { status: 201 });
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 1465bd5..0344936 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -100,4 +100,12 @@ export const MIGRATIONS: readonly Migration[] = [
+       );
+     `,
+   },
++  {
++    version: 6,
++    name: "locations",
++    sql: `
++      CREATE TABLE locations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);
++      INSERT INTO locations (name) SELECT DISTINCT location FROM instruments WHERE location <> '';
++    `,
++  },
+ ];
+diff --git a/src/lib/instruments.ts b/src/lib/instruments.ts
+index c6d7800..4c405e5 100644
+--- a/src/lib/instruments.ts
++++ b/src/lib/instruments.ts
+@@ -134,6 +134,10 @@ export function validateInstrumentInput(
+     if (v === undefined) errors.push("名称は 1〜100 文字で入力してください");
+     else value.name = v;
+   }
++  const hasLocations = db.prepare("SELECT 1 FROM locations LIMIT 1").get() !== undefined;
++  if (hasLocations && typeof b.location === "string" && b.location !== "" && !db.prepare("SELECT 1 FROM locations WHERE name = ?").get(b.location)) {
++    errors.push("設置場所が一覧にありません");
++  }
+   for (const [key, label] of [["model", "型式"], ["location", "設置場所"]] as const) {
+     if (key in b || !options.partial) {
+       const v = key in b ? text(b, key, 100, false) : "";

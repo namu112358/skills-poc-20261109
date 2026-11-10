@@ -1,0 +1,744 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 7dd10a4..e5517d3 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -26,7 +26,7 @@ Next.js（App Router）+ TypeScript + SQLite（Node 標準の `node:sqlite`）
+ 
+ - 初期ユーザーは `src/lib/db/seed.ts`（パスワードは共通で `password`。PoC の検証用）。`/login` からログインする。
+ - セッションは DB の `sessions` テーブルと Cookie `poc_session`（`src/lib/auth.ts`）。ページでは `requireUser()`、API Route では `requireApiUser()`（`src/lib/session.ts`・`src/lib/api.ts`）でログインを確認する。
+-- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/instruments`、`GET/PATCH /api/instruments/:id`、`GET/POST /api/instruments/:id/loans`、`POST /api/instruments/:id/loans/:loanId/return`、`GET/POST /api/instruments/:id/calibrations`。エラーは `{ error, details? }` の JSON で返す。
++- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/instruments`、`GET/PATCH /api/instruments/:id`、`GET/POST /api/instruments/:id/loans`、`POST /api/instruments/:id/loans/:loanId/return`、`GET/POST /api/instruments/:id/calibrations`、`GET/POST /api/locations`、`PATCH/DELETE /api/locations/:id`。エラーは `{ error, details? }` の JSON で返す。
+ - 定期実行のジョブ: `POST /api/jobs/overdue-loans` など（`docs/operations.md`）。
+ 
+ ## コーディング規約
+diff --git a/src/app/api/instruments/route.ts b/src/app/api/instruments/route.ts
+index 7a2ab13..2cc4d3e 100644
+--- a/src/app/api/instruments/route.ts
++++ b/src/app/api/instruments/route.ts
+@@ -7,6 +7,7 @@ import {
+   isInstrumentStatus,
+   listInstruments,
+   managementNoExists,
++  parseId,
+   validateInstrumentInput,
+   type InstrumentInput,
+ } from "@/lib/instruments";
+@@ -17,11 +18,13 @@ export async function GET(request: Request) {
+   const params = new URL(request.url).searchParams;
+   const status = params.get("status");
+   const manager = params.get("manager");
++  const location = parseId(params.get("locationId") ?? undefined);
+   const importance = params.get("importance");
+   return NextResponse.json({
+     instruments: listInstruments({
+       status: isInstrumentStatus(status) ? status : undefined,
+       managerId: manager || undefined,
++      locationId: location,
+       importance: isImportance(importance) ? importance : undefined,
+     }),
+   });
+diff --git a/src/app/api/locations/[id]/route.ts b/src/app/api/locations/[id]/route.ts
+new file mode 100644
+index 0000000..260d7e7
+--- /dev/null
++++ b/src/app/api/locations/[id]/route.ts
+@@ -0,0 +1,33 @@
++// PATCH /api/locations/:id — 場所の名前を変える（本文 { name }） / DELETE — 計測器が置かれていない場所を削除する。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { parseId } from "@/lib/instruments";
++import { deleteLocation, renameLocation, validateLocationName, type LocationResult } from "@/lib/locations";
++
++type Context = { params: Promise<{ id: string }> };
++
++function failure(result: Exclude<LocationResult, { ok: true }>) {
++  if (result.reason === "not_found") return jsonError(404, "場所が見つかりません");
++  if (result.reason === "duplicate") return jsonError(409, "同じ名前の場所がすでにあります");
++  return jsonError(409, "計測器が置かれている場所は削除できません");
++}
++
++export async function PATCH(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined) return jsonError(404, "場所が見つかりません");
++  const name = validateLocationName(await readJson(request));
++  if (!name.ok) return jsonError(400, "入力内容に誤りがあります", name.errors);
++  const result = renameLocation(id, name.value);
++  return result.ok ? NextResponse.json({ location: result.location }) : failure(result);
++}
++
++export async function DELETE(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined) return jsonError(404, "場所が見つかりません");
++  const result = deleteLocation(id);
++  return result.ok ? NextResponse.json({ location: result.location }) : failure(result);
++}
+diff --git a/src/app/api/locations/route.ts b/src/app/api/locations/route.ts
+new file mode 100644
+index 0000000..4a73cd0
+--- /dev/null
++++ b/src/app/api/locations/route.ts
+@@ -0,0 +1,20 @@
++// GET /api/locations — 設置場所の一覧（置かれている計測器の数つき） / POST /api/locations — 場所を追加する（本文 { name }）。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { createLocation, listLocations, validateLocationName } from "@/lib/locations";
++
++export async function GET() {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  return NextResponse.json({ locations: listLocations() });
++}
++
++export async function POST(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const name = validateLocationName(await readJson(request));
++  if (!name.ok) return jsonError(400, "入力内容に誤りがあります", name.errors);
++  const result = createLocation(name.value);
++  if (!result.ok) return jsonError(409, "同じ名前の場所がすでにあります");
++  return NextResponse.json({ location: result.location }, { status: 201 });
++}
+diff --git a/src/app/instruments/page.tsx b/src/app/instruments/page.tsx
+index f7c23a1..40a75d7 100644
+--- a/src/app/instruments/page.tsx
++++ b/src/app/instruments/page.tsx
+@@ -7,11 +7,13 @@ import {
+   isImportance,
+   isInstrumentStatus,
+   listInstruments,
++  parseId,
+ } from "@/lib/instruments";
++import { listLocations } from "@/lib/locations";
+ import { listUsers } from "@/lib/users";
+ 
+ type Props = {
+-  searchParams: Promise<{ status?: string; importance?: string }>;
++  searchParams: Promise<{ status?: string; importance?: string; location?: string }>;
+ };
+ 
+ export default async function InstrumentsPage({ searchParams }: Props) {
+@@ -19,12 +21,17 @@ export default async function InstrumentsPage({ searchParams }: Props) {
+   const params = await searchParams;
+   const status = isInstrumentStatus(params.status) ? params.status : undefined;
+   const importance = isImportance(params.importance) ? params.importance : undefined;
+-  const instruments = listInstruments({ status, importance });
++  const locations = listLocations();
++  const locationId = parseId(params.location);
++  const instruments = listInstruments({ status, importance, locationId });
+   const names = new Map(listUsers().map((u) => [u.id, u.name]));
+ 
+   return (
+     <main>
+       <h1>計測器一覧</h1>
++      <p>
++        <a href="/locations">設置場所の一覧</a>
++      </p>
+       <form method="get" aria-label="絞り込み">
+         <label>
+           状態{" "}
+@@ -48,6 +55,17 @@ export default async function InstrumentsPage({ searchParams }: Props) {
+             ))}
+           </select>
+         </label>{" "}
++        <label>
++          設置場所{" "}
++          <select name="location" defaultValue={locationId ?? ""}>
++            <option value="">すべて</option>
++            {locations.map((l) => (
++              <option key={l.id} value={l.id}>
++                {l.name}
++              </option>
++            ))}
++          </select>
++        </label>{" "}
+         <button type="submit">絞り込む</button>
+       </form>
+       <table>
+diff --git a/src/app/locations/page.tsx b/src/app/locations/page.tsx
+new file mode 100644
+index 0000000..d6e8a9e
+--- /dev/null
++++ b/src/app/locations/page.tsx
+@@ -0,0 +1,34 @@
++import { requireUser } from "@/lib/session";
++import { listLocations } from "@/lib/locations";
++
++export default async function LocationsPage() {
++  await requireUser();
++  const locations = listLocations();
++  return (
++    <main>
++      <p>
++        <a href="/instruments">← 計測器一覧へ戻る</a>
++      </p>
++      <h1>設置場所の一覧</h1>
++      <table>
++        <thead>
++          <tr>
++            <th>場所</th>
++            <th>置かれている計測器</th>
++          </tr>
++        </thead>
++        <tbody>
++          {locations.map((l) => (
++            <tr key={l.id} data-testid="location-row">
++              <td>
++                <a href={`/instruments?location=${l.id}`}>{l.name}</a>
++              </td>
++              <td>{l.instrumentCount} 台</td>
++            </tr>
++          ))}
++        </tbody>
++      </table>
++      {locations.length === 0 && <p>場所はまだありません。</p>}
++    </main>
++  );
++}
+diff --git a/src/lib/db/index.ts b/src/lib/db/index.ts
+index 1352907..311eb81 100644
+--- a/src/lib/db/index.ts
++++ b/src/lib/db/index.ts
+@@ -5,6 +5,7 @@
+ import { DatabaseSync } from "node:sqlite";
+ import { MIGRATIONS, type Migration } from "./migrations.ts";
+ import { hashPassword } from "../password.ts";
++import { ensureLocation } from "../locations.ts";
+ import {
+   SEED_CALIBRATIONS,
+   SEED_DEPARTMENTS,
+@@ -39,11 +40,12 @@ export function seed(db: Db): void {
+     const hash = hashPassword(SEED_PASSWORD);
+     for (const u of SEED_USERS) insertUser.run(u.id, u.name, u.departmentId, u.active ? 1 : 0, hash);
+     const insertInstrument = db.prepare(
+-      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status)
++      `INSERT INTO instruments (management_no, name, model, location_id, manager_id, interval_months, last_calibrated_on, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+     );
+     for (const i of SEED_INSTRUMENTS) {
+-      insertInstrument.run(i.managementNo, i.name, i.model, i.location, i.managerId, i.intervalMonths, i.lastCalibratedOn, i.status);
++      const locationId = ensureLocation(i.location, db).id;
++      insertInstrument.run(i.managementNo, i.name, i.model, locationId, i.managerId, i.intervalMonths, i.lastCalibratedOn, i.status);
+     }
+     const idOf = (no: string) =>
+       (db.prepare("SELECT id FROM instruments WHERE management_no = ?").get(no) as { id: number }).id;
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index b25c00d..199eb93 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -1,6 +1,8 @@
+ // スキーマのマイグレーション。PRAGMA user_version で適用済みの番号を管理する。
+ // 本番の DB（DATABASE_PATH のファイル）には適用済みの番号が残っているため、
+ // 既存のマイグレーションは書き換えず、変更は末尾に新しい番号で追加する。
++import { sqlCleanLocationName, sqlLocationKey } from "../location-key.ts";
++
+ export type Migration = {
+   version: number;
+   name: string;
+@@ -126,4 +128,28 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX reservations_instrument ON reservations(instrument_id, start_on);
+     `,
+   },
++  {
++    version: 7,
++    name: "locations",
++    // 設置場所を自由入力から場所の一覧（マスタ）に移す。既存の値は、空白と数字の全角・半角の違いだけのものを 1 つの場所にまとめる。
++    // 場所の名前は、まとめた値のうち最も古い計測器のもの（全角の空白は半角にする）。空の値の計測器は場所なし（NULL）。
++    // 旧列 instruments.location はロールバックに備えて残す（アプリはもう読まない）。
++    sql: `
++      CREATE TABLE locations (
++        id       INTEGER PRIMARY KEY AUTOINCREMENT,
++        name     TEXT NOT NULL,
++        name_key TEXT NOT NULL UNIQUE -- 照合用（空白・数字の全角半角を無視。src/lib/location-key.ts）
++      );
++      ALTER TABLE instruments ADD COLUMN location_id INTEGER REFERENCES locations(id);
++      CREATE INDEX instruments_location ON instruments(location_id);
++      INSERT INTO locations (name, name_key)
++        SELECT ${sqlCleanLocationName("i.location")}, ${sqlLocationKey("i.location")} FROM instruments i
++        WHERE ${sqlLocationKey("i.location")} <> ''
++          AND i.id = (SELECT MIN(j.id) FROM instruments j WHERE ${sqlLocationKey("j.location")} = ${sqlLocationKey("i.location")})
++        ORDER BY i.id;
++      UPDATE instruments
++        SET location_id = (SELECT l.id FROM locations l WHERE l.name_key = ${sqlLocationKey("instruments.location")})
++        WHERE ${sqlLocationKey("instruments.location")} <> '';
++    `,
++  },
+ ];
+diff --git a/src/lib/instruments.ts b/src/lib/instruments.ts
+index c1e1d61..125f25b 100644
+--- a/src/lib/instruments.ts
++++ b/src/lib/instruments.ts
+@@ -1,6 +1,7 @@
+ // 計測器の台帳。
+ import { getDb, type Db } from "./db/index.ts";
+ import { isValidDate } from "./dates.ts";
++import { findLocationByName, getLocation } from "./locations.ts";
+ 
+ export type InstrumentStatus = "in_use" | "on_loan" | "calibrating" | "suspended" | "disposed";
+ 
+@@ -12,7 +13,8 @@ export type Instrument = {
+   managementNo: string; // 管理番号（例: MI-0001）
+   name: string;
+   model: string; // 型式
+-  location: string; // 設置場所
++  locationId: number | null; // 設置場所（場所の一覧の ID）。未設定なら null
++  location: string; // 設置場所の名前（場所の一覧の今の名前。未設定なら ""）。旧 API の利用者のため残す
+   managerId: string; // 管理者（users.id）
+   intervalMonths: number; // 校正周期（月）
+   lastCalibratedOn: string; // 前回校正日 YYYY-MM-DD
+@@ -48,6 +50,7 @@ export function isInstrumentStatus(value: unknown): value is InstrumentStatus {
+ 
+ export type InstrumentFilter = {
+   status?: InstrumentStatus;
++  locationId?: number;
+   managerId?: string;
+   importance?: Importance;
+ };
+@@ -57,7 +60,8 @@ type InstrumentRow = {
+   management_no: string;
+   name: string;
+   model: string;
+-  location: string;
++  location_id: number | null;
++  location_name: string | null;
+   manager_id: string;
+   interval_months: number;
+   last_calibrated_on: string;
+@@ -66,8 +70,10 @@ type InstrumentRow = {
+   note: string;
+ };
+ 
+-const COLUMNS =
+-  "id, management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, importance, note";
++// 設置場所の名前は場所の一覧から引く（旧列 instruments.location は使わない）
++const COLUMNS = `i.id, i.management_no, i.name, i.model, i.location_id, l.name AS location_name, i.manager_id, i.interval_months,
++  i.last_calibrated_on, i.status, i.importance, i.note`;
++const FROM = "instruments i LEFT JOIN locations l ON l.id = i.location_id";
+ 
+ function toInstrument(row: InstrumentRow): Instrument {
+   return {
+@@ -75,7 +81,8 @@ function toInstrument(row: InstrumentRow): Instrument {
+     managementNo: row.management_no,
+     name: row.name,
+     model: row.model,
+-    location: row.location,
++    locationId: row.location_id,
++    location: row.location_name ?? "",
+     managerId: row.manager_id,
+     intervalMonths: row.interval_months,
+     lastCalibratedOn: row.last_calibrated_on,
+@@ -88,17 +95,22 @@ function toInstrument(row: InstrumentRow): Instrument {
+ export function listInstruments(filter: InstrumentFilter = {}, db: Db = getDb()): Instrument[] {
+   const rows = db
+     .prepare(
+-      `SELECT ${COLUMNS} FROM instruments
+-       WHERE (:status IS NULL OR status = :status) AND (:manager IS NULL OR manager_id = :manager)
+-         AND (:importance IS NULL OR importance = :importance)
+-       ORDER BY management_no`,
++      `SELECT ${COLUMNS} FROM ${FROM}
++       WHERE (:status IS NULL OR i.status = :status) AND (:manager IS NULL OR i.manager_id = :manager)
++         AND (:importance IS NULL OR i.importance = :importance) AND (:location IS NULL OR i.location_id = :location)
++       ORDER BY i.management_no`,
+     )
+-    .all({ status: filter.status ?? null, manager: filter.managerId ?? null, importance: filter.importance ?? null }) as InstrumentRow[];
++    .all({
++      status: filter.status ?? null,
++      manager: filter.managerId ?? null,
++      importance: filter.importance ?? null,
++      location: filter.locationId ?? null,
++    }) as InstrumentRow[];
+   return rows.map(toInstrument);
+ }
+ 
+ export function getInstrument(id: number, db: Db = getDb()): Instrument | undefined {
+-  const row = db.prepare(`SELECT ${COLUMNS} FROM instruments WHERE id = ?`).get(id) as InstrumentRow | undefined;
++  const row = db.prepare(`SELECT ${COLUMNS} FROM ${FROM} WHERE i.id = ?`).get(id) as InstrumentRow | undefined;
+   return row && toInstrument(row);
+ }
+ 
+@@ -108,7 +120,7 @@ export function parseId(value: unknown): number | undefined {
+   return Number(value);
+ }
+ 
+-export type InstrumentInput = Omit<Instrument, "id">;
++export type InstrumentInput = Omit<Instrument, "id" | "location">;
+ 
+ export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
+ 
+@@ -147,13 +159,28 @@ export function validateInstrumentInput(
+     if (v === undefined) errors.push("名称は 1〜100 文字で入力してください");
+     else value.name = v;
+   }
+-  for (const [key, label] of [["model", "型式"], ["location", "設置場所"]] as const) {
+-    if (key in b || !options.partial) {
+-      const v = key in b ? text(b, key, 100, false) : "";
+-      if (v === undefined) errors.push(`${label}は 100 文字以内で入力してください`);
+-      else value[key] = v;
+-    }
++  if ("model" in b || !options.partial) {
++    const v = "model" in b ? text(b, "model", 100, false) : "";
++    if (v === undefined) errors.push("型式は 100 文字以内で入力してください");
++    else value.model = v;
+   }
++  // 設置場所: locationId（場所の一覧の ID。null で未設定）で指定する。旧 API（ハンディ端末アプリ）の location（名前）も、
++  // 一覧にある名前（空白・数字の全角半角の違いは無視）なら受け付ける。両方あれば locationId を使う。
++  if ("locationId" in b) {
++    const v = b.locationId;
++    if (v === null) value.locationId = null;
++    else if (!Number.isInteger(v) || !getLocation(v as number, db)) errors.push("設置場所が場所の一覧にありません");
++    else value.locationId = v as number;
++  } else if ("location" in b) {
++    const v = b.location;
++    if (typeof v !== "string" || v.length > 100) errors.push("設置場所は 100 文字以内で入力してください");
++    else if (v.trim() === "") value.locationId = null;
++    else {
++      const found = findLocationByName(v, db);
++      if (!found) errors.push(`設置場所「${v.trim()}」は場所の一覧にありません`);
++      else value.locationId = found.id;
++    }
++  } else if (!options.partial) value.locationId = null;
+   if ("note" in b || !options.partial) {
+     const v = "note" in b ? text(b, "note", 1000, false) : "";
+     if (v === undefined) errors.push("備考は 1000 文字以内で入力してください");
+@@ -194,14 +221,14 @@ export function managementNoExists(managementNo: string, db: Db = getDb()): bool
+ export function createInstrument(input: InstrumentInput, db: Db = getDb()): Instrument {
+   const { lastInsertRowid } = db
+     .prepare(
+-      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, importance, note)
++      `INSERT INTO instruments (management_no, name, model, location_id, manager_id, interval_months, last_calibrated_on, status, importance, note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     )
+     .run(
+       input.managementNo,
+       input.name,
+       input.model,
+-      input.location,
++      input.locationId,
+       input.managerId,
+       input.intervalMonths,
+       input.lastCalibratedOn,
+@@ -218,13 +245,13 @@ export function updateInstrument(id: number, changes: Partial<InstrumentInput>,
+   if (!current) return undefined;
+   const next = { ...current, ...changes };
+   db.prepare(
+-    `UPDATE instruments SET management_no = ?, name = ?, model = ?, location = ?, manager_id = ?, interval_months = ?,
++    `UPDATE instruments SET management_no = ?, name = ?, model = ?, location_id = ?, manager_id = ?, interval_months = ?,
+        last_calibrated_on = ?, status = ?, importance = ?, note = ? WHERE id = ?`,
+   ).run(
+     next.managementNo,
+     next.name,
+     next.model,
+-    next.location,
++    next.locationId,
+     next.managerId,
+     next.intervalMonths,
+     next.lastCalibratedOn,
+diff --git a/src/lib/location-key.ts b/src/lib/location-key.ts
+new file mode 100644
+index 0000000..810826d
+--- /dev/null
++++ b/src/lib/location-key.ts
+@@ -0,0 +1,25 @@
++// 設置場所の名前の照合キー（locations.ts と、既存の値をまとめるマイグレーション version 7 の両方で使う）。
++// 空白（半角・全角）の有無と、数字の全角・半角の違いを無視する。JS 版と SQL 版は同じキーを作る。
++const FULLWIDTH_DIGITS = "０１２３４５６７８９";
++
++/** 名前の照合用のキー。空白（半角・全角）を除き、全角数字を半角にする。 */
++export function normalizeLocationKey(name: string): string {
++  return name.replace(/[\s　]/g, "").replace(/[０-９]/g, (c) => String(FULLWIDTH_DIGITS.indexOf(c)));
++}
++
++/** 表示用の名前。前後の空白を除き、全角の空白を半角にする。 */
++export function cleanLocationName(name: string): string {
++  return name.replace(/　/g, " ").trim();
++}
++
++/** normalizeLocationKey と同じキーを SQL で作る式。 */
++export function sqlLocationKey(column: string): string {
++  let expr = `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${column}, ' ', ''), '　', ''), char(9), ''), char(10), ''), char(13), '')`;
++  for (let d = 0; d <= 9; d++) expr = `REPLACE(${expr}, '${FULLWIDTH_DIGITS[d]}', '${d}')`;
++  return expr;
++}
++
++/** cleanLocationName と同じ名前を SQL で作る式。 */
++export function sqlCleanLocationName(column: string): string {
++  return `TRIM(REPLACE(${column}, '　', ' '))`;
++}
+diff --git a/src/lib/locations.ts b/src/lib/locations.ts
+new file mode 100644
+index 0000000..1259af8
+--- /dev/null
++++ b/src/lib/locations.ts
+@@ -0,0 +1,79 @@
++// 設置場所の一覧（マスタ）。計測器の設置場所は、この一覧から選ぶ。
++// - 名前の比較は「空白（半角・全角）の有無」と「数字の全角・半角」の違いを無視する（normalizeLocationKey）。
++//   同じキーになる名前は 1 つしか登録できない。ハンディ端末アプリ（旧 API）が名前で送ってきたときも、このキーで照合する。
++// - 計測器が置かれている場所は削除できない。
++// - 既存の自由入力の値は、マイグレーション（version 7）で同じキーごとにまとめて移した。キーは location-key.ts。
++import { getDb, type Db } from "./db/index.ts";
++import type { ValidationResult } from "./instruments.ts";
++import { cleanLocationName, normalizeLocationKey } from "./location-key.ts";
++
++export { cleanLocationName, normalizeLocationKey };
++
++export type Location = { id: number; name: string };
++
++export type LocationWithCount = Location & { instrumentCount: number };
++
++export function listLocations(db: Db = getDb()): LocationWithCount[] {
++  const rows = db
++    .prepare(
++      `SELECT l.id, l.name, COUNT(i.id) AS instrument_count
++       FROM locations l LEFT JOIN instruments i ON i.location_id = l.id
++       GROUP BY l.id ORDER BY l.name, l.id`,
++    )
++    .all() as { id: number; name: string; instrument_count: number }[];
++  return rows.map((r) => ({ id: r.id, name: r.name, instrumentCount: r.instrument_count }));
++}
++
++export function getLocation(id: number, db: Db = getDb()): Location | undefined {
++  return db.prepare("SELECT id, name FROM locations WHERE id = ?").get(id) as Location | undefined;
++}
++
++/** 名前（表記ゆれを無視して）で場所を探す。 */
++export function findLocationByName(name: string, db: Db = getDb()): Location | undefined {
++  return db.prepare("SELECT id, name FROM locations WHERE name_key = ?").get(normalizeLocationKey(name)) as Location | undefined;
++}
++
++/** 場所の名前の入力を検証する（1〜100 文字）。 */
++export function validateLocationName(body: unknown): ValidationResult<string> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const name = (body as Record<string, unknown>).name;
++  if (typeof name !== "string" || cleanLocationName(name) === "" || name.length > 100) {
++    return { ok: false, errors: ["場所の名前は 1〜100 文字で入力してください"] };
++  }
++  return { ok: true, value: cleanLocationName(name) };
++}
++
++export type LocationResult = { ok: true; location: Location } | { ok: false; reason: "not_found" | "duplicate" | "in_use" };
++
++export function createLocation(name: string, db: Db = getDb()): LocationResult {
++  if (findLocationByName(name, db)) return { ok: false, reason: "duplicate" };
++  const { lastInsertRowid } = db
++    .prepare("INSERT INTO locations (name, name_key) VALUES (?, ?)")
++    .run(cleanLocationName(name), normalizeLocationKey(name));
++  return { ok: true, location: getLocation(Number(lastInsertRowid), db)! };
++}
++
++/** 名前を変える。計測器の設置場所の表示も新しい名前になる（計測器は場所の ID を持つため）。 */
++export function renameLocation(id: number, name: string, db: Db = getDb()): LocationResult {
++  if (!getLocation(id, db)) return { ok: false, reason: "not_found" };
++  const same = findLocationByName(name, db);
++  if (same && same.id !== id) return { ok: false, reason: "duplicate" };
++  db.prepare("UPDATE locations SET name = ?, name_key = ? WHERE id = ?").run(cleanLocationName(name), normalizeLocationKey(name), id);
++  return { ok: true, location: getLocation(id, db)! };
++}
++
++/** 計測器が置かれていない場所だけを削除する。 */
++export function deleteLocation(id: number, db: Db = getDb()): LocationResult {
++  const location = getLocation(id, db);
++  if (!location) return { ok: false, reason: "not_found" };
++  if (db.prepare("SELECT 1 FROM instruments WHERE location_id = ? LIMIT 1").get(id)) return { ok: false, reason: "in_use" };
++  db.prepare("DELETE FROM locations WHERE id = ?").run(id);
++  return { ok: true, location };
++}
++
++/** 名前の場所を探し、無ければ作る（初期データの投入用）。 */
++export function ensureLocation(name: string, db: Db = getDb()): Location {
++  return findLocationByName(name, db) ?? (createLocation(name, db) as { ok: true; location: Location }).location;
++}
+diff --git a/tests/calibration-reminders.test.ts b/tests/calibration-reminders.test.ts
+index f2c646e..bb45330 100644
+--- a/tests/calibration-reminders.test.ts
++++ b/tests/calibration-reminders.test.ts
+@@ -4,6 +4,7 @@ import { managerRecipient, message, recipientsFor, runCalibrationReminders } fro
+ import { recordCalibration } from "../src/lib/calibrations.ts";
+ import { openDb, type Db } from "../src/lib/db/index.ts";
+ import { createInstrument, updateInstrument, type InstrumentInput } from "../src/lib/instruments.ts";
++import { ensureLocation } from "../src/lib/locations.ts";
+ import { lendInstrument } from "../src/lib/loans.ts";
+ import type { Notification, NotifyClient, SendResult } from "../src/lib/notify-client.ts";
+ 
+@@ -26,7 +27,7 @@ function add(db: Db, over: Partial<InstrumentInput> = {}) {
+       managementNo: `TS-${String(seq).padStart(4, "0")}`,
+       name: "抵抗計",
+       model: "",
+-      location: "",
++      locationId: null,
+       note: "",
+       managerId: "sato",
+       intervalMonths: 12,
+@@ -133,7 +134,7 @@ describe("runCalibrationReminders", () => {
+   it("keeps the importance when other fields are updated", () => {
+     const db = fresh();
+     const inst = add(db);
+-    assert.equal(updateInstrument(inst.id, { location: "倉庫" }, db)?.importance, "A");
++    assert.equal(updateInstrument(inst.id, { note: "倉庫に移した" }, db)?.importance, "A");
+   });
+ 
+   it("skips inactive representatives and inactive borrowers", () => {
+@@ -150,7 +151,7 @@ describe("runCalibrationReminders", () => {
+ 
+   it("writes the due date and an overdue title", () => {
+     const db = fresh();
+-    const inst = add(db, { location: "測定室" });
++    const inst = add(db, { locationId: ensureLocation("測定室", db).id });
+     const soon = message(inst, "due_soon", "2027-01-31");
+     const over = message(inst, "overdue", "2027-01-31");
+     assert.match(soon.title, /2027-01-31/);
+diff --git a/tests/instruments.test.ts b/tests/instruments.test.ts
+index f599ed5..11bcd85 100644
+--- a/tests/instruments.test.ts
++++ b/tests/instruments.test.ts
+@@ -50,7 +50,7 @@ describe("validateInstrumentInput", () => {
+     const db = openDb();
+     const r = validateInstrumentInput(VALID, {}, db);
+     assert.equal(r.ok, true);
+-    if (r.ok) assert.deepEqual(r.value, { ...VALID, model: "", location: "", note: "", status: "in_use", importance: "B" });
++    if (r.ok) assert.deepEqual(r.value, { ...VALID, model: "", locationId: null, note: "", status: "in_use", importance: "B" });
+   });
+ 
+   it("rejects invalid values", () => {
+@@ -67,8 +67,8 @@ describe("validateInstrumentInput", () => {
+ 
+   it("validates only the given fields when partial", () => {
+     const db = openDb();
+-    const r = validateInstrumentInput({ location: " 倉庫 " }, { partial: true }, db);
+-    assert.deepEqual(r, { ok: true, value: { location: "倉庫" } });
++    const r = validateInstrumentInput({ note: " 倉庫に保管 " }, { partial: true }, db);
++    assert.deepEqual(r, { ok: true, value: { note: "倉庫に保管" } });
+   });
+ });
+ 
+@@ -76,7 +76,7 @@ describe("createInstrument / updateInstrument", () => {
+   it("creates and updates only the given fields", () => {
+     const db = openDb();
+     const created = createInstrument(
+-      { ...VALID, model: "", location: "", note: "", status: "in_use", importance: "A" },
++      { ...VALID, model: "", locationId: null, note: "", status: "in_use", importance: "A" },
+       db,
+     );
+     assert.equal(getInstrument(created.id, db)?.managementNo, "MI-0100");
+diff --git a/tests/locations.test.ts b/tests/locations.test.ts
+new file mode 100644
+index 0000000..67dc4dd
+--- /dev/null
++++ b/tests/locations.test.ts
+@@ -0,0 +1,112 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { DatabaseSync } from "node:sqlite";
++import { migrate, openDb } from "../src/lib/db/index.ts";
++import { MIGRATIONS } from "../src/lib/db/migrations.ts";
++import { createInstrument, getInstrument, listInstruments, updateInstrument, validateInstrumentInput } from "../src/lib/instruments.ts";
++import {
++  createLocation,
++  deleteLocation,
++  findLocationByName,
++  listLocations,
++  normalizeLocationKey,
++  renameLocation,
++  validateLocationName,
++} from "../src/lib/locations.ts";
++
++const byNo = (db: DatabaseSync, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!;
++
++describe("normalizeLocationKey", () => {
++  it("ignores spaces and full-width digits only", () => {
++    assert.equal(normalizeLocationKey("製造部 第1ライン"), normalizeLocationKey("製造部　第１ライン"));
++    assert.equal(normalizeLocationKey("製造部第1ライン"), normalizeLocationKey(" 製造部 第 1 ライン "));
++    assert.notEqual(normalizeLocationKey("製造部 第一ライン"), normalizeLocationKey("製造部 第1ライン"));
++  });
++});
++
++describe("migration 7 (locations)", () => {
++  it("merges free-text locations that differ only in spaces or digit width, keeping each instrument's place", () => {
++    const db = new DatabaseSync(":memory:");
++    db.exec("PRAGMA foreign_keys = ON");
++    migrate(db, MIGRATIONS.filter((m) => m.version < 7));
++    db.exec(`INSERT INTO departments (id, name) VALUES ('qa', '品質保証部');
++      INSERT INTO users (id, name, department_id) VALUES ('sato', '佐藤', 'qa');`);
++    const add = db.prepare(
++      "INSERT INTO instruments (management_no, name, location, manager_id, interval_months, last_calibrated_on) VALUES (?, 'x', ?, 'sato', 12, '2026-01-01')",
++    );
++    for (const [no, loc] of [["AA-0001", "製造部 第1ライン"], ["AA-0002", "製造部　第１ライン"], ["AA-0003", "製造部第1ライン"], ["AA-0004", "倉庫A"], ["AA-0005", ""]]) {
++      add.run(no, loc);
++    }
++    migrate(db);
++    const names = listLocations(db).map((l) => l.name).sort();
++    assert.deepEqual(names, ["倉庫A", "製造部 第1ライン"]);
++    const [a, b, c, d, e] = ["AA-0001", "AA-0002", "AA-0003", "AA-0004", "AA-0005"].map((no) => byNo(db, no));
++    assert.equal(a.locationId, b.locationId);
++    assert.equal(a.locationId, c.locationId);
++    assert.notEqual(a.locationId, d.locationId);
++    assert.equal(a.location, "製造部 第1ライン");
++    assert.equal(e.locationId, null);
++    assert.equal(e.location, "");
++  });
++
++  it("places the seed instruments in the seed locations", () => {
++    const db = openDb();
++    assert.equal(byNo(db, "MI-0001").location, "品質保証部 測定室");
++    assert.equal(listLocations(db).find((l) => l.name === "工事部 倉庫")?.instrumentCount, 3);
++  });
++});
++
++describe("locations", () => {
++  it("refuses duplicate names, including spelling variants", () => {
++    const db = openDb();
++    assert.equal(createLocation("検査室 2", db).ok, true);
++    assert.deepEqual(createLocation("検査室２", db), { ok: false, reason: "duplicate" });
++    assert.deepEqual(validateLocationName({ name: "　" }).ok, false);
++  });
++
++  it("renames a location and the instruments show the new name", () => {
++    const db = openDb();
++    const loc = findLocationByName("品質保証部 測定室", db)!;
++    assert.equal(renameLocation(loc.id, "品質保証部 第 1 測定室", db).ok, true);
++    assert.equal(byNo(db, "MI-0001").location, "品質保証部 第 1 測定室");
++    assert.deepEqual(renameLocation(loc.id, "工事部　倉庫", db), { ok: false, reason: "duplicate" });
++    assert.equal(renameLocation(loc.id, "品質保証部第1測定室", db).ok, true); // 自分自身との重なりはよい
++  });
++
++  it("deletes only locations without instruments", () => {
++    const db = openDb();
++    const used = findLocationByName("工事部 倉庫", db)!;
++    assert.deepEqual(deleteLocation(used.id, db), { ok: false, reason: "in_use" });
++    const empty = createLocation("予備室", db);
++    assert.ok(empty.ok);
++    assert.equal(deleteLocation(empty.location.id, db).ok, true);
++    assert.deepEqual(deleteLocation(empty.location.id, db), { ok: false, reason: "not_found" });
++  });
++});
++
++describe("instrument location input", () => {
++  it("accepts locationId, or a known name from the old API, and refuses unknown names", () => {
++    const db = openDb();
++    const loc = findLocationByName("工事部 倉庫", db)!;
++    assert.deepEqual(validateInstrumentInput({ locationId: loc.id }, { partial: true }, db), { ok: true, value: { locationId: loc.id } });
++    assert.deepEqual(validateInstrumentInput({ location: "工事部　倉庫" }, { partial: true }, db), { ok: true, value: { locationId: loc.id } });
++    assert.deepEqual(validateInstrumentInput({ location: "" }, { partial: true }, db), { ok: true, value: { locationId: null } });
++    assert.equal(validateInstrumentInput({ location: "どこか" }, { partial: true }, db).ok, false);
++    assert.equal(validateInstrumentInput({ locationId: 9999 }, { partial: true }, db).ok, false);
++  });
++
++  it("filters instruments by location", () => {
++    const db = openDb();
++    const loc = findLocationByName("工事部 倉庫", db)!;
++    const inst = createInstrument(
++      { managementNo: "LC-0001", name: "x", model: "", locationId: null, note: "", managerId: "sato", intervalMonths: 12, lastCalibratedOn: "2026-01-01", status: "in_use", importance: "B" },
++      db,
++    );
++    updateInstrument(inst.id, { locationId: loc.id }, db);
++    assert.equal(getInstrument(inst.id, db)?.location, "工事部 倉庫");
++    assert.deepEqual(
++      listInstruments({ locationId: loc.id }, db).map((i) => i.managementNo),
++      ["LC-0001", "MI-0002", "MI-0005", "MI-0006"],
++    );
++  });
++});

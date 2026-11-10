@@ -97,6 +97,15 @@
 - 子セッションの許可リスト: `curl` と `npx next` を外し、課題のテストと再現用のスクリプトの実行（`python`・`pytest`・`node`・`npx vitest`・`npx tsx`・`npx tsc`・`pnpm test` など）を足す（2026-11-09 ユーザー承認）。依存のインストールは許可しない。開発サーバー・ブラウザの許可は足さない。
 - 採点: `python3 scripts/poc/grade_w11.py <試行ID>`（隠しテストを作業後のコードに上書きして実行し、終わったら取り除く）。外部サイト・依存のインストール・公開版のパッケージのソースへの参照は `isolation_suspects` として記録する。集計は `scripts/poc/report_w11.py`。まとめて流すときは `scripts/poc/oss/run_all.sh <試行ID>...`。
 
+### W18 の決まり（長期品質: 積み重ね開発と引き継ぎ。2026-11-10 追加）
+
+- 設計は [wf-W18-design.md](wf-W18-design.md)。1 つの系列は 6 回（`W18r1`〜`W18r6`）と引き継ぎ 2 つ（`W18h1`・`W18h2`）。試行 ID は `W18r<回>-<候補>-<系列>`・`W18h<番号>-<候補>-<系列>`。
+- 各回の入口は W2・W10 と同じ（baseline・Superpowers は依頼文、Feature Dev は `/feature-dev:feature-dev <依頼>`、gstack は依頼文 → `/review`、Compound Engineering は `/ce-plan <依頼>` → `/ce-work` → `/ce-code-review`）。依頼文は `wf-W18r<回>.md`、末尾は W12・W13 と同じ文言（依頼者に `ask-po` やメッセージで質問できる）。依頼者役は `answer_w18.py`（その回と前の回の回答シート）。`AskUserQuestion` は外す。
+- 第 1 回は W18/base.patch と汎用の開発標準を当てた新しい作業用コピーで始める。第 2〜6 回は、その作業用コピーと専用 HOME を引き継ぎ、新しいセッションで始める（`--resume` しない）。第 4 回の初めに `docs/agency-api.md` を依頼者の資料としてコミットする。Claude Code の自動メモリは止める（W7 と同じ）。
+- 引き継ぎは、第 6 回の終わりのアプリを新しい作業用コピーに複製し、プラグインなし・新しい HOME の固定のエージェントで、依頼文（`wf-W18h1.md`・`wf-W18h2.md`。末尾は新文言）だけを送る。依頼者役は使わない。
+- 介入は各回・引き継ぎとも W2 以降の定型の「お任せします」（最大 2 回）。費用の上限は付けない（1 回 $30 超はコーディネーターに報告）。
+- 採点は `scripts/poc/grade_w18.py`（各回・引き継ぎ）→ `blind_w18.py` → `score_w18.py` → `report_w18.py`（`docs/poc/answer-key/W18/grading.md`）。
+
 ## 権限
 
 子セッションは `acceptEdits`（ファイル編集は許可）で起動し、Bash は次のコマンドだけを許可する。それ以外は自動で拒否され、拒否された操作は `permission_denials` として記録される。

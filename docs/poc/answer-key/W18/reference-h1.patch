@@ -1,0 +1,343 @@
+diff --git a/src/app/api/instruments/[id]/route.ts b/src/app/api/instruments/[id]/route.ts
+index a99b97b..e3402f8 100644
+--- a/src/app/api/instruments/[id]/route.ts
++++ b/src/app/api/instruments/[id]/route.ts
+@@ -1,7 +1,7 @@
+ // GET /api/instruments/:id — 計測器を 1 件取得 / PATCH /api/instruments/:id — 送った項目だけを更新する。ログインが必要。
+ import { NextResponse } from "next/server";
+ import { jsonError, readJson, requireApiUser, requirePermission } from "@/lib/api";
+-import { getInstrument, managementNoExists, parseId, updateInstrument, validateInstrumentInput } from "@/lib/instruments";
++import { getInstrument, managementNoExists, managerPairError, parseId, updateInstrument, validateInstrumentInput } from "@/lib/instruments";
+ import { currentLoan } from "@/lib/loans";
+ 
+ type Context = { params: Promise<{ id: string }> };
+@@ -26,6 +26,8 @@ export async function PATCH(request: Request, { params }: Context) {
+   const result = validateInstrumentInput(await readJson(request), { partial: true });
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+   const changes = result.value;
++  const pairError = managerPairError(changes.managerId ?? current.managerId, "subManagerId" in changes ? changes.subManagerId : current.subManagerId);
++  if (pairError) return jsonError(400, "入力内容に誤りがあります", [pairError]);
+   if (changes.status !== undefined && current.status === "on_loan") {
+     return jsonError(409, "貸出中の計測器の状態は、返却してから変更してください");
+   }
+diff --git a/src/app/api/instruments/route.ts b/src/app/api/instruments/route.ts
+index c245d24..83192c2 100644
+--- a/src/app/api/instruments/route.ts
++++ b/src/app/api/instruments/route.ts
+@@ -7,6 +7,7 @@ import {
+   isInstrumentStatus,
+   listInstruments,
+   managementNoExists,
++  managerPairError,
+   parseId,
+   validateInstrumentInput,
+   type InstrumentInput,
+@@ -38,6 +39,8 @@ export async function POST(request: Request) {
+   const result = validateInstrumentInput(await readJson(request));
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+   const input = result.value as InstrumentInput;
++  const pairError = managerPairError(input.managerId, input.subManagerId);
++  if (pairError) return jsonError(400, "入力内容に誤りがあります", [pairError]);
+   if (managementNoExists(input.managementNo)) return jsonError(409, "その管理番号はすでに登録されています");
+   return NextResponse.json({ instrument: createInstrument(input, undefined, user.id) }, { status: 201 });
+ }
+diff --git a/src/lib/api.ts b/src/lib/api.ts
+index d478abd..2779778 100644
+--- a/src/lib/api.ts
++++ b/src/lib/api.ts
+@@ -34,7 +34,7 @@ export function requireJobAuth(request: Request, job: string): NextResponse | un
+ }
+ 
+ /** 権限が無ければ 403 の応答を返す（src/lib/permissions.ts）。計測器ごとの操作は instrument を渡す。 */
+-export function requirePermission(user: User, action: Action, instrument?: Pick<Instrument, "id" | "managerId">): NextResponse | undefined {
++export function requirePermission(user: User, action: Action, instrument?: Pick<Instrument, "id" | "managerId" | "subManagerId">): NextResponse | undefined {
+   if (can(user.id, action, instrument)) return undefined;
+   logger.warn("permission.denied", { userId: user.id, action, instrumentId: instrument?.id });
+   return jsonError(403, "権限がありません");
+diff --git a/src/lib/calibration-reminders.ts b/src/lib/calibration-reminders.ts
+index 6a3958d..1f6691b 100644
+--- a/src/lib/calibration-reminders.ts
++++ b/src/lib/calibration-reminders.ts
+@@ -2,7 +2,7 @@
+ // - 対象: 重要度 A で、使用中・貸出中の計測器（校正中・使用停止・廃棄は対象外）。
+ // - 期限の 30 日前から期限当日までに「期限が近い」、期限を過ぎたら「期限切れ」を、それぞれ 1 つの期限につき 1 回送る。
+ //   校正記録の登録で期限が変わったら、新しい期限について改めて送る。
+-// - 送り先: 管理者（無効なら管理者の部署の代表者）。貸出中なら借りている人にも送る。
++// - 送り先: 管理者（無効なら管理者の部署の代表者）と副管理者（有効なら）。貸出中なら借りている人にも送る。
+ // - 送ったかどうかは calibration_notifications に記録し、同じ期限・種類・送り先には二度送らない。
+ //   1 件の失敗で残りを止めず、失敗したものは次の実行で送り直す（Idempotency-Key は同じものを使う）。
+ import { calibrationDueOn, dueState } from "./calibration-due.ts";
+@@ -36,6 +36,10 @@ export function recipientsFor(instrument: Instrument, db: Db = getDb()): string[
+   const manager = managerRecipient(instrument.managerId, db);
+   if (manager) out.push(manager);
+   else logger.warn("calibration_reminder.no_manager", { instrumentId: instrument.id, managerId: instrument.managerId });
++  // 副管理者（任意）にも送る。無効になっていたら送らない
++  if (instrument.subManagerId && getUserDetail(instrument.subManagerId, db)?.active && !out.includes(instrument.subManagerId)) {
++    out.push(instrument.subManagerId);
++  }
+   if (instrument.status === "on_loan") {
+     const borrower = currentLoan(instrument.id, db)?.borrowerId;
+     if (borrower && getUserDetail(borrower, db)?.active && !out.includes(borrower)) out.push(borrower);
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 7e29fdf..1c8ef60 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -198,4 +198,12 @@ export const MIGRATIONS: readonly Migration[] = [
+         BEGIN SELECT RAISE(ABORT, 'instrument_history is append-only'); END;
+     `,
+   },
++  {
++    version: 10,
++    name: "sub_manager",
++    // 計測器の副管理者（任意）。管理者が不在のときのため、お知らせ・予約の取消・部署の権限で管理者と同じに扱う。
++    sql: `
++      ALTER TABLE instruments ADD COLUMN sub_manager_id TEXT REFERENCES users(id);
++    `,
++  },
+ ];
+diff --git a/src/lib/instruments.ts b/src/lib/instruments.ts
+index 8a0c37f..53f9507 100644
+--- a/src/lib/instruments.ts
++++ b/src/lib/instruments.ts
+@@ -3,6 +3,7 @@ import { getDb, transaction, type Db } from "./db/index.ts";
+ import { diffFields, recordHistory } from "./history.ts";
+ import { isValidDate } from "./dates.ts";
+ import { findLocationByName, getLocation } from "./locations.ts";
++import { isActiveUser } from "./users.ts";
+ 
+ export type InstrumentStatus = "in_use" | "on_loan" | "calibrating" | "suspended" | "disposed";
+ 
+@@ -17,6 +18,7 @@ export type Instrument = {
+   locationId: number | null; // 設置場所（場所の一覧の ID）。未設定なら null
+   location: string; // 設置場所の名前（場所の一覧の今の名前。未設定なら ""）。旧 API の利用者のため残す
+   managerId: string; // 管理者（users.id）
++  subManagerId: string | null; // 副管理者（users.id。任意）。お知らせ・予約の取消・部署の権限で管理者と同じに扱う
+   intervalMonths: number; // 校正周期（月）
+   lastCalibratedOn: string; // 前回校正日 YYYY-MM-DD
+   status: InstrumentStatus;
+@@ -64,6 +66,7 @@ type InstrumentRow = {
+   location_id: number | null;
+   location_name: string | null;
+   manager_id: string;
++  sub_manager_id: string | null;
+   interval_months: number;
+   last_calibrated_on: string;
+   status: InstrumentStatus;
+@@ -72,7 +75,7 @@ type InstrumentRow = {
+ };
+ 
+ // 設置場所の名前は場所の一覧から引く（旧列 instruments.location は使わない）
+-const COLUMNS = `i.id, i.management_no, i.name, i.model, i.location_id, l.name AS location_name, i.manager_id, i.interval_months,
++const COLUMNS = `i.id, i.management_no, i.name, i.model, i.location_id, l.name AS location_name, i.manager_id, i.sub_manager_id, i.interval_months,
+   i.last_calibrated_on, i.status, i.importance, i.note`;
+ const FROM = "instruments i LEFT JOIN locations l ON l.id = i.location_id";
+ 
+@@ -85,6 +88,7 @@ function toInstrument(row: InstrumentRow): Instrument {
+     locationId: row.location_id,
+     location: row.location_name ?? "",
+     managerId: row.manager_id,
++    subManagerId: row.sub_manager_id,
+     intervalMonths: row.interval_months,
+     lastCalibratedOn: row.last_calibrated_on,
+     status: row.status,
+@@ -121,7 +125,12 @@ export function parseId(value: unknown): number | undefined {
+   return Number(value);
+ }
+ 
+-export type InstrumentInput = Omit<Instrument, "id" | "location">;
++export type InstrumentInput = Omit<Instrument, "id" | "location" | "subManagerId"> & { subManagerId?: string | null };
++
++/** 管理者と副管理者の組み合わせの誤り（同じ人）。問題が無ければ undefined。 */
++export function managerPairError(managerId: string, subManagerId: string | null | undefined): string | undefined {
++  return subManagerId && subManagerId === managerId ? "副管理者には管理者と別の人を選んでください" : undefined;
++}
+ 
+ export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
+ 
+@@ -193,6 +202,12 @@ export function validateInstrumentInput(
+     if (!exists) errors.push("管理者が存在しません");
+     else value.managerId = b.managerId as string;
+   }
++  if ("subManagerId" in b || !options.partial) {
++    const v = "subManagerId" in b ? b.subManagerId : null;
++    if (v === null || v === "") value.subManagerId = null;
++    else if (typeof v !== "string" || !isActiveUser(v, db)) errors.push("副管理者は在籍している利用者から選んでください");
++    else value.subManagerId = v;
++  }
+   if (need("intervalMonths")) {
+     if (!Number.isInteger(b.intervalMonths) || (b.intervalMonths as number) < 1 || (b.intervalMonths as number) > 120) {
+       errors.push("校正周期は 1〜120 か月の整数で入力してください");
+@@ -226,6 +241,7 @@ const HISTORY_FIELDS = [
+   "model",
+   "location",
+   "managerId",
++  "subManagerId",
+   "intervalMonths",
+   "lastCalibratedOn",
+   "status",
+@@ -238,8 +254,9 @@ export function createInstrument(input: InstrumentInput, db: Db = getDb(), actor
+   return transaction(db, () => {
+     const { lastInsertRowid } = db
+       .prepare(
+-        `INSERT INTO instruments (management_no, name, model, location_id, manager_id, interval_months, last_calibrated_on, status, importance, note)
+-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++        `INSERT INTO instruments (management_no, name, model, location_id, manager_id, sub_manager_id, interval_months, last_calibrated_on,
++           status, importance, note)
++         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       )
+       .run(
+         input.managementNo,
+@@ -247,6 +264,7 @@ export function createInstrument(input: InstrumentInput, db: Db = getDb(), actor
+         input.model,
+         input.locationId,
+         input.managerId,
++        input.subManagerId ?? null,
+         input.intervalMonths,
+         input.lastCalibratedOn,
+         input.status,
+@@ -273,7 +291,7 @@ export function updateInstrument(
+     if (!current) return undefined;
+     const next = { ...current, ...changes };
+     db.prepare(
+-      `UPDATE instruments SET management_no = ?, name = ?, model = ?, location_id = ?, manager_id = ?, interval_months = ?,
++      `UPDATE instruments SET management_no = ?, name = ?, model = ?, location_id = ?, manager_id = ?, sub_manager_id = ?, interval_months = ?,
+          last_calibrated_on = ?, status = ?, importance = ?, note = ? WHERE id = ?`,
+     ).run(
+       next.managementNo,
+@@ -281,6 +299,7 @@ export function updateInstrument(
+       next.model,
+       next.locationId,
+       next.managerId,
++      next.subManagerId,
+       next.intervalMonths,
+       next.lastCalibratedOn,
+       next.status,
+diff --git a/src/lib/permissions.ts b/src/lib/permissions.ts
+index 49963f4..b3202a5 100644
+--- a/src/lib/permissions.ts
++++ b/src/lib/permissions.ts
+@@ -1,7 +1,7 @@
+ // 部署ごとの権限。API Route は src/lib/api.ts の requirePermission() で確かめる（画面に出さないことを制限の代わりにしない）。
+ // - 品質保証部の人は、すべての操作ができる。
+ // - 計測器の台帳の編集（重要度・設置場所・状態を含む）・校正記録の登録・校正の発注・貸出・返却は、
+-//   その計測器の管理部署（管理者が所属する部署。管理者が無効になっていても、その人の部署）の人もできる。
++//   その計測器の管理部署（管理者が所属する部署。管理者が無効になっていても、その人の部署）の人と、副管理者もできる。
+ // - 計測器の登録と、設置場所の一覧の管理は、品質保証部だけ。
+ // - 閲覧と予約（自分の予約の作成・取消。管理者による取消は reservations.ts）は、全員ができる（ここでは確かめない）。
+ // - 定期実行のジョブは利用者ではなく JOBS_TOKEN で認証する（requireJobAuth）。
+@@ -25,10 +25,17 @@ export function managingDepartment(instrument: Pick<Instrument, "managerId">, db
+   return getUserDetail(instrument.managerId, db)?.departmentId;
+ }
+ 
+-export function can(userId: string, action: Action, instrument?: Pick<Instrument, "managerId">, db: Db = getDb()): boolean {
++export function can(
++  userId: string,
++  action: Action,
++  instrument?: Pick<Instrument, "managerId"> & { subManagerId?: string | null },
++  db: Db = getDb(),
++): boolean {
+   const user = getUserDetail(userId, db);
+   if (!user?.active) return false;
+   if (user.departmentId === QA_DEPARTMENT_ID) return true;
+   if (action === "instrument.create" || action === "location.manage") return false;
+-  return instrument !== undefined && managingDepartment(instrument, db) === user.departmentId;
++  if (instrument === undefined) return false;
++  // 副管理者は、ほかの部署の人でも、その計測器について管理部署の人と同じ操作ができる
++  return instrument.subManagerId === userId || managingDepartment(instrument, db) === user.departmentId;
+ }
+diff --git a/src/lib/reservations.ts b/src/lib/reservations.ts
+index 27adf98..f62abb8 100644
+--- a/src/lib/reservations.ts
++++ b/src/lib/reservations.ts
+@@ -1,7 +1,7 @@
+ // 計測器の貸出の予約。予約は日単位（開始日・終了日を含む。日本時間の暦日）。
+ // - 同じ計測器で期間が 1 日でも重なる有効な予約は作れない。貸出中なら返却予定日の翌日から予約できる。
+ // - 使用停止・廃棄の計測器は予約できない。校正期限（calibration-due.ts）を過ぎる日は予約できない。
+-// - 取り消せるのは予約した本人と、その計測器の管理者。
++// - 取り消せるのは予約した本人と、その計測器の管理者・副管理者。
+ // - 他人の予約の期間にかかる貸出はしない（loans.ts の lendInstrument が conflictingReservation で確かめる）。
+ import { calibrationDueOn } from "./calibration-due.ts";
+ import { getDb, transaction, type Db } from "./db/index.ts";
+@@ -171,7 +171,9 @@ export function cancelReservation(
+     const r = getReservation(instrumentId, id, db);
+     const instrument = getInstrument(instrumentId, db);
+     if (!r || !instrument) return { ok: false, reason: "not_found" } as const;
+-    if (r.userId !== userId && instrument.managerId !== userId) return { ok: false, reason: "forbidden" } as const;
++    if (r.userId !== userId && instrument.managerId !== userId && instrument.subManagerId !== userId) {
++      return { ok: false, reason: "forbidden" } as const;
++    }
+     if (r.status !== "active") return { ok: false, reason: "not_active" } as const;
+     db.prepare("UPDATE reservations SET status = 'cancelled', cancelled_at = ?, cancelled_by = ? WHERE id = ?").run(
+       now.toISOString(),
+diff --git a/tests/instruments.test.ts b/tests/instruments.test.ts
+index 11bcd85..186c0de 100644
+--- a/tests/instruments.test.ts
++++ b/tests/instruments.test.ts
+@@ -50,7 +50,7 @@ describe("validateInstrumentInput", () => {
+     const db = openDb();
+     const r = validateInstrumentInput(VALID, {}, db);
+     assert.equal(r.ok, true);
+-    if (r.ok) assert.deepEqual(r.value, { ...VALID, model: "", locationId: null, note: "", status: "in_use", importance: "B" });
++    if (r.ok) assert.deepEqual(r.value, { ...VALID, model: "", locationId: null, note: "", status: "in_use", importance: "B", subManagerId: null });
+   });
+ 
+   it("rejects invalid values", () => {
+diff --git a/tests/permissions.test.ts b/tests/permissions.test.ts
+index dc82e63..1133df6 100644
+--- a/tests/permissions.test.ts
++++ b/tests/permissions.test.ts
+@@ -43,3 +43,14 @@ describe("permissions", () => {
+     assert.equal(can("nobody", "instrument.edit", inst, db), false);
+   });
+ });
++
++describe("sub manager", () => {
++  it("lets the sub manager act like the managing department, even from another department", () => {
++    const db = openDb();
++    const inst = { ...byNo(db, "MI-0003"), subManagerId: "sasaki" }; // 製造部の計測器、副管理者は工事部
++    assert.equal(can("sasaki", "instrument.edit", inst, db), true);
++    assert.equal(can("sasaki", "order.create", inst, db), true);
++    assert.equal(can("shimizu", "instrument.edit", inst, db), false);
++    assert.equal(can("sasaki", "instrument.create", undefined, db), false);
++  });
++});
+diff --git a/tests/sub-manager.test.ts b/tests/sub-manager.test.ts
+new file mode 100644
+index 0000000..a7f035b
+--- /dev/null
++++ b/tests/sub-manager.test.ts
+@@ -0,0 +1,34 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { recipientsFor } from "../src/lib/calibration-reminders.ts";
++import { openDb } from "../src/lib/db/index.ts";
++import { listHistory } from "../src/lib/history.ts";
++import { getInstrument, listInstruments, managerPairError, updateInstrument, validateInstrumentInput } from "../src/lib/instruments.ts";
++import { cancelReservation, createReservation } from "../src/lib/reservations.ts";
++
++const NOW = new Date("2026-11-10T01:00:00Z");
++const byNo = (db: ReturnType<typeof openDb>, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!;
++
++describe("sub manager", () => {
++  it("accepts active users only and not the manager", () => {
++    const db = openDb();
++    assert.deepEqual(validateInstrumentInput({ subManagerId: "kimura" }, { partial: true }, db), { ok: true, value: { subManagerId: "kimura" } });
++    assert.deepEqual(validateInstrumentInput({ subManagerId: null }, { partial: true }, db), { ok: true, value: { subManagerId: null } });
++    assert.equal(validateInstrumentInput({ subManagerId: "inoue" }, { partial: true }, db).ok, false);
++    assert.equal(managerPairError("sato", "sato") !== undefined, true);
++    assert.equal(managerPairError("sato", null), undefined);
++  });
++
++  it("receives reminders unless inactive, can cancel reservations, and is recorded in the history", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001");
++    updateInstrument(inst.id, { subManagerId: "tanaka" }, db, "kimura", NOW);
++    assert.deepEqual(recipientsFor(getInstrument(inst.id, db)!, db), ["sato", "tanaka"]);
++    db.prepare("UPDATE users SET active = 0 WHERE id = 'tanaka'").run();
++    assert.deepEqual(recipientsFor(getInstrument(inst.id, db)!, db), ["sato"]);
++    const r = createReservation(inst.id, "suzuki", { startOn: "2026-11-20", endOn: "2026-11-21" }, db, NOW);
++    assert.ok(r.ok);
++    assert.equal(cancelReservation(inst.id, r.reservation.id, "tanaka", db, NOW).ok, true);
++    assert.deepEqual(listHistory(inst.id, db).at(-1)?.changes, [{ field: "subManagerId", from: null, to: "tanaka" }]);
++  });
++});

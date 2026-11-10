@@ -1,0 +1,310 @@
+diff --git a/src/app/api/instruments/[id]/calibration-orders/route.ts b/src/app/api/instruments/[id]/calibration-orders/route.ts
+index c37ba7e..23ef870 100644
+--- a/src/app/api/instruments/[id]/calibration-orders/route.ts
++++ b/src/app/api/instruments/[id]/calibration-orders/route.ts
+@@ -2,7 +2,7 @@
+ // 発注を記録してからすぐに受付システムに送る。送れなくても発注は受け付け（未送信）、毎朝のジョブで送り直す。
+ import { NextResponse } from "next/server";
+ import { agencyClientFromEnv } from "@/lib/agency-client";
+-import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { jsonError, readJson, requireApiUser, requirePermission } from "@/lib/api";
+ import { createOrder, listOrders, notifyCancelledReservations, sendOrder, validateOrderInput } from "@/lib/calibration-orders";
+ import { getInstrument, parseId } from "@/lib/instruments";
+ import { logger } from "@/lib/logger";
+@@ -22,7 +22,10 @@ export async function POST(request: Request, { params }: Context) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
+   const id = parseId((await params).id);
+-  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  const target = id === undefined ? undefined : getInstrument(id);
++  if (id === undefined || !target) return jsonError(404, "計測器が見つかりません");
++  const denied = requirePermission(user, "order.create", target);
++  if (denied) return denied;
+   const input = validateOrderInput(await readJson(request));
+   if (!input.ok) return jsonError(400, "入力内容に誤りがあります", input.errors);
+   const result = createOrder(id, user.id, input.value);
+diff --git a/src/app/api/instruments/[id]/calibrations/route.ts b/src/app/api/instruments/[id]/calibrations/route.ts
+index fcf6e4a..24659a9 100644
+--- a/src/app/api/instruments/[id]/calibrations/route.ts
++++ b/src/app/api/instruments/[id]/calibrations/route.ts
+@@ -1,7 +1,7 @@
+ // GET /api/instruments/:id/calibrations — 校正記録 / POST — 校正記録を登録する
+ //（本文 { calibratedOn, result: "pass" | "fail", agency, certificateNo? }）。不合格なら計測器は使用停止になる。
+ import { NextResponse } from "next/server";
+-import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { jsonError, readJson, requireApiUser, requirePermission } from "@/lib/api";
+ import { listCalibrations, recordCalibration, validateCalibrationInput } from "@/lib/calibrations";
+ import { getInstrument, parseId } from "@/lib/instruments";
+ 
+@@ -19,7 +19,10 @@ export async function POST(request: Request, { params }: Context) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
+   const id = parseId((await params).id);
+-  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  const target = id === undefined ? undefined : getInstrument(id);
++  if (id === undefined || !target) return jsonError(404, "計測器が見つかりません");
++  const denied = requirePermission(user, "calibration.record", target);
++  if (denied) return denied;
+   const input = validateCalibrationInput(await readJson(request));
+   if (!input.ok) return jsonError(400, "入力内容に誤りがあります", input.errors);
+   const result = recordCalibration(id, input.value, user.id);
+diff --git a/src/app/api/instruments/[id]/loans/[loanId]/return/route.ts b/src/app/api/instruments/[id]/loans/[loanId]/return/route.ts
+index 6e2b927..14f8b5c 100644
+--- a/src/app/api/instruments/[id]/loans/[loanId]/return/route.ts
++++ b/src/app/api/instruments/[id]/loans/[loanId]/return/route.ts
+@@ -1,7 +1,7 @@
+ // POST /api/instruments/:id/loans/:loanId/return — 返却する。計測器は使用中に戻る。
+ import { NextResponse } from "next/server";
+-import { jsonError, requireApiUser } from "@/lib/api";
+-import { parseId } from "@/lib/instruments";
++import { jsonError, requireApiUser, requirePermission } from "@/lib/api";
++import { getInstrument, parseId } from "@/lib/instruments";
+ import { returnLoan } from "@/lib/loans";
+ 
+ type Context = { params: Promise<{ id: string; loanId: string }> };
+@@ -12,6 +12,11 @@ export async function POST(_request: Request, { params }: Context) {
+   const p = await params;
+   const id = parseId(p.id);
+   const loanId = parseId(p.loanId);
+-  const loan = id === undefined || loanId === undefined ? undefined : returnLoan(id, loanId, undefined, undefined, user.id);
++  const target = id === undefined ? undefined : getInstrument(id);
++  if (target) {
++    const denied = requirePermission(user, "loan.return", target);
++    if (denied) return denied;
++  }
++  const loan = !target || loanId === undefined ? undefined : returnLoan(target.id, loanId, undefined, undefined, user.id);
+   return loan ? NextResponse.json({ loan }) : jsonError(404, "返却されていない貸出が見つかりません");
+ }
+diff --git a/src/app/api/instruments/[id]/loans/route.ts b/src/app/api/instruments/[id]/loans/route.ts
+index 58c4d9c..ad7badf 100644
+--- a/src/app/api/instruments/[id]/loans/route.ts
++++ b/src/app/api/instruments/[id]/loans/route.ts
+@@ -1,6 +1,6 @@
+ // GET /api/instruments/:id/loans — 貸出の記録 / POST /api/instruments/:id/loans — 貸し出す（本文 { borrowerId, dueOn }）。
+ import { NextResponse } from "next/server";
+-import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { jsonError, readJson, requireApiUser, requirePermission } from "@/lib/api";
+ import { getInstrument, parseId } from "@/lib/instruments";
+ import { lendInstrument, listLoans, validateLoanInput } from "@/lib/loans";
+ 
+@@ -18,7 +18,10 @@ export async function POST(request: Request, { params }: Context) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
+   const id = parseId((await params).id);
+-  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  const target = id === undefined ? undefined : getInstrument(id);
++  if (id === undefined || !target) return jsonError(404, "計測器が見つかりません");
++  const denied = requirePermission(user, "loan.lend", target);
++  if (denied) return denied;
+   const input = validateLoanInput(await readJson(request));
+   if (!input.ok) return jsonError(400, "入力内容に誤りがあります", input.errors);
+   const result = lendInstrument(id, input.value, undefined, undefined, user.id);
+diff --git a/src/app/api/instruments/[id]/route.ts b/src/app/api/instruments/[id]/route.ts
+index 6282cdd..a99b97b 100644
+--- a/src/app/api/instruments/[id]/route.ts
++++ b/src/app/api/instruments/[id]/route.ts
+@@ -1,6 +1,6 @@
+ // GET /api/instruments/:id — 計測器を 1 件取得 / PATCH /api/instruments/:id — 送った項目だけを更新する。ログインが必要。
+ import { NextResponse } from "next/server";
+-import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { jsonError, readJson, requireApiUser, requirePermission } from "@/lib/api";
+ import { getInstrument, managementNoExists, parseId, updateInstrument, validateInstrumentInput } from "@/lib/instruments";
+ import { currentLoan } from "@/lib/loans";
+ 
+@@ -21,6 +21,8 @@ export async function PATCH(request: Request, { params }: Context) {
+   const id = parseId((await params).id);
+   const current = id === undefined ? undefined : getInstrument(id);
+   if (!current) return jsonError(404, "計測器が見つかりません");
++  const denied = requirePermission(user, "instrument.edit", current);
++  if (denied) return denied;
+   const result = validateInstrumentInput(await readJson(request), { partial: true });
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+   const changes = result.value;
+diff --git a/src/app/api/instruments/route.ts b/src/app/api/instruments/route.ts
+index bb65e54..c245d24 100644
+--- a/src/app/api/instruments/route.ts
++++ b/src/app/api/instruments/route.ts
+@@ -1,6 +1,6 @@
+ // GET /api/instruments?status=…&importance=… — 計測器の一覧 / POST /api/instruments — 計測器を台帳に登録する。いずれもログインが必要。
+ import { NextResponse } from "next/server";
+-import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { jsonError, readJson, requireApiUser, requirePermission } from "@/lib/api";
+ import {
+   createInstrument,
+   isImportance,
+@@ -33,6 +33,8 @@ export async function GET(request: Request) {
+ export async function POST(request: Request) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
++  const denied = requirePermission(user, "instrument.create");
++  if (denied) return denied;
+   const result = validateInstrumentInput(await readJson(request));
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+   const input = result.value as InstrumentInput;
+diff --git a/src/app/api/locations/[id]/route.ts b/src/app/api/locations/[id]/route.ts
+index 260d7e7..7b0ef0c 100644
+--- a/src/app/api/locations/[id]/route.ts
++++ b/src/app/api/locations/[id]/route.ts
+@@ -1,6 +1,6 @@
+ // PATCH /api/locations/:id — 場所の名前を変える（本文 { name }） / DELETE — 計測器が置かれていない場所を削除する。
+ import { NextResponse } from "next/server";
+-import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { jsonError, readJson, requireApiUser, requirePermission } from "@/lib/api";
+ import { parseId } from "@/lib/instruments";
+ import { deleteLocation, renameLocation, validateLocationName, type LocationResult } from "@/lib/locations";
+ 
+@@ -15,6 +15,8 @@ function failure(result: Exclude<LocationResult, { ok: true }>) {
+ export async function PATCH(request: Request, { params }: Context) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
++  const denied = requirePermission(user, "location.manage");
++  if (denied) return denied;
+   const id = parseId((await params).id);
+   if (id === undefined) return jsonError(404, "場所が見つかりません");
+   const name = validateLocationName(await readJson(request));
+@@ -26,6 +28,8 @@ export async function PATCH(request: Request, { params }: Context) {
+ export async function DELETE(_request: Request, { params }: Context) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
++  const denied = requirePermission(user, "location.manage");
++  if (denied) return denied;
+   const id = parseId((await params).id);
+   if (id === undefined) return jsonError(404, "場所が見つかりません");
+   const result = deleteLocation(id);
+diff --git a/src/app/api/locations/route.ts b/src/app/api/locations/route.ts
+index 4a73cd0..c7e180a 100644
+--- a/src/app/api/locations/route.ts
++++ b/src/app/api/locations/route.ts
+@@ -1,6 +1,6 @@
+ // GET /api/locations — 設置場所の一覧（置かれている計測器の数つき） / POST /api/locations — 場所を追加する（本文 { name }）。
+ import { NextResponse } from "next/server";
+-import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { jsonError, readJson, requireApiUser, requirePermission } from "@/lib/api";
+ import { createLocation, listLocations, validateLocationName } from "@/lib/locations";
+ 
+ export async function GET() {
+@@ -12,6 +12,8 @@ export async function GET() {
+ export async function POST(request: Request) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
++  const denied = requirePermission(user, "location.manage");
++  if (denied) return denied;
+   const name = validateLocationName(await readJson(request));
+   if (!name.ok) return jsonError(400, "入力内容に誤りがあります", name.errors);
+   const result = createLocation(name.value);
+diff --git a/src/lib/api.ts b/src/lib/api.ts
+index 6c4b009..d478abd 100644
+--- a/src/lib/api.ts
++++ b/src/lib/api.ts
+@@ -1,7 +1,9 @@
+ // API Route 共通の処理（認証の確認とエラー応答）。
+ import { NextResponse } from "next/server";
+ import { isAuthorizedJobRequest } from "./jobs.ts";
++import type { Instrument } from "./instruments.ts";
+ import { logger } from "./logger.ts";
++import { can, type Action } from "./permissions.ts";
+ import { getCurrentUser } from "./session.ts";
+ import type { User } from "./users.ts";
+ 
+@@ -30,3 +32,10 @@ export function requireJobAuth(request: Request, job: string): NextResponse | un
+   logger.warn("job.unauthorized", { job });
+   return jsonError(401, "認証に失敗しました");
+ }
++
++/** 権限が無ければ 403 の応答を返す（src/lib/permissions.ts）。計測器ごとの操作は instrument を渡す。 */
++export function requirePermission(user: User, action: Action, instrument?: Pick<Instrument, "id" | "managerId">): NextResponse | undefined {
++  if (can(user.id, action, instrument)) return undefined;
++  logger.warn("permission.denied", { userId: user.id, action, instrumentId: instrument?.id });
++  return jsonError(403, "権限がありません");
++}
+diff --git a/src/lib/permissions.ts b/src/lib/permissions.ts
+new file mode 100644
+index 0000000..49963f4
+--- /dev/null
++++ b/src/lib/permissions.ts
+@@ -0,0 +1,34 @@
++// 部署ごとの権限。API Route は src/lib/api.ts の requirePermission() で確かめる（画面に出さないことを制限の代わりにしない）。
++// - 品質保証部の人は、すべての操作ができる。
++// - 計測器の台帳の編集（重要度・設置場所・状態を含む）・校正記録の登録・校正の発注・貸出・返却は、
++//   その計測器の管理部署（管理者が所属する部署。管理者が無効になっていても、その人の部署）の人もできる。
++// - 計測器の登録と、設置場所の一覧の管理は、品質保証部だけ。
++// - 閲覧と予約（自分の予約の作成・取消。管理者による取消は reservations.ts）は、全員ができる（ここでは確かめない）。
++// - 定期実行のジョブは利用者ではなく JOBS_TOKEN で認証する（requireJobAuth）。
++import { getDb, type Db } from "./db/index.ts";
++import type { Instrument } from "./instruments.ts";
++import { getUserDetail } from "./users.ts";
++
++/** 品質保証部（計測器の台帳を取りまとめる部署） */
++export const QA_DEPARTMENT_ID = "qa";
++
++/** 管理部署の人と品質保証部ができる、計測器ごとの操作 */
++export type InstrumentAction = "instrument.edit" | "calibration.record" | "order.create" | "loan.lend" | "loan.return";
++
++/** 品質保証部だけができる操作 */
++export type QaAction = "instrument.create" | "location.manage";
++
++export type Action = InstrumentAction | QaAction;
++
++/** 計測器の管理部署（管理者が所属する部署）。管理者が見つからなければ undefined。 */
++export function managingDepartment(instrument: Pick<Instrument, "managerId">, db: Db = getDb()): string | undefined {
++  return getUserDetail(instrument.managerId, db)?.departmentId;
++}
++
++export function can(userId: string, action: Action, instrument?: Pick<Instrument, "managerId">, db: Db = getDb()): boolean {
++  const user = getUserDetail(userId, db);
++  if (!user?.active) return false;
++  if (user.departmentId === QA_DEPARTMENT_ID) return true;
++  if (action === "instrument.create" || action === "location.manage") return false;
++  return instrument !== undefined && managingDepartment(instrument, db) === user.departmentId;
++}
+diff --git a/tests/permissions.test.ts b/tests/permissions.test.ts
+new file mode 100644
+index 0000000..dc82e63
+--- /dev/null
++++ b/tests/permissions.test.ts
+@@ -0,0 +1,45 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { listInstruments } from "../src/lib/instruments.ts";
++import { can, managingDepartment } from "../src/lib/permissions.ts";
++
++const byNo = (db: ReturnType<typeof openDb>, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!;
++
++describe("permissions", () => {
++  it("lets the quality assurance department do everything", () => {
++    const db = openDb();
++    const tool = byNo(db, "MI-0003"); // 管理者 suzuki（製造部）
++    for (const a of ["instrument.create", "location.manage", "instrument.edit", "calibration.record", "order.create", "loan.lend", "loan.return"] as const) {
++      assert.equal(can("takahashi", a, tool, db), true, a);
++    }
++  });
++
++  it("lets the managing department edit, calibrate, order, lend and return its own instruments only", () => {
++    const db = openDb();
++    const mfg = byNo(db, "MI-0003"); // 製造部
++    const field = byNo(db, "MI-0002"); // 工事部（tanaka）
++    for (const a of ["instrument.edit", "calibration.record", "order.create", "loan.lend", "loan.return"] as const) {
++      assert.equal(can("watanabe", a, mfg, db), true, a); // 製造部の別の人
++      assert.equal(can("watanabe", a, field, db), false, a);
++    }
++    assert.equal(can("watanabe", "instrument.create", undefined, db), false);
++    assert.equal(can("watanabe", "location.manage", undefined, db), false);
++  });
++
++  it("uses the manager's department even when the manager is inactive", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0004"); // 管理者 inoue（製造部・退職）
++    assert.equal(managingDepartment(inst, db), "mfg");
++    assert.equal(can("yoshida", "instrument.edit", inst, db), true);
++    assert.equal(can("matsumoto", "instrument.edit", inst, db), false);
++  });
++
++  it("follows the manager when the manager changes and refuses inactive or unknown users", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0003");
++    assert.equal(can("kobayashi", "instrument.edit", { ...inst, managerId: "tanaka" }, db), true);
++    assert.equal(can("inoue", "instrument.edit", inst, db), false);
++    assert.equal(can("nobody", "instrument.edit", inst, db), false);
++  });
++});

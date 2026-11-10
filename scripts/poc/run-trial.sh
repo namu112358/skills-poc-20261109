@@ -11,6 +11,8 @@
 # POC_CONTINUE_FROM=<試行 ID> で指定できる）。docs/poc/tasks/wf-procedures.md の「W7 の決まり」。
 # 対照（POC_W7_CONTROL=1）: 前の段階を引き継がず、新しい作業用コピーに、前の段階までの参照実装を当てた状態から始める
 #（候補の記憶が無いときとの差を見るため）。
+# W18（長期品質）: シナリオ W18r1〜W18r6 は 1 つの系列の各回で、<回> は系列の番号。第 2 回以降は前の回の作業用コピーを引き継ぐ。
+# W18h1・W18h2 は引き継ぎテストで、<候補> は系列の候補（動かすのはプラグインなしの固定のエージェント）。docs/poc/tasks/wf-W18-design.md。
 # 子セッションの権限は docs/poc/tasks/wf-procedures.md の「権限」のとおり（全許可にはしない）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -32,6 +34,24 @@ if [[ "$SCENARIO" =~ ^W7([b-z])$ ]]; then
     [[ -d "$WORK/app/.git" && -d "$WORK/home" ]] || { echo "$SCENARIO: 引き継ぐ前の段階の作業用コピーがない: $WORK" >&2; exit 1; }
   fi
 fi
+# W18（長期品質。docs/poc/tasks/wf-W18-design.md）:
+#   第 2〜6 回（W18r2〜W18r6）は、前の回の作業用コピー（第 1 回の作業用コピー $TRIALS/W18r1-<候補>-<系列>）と専用 HOME を
+#   そのまま使い、新しいセッションで始める（W7b と同じ。候補の記憶の仕組みは残る）。
+#   引き継ぎ（W18h1・W18h2）は、第 6 回の終わりのアプリを新しい作業用コピーに複製し、プラグインなし・新しい HOME の
+#   固定のエージェント（baseline と同じ）で行う。試行 ID の <候補> は「どの系列のコードか」を表す。
+HANDOVER_FROM=""
+if [[ "$SCENARIO" =~ ^W18r([2-6])$ ]]; then
+  CONTINUE_FROM="${POC_CONTINUE_FROM:-W18r$(( BASH_REMATCH[1] - 1 ))-$CAND-$RUN}"
+  WORK="$TRIALS/W18r1-$CAND-$RUN"
+  [[ -d "$WORK/app/.git" && -d "$WORK/home" ]] || { echo "$SCENARIO: 引き継ぐ前の回の作業用コピーがない: $WORK" >&2; exit 1; }
+  [[ -s "$ROOT/docs/poc/results/workflow/raw/$CONTINUE_FROM/final-commit" ]] || { echo "$SCENARIO: 前の回が終わっていない: $CONTINUE_FROM" >&2; exit 1; }
+elif [[ "$SCENARIO" =~ ^W18h[12]$ ]]; then
+  HANDOVER_FROM="W18r6-$CAND-$RUN"
+  [[ -s "$ROOT/docs/poc/results/workflow/raw/$HANDOVER_FROM/final-commit" ]] || { echo "$SCENARIO: 第 6 回が終わっていない: $HANDOVER_FROM" >&2; exit 1; }
+fi
+# 引き継ぎの試行で動かすエージェント（プラグイン・手順を決める）。W18h* は系列の候補に関係なく baseline
+AGENT="$CAND"
+[[ -n "$HANDOVER_FROM" ]] && AGENT=baseline
 APP="$WORK/app"
 HOME_DIR="$WORK/home"
 OUT="$ROOT/docs/poc/results/workflow/raw/$ID"
@@ -43,6 +63,8 @@ else
   rm -rf "$WORK" "$OUT"; mkdir -p "$APP" "$HOME_DIR" "$OUT"
 fi
 echo "$WORK" > "$OUT/workdir"
+echo "$MODEL" > "$OUT/model"
+[[ -n "$HANDOVER_FROM" ]] && echo "$HANDOVER_FROM" > "$OUT/handover-from"
 [[ -n "$W7_CONTROL" ]] && echo 1 > "$OUT/control"
 
 # 1) 評価用アプリのコピー（node_modules を含む）と、常時有効な Skills・MCP
@@ -52,8 +74,28 @@ APP_SRC="${POC_APP_SRC:-$ROOT/poc-app}"
 [[ -n "${POC_APP_SRC:-}" ]] && echo "$APP_SRC" > "$OUT/app-src"
 if [[ -n "$CONTINUE_FROM" ]]; then
   # W7b: W7a の終了時点（コミット済み）を baseline にし、W7b の作業ブランチを切る。アプリのコピー・パッチ・Skills の配置はしない
+  # W18 第 4 回: 依頼者が置いた資料（校正機関の受付システムの API。正解データの agency-api.md の写し）を、回の初めにコミットする
+  if [[ "$SCENARIO" == W18r4 ]]; then
+    mkdir -p "$APP/docs"
+    cp "$ROOT/docs/poc/answer-key/W18/agency-api.md" "$APP/docs/agency-api.md"
+    git -C "$APP" add docs/agency-api.md
+    git -C "$APP" commit -qm "校正機関の受付システムの API の資料を追加（依頼者）"
+    sha256sum "$ROOT/docs/poc/answer-key/W18/agency-api.md" | sed "s#$ROOT/##" > "$OUT/added-doc"
+  fi
   git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
-  git -C "$APP" switch -q -c "poc/wf/$CAND/$SCENARIO/$RUN"
+  # W18 は回をやり直すことがあるので、同じ名前の作業ブランチがあれば今の位置から作り直す（-C）
+  if [[ "$SCENARIO" =~ ^W18r ]]; then git -C "$APP" switch -q -C "poc/wf/$CAND/$SCENARIO/$RUN"; else git -C "$APP" switch -q -c "poc/wf/$CAND/$SCENARIO/$RUN"; fi
+elif [[ -n "$HANDOVER_FROM" ]]; then
+  # W18 引き継ぎ: 第 6 回の終わりのアプリ（git の履歴を含む）を複製する。node_modules はハードリンク。元の作業用コピーへの参照（remote）は外す
+  SRC_APP="$TRIALS/W18r1-$CAND-$RUN/app"
+  git clone -q "$SRC_APP" "$APP"
+  git -C "$APP" checkout -q "$(cat "$ROOT/docs/poc/results/workflow/raw/$HANDOVER_FROM/final-commit")"
+  git -C "$APP" remote remove origin
+  cp -al "$SRC_APP/node_modules" "$APP/node_modules"
+  git -C "$APP" config user.name poc
+  git -C "$APP" config user.email poc@example.invalid
+  git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
+  git -C "$APP" switch -q -c "poc/wf/handover/$SCENARIO/$CAND-$RUN"
 else
 if [[ "$SCENARIO" == W11-* ]]; then
   # W11（実在する OSS の解決済み課題）: scripts/poc/oss/oss.py prepare で作った初期状態（修正の 1 つ前のソース。履歴なし）を写す。
@@ -80,6 +122,8 @@ JSON
 INJECT="${POC_INJECT_PATCH:-}"
 [[ -z "$INJECT" && "$SCENARIO" == W5 ]] && INJECT="$ROOT/docs/poc/answer-key/W5/bugs.patch"
 [[ -z "$INJECT" && "$SCENARIO" == W7a ]] && INJECT="$ROOT/docs/poc/answer-key/W7/base.patch"
+# W18 第 1 回: 題材（計測器の校正台帳。W12 の base.patch の写し）の初期状態を当てる
+[[ -z "$INJECT" && "$SCENARIO" == W18r1 ]] && INJECT="$ROOT/docs/poc/answer-key/W18/base.patch"
 # W7 の対照: 初期状態 + 前の段階までの参照実装（例: W7b なら base.patch:reference-W7a.patch）。POC_INJECT_PATCH は : 区切りで複数書ける
 if [[ -z "$INJECT" && -n "$W7_CONTROL" ]]; then
   INJECT="$ROOT/docs/poc/answer-key/W7/base.patch"
@@ -96,6 +140,13 @@ if [[ -n "$INJECT" ]]; then
     git -C "$APP" apply "$pf"
     sha256sum "$pf" | sed "s#$ROOT/##" >> "$OUT/injected-patch"
   done
+fi
+# W18 第 1 回: 全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準（docs/poc/standards/generic-dev-standard.md の
+# 区切りのコメントより下。全 W 同じ文面）を足す（2026-11-10 ユーザー承認）。初期状態の一部なので候補からは差分に見えない。第 2 回以降も残る
+if [[ "$SCENARIO" == W18r1 ]]; then
+  STD="$ROOT/docs/poc/standards/generic-dev-standard.md"
+  { echo; sed '1,/^-->$/d' "$STD"; } >> "$APP/CLAUDE.md"
+  sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/dev-standard"
 fi
 ( cd "$APP" && git add -A && git -c user.name=poc -c user.email=poc@example.invalid commit -qm baseline )
 git -C "$APP" config user.name poc
@@ -135,7 +186,7 @@ copy_plugin "$CPO/security-guidance" security-guidance
 copy_plugin "$CPO/typescript-lsp" typescript-lsp
 copy_plugin "$CACHE/impeccable/plugin" impeccable
 copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max
-case "$CAND" in
+case "$AGENT" in
   baseline) ;;
   superpowers) copy_plugin "$CACHE/superpowers" superpowers ;;
   feature-dev) copy_plugin "$CPO/feature-dev" feature-dev ;;
@@ -195,7 +246,7 @@ if [[ "$SCENARIO" == W11-* ]]; then
     ALLOWED+=("Bash(nub:*)" "Bash(timeout * nub*)")
   fi
 fi
-if [[ "$CAND" == gstack ]]; then
+if [[ "$AGENT" == gstack ]]; then
   # gstack 自身のコマンド（~/.claude/skills/gstack/bin/*）
   ALLOWED+=("Bash($GSTACK/bin/:*)" "Bash(~/.claude/skills/gstack/bin/:*)" "Bash(bun $GSTACK/:*)")
 fi
@@ -216,13 +267,22 @@ if [[ "$SCN_NUM" -ge 6 && "$SCN_NUM" != 7 && "$SCN_NUM" != 11 ]]; then
     # ブラウザ: Playwright MCP（全候補共通。事前インストール済みの Chromium を使う）と Next.js DevTools MCP
     "mcp__playwright" "mcp__next-devtools"
   )
-  if [[ "$CAND" == gstack ]]; then
+  if [[ "$AGENT" == gstack ]]; then
     # gstack のブラウザ（browse）。Chrome for Testing は取得できないので、事前インストール済みの Chromium を使わせる
     ALLOWED+=("Bash($GSTACK/browse/dist/:*)" "Bash(~/.claude/skills/gstack/browse/dist/:*)")
   fi
   CHILD_ENV+=(GSTACK_CHROMIUM_PATH=/opt/pw-browsers/chromium)
   # 子セッションが起動したサーバー・ブラウザが試行後に残らないよう、終了時にも止める（reap_servers は下で定義）
   trap 'declare -F reap_servers >/dev/null && reap_servers end' EXIT
+fi
+# W18 の各回: 依頼者への質問コマンド ask-po を作業用コピーの外（$WORK/bin）に置き、子セッションの PATH に入れて実行を許可する
+#（W12・W13 と同じ。CLAUDE.md の例外としてコーディネーター承認済み）。依頼者役（answer_w18.py）は下で裏に起動する。引き継ぎには無い
+if [[ "$SCENARIO" =~ ^W18r ]]; then
+  mkdir -p "$WORK/bin"
+  cp "$ROOT/scripts/poc/ask-po" "$WORK/bin/ask-po"
+  chmod +x "$WORK/bin/ask-po"
+  ALLOWED+=("Bash(ask-po:*)" "Bash(ask-po *)")
+  CHILD_ENV+=(PATH="$WORK/bin:$PATH")
 fi
 
 # 4) 手順（docs/poc/tasks/wf-procedures.md）
@@ -237,12 +297,14 @@ else
   # POC_TASK_SUFFIX=old|new で明示的に切り替えられる（W1・W2 の新文言での再試行など）。
   SUFFIX_MODE="${POC_TASK_SUFFIX:-}"
   if [[ -z "$SUFFIX_MODE" ]]; then
-    case "$SCENARIO" in W1|W2) SUFFIX_MODE=old ;; *) SUFFIX_MODE=new ;; esac
+    case "$SCENARIO" in W1|W2) SUFFIX_MODE=old ;; W18r*) SUFFIX_MODE=w12 ;; *) SUFFIX_MODE=new ;; esac
   fi
   case "$SUFFIX_MODE" in
+    # W18 の各回（W12・W13 と同じ文言）: 依頼者に質問できることを伝える（ask-po と、メッセージでの質問の両方）。工程を省かないことは新文言と同じ
+    w12) SUFFIX="この作業は無人で実行しています。依頼者（品質保証部の担当者）に確認したいことがあれば、作業中いつでも ask-po \"<質問>\" コマンドで質問できます（依頼者が答えます。決まっていないことは「お任せします」と返ります）。作業の区切りで、最後のメッセージに依頼者への質問を書いても答えます。ツールの手順にある工程（調査・設計・レビューなど）は省かずに進めてください。作業が終わったら、変更内容を git にコミットしてください。" ;;
     old) SUFFIX="この作業は無人で実行しています。確認の質問には答えられないので、課題文に書かれていないことはお任せします。作業が終わったら、変更内容を git にコミットしてください。" ;;
     new) SUFFIX="この作業は無人で実行しています。確認の質問には答えられないので、課題文に書かれていないことの判断はお任せしますが、ツールの手順にある工程（調査・設計・レビューなど）は省かずに進めてください。作業が終わったら、変更内容を git にコミットしてください。" ;;
-    *) echo "POC_TASK_SUFFIX は old か new: $SUFFIX_MODE" >&2; exit 1 ;;
+    *) echo "POC_TASK_SUFFIX は old・new・w12 のいずれか: $SUFFIX_MODE" >&2; exit 1 ;;
   esac
   echo "$SUFFIX_MODE" > "$OUT/task-suffix"
   TASK="$(cat "$ROOT/docs/poc/tasks/wf-$SCENARIO.md")
@@ -260,12 +322,14 @@ if [[ "$SCENARIO" == W3 ]]; then
     gstack) STEPS=("/office-hours $TASK" "/plan-ceo-review") ;;
   esac
 else
-  case "$CAND" in
+  case "$AGENT" in
     baseline|superpowers) STEPS=("$TASK") ;;
     feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
     compound-engineering) STEPS=("/ce-plan $TASK" "/ce-work" "/ce-code-review") ;;
     gstack) STEPS=("$TASK" "/review") ;;
   esac
+  # W18 の各回: 質問はメッセージ本文か ask-po で受ける。質問ツールは無人では答えられないので外す（W3・W12・W13 と同じ）
+  [[ "$SCENARIO" =~ ^W18r ]] && EXTRA=(--disallowedTools AskUserQuestion)
 fi
 # W7a の後の手順（Compound Engineering は学んだことを残す /ce-compound。落とし穴の指摘のやり取りが終わってから行う）
 POST_STEPS=()
@@ -337,6 +401,8 @@ echo "$BUDGET_MODE" > "$OUT/budget-mode"
 case "$BUDGET_MODE" in flag|watch) ;; *) echo "POC_BUDGET_MODE は flag か watch: $BUDGET_MODE" >&2; exit 1 ;; esac
 # 介入（定型の「お任せします」で続けさせる）の上限回数。0 なら介入しない（W1 の手順）。
 MAX_NUDGES="${POC_MAX_NUDGES:-0}"
+# W18 は各回・引き継ぎとも W2 以降の定型の介入（最大 2 回）を既定にする
+[[ "$SCENARIO" =~ ^W18 ]] && MAX_NUDGES="${POC_MAX_NUDGES:-2}"
 NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、変更を git にコミットしてください。"
 # W3: 回答のやり取りの上限（試行全体の回数）と、締め切り・完了の定型文
 MAX_QA="${POC_MAX_QA_ROUNDS:-10}"
@@ -350,7 +416,8 @@ MAX_FEEDBACK="${POC_MAX_FEEDBACK:-0}"
 # Claude Code 自身の自動メモリ（~/.claude/projects/<作業用コピー>/memory/）は候補の記憶の仕組みではないため、
 # W7 では W7a・W7b とも全候補で止める（W7b は W7a の HOME を引き継ぐので、止めないと全候補に同じ記憶が残る）。W7 以外は既定のまま。
 AUTO_MEMORY_ENV=()
-if [[ "${POC_DISABLE_AUTO_MEMORY:-}" == 1 ]] || [[ -z "${POC_DISABLE_AUTO_MEMORY:-}" && "$SCENARIO" =~ ^W7[a-z]$ ]]; then
+# W18 も同じ理由で止める（各回は同じ HOME を引き継ぐ。記憶は候補の仕組みとリポジトリに書かれたものだけにする）
+if [[ "${POC_DISABLE_AUTO_MEMORY:-}" == 1 ]] || [[ -z "${POC_DISABLE_AUTO_MEMORY:-}" && "$SCENARIO" =~ ^(W7[a-z]|W18.*)$ ]]; then
   AUTO_MEMORY_ENV=(CLAUDE_CODE_DISABLE_AUTO_MEMORY=1)
   echo 1 > "$OUT/auto-memory-disabled"
 fi
@@ -463,10 +530,19 @@ run_step() {  # run_step <番号> <プロンプト>
   return 0
 }
 
-qa_loop() {  # W3: 直前のステップの最後のメッセージに質問があれば、回答役の回答で続ける（上限 MAX_QA 回）
-  [[ "$SCENARIO" == W3 ]] || return 0
+qa_loop() {  # W3・W18 の各回: 直前のステップの最後のメッセージに質問があれば、回答役の回答で続ける（上限 MAX_QA 回）
+  [[ "$SCENARIO" == W3 || "$SCENARIO" =~ ^W18r ]] || return 0
   local reply
   while :; do
+    if [[ "$SCENARIO" =~ ^W18r ]]; then
+      # W18 は W12・W13 と同じ: 上限に達したら答えるのをやめる（締め切りの定型文は送らない。続きは介入の定型文で進める）
+      [[ "$QA" -ge "$MAX_QA" ]] && { echo "qa limit $MAX_QA reached" >> "$OUT/errors.log"; return 0; }
+      QA=$((QA+1))
+      reply="$(POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_w18.py" message "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$i" "$QA")"
+      [[ -z "$reply" ]] && return 0
+      i=$((i+1)); run_step "$i" "$reply"
+      continue
+    fi
     if [[ "$QA" -ge "$MAX_QA" ]]; then
       # 上限に達した後も質問が続くときは、締め切りの定型文を 1 回だけ送る（qa-closed.log に記録）
       if [[ ! -s "$OUT/qa-closed.log" ]] && ! over_budget; then
@@ -486,6 +562,17 @@ qa_loop() {  # W3: 直前のステップの最後のメッセージに質問が�
   done
 }
 
+# W18 の各回: 依頼者役（ask-po の受け口。answer_w18.py）を裏で起動する。試行の終わりに止める
+PO_PID=""
+if [[ "$SCENARIO" =~ ^W18r ]]; then
+  mkdir -p "$WORK/answerer-home"
+  POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/scripts/poc/answer_w18.py" serve "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$WORK/po.sock" \
+    >> "$OUT/persona.log" 2>&1 &
+  PO_PID=$!
+  # 終了コードを変えないよう、依頼者役がもう止まっていても失敗にしない
+  trap 'declare -F reap_servers >/dev/null && reap_servers end; kill "$PO_PID" 2>/dev/null || true' EXIT
+  for _ in $(seq 1 20); do [[ -S "$WORK/po.sock" ]] && break; sleep 0.5; done
+fi
 START=$(date +%s); SESSION=""; i=0; QA=0
 for step in "${STEPS[@]}"; do
   i=$((i+1))
@@ -538,12 +625,15 @@ for step in "${POST_STEPS[@]}"; do
   i=$((i+1)); run_step "$i" "$step"
 done
 echo $(( $(date +%s) - START - CHECK_SECONDS )) > "$OUT/elapsed-seconds"
+[[ -n "$PO_PID" ]] && { kill "$PO_PID" 2>/dev/null || true; }
 
 # 5) 成果物の保存（コミット済み・未コミットの両方を含む差分）
 ( cd "$APP" && git add -A && git commit -qm "poc: uncommitted leftovers" ) || true
 git -C "$APP" diff "$(cat "$OUT/baseline-commit")" HEAD -- . ':!package-lock.json' > "$OUT/diff.patch"
 git -C "$APP" log --oneline "$(cat "$OUT/baseline-commit")"..HEAD > "$OUT/commits.txt"
-if [[ "$CAND" == gstack ]]; then
+# W18: 回（引き継ぎ）の終わりのコミット。次の回はこの上に積み、採点はこのコミットを取り出して行う
+[[ "$SCENARIO" =~ ^W18 ]] && git -C "$APP" rev-parse HEAD > "$OUT/final-commit"
+if [[ "$AGENT" == gstack ]]; then
   # 外部送信の記録（G2 の確認用）
   HOME="$HOME_DIR" "$GSTACK/bin/gstack-egress" list > "$OUT/gstack-egress.txt" 2>&1 || true
 fi

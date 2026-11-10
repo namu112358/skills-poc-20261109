@@ -1,0 +1,52 @@
+diff --git a/src/app/api/instruments/[id]/order/route.ts b/src/app/api/instruments/[id]/order/route.ts
+new file mode 100644
+index 0000000..3428876
+--- /dev/null
++++ b/src/app/api/instruments/[id]/order/route.ts
+@@ -0,0 +1,30 @@
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { getDb } from "@/lib/db";
++import { getInstrument } from "@/lib/instruments";
++
++export async function GET(_r: Request, { params }: { params: Promise<{ id: string }> }) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = Number((await params).id);
++  return NextResponse.json({ orders: getDb().prepare("SELECT * FROM orders WHERE instrument_id = ?").all(id) });
++}
++
++export async function POST(_r: Request, { params }: { params: Promise<{ id: string }> }) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = Number((await params).id);
++  const i = getInstrument(id);
++  if (!i) return jsonError(404, "計測器が見つかりません");
++  const res = await fetch(process.env.AGENCY_API_URL + "/v1/orders", {
++    method: "POST",
++    headers: { "content-type": "application/json", "x-api-key": process.env.AGENCY_API_KEY! },
++    body: JSON.stringify({ clientReference: `${i.managementNo}-${Date.now()}`, item: { managementNo: i.managementNo, name: i.name, model: i.model }, requestedBy: user.id }),
++  });
++  if (!res.ok) return jsonError(502, "発注できませんでした");
++  const data = await res.json();
++  const db = getDb();
++  const r = db.prepare("INSERT INTO orders (instrument_id, order_id, return_on, status) VALUES (?, ?, ?, 'ordered')").run(id, data.orderId, data.estimatedReturnOn);
++  db.prepare("UPDATE instruments SET status = 'calibrating' WHERE id = ?").run(id);
++  return NextResponse.json({ order: { id: Number(r.lastInsertRowid), orderId: data.orderId } }, { status: 201 });
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 0344936..27ad358 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -108,4 +108,11 @@ export const MIGRATIONS: readonly Migration[] = [
+       INSERT INTO locations (name) SELECT DISTINCT location FROM instruments WHERE location <> '';
+     `,
+   },
++  {
++    version: 7,
++    name: "orders",
++    sql: `
++      CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT, instrument_id INTEGER NOT NULL, order_id TEXT, return_on TEXT, status TEXT NOT NULL);
++    `,
++  },
+ ];

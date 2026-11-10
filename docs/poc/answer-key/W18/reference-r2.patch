@@ -1,0 +1,530 @@
+diff --git a/src/app/api/instruments/[id]/loans/route.ts b/src/app/api/instruments/[id]/loans/route.ts
+index 88dc757..325a086 100644
+--- a/src/app/api/instruments/[id]/loans/route.ts
++++ b/src/app/api/instruments/[id]/loans/route.ts
+@@ -23,9 +23,9 @@ export async function POST(request: Request, { params }: Context) {
+   if (!input.ok) return jsonError(400, "入力内容に誤りがあります", input.errors);
+   const result = lendInstrument(id, input.value);
+   if (!result.ok) {
+-    return result.reason === "not_found"
+-      ? jsonError(404, "計測器が見つかりません")
+-      : jsonError(409, "使用中の計測器だけを貸し出せます");
++    if (result.reason === "not_found") return jsonError(404, "計測器が見つかりません");
++    if (result.reason === "reserved") return jsonError(409, "返却予定日までの期間に、ほかの人の予約があります");
++    return jsonError(409, "使用中の計測器だけを貸し出せます");
+   }
+   return NextResponse.json({ loan: result.loan }, { status: 201 });
+ }
+diff --git a/src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts b/src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts
+new file mode 100644
+index 0000000..f33b7da
+--- /dev/null
++++ b/src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts
+@@ -0,0 +1,23 @@
++// POST /api/instruments/:id/reservations/:reservationId/cancel — 予約を取り消す（予約した本人か、計測器の管理者）。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { parseId } from "@/lib/instruments";
++import { cancelReservation } from "@/lib/reservations";
++
++type Context = { params: Promise<{ id: string; reservationId: string }> };
++
++export async function POST(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const p = await params;
++  const id = parseId(p.id);
++  const reservationId = parseId(p.reservationId);
++  if (id === undefined || reservationId === undefined) return jsonError(404, "予約が見つかりません");
++  const result = cancelReservation(id, reservationId, user.id);
++  if (!result.ok) {
++    if (result.reason === "not_found") return jsonError(404, "予約が見つかりません");
++    if (result.reason === "forbidden") return jsonError(403, "予約を取り消せるのは、予約した本人と計測器の管理者です");
++    return jsonError(409, "この予約はすでに取り消されています");
++  }
++  return NextResponse.json({ reservation: result.reservation });
++}
+diff --git a/src/app/api/instruments/[id]/reservations/route.ts b/src/app/api/instruments/[id]/reservations/route.ts
+new file mode 100644
+index 0000000..b3d16bc
+--- /dev/null
++++ b/src/app/api/instruments/[id]/reservations/route.ts
+@@ -0,0 +1,40 @@
++// GET /api/instruments/:id/reservations — 予約（取消を含む） / POST — 予約する（本文 { startOn, endOn }。予約するのはログイン中の本人）。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { todayJst } from "@/lib/dates";
++import { getInstrument, parseId } from "@/lib/instruments";
++import { createReservation, listReservations, validateReservationInput } from "@/lib/reservations";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ reservations: listReservations(id) });
++}
++
++const CONFLICT_MESSAGES = {
++  not_reservable: "使用停止・廃棄の計測器は予約できません",
++  on_loan: "貸出中の計測器は、返却予定日の翌日から予約できます",
++  conflict: "その期間にはほかの予約があります",
++  past_due: "校正期限を過ぎる日は予約できません",
++} as const;
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  const now = new Date();
++  const input = validateReservationInput(await readJson(request), todayJst(now));
++  if (!input.ok) return jsonError(400, "入力内容に誤りがあります", input.errors);
++  const result = createReservation(id, user.id, input.value, undefined, now);
++  if (!result.ok) {
++    if (result.reason === "not_found") return jsonError(404, "計測器が見つかりません");
++    const message = CONFLICT_MESSAGES[result.reason];
++    return jsonError(409, result.dueOn ? `${message}（校正期限: ${result.dueOn}）` : message);
++  }
++  return NextResponse.json({ reservation: result.reservation }, { status: 201 });
++}
+diff --git a/src/app/instruments/[id]/page.tsx b/src/app/instruments/[id]/page.tsx
+index 0cb7ecb..e4d8fc5 100644
+--- a/src/app/instruments/[id]/page.tsx
++++ b/src/app/instruments/[id]/page.tsx
+@@ -3,6 +3,8 @@ import { RESULT_LABELS, listCalibrations } from "@/lib/calibrations";
+ import { calibrationDueOn } from "@/lib/calibration-due";
+ import { IMPORTANCE_LABELS, STATUS_LABELS, getInstrument, parseId } from "@/lib/instruments";
+ import { listLoans } from "@/lib/loans";
++import { RESERVATION_STATUS_LABELS, listReservations } from "@/lib/reservations";
++import { todayJst } from "@/lib/dates";
+ import { requireUser } from "@/lib/session";
+ import { getUser } from "@/lib/users";
+ 
+@@ -18,6 +20,8 @@ export default async function InstrumentDetailPage({ params }: Props) {
+   const manager = getUser(instrument.managerId);
+   const loans = listLoans(instrument.id);
+   const calibrations = listCalibrations(instrument.id);
++  const today = todayJst();
++  const reservations = listReservations(instrument.id).filter((r) => r.status !== "cancelled" && r.endOn >= today);
+   const nameOf = (userId: string) => getUser(userId)?.name ?? userId;
+ 
+   return (
+@@ -53,6 +57,32 @@ export default async function InstrumentDetailPage({ params }: Props) {
+         )}
+       </dl>
+ 
++      <h2>これからの予約</h2>
++      {reservations.length === 0 ? (
++        <p>予約はありません。</p>
++      ) : (
++        <table data-testid="reservations">
++          <thead>
++            <tr>
++              <th>予約した人</th>
++              <th>開始日</th>
++              <th>終了日</th>
++              <th>状態</th>
++            </tr>
++          </thead>
++          <tbody>
++            {reservations.map((r) => (
++              <tr key={r.id}>
++                <td>{nameOf(r.userId)}</td>
++                <td>{r.startOn}</td>
++                <td>{r.endOn}</td>
++                <td>{RESERVATION_STATUS_LABELS[r.status]}</td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++      )}
++
+       <h2>校正記録</h2>
+       {calibrations.length === 0 ? (
+         <p>校正記録はありません。</p>
+diff --git a/src/lib/calibrations.ts b/src/lib/calibrations.ts
+index 68049fb..9180813 100644
+--- a/src/lib/calibrations.ts
++++ b/src/lib/calibrations.ts
+@@ -5,6 +5,7 @@ import { getDb, transaction, type Db } from "./db/index.ts";
+ import { isValidDate } from "./dates.ts";
+ import { getInstrument, type Instrument, type ValidationResult } from "./instruments.ts";
+ import { logger } from "./logger.ts";
++import { cancelUpcomingReservations } from "./reservations.ts";
+ 
+ export type CalibrationResult = "pass" | "fail";
+ 
+@@ -108,6 +109,8 @@ export function recordCalibration(
+       ).run(input.calibratedOn, instrumentId);
+     } else {
+       db.prepare("UPDATE instruments SET status = 'suspended' WHERE id = ?").run(instrumentId);
++      // 使用停止になった計測器の、これからの予約は取り消す（予約した人には管理者が連絡する）
++      cancelUpcomingReservations(instrumentId, recordedBy, db, now);
+     }
+     const record = toRecord(db.prepare(`SELECT ${COLUMNS} FROM calibration_records WHERE id = ?`).get(Number(lastInsertRowid)) as Row);
+     return { record, instrument: getInstrument(instrumentId, db)! };
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 1c6bf32..b25c00d 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -108,4 +108,22 @@ export const MIGRATIONS: readonly Migration[] = [
+       );
+     `,
+   },
++  {
++    version: 6,
++    name: "reservations",
++    sql: `
++      CREATE TABLE reservations (
++        id            INTEGER PRIMARY KEY AUTOINCREMENT,
++        instrument_id INTEGER NOT NULL REFERENCES instruments(id),
++        user_id       TEXT NOT NULL REFERENCES users(id), -- 予約した人
++        start_on      TEXT NOT NULL, -- 開始日 YYYY-MM-DD（日本時間。この日を含む）
++        end_on        TEXT NOT NULL, -- 終了日 YYYY-MM-DD（この日を含む）
++        status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled')),
++        created_at    TEXT NOT NULL, -- ISO 8601（UTC）
++        cancelled_at  TEXT,
++        cancelled_by  TEXT REFERENCES users(id)
++      );
++      CREATE INDEX reservations_instrument ON reservations(instrument_id, start_on);
++    `,
++  },
+ ];
+diff --git a/src/lib/loans.ts b/src/lib/loans.ts
+index 4d3009e..aa8fec5 100644
+--- a/src/lib/loans.ts
++++ b/src/lib/loans.ts
+@@ -1,9 +1,10 @@
+ // 計測器の貸出と返却。貸し出すと計測器の状態は「貸出中」、返却すると「使用中」に戻る。
+ import { getDb, transaction, type Db } from "./db/index.ts";
+-import { isValidDate } from "./dates.ts";
++import { isValidDate, todayJst } from "./dates.ts";
+ import { getInstrument } from "./instruments.ts";
+ import { isActiveUser } from "./users.ts";
+ import type { ValidationResult } from "./instruments.ts";
++import { conflictingReservation } from "./reservations.ts";
+ 
+ export type Loan = {
+   id: number;
+@@ -67,14 +68,17 @@ export function validateLoanInput(body: unknown, db: Db = getDb()): ValidationRe
+     : { ok: true, value: { borrowerId: b.borrowerId as string, dueOn: b.dueOn as string } };
+ }
+ 
+-export type LendResult = { ok: true; loan: Loan } | { ok: false; reason: "not_found" | "not_available" };
++export type LendResult = { ok: true; loan: Loan } | { ok: false; reason: "not_found" | "not_available" | "reserved" };
+ 
+-/** 使用中の計測器を貸し出す。使用中でなければ貸し出せない。 */
++/** 使用中の計測器を貸し出す。使用中でなければ貸し出せない。今日〜返却予定日に他人の予約があれば貸し出さない。 */
+ export function lendInstrument(instrumentId: number, input: LoanInput, db: Db = getDb(), now: Date = new Date()): LendResult {
+   return transaction(db, () => {
+     const instrument = getInstrument(instrumentId, db);
+     if (!instrument) return { ok: false, reason: "not_found" } as const;
+     if (instrument.status !== "in_use") return { ok: false, reason: "not_available" } as const;
++    if (conflictingReservation(instrumentId, todayJst(now), input.dueOn, db, { userId: input.borrowerId })) {
++      return { ok: false, reason: "reserved" } as const;
++    }
+     const { lastInsertRowid } = db
+       .prepare("INSERT INTO loans (instrument_id, borrower_id, borrowed_at, due_on) VALUES (?, ?, ?, ?)")
+       .run(instrumentId, input.borrowerId, now.toISOString(), input.dueOn);
+diff --git a/src/lib/reservations.ts b/src/lib/reservations.ts
+new file mode 100644
+index 0000000..c9c27a3
+--- /dev/null
++++ b/src/lib/reservations.ts
+@@ -0,0 +1,177 @@
++// 計測器の貸出の予約。予約は日単位（開始日・終了日を含む。日本時間の暦日）。
++// - 同じ計測器で期間が 1 日でも重なる有効な予約は作れない。貸出中なら返却予定日の翌日から予約できる。
++// - 使用停止・廃棄の計測器は予約できない。校正期限（calibration-due.ts）を過ぎる日は予約できない。
++// - 取り消せるのは予約した本人と、その計測器の管理者。
++// - 他人の予約の期間にかかる貸出はしない（loans.ts の lendInstrument が conflictingReservation で確かめる）。
++import { calibrationDueOn } from "./calibration-due.ts";
++import { getDb, transaction, type Db } from "./db/index.ts";
++import { isValidDate, todayJst } from "./dates.ts";
++import { getInstrument, type ValidationResult } from "./instruments.ts";
++import { currentLoan } from "./loans.ts";
++
++export type ReservationStatus = "active" | "cancelled";
++
++export const RESERVATION_STATUS_LABELS: Record<ReservationStatus, string> = {
++  active: "予約中",
++  cancelled: "取消",
++};
++
++export type Reservation = {
++  id: number;
++  instrumentId: number;
++  userId: string;
++  startOn: string;
++  endOn: string;
++  status: ReservationStatus;
++  createdAt: string;
++  cancelledAt: string | null;
++  cancelledBy: string | null;
++};
++
++type Row = {
++  id: number;
++  instrument_id: number;
++  user_id: string;
++  start_on: string;
++  end_on: string;
++  status: ReservationStatus;
++  created_at: string;
++  cancelled_at: string | null;
++  cancelled_by: string | null;
++};
++
++const COLUMNS = "id, instrument_id, user_id, start_on, end_on, status, created_at, cancelled_at, cancelled_by";
++
++function toReservation(r: Row): Reservation {
++  return {
++    id: r.id,
++    instrumentId: r.instrument_id,
++    userId: r.user_id,
++    startOn: r.start_on,
++    endOn: r.end_on,
++    status: r.status,
++    createdAt: r.created_at,
++    cancelledAt: r.cancelled_at,
++    cancelledBy: r.cancelled_by,
++  };
++}
++
++/** 計測器の予約（取消を含む）を開始日の順に返す。 */
++export function listReservations(instrumentId: number, db: Db = getDb()): Reservation[] {
++  const rows = db
++    .prepare(`SELECT ${COLUMNS} FROM reservations WHERE instrument_id = ? ORDER BY start_on, id`)
++    .all(instrumentId) as Row[];
++  return rows.map(toReservation);
++}
++
++export function getReservation(instrumentId: number, id: number, db: Db = getDb()): Reservation | undefined {
++  const row = db.prepare(`SELECT ${COLUMNS} FROM reservations WHERE id = ? AND instrument_id = ?`).get(id, instrumentId) as
++    | Row
++    | undefined;
++  return row && toReservation(row);
++}
++
++/** [from, to] と 1 日でも重なる有効な予約（except の利用者のものは除く）。 */
++export function conflictingReservation(
++  instrumentId: number,
++  from: string,
++  to: string,
++  db: Db = getDb(),
++  except?: { userId?: string },
++): Reservation | undefined {
++  const row = db
++    .prepare(
++      `SELECT ${COLUMNS} FROM reservations
++       WHERE instrument_id = ? AND status = 'active' AND start_on <= ? AND end_on >= ?
++         AND (? IS NULL OR user_id <> ?)
++       ORDER BY start_on LIMIT 1`,
++    )
++    .get(instrumentId, to, from, except?.userId ?? null, except?.userId ?? null) as Row | undefined;
++  return row && toReservation(row);
++}
++
++export type ReservationInput = { startOn: string; endOn: string };
++
++export function validateReservationInput(body: unknown, today: string): ValidationResult<ReservationInput> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  if (!isValidDate(b.startOn)) errors.push("開始日は YYYY-MM-DD 形式で入力してください");
++  if (!isValidDate(b.endOn)) errors.push("終了日は YYYY-MM-DD 形式で入力してください");
++  if (errors.length === 0) {
++    if ((b.startOn as string) < today) errors.push("過去の日からは予約できません");
++    if ((b.endOn as string) < (b.startOn as string)) errors.push("終了日は開始日以降にしてください");
++  }
++  return errors.length > 0
++    ? { ok: false, errors }
++    : { ok: true, value: { startOn: b.startOn as string, endOn: b.endOn as string } };
++}
++
++export type ReserveResult =
++  | { ok: true; reservation: Reservation }
++  | { ok: false; reason: "not_found" | "not_reservable" | "past_due" | "on_loan" | "conflict"; dueOn?: string };
++
++/** 予約を作る。期間の検証（validateReservationInput）は済んでいること。 */
++export function createReservation(
++  instrumentId: number,
++  userId: string,
++  input: ReservationInput,
++  db: Db = getDb(),
++  now: Date = new Date(),
++): ReserveResult {
++  return transaction(db, () => {
++    const instrument = getInstrument(instrumentId, db);
++    if (!instrument) return { ok: false, reason: "not_found" } as const;
++    if (instrument.status === "suspended" || instrument.status === "disposed") {
++      return { ok: false, reason: "not_reservable" } as const;
++    }
++    // 校正期限を過ぎた計測器を使わせないため、終了日が期限より後の予約は作らない
++    const dueOn = calibrationDueOn(instrument.lastCalibratedOn, instrument.intervalMonths);
++    if (input.endOn > dueOn) return { ok: false, reason: "past_due", dueOn } as const;
++    const loan = currentLoan(instrumentId, db);
++    if (loan && input.startOn <= loan.dueOn) return { ok: false, reason: "on_loan" } as const;
++    if (conflictingReservation(instrumentId, input.startOn, input.endOn, db)) return { ok: false, reason: "conflict" } as const;
++    const { lastInsertRowid } = db
++      .prepare("INSERT INTO reservations (instrument_id, user_id, start_on, end_on, created_at) VALUES (?, ?, ?, ?, ?)")
++      .run(instrumentId, userId, input.startOn, input.endOn, now.toISOString());
++    const row = db.prepare(`SELECT ${COLUMNS} FROM reservations WHERE id = ?`).get(Number(lastInsertRowid)) as Row;
++    return { ok: true, reservation: toReservation(row) } as const;
++  });
++}
++
++export type CancelResult = { ok: true; reservation: Reservation } | { ok: false; reason: "not_found" | "forbidden" | "not_active" };
++
++/** 予約を取り消す。取り消せるのは予約した本人と、その計測器の管理者。 */
++export function cancelReservation(
++  instrumentId: number,
++  id: number,
++  userId: string,
++  db: Db = getDb(),
++  now: Date = new Date(),
++): CancelResult {
++  return transaction(db, () => {
++    const r = getReservation(instrumentId, id, db);
++    const instrument = getInstrument(instrumentId, db);
++    if (!r || !instrument) return { ok: false, reason: "not_found" } as const;
++    if (r.userId !== userId && instrument.managerId !== userId) return { ok: false, reason: "forbidden" } as const;
++    if (r.status !== "active") return { ok: false, reason: "not_active" } as const;
++    db.prepare("UPDATE reservations SET status = 'cancelled', cancelled_at = ?, cancelled_by = ? WHERE id = ?").run(
++      now.toISOString(),
++      userId,
++      id,
++    );
++    return { ok: true, reservation: getReservation(instrumentId, id, db)! } as const;
++  });
++}
++
++/** 使用停止になった計測器の、これから（終了日が今日以降）の予約を取り消す。トランザクションの中で呼ぶ。 */
++export function cancelUpcomingReservations(instrumentId: number, cancelledBy: string, db: Db, now: Date = new Date()): number {
++  const { changes } = db
++    .prepare(
++      "UPDATE reservations SET status = 'cancelled', cancelled_at = ?, cancelled_by = ? WHERE instrument_id = ? AND status = 'active' AND end_on >= ?",
++    )
++    .run(now.toISOString(), cancelledBy, instrumentId, todayJst(now));
++  return Number(changes);
++}
+diff --git a/tests/reservations.test.ts b/tests/reservations.test.ts
+new file mode 100644
+index 0000000..f4f538d
+--- /dev/null
++++ b/tests/reservations.test.ts
+@@ -0,0 +1,110 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { recordCalibration } from "../src/lib/calibrations.ts";
++import { listInstruments, updateInstrument } from "../src/lib/instruments.ts";
++import { lendInstrument } from "../src/lib/loans.ts";
++import {
++  cancelReservation,
++  createReservation,
++  listReservations,
++  validateReservationInput,
++} from "../src/lib/reservations.ts";
++
++const byNo = (db: ReturnType<typeof openDb>, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!;
++const NOW = new Date("2026-11-10T01:00:00Z"); // 日本時間 2026-11-10
++
++describe("validateReservationInput", () => {
++  it("accepts today and later, and rejects past or reversed periods", () => {
++    assert.equal(validateReservationInput({ startOn: "2026-11-10", endOn: "2026-11-10" }, "2026-11-10").ok, true);
++    assert.equal(validateReservationInput({ startOn: "2026-11-09", endOn: "2026-11-12" }, "2026-11-10").ok, false);
++    assert.equal(validateReservationInput({ startOn: "2026-11-12", endOn: "2026-11-11" }, "2026-11-10").ok, false);
++    assert.equal(validateReservationInput({ startOn: "2026-11-31", endOn: "2026-12-01" }, "2026-11-10").ok, false);
++  });
++});
++
++describe("createReservation", () => {
++  it("refuses periods that overlap even by one day, including the boundary day", () => {
++    const db = openDb();
++    const id = byNo(db, "MI-0001").id;
++    assert.equal(createReservation(id, "suzuki", { startOn: "2026-11-20", endOn: "2026-11-22" }, db, NOW).ok, true);
++    assert.deepEqual(createReservation(id, "tanaka", { startOn: "2026-11-22", endOn: "2026-11-24" }, db, NOW), { ok: false, reason: "conflict" });
++    assert.deepEqual(createReservation(id, "tanaka", { startOn: "2026-11-18", endOn: "2026-11-20" }, db, NOW), { ok: false, reason: "conflict" });
++    assert.equal(createReservation(id, "tanaka", { startOn: "2026-11-23", endOn: "2026-11-24" }, db, NOW).ok, true);
++  });
++
++  it("refuses reservations that end after the calibration due date", () => {
++    const db = openDb();
++    const id = byNo(db, "MI-0001").id; // 前回 2026-01-20・12 か月 → 期限 2027-01-31
++    assert.equal(createReservation(id, "suzuki", { startOn: "2027-01-29", endOn: "2027-01-31" }, db, NOW).ok, true);
++    assert.deepEqual(createReservation(id, "tanaka", { startOn: "2027-02-01", endOn: "2027-02-01" }, db, NOW), {
++      ok: false,
++      reason: "past_due",
++      dueOn: "2027-01-31",
++    });
++  });
++
++  it("frees the period when a reservation is cancelled", () => {
++    const db = openDb();
++    const id = byNo(db, "MI-0001").id;
++    const r = createReservation(id, "suzuki", { startOn: "2026-11-20", endOn: "2026-11-22" }, db, NOW);
++    assert.ok(r.ok);
++    assert.equal(cancelReservation(id, r.reservation.id, "suzuki", db).ok, true);
++    assert.equal(createReservation(id, "tanaka", { startOn: "2026-11-20", endOn: "2026-11-22" }, db, NOW).ok, true);
++  });
++
++  it("allows reserving an instrument on loan only from the day after its due date", () => {
++    const db = openDb();
++    const id = byNo(db, "MI-0002").id; // 返却予定日 2026-11-13
++    assert.deepEqual(createReservation(id, "sato", { startOn: "2026-11-13", endOn: "2026-11-14" }, db, NOW), { ok: false, reason: "on_loan" });
++    assert.equal(createReservation(id, "sato", { startOn: "2026-11-14", endOn: "2026-11-15" }, db, NOW).ok, true);
++  });
++
++  it("refuses suspended and disposed instruments", () => {
++    const db = openDb();
++    for (const no of ["MI-0007", "MI-0008"]) {
++      assert.deepEqual(createReservation(byNo(db, no).id, "sato", { startOn: "2026-11-20", endOn: "2026-11-21" }, db, NOW), {
++        ok: false,
++        reason: "not_reservable",
++      });
++    }
++  });
++});
++
++describe("cancelReservation", () => {
++  it("lets the person who reserved and the instrument manager cancel, but nobody else", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001"); // 管理者 sato
++    const a = createReservation(inst.id, "suzuki", { startOn: "2026-11-20", endOn: "2026-11-21" }, db, NOW);
++    const b = createReservation(inst.id, "suzuki", { startOn: "2026-11-25", endOn: "2026-11-26" }, db, NOW);
++    assert.ok(a.ok && b.ok);
++    assert.deepEqual(cancelReservation(inst.id, a.reservation.id, "tanaka", db), { ok: false, reason: "forbidden" });
++    assert.equal(cancelReservation(inst.id, a.reservation.id, "suzuki", db).ok, true);
++    assert.equal(cancelReservation(inst.id, b.reservation.id, "sato", db).ok, true);
++    assert.deepEqual(cancelReservation(inst.id, b.reservation.id, "sato", db), { ok: false, reason: "not_active" });
++  });
++});
++
++describe("reservations and loans", () => {
++  it("does not lend to others over someone's reservation, but lends to the person who reserved", () => {
++    const db = openDb();
++    const id = byNo(db, "MI-0001").id;
++    assert.ok(createReservation(id, "suzuki", { startOn: "2026-11-12", endOn: "2026-11-14" }, db, NOW).ok);
++    assert.deepEqual(lendInstrument(id, { borrowerId: "tanaka", dueOn: "2026-11-12" }, db, NOW), { ok: false, reason: "reserved" });
++    const short = lendInstrument(id, { borrowerId: "tanaka", dueOn: "2026-11-11" }, db, NOW);
++    assert.equal(short.ok, true);
++    const db2 = openDb();
++    const id2 = byNo(db2, "MI-0001").id;
++    assert.ok(createReservation(id2, "suzuki", { startOn: "2026-11-10", endOn: "2026-11-12" }, db2, NOW).ok);
++    assert.equal(lendInstrument(id2, { borrowerId: "suzuki", dueOn: "2026-11-12" }, db2, NOW).ok, true);
++  });
++
++  it("cancels upcoming reservations when a failed calibration suspends the instrument", () => {
++    const db = openDb();
++    const id = byNo(db, "MI-0001").id;
++    assert.ok(createReservation(id, "suzuki", { startOn: "2026-11-20", endOn: "2026-11-21" }, db, NOW).ok);
++    recordCalibration(id, { calibratedOn: "2026-11-09", result: "fail", agency: "x", certificateNo: "" }, "sato", db, NOW);
++    assert.deepEqual(listReservations(id, db).map((r) => r.status), ["cancelled"]);
++    updateInstrument(id, { status: "in_use" }, db);
++  });
++});

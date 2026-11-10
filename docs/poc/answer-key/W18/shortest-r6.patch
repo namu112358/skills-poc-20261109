@@ -1,0 +1,13 @@
+diff --git a/src/app/api/instruments/[id]/route.ts b/src/app/api/instruments/[id]/route.ts
+index a73180d..12c68a6 100644
+--- a/src/app/api/instruments/[id]/route.ts
++++ b/src/app/api/instruments/[id]/route.ts
+@@ -22,6 +22,8 @@ export async function PATCH(request: Request, { params }: Context) {
+   const id = parseId((await params).id);
+   const current = id === undefined ? undefined : getInstrument(id);
+   if (!current) return jsonError(404, "計測器が見つかりません");
++  const dept = (id: string) => (getDb().prepare("SELECT department_id FROM users WHERE id = ?").get(id) as { department_id: string } | undefined)?.department_id;
++  if (dept(user.id) !== "qa" && dept(user.id) !== dept(current.managerId)) return jsonError(403, "権限がありません");
+   const result = validateInstrumentInput(await readJson(request), { partial: true });
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+   const changes = result.value;

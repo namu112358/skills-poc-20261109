@@ -1,0 +1,55 @@
+diff --git a/src/app/api/instruments/[id]/history/route.ts b/src/app/api/instruments/[id]/history/route.ts
+new file mode 100644
+index 0000000..8e6d06a
+--- /dev/null
++++ b/src/app/api/instruments/[id]/history/route.ts
+@@ -0,0 +1,10 @@
++import { NextResponse } from "next/server";
++import { requireApiUser } from "@/lib/api";
++import { getDb } from "@/lib/db";
++
++export async function GET(_r: Request, { params }: { params: Promise<{ id: string }> }) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = Number((await params).id);
++  return NextResponse.json({ history: getDb().prepare("SELECT * FROM history WHERE instrument_id = ? ORDER BY id DESC").all(id) });
++}
+diff --git a/src/app/api/instruments/[id]/route.ts b/src/app/api/instruments/[id]/route.ts
+index c31881b..a73180d 100644
+--- a/src/app/api/instruments/[id]/route.ts
++++ b/src/app/api/instruments/[id]/route.ts
+@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
+ import { jsonError, readJson, requireApiUser } from "@/lib/api";
+ import { getInstrument, managementNoExists, parseId, updateInstrument, validateInstrumentInput } from "@/lib/instruments";
+ import { currentLoan } from "@/lib/loans";
++import { getDb } from "@/lib/db";
+ 
+ type Context = { params: Promise<{ id: string }> };
+ 
+@@ -30,5 +31,9 @@ export async function PATCH(request: Request, { params }: Context) {
+   if (changes.managementNo !== undefined && changes.managementNo !== current.managementNo && managementNoExists(changes.managementNo)) {
+     return jsonError(409, "その管理番号はすでに登録されています");
+   }
+-  return NextResponse.json({ instrument: updateInstrument(current.id, changes) });
++  const updated = updateInstrument(current.id, changes);
++  getDb()
++    .prepare("INSERT INTO history (instrument_id, at, user_id, detail) VALUES (?, ?, ?, ?)")
++    .run(current.id, new Date().toISOString(), user.id, JSON.stringify({ before: current, after: updated }));
++  return NextResponse.json({ instrument: updated });
+ }
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 27ad358..3046f3f 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -115,4 +115,11 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT, instrument_id INTEGER NOT NULL, order_id TEXT, return_on TEXT, status TEXT NOT NULL);
+     `,
+   },
++  {
++    version: 8,
++    name: "history",
++    sql: `
++      CREATE TABLE history (id INTEGER PRIMARY KEY AUTOINCREMENT, instrument_id INTEGER NOT NULL, at TEXT NOT NULL, user_id TEXT, detail TEXT NOT NULL);
++    `,
++  },
+ ];

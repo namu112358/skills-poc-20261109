@@ -1,0 +1,863 @@
+diff --git a/docs/operations.md b/docs/operations.md
+index 6f2fe01..47bab20 100644
+--- a/docs/operations.md
++++ b/docs/operations.md
+@@ -13,6 +13,8 @@
+ | `JOBS_TOKEN` | 定期実行のジョブの認証トークン |
+ | `NOTIFY_API_URL` | 社内の通知サービスの URL（`docs/notify-api.md`） |
+ | `NOTIFY_API_TOKEN` | 通知サービスのトークン（情報システム課が発行） |
++| `AGENCY_API_URL` | 校正機関の受付システムの URL（`docs/agency-api.md`） |
++| `AGENCY_API_KEY` | 受付システムの API キー |
+ 
+ ## 定期実行のジョブ
+ 
+@@ -27,6 +29,7 @@ curl -fsS -X POST -H "Authorization: Bearer $JOBS_TOKEN" https://calib.internal.
+ |---|---|---|
+ | 返却予定日を過ぎた貸出の集計 | `POST /api/jobs/overdue-loans` | 毎日 8:00（日本時間） |
+ | 校正期限のお知らせ（重要度 A） | `POST /api/jobs/calibration-reminders` | 毎日 7:30（日本時間） |
++| 未送信の校正の発注の送り直し | `POST /api/jobs/calibration-orders` | 毎日 8:30（日本時間） |
+ 
+ 新しいジョブを足すときは、`src/app/api/jobs/<ジョブ名>/route.ts` に置き、`requireJobAuth()`（`src/lib/api.ts`）で認証する。
+ cron の設定は運用チームに依頼する（実行時刻とジョブ名を伝える）。
+diff --git a/src/app/api/instruments/[id]/calibration-orders/route.ts b/src/app/api/instruments/[id]/calibration-orders/route.ts
+new file mode 100644
+index 0000000..6055a77
+--- /dev/null
++++ b/src/app/api/instruments/[id]/calibration-orders/route.ts
+@@ -0,0 +1,41 @@
++// GET /api/instruments/:id/calibration-orders — 校正の発注（新しい順） / POST — 校正機関に発注する（本文 { note? }。発注者はログイン中の本人）。
++// 発注を記録してからすぐに受付システムに送る。送れなくても発注は受け付け（未送信）、毎朝のジョブで送り直す。
++import { NextResponse } from "next/server";
++import { agencyClientFromEnv } from "@/lib/agency-client";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { createOrder, listOrders, notifyCancelledReservations, sendOrder, validateOrderInput } from "@/lib/calibration-orders";
++import { getInstrument, parseId } from "@/lib/instruments";
++import { logger } from "@/lib/logger";
++import { notifyClientFromEnv } from "@/lib/notify-client";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ orders: listOrders(id) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  const input = validateOrderInput(await readJson(request));
++  if (!input.ok) return jsonError(400, "入力内容に誤りがあります", input.errors);
++  const result = createOrder(id, user.id, input.value);
++  if (!result.ok) {
++    if (result.reason === "not_found") return jsonError(404, "計測器が見つかりません");
++    return result.reason === "already_ordered"
++      ? jsonError(409, "この計測器はすでに校正に発注しています")
++      : jsonError(409, "使用中・使用停止の計測器だけを校正に発注できます");
++  }
++  const instrument = getInstrument(id)!;
++  await notifyCancelledReservations(notifyClientFromEnv(), instrument, result.cancelledReservations);
++  const agency = agencyClientFromEnv();
++  if (!agency) logger.error("calibration_order.misconfigured", { orderId: result.order.id, missing: "AGENCY_API_URL / AGENCY_API_KEY" });
++  const order = agency ? await sendOrder(agency, result.order.id) : result.order;
++  return NextResponse.json({ order, cancelledReservations: result.cancelledReservations.length }, { status: 201 });
++}
+diff --git a/src/app/api/jobs/calibration-orders/route.ts b/src/app/api/jobs/calibration-orders/route.ts
+new file mode 100644
+index 0000000..d82e2e3
+--- /dev/null
++++ b/src/app/api/jobs/calibration-orders/route.ts
+@@ -0,0 +1,20 @@
++// POST /api/jobs/calibration-orders — 未送信の校正の発注を、校正機関の受付システムに送り直す（運用の cron が毎朝 8:30 JST に呼ぶ）。
++import { NextResponse } from "next/server";
++import { agencyClientFromEnv } from "@/lib/agency-client";
++import { jsonError, requireJobAuth } from "@/lib/api";
++import { sendPendingOrders } from "@/lib/calibration-orders";
++import { logger } from "@/lib/logger";
++
++export async function POST(request: Request) {
++  const denied = requireJobAuth(request, "calibration-orders");
++  if (denied) return denied;
++  const client = agencyClientFromEnv();
++  if (!client) {
++    logger.error("job.misconfigured", { job: "calibration-orders", missing: "AGENCY_API_URL / AGENCY_API_KEY" });
++    return jsonError(500, "受付システムの設定がありません");
++  }
++  const started = Date.now();
++  const summary = await sendPendingOrders(client);
++  logger.info("job.completed", { job: "calibration-orders", ...summary, durationMs: Date.now() - started });
++  return NextResponse.json(summary);
++}
+diff --git a/src/app/instruments/[id]/page.tsx b/src/app/instruments/[id]/page.tsx
+index e4d8fc5..73fb552 100644
+--- a/src/app/instruments/[id]/page.tsx
++++ b/src/app/instruments/[id]/page.tsx
+@@ -1,6 +1,7 @@
+ import { notFound } from "next/navigation";
+ import { RESULT_LABELS, listCalibrations } from "@/lib/calibrations";
+ import { calibrationDueOn } from "@/lib/calibration-due";
++import { ORDER_STATUS_LABELS, listOrders } from "@/lib/calibration-orders";
+ import { IMPORTANCE_LABELS, STATUS_LABELS, getInstrument, parseId } from "@/lib/instruments";
+ import { listLoans } from "@/lib/loans";
+ import { RESERVATION_STATUS_LABELS, listReservations } from "@/lib/reservations";
+@@ -20,6 +21,7 @@ export default async function InstrumentDetailPage({ params }: Props) {
+   const manager = getUser(instrument.managerId);
+   const loans = listLoans(instrument.id);
+   const calibrations = listCalibrations(instrument.id);
++  const orders = listOrders(instrument.id);
+   const today = todayJst();
+   const reservations = listReservations(instrument.id).filter((r) => r.status !== "cancelled" && r.endOn >= today);
+   const nameOf = (userId: string) => getUser(userId)?.name ?? userId;
+@@ -83,6 +85,34 @@ export default async function InstrumentDetailPage({ params }: Props) {
+         </table>
+       )}
+ 
++      <h2>校正の発注</h2>
++      {orders.length === 0 ? (
++        <p>発注はありません。</p>
++      ) : (
++        <table data-testid="calibration-orders">
++          <thead>
++            <tr>
++              <th>発注日時</th>
++              <th>発注した人</th>
++              <th>状況</th>
++              <th>受付番号</th>
++              <th>返却予定日</th>
++            </tr>
++          </thead>
++          <tbody>
++            {orders.map((o) => (
++              <tr key={o.id}>
++                <td>{o.requestedAt}</td>
++                <td>{nameOf(o.requestedBy)}</td>
++                <td>{ORDER_STATUS_LABELS[o.status]}</td>
++                <td>{o.agencyOrderId ?? "—"}</td>
++                <td>{o.estimatedReturnOn ?? "—"}</td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++      )}
++
+       <h2>校正記録</h2>
+       {calibrations.length === 0 ? (
+         <p>校正記録はありません。</p>
+diff --git a/src/lib/agency-client.ts b/src/lib/agency-client.ts
+new file mode 100644
+index 0000000..4e7c35a
+--- /dev/null
++++ b/src/lib/agency-client.ts
+@@ -0,0 +1,47 @@
++// 校正機関の受付システム（docs/agency-api.md）のクライアント。再試行・タイムアウトは http-retry.ts の共通部分を使う。
++// - 発注ごとに一意の clientReference を送り、Idempotency-Key にも同じ値を使う。再試行や翌朝の送り直しでも同じ値なので、
++//   受付システムに同じ発注が二重に登録されない。
++// - 409（同じ clientReference の発注がすでにある）は、前の要求が受け付けられていたとみなし、その受付番号を使う。
++import { postJsonWithRetry, type RetryOptions } from "./http-retry.ts";
++
++export type AgencyOrder = {
++  clientReference: string;
++  item: { managementNo: string; name: string; model: string };
++  requestedBy: string;
++  note?: string;
++};
++
++export type AgencyResult =
++  | { ok: true; orderId: string; estimatedReturnOn: string | null; attempts: number }
++  | { ok: false; retryable: boolean; status?: number; error: string; attempts: number };
++
++export type AgencyClient = { order(o: AgencyOrder): Promise<AgencyResult> };
++
++export type AgencyClientOptions = RetryOptions & { url: string; apiKey: string };
++
++export function createAgencyClient(options: AgencyClientOptions): AgencyClient {
++  const { url, apiKey, ...retry } = options;
++  const endpoint = new URL("/v1/orders", url).toString();
++  return {
++    async order(o) {
++      const r = await postJsonWithRetry(endpoint, { "x-api-key": apiKey, "idempotency-key": o.clientReference }, o, {
++        ...retry,
++        isSuccess: (status, data) => (status >= 200 && status < 300) || (status === 409 && typeof (data as { orderId?: unknown })?.orderId === "string"),
++      });
++      if (!r.ok) return { ok: false, retryable: r.retryable, status: r.status, error: r.error, attempts: r.attempts };
++      const d = (r.data ?? {}) as { orderId?: unknown; estimatedReturnOn?: unknown };
++      return {
++        ok: true,
++        orderId: typeof d.orderId === "string" ? d.orderId : "",
++        estimatedReturnOn: typeof d.estimatedReturnOn === "string" ? d.estimatedReturnOn : null,
++        attempts: r.attempts,
++      };
++    },
++  };
++}
++
++/** 環境変数（AGENCY_API_URL・AGENCY_API_KEY）からクライアントを作る。未設定なら undefined。 */
++export function agencyClientFromEnv(env: NodeJS.ProcessEnv = process.env): AgencyClient | undefined {
++  if (!env.AGENCY_API_URL || !env.AGENCY_API_KEY) return undefined;
++  return createAgencyClient({ url: env.AGENCY_API_URL, apiKey: env.AGENCY_API_KEY, timeoutMs: Number(env.AGENCY_API_TIMEOUT_MS) || undefined });
++}
+diff --git a/src/lib/calibration-orders.ts b/src/lib/calibration-orders.ts
+new file mode 100644
+index 0000000..00f5d10
+--- /dev/null
++++ b/src/lib/calibration-orders.ts
+@@ -0,0 +1,215 @@
++// 校正機関への発注（docs/agency-api.md の受付システムに送る）。
++// - 発注できるのは使用中・使用停止（修理後の再校正）の計測器。発注すると計測器は「校正中」になり、
++//   これからの予約は取り消して、予約した人に社内の通知サービスで知らせる。
++// - 発注はまず「未送信」として記録し、すぐに受付システムに送る。送れなければ未送信のまま残し、
++//   毎朝のジョブ（POST /api/jobs/calibration-orders）で送り直す。clientReference と Idempotency-Key は発注ごとに固定。
++// - 1 台に進行中（未送信・受付済み）の発注は 1 件だけ。校正記録を登録すると、進行中の発注は完了になる（calibrations.ts）。
++import { randomUUID } from "node:crypto";
++import type { AgencyClient } from "./agency-client.ts";
++import { getDb, transaction, type Db } from "./db/index.ts";
++import { getInstrument, type Instrument, type ValidationResult } from "./instruments.ts";
++import { logger } from "./logger.ts";
++import type { NotifyClient } from "./notify-client.ts";
++import { cancelUpcomingReservations, type Reservation } from "./reservations.ts";
++
++export type OrderStatus = "pending" | "accepted" | "completed" | "failed";
++
++export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
++  pending: "未送信",
++  accepted: "受付済み",
++  completed: "完了",
++  failed: "受付不可（要確認）",
++};
++
++/** 送信中のまま残った発注（途中でプロセスが止まったなど）を送り直してよいとみなすまでの時間 */
++const STALE_CLAIM_MS = 10 * 60 * 1000;
++
++export type CalibrationOrder = {
++  id: number;
++  instrumentId: number;
++  clientReference: string;
++  requestedBy: string;
++  requestedAt: string;
++  note: string;
++  status: OrderStatus;
++  agencyOrderId: string | null;
++  estimatedReturnOn: string | null;
++  attempts: number;
++  lastError: string | null;
++  acceptedAt: string | null;
++  completedAt: string | null;
++};
++
++type Row = {
++  id: number;
++  instrument_id: number;
++  client_reference: string;
++  requested_by: string;
++  requested_at: string;
++  note: string;
++  status: OrderStatus;
++  agency_order_id: string | null;
++  estimated_return_on: string | null;
++  attempts: number;
++  last_error: string | null;
++  accepted_at: string | null;
++  completed_at: string | null;
++};
++
++const COLUMNS = `id, instrument_id, client_reference, requested_by, requested_at, note, status, agency_order_id,
++  estimated_return_on, attempts, last_error, accepted_at, completed_at`;
++
++function toOrder(r: Row): CalibrationOrder {
++  return {
++    id: r.id,
++    instrumentId: r.instrument_id,
++    clientReference: r.client_reference,
++    requestedBy: r.requested_by,
++    requestedAt: r.requested_at,
++    note: r.note,
++    status: r.status,
++    agencyOrderId: r.agency_order_id,
++    estimatedReturnOn: r.estimated_return_on,
++    attempts: r.attempts,
++    lastError: r.last_error,
++    acceptedAt: r.accepted_at,
++    completedAt: r.completed_at,
++  };
++}
++
++export function getOrder(id: number, db: Db = getDb()): CalibrationOrder | undefined {
++  const row = db.prepare(`SELECT ${COLUMNS} FROM calibration_orders WHERE id = ?`).get(id) as Row | undefined;
++  return row && toOrder(row);
++}
++
++/** 計測器の発注を新しい順に返す。 */
++export function listOrders(instrumentId: number, db: Db = getDb()): CalibrationOrder[] {
++  const rows = db
++    .prepare(`SELECT ${COLUMNS} FROM calibration_orders WHERE instrument_id = ? ORDER BY requested_at DESC, id DESC`)
++    .all(instrumentId) as Row[];
++  return rows.map(toOrder);
++}
++
++export type OrderInput = { note: string };
++
++export function validateOrderInput(body: unknown): ValidationResult<OrderInput> {
++  if (body === undefined || body === null) return { ok: true, value: { note: "" } };
++  if (typeof body !== "object" || Array.isArray(body)) return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  const note = (body as Record<string, unknown>).note ?? "";
++  if (typeof note !== "string" || note.length > 500) return { ok: false, errors: ["備考は 500 文字以内で入力してください"] };
++  return { ok: true, value: { note: note.trim() } };
++}
++
++export type CreateOrderResult =
++  | { ok: true; order: CalibrationOrder; cancelledReservations: Reservation[] }
++  | { ok: false; reason: "not_found" | "not_orderable" | "already_ordered" };
++
++/** 発注を記録し（未送信）、計測器を校正中にして、これからの予約を取り消す。受付システムへの送信は sendOrder で行う。 */
++export function createOrder(
++  instrumentId: number,
++  requestedBy: string,
++  input: OrderInput,
++  db: Db = getDb(),
++  now: Date = new Date(),
++): CreateOrderResult {
++  return transaction(db, () => {
++    const instrument = getInstrument(instrumentId, db);
++    if (!instrument) return { ok: false, reason: "not_found" } as const;
++    if (instrument.status !== "in_use" && instrument.status !== "suspended") return { ok: false, reason: "not_orderable" } as const;
++    if (db.prepare("SELECT 1 FROM calibration_orders WHERE instrument_id = ? AND status IN ('pending', 'accepted')").get(instrumentId)) {
++      return { ok: false, reason: "already_ordered" } as const;
++    }
++    const { lastInsertRowid } = db
++      .prepare(
++        `INSERT INTO calibration_orders (instrument_id, client_reference, requested_by, requested_at, note, status)
++         VALUES (?, ?, ?, ?, ?, 'pending')`,
++      )
++      .run(instrumentId, `calib-order-${randomUUID()}`, requestedBy, now.toISOString(), input.note);
++    db.prepare("UPDATE instruments SET status = 'calibrating' WHERE id = ?").run(instrumentId);
++    const cancelledReservations = cancelUpcomingReservations(instrumentId, requestedBy, db, now);
++    return { ok: true, order: getOrder(Number(lastInsertRowid), db)!, cancelledReservations } as const;
++  });
++}
++
++/** 送ってよければ「送信中」にして true を返す（未送信で、ほかの送信が動いていないとき）。 */
++function claim(db: Db, id: number, now: Date): boolean {
++  const staleBefore = new Date(now.getTime() - STALE_CLAIM_MS).toISOString();
++  const { changes } = db
++    .prepare("UPDATE calibration_orders SET claimed_at = ? WHERE id = ? AND status = 'pending' AND (claimed_at IS NULL OR claimed_at < ?)")
++    .run(now.toISOString(), id, staleBefore);
++  return changes > 0;
++}
++
++/** 未送信の発注を受付システムに送る。送れたら受付済みにする。送れなければ未送信のまま残す（400 などは failed）。 */
++export async function sendOrder(client: AgencyClient, orderId: number, db: Db = getDb(), now: Date = new Date()): Promise<CalibrationOrder | undefined> {
++  if (!claim(db, orderId, now)) return getOrder(orderId, db);
++  const order = getOrder(orderId, db)!;
++  const instrument = getInstrument(order.instrumentId, db)!;
++  const result = await client.order({
++    clientReference: order.clientReference,
++    item: { managementNo: instrument.managementNo, name: instrument.name, model: instrument.model },
++    requestedBy: order.requestedBy,
++    ...(order.note ? { note: order.note } : {}),
++  });
++  const fields = { orderId, instrumentId: instrument.id, managementNo: instrument.managementNo, attempts: result.attempts };
++  if (result.ok) {
++    db.prepare(
++      `UPDATE calibration_orders SET status = 'accepted', agency_order_id = ?, estimated_return_on = ?, attempts = attempts + ?,
++         accepted_at = ?, last_error = NULL, claimed_at = NULL WHERE id = ? AND status = 'pending'`,
++    ).run(result.orderId, result.estimatedReturnOn, result.attempts, new Date().toISOString(), orderId);
++    logger.info("calibration_order.accepted", { ...fields, agencyOrderId: result.orderId, estimatedReturnOn: result.estimatedReturnOn });
++  } else {
++    db.prepare(
++      "UPDATE calibration_orders SET status = ?, attempts = attempts + ?, last_error = ?, claimed_at = NULL WHERE id = ? AND status = 'pending'",
++    ).run(result.retryable ? "pending" : "failed", result.attempts, `${result.status ?? ""} ${result.error}`.trim(), orderId);
++    const log = result.retryable ? logger.warn : logger.error;
++    log("calibration_order.send_failed", { ...fields, status: result.status, retryable: result.retryable, error: result.error });
++  }
++  return getOrder(orderId, db);
++}
++
++export type SendSummary = { pending: number; accepted: number; failed: number; skipped: number };
++
++/** 未送信の発注をすべて送る（毎朝のジョブ）。1 件の失敗で残りを止めない。 */
++export async function sendPendingOrders(client: AgencyClient, db: Db = getDb(), now: Date = new Date()): Promise<SendSummary> {
++  const ids = (db.prepare("SELECT id FROM calibration_orders WHERE status = 'pending' ORDER BY id").all() as { id: number }[]).map((r) => r.id);
++  const summary: SendSummary = { pending: ids.length, accepted: 0, failed: 0, skipped: 0 };
++  for (const id of ids) {
++    const before = getOrder(id, db)!;
++    const after = await sendOrder(client, id, db, now);
++    if (after?.status === "accepted" && before.status === "pending") summary.accepted++;
++    else if (after?.status === "pending" && after.attempts === before.attempts) summary.skipped++;
++    else summary.failed++;
++  }
++  return summary;
++}
++
++/** 校正記録を登録したとき、その計測器の進行中の発注を完了にする。トランザクションの中で呼ぶ。 */
++export function completeOpenOrders(instrumentId: number, db: Db, now: Date = new Date()): number {
++  const { changes } = db
++    .prepare("UPDATE calibration_orders SET status = 'completed', completed_at = ? WHERE instrument_id = ? AND status IN ('pending', 'accepted')")
++    .run(now.toISOString(), instrumentId);
++  return Number(changes);
++}
++
++/** 発注で取り消した予約を、予約した人に知らせる。通知サービスの失敗は記録だけして、発注は止めない。 */
++export async function notifyCancelledReservations(client: NotifyClient | undefined, instrument: Instrument, reservations: Reservation[]): Promise<void> {
++  for (const r of reservations) {
++    if (!client) {
++      logger.error("reservation_cancelled_notice.misconfigured", { reservationId: r.id, missing: "NOTIFY_API_URL / NOTIFY_API_TOKEN" });
++      continue;
++    }
++    const result = await client.send(
++      {
++        recipient: r.userId,
++        category: "general",
++        title: `【予約の取消】${instrument.managementNo} の予約（${r.startOn}〜${r.endOn}）を取り消しました`,
++        body: `${instrument.managementNo} ${instrument.name} を校正に出すため、${r.startOn}〜${r.endOn} の予約を取り消しました。必要なら別の計測器を予約してください。`,
++      },
++      `reservation-cancelled-${r.id}`,
++    );
++    const fields = { reservationId: r.id, instrumentId: instrument.id, managementNo: instrument.managementNo, recipient: r.userId };
++    if (result.ok) logger.info("reservation_cancelled_notice.sent", fields);
++    else logger.error("reservation_cancelled_notice.failed", { ...fields, status: result.status, error: result.error });
++  }
++}
+diff --git a/src/lib/calibrations.ts b/src/lib/calibrations.ts
+index 9180813..91520d8 100644
+--- a/src/lib/calibrations.ts
++++ b/src/lib/calibrations.ts
+@@ -1,10 +1,12 @@
+ // 校正記録。外部の校正機関での校正結果を登録する。
+ // - 合格: 計測器の前回校正日を校正日に更新し、校正中だった計測器は使用中に戻す。
+ // - 不合格: 計測器を使用停止にする（前回校正日は変えない）。
++// - どちらでも、その計測器の進行中の校正の発注（calibration-orders.ts）は完了になる。
+ import { getDb, transaction, type Db } from "./db/index.ts";
+ import { isValidDate } from "./dates.ts";
+ import { getInstrument, type Instrument, type ValidationResult } from "./instruments.ts";
+ import { logger } from "./logger.ts";
++import { completeOpenOrders } from "./calibration-orders.ts";
+ import { cancelUpcomingReservations } from "./reservations.ts";
+ 
+ export type CalibrationResult = "pass" | "fail";
+@@ -112,6 +114,7 @@ export function recordCalibration(
+       // 使用停止になった計測器の、これからの予約は取り消す（予約した人には管理者が連絡する）
+       cancelUpcomingReservations(instrumentId, recordedBy, db, now);
+     }
++    completeOpenOrders(instrumentId, db, now);
+     const record = toRecord(db.prepare(`SELECT ${COLUMNS} FROM calibration_records WHERE id = ?`).get(Number(lastInsertRowid)) as Row);
+     return { record, instrument: getInstrument(instrumentId, db)! };
+   });
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 199eb93..e3e91ef 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -152,4 +152,29 @@ export const MIGRATIONS: readonly Migration[] = [
+         WHERE ${sqlLocationKey("instruments.location")} <> '';
+     `,
+   },
++  {
++    version: 8,
++    name: "calibration_orders",
++    // 校正機関への発注。pending（未送信）→ accepted（受付済み）→ completed（校正記録の登録で完了）。
++    // 受付システムが 400 などで断ったものは failed（担当者が確認する）。1 台に進行中（pending・accepted）の発注は 1 件だけ。
++    sql: `
++      CREATE TABLE calibration_orders (
++        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
++        instrument_id       INTEGER NOT NULL REFERENCES instruments(id),
++        client_reference    TEXT NOT NULL UNIQUE, -- 受付システムに送る発注側の番号（Idempotency-Key にも使う）
++        requested_by        TEXT NOT NULL REFERENCES users(id),
++        requested_at        TEXT NOT NULL, -- ISO 8601（UTC）
++        note                TEXT NOT NULL DEFAULT '',
++        status              TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'completed', 'failed')),
++        agency_order_id     TEXT,          -- 受付番号
++        estimated_return_on TEXT,          -- 返却予定日 YYYY-MM-DD
++        attempts            INTEGER NOT NULL DEFAULT 0,
++        last_error          TEXT,
++        claimed_at          TEXT,          -- 送信中（ISO 8601）。止まったまま残ったものは一定時間後に送り直す
++        accepted_at         TEXT,
++        completed_at        TEXT
++      );
++      CREATE UNIQUE INDEX calibration_orders_open ON calibration_orders(instrument_id) WHERE status IN ('pending', 'accepted');
++    `,
++  },
+ ];
+diff --git a/src/lib/http-retry.ts b/src/lib/http-retry.ts
+new file mode 100644
+index 0000000..2a55808
+--- /dev/null
++++ b/src/lib/http-retry.ts
+@@ -0,0 +1,90 @@
++// 外部サービスへの HTTP 要求の共通部分（社内通知サービス・校正機関の受付システムで使う）。
++// - 503・429・通信エラー・タイムアウトは、指数バックオフ（ジッター付き）で決まった回数まで再試行する。429 は Retry-After を守る。
++// - 400・401 などは再試行しない（送り直しても結果が変わらないため）。呼び出し側が成功とみなす応答（isSuccess）も指定できる。
++// - 再試行でも同じ Idempotency-Key を送る（キーは呼び出し側が決める）。
++// fetch・待ち時間・乱数は差し替えられる（テスト用）。
++
++export type RetryOptions = {
++  timeoutMs?: number; // 1 回の要求のタイムアウト
++  maxAttempts?: number; // 最初の 1 回を含む試行回数
++  baseDelayMs?: number; // 再試行の待ち時間の基準（1 回目）
++  maxDelayMs?: number; // 再試行の待ち時間の上限
++  fetch?: typeof fetch;
++  sleep?: (ms: number) => Promise<void>;
++  random?: () => number;
++};
++
++export type HttpResult =
++  | { ok: true; status: number; data: unknown; attempts: number }
++  | { ok: false; retryable: boolean; status?: number; data?: unknown; error: string; attempts: number };
++
++const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
++
++/** Retry-After（秒、または HTTP 日付）をミリ秒にする。読めなければ undefined。 */
++export function parseRetryAfter(value: string | null, now: number = Date.now()): number | undefined {
++  if (!value) return undefined;
++  if (/^\d+$/.test(value.trim())) return Number(value.trim()) * 1000;
++  const at = Date.parse(value);
++  return Number.isNaN(at) ? undefined : Math.max(0, at - now);
++}
++
++/** n 回目（1 始まり）の失敗の後の待ち時間。base × 2^(n-1) を上限で切り、50〜100% のジッターをかける。 */
++export function backoffDelay(n: number, base: number, max: number, random: () => number = Math.random): number {
++  const exp = Math.min(max, base * 2 ** (n - 1));
++  return Math.round(exp * (0.5 + random() * 0.5));
++}
++
++/** JSON を POST し、失敗したら再試行する。isSuccess を指定すると、2xx 以外の応答も成功として扱える（例: 409 の重複）。 */
++export async function postJsonWithRetry(
++  endpoint: string,
++  headers: Record<string, string>,
++  body: unknown,
++  options: RetryOptions & { isSuccess?: (status: number, data: unknown) => boolean } = {},
++): Promise<HttpResult> {
++  const {
++    timeoutMs = 10_000,
++    maxAttempts = 5,
++    baseDelayMs = 500,
++    maxDelayMs = 8_000,
++    fetch: doFetch = fetch,
++    sleep = defaultSleep,
++    random = Math.random,
++    isSuccess = (status: number) => status >= 200 && status < 300,
++  } = options;
++  let last: HttpResult = { ok: false, retryable: true, error: "未送信", attempts: 0 };
++  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
++    let retryAfterMs: number | undefined;
++    try {
++      const res = await doFetch(endpoint, {
++        method: "POST",
++        headers: { "content-type": "application/json", ...headers },
++        body: JSON.stringify(body),
++        signal: AbortSignal.timeout(timeoutMs),
++      });
++      const text = await res.text().catch(() => "");
++      let data: unknown;
++      try {
++        data = text ? JSON.parse(text) : {};
++      } catch {
++        data = undefined;
++      }
++      if (isSuccess(res.status, data)) return { ok: true, status: res.status, data, attempts: attempt };
++      const retryable = res.status === 429 || res.status >= 500;
++      last = { ok: false, retryable, status: res.status, data, error: text.slice(0, 200) || `HTTP ${res.status}`, attempts: attempt };
++      if (!retryable) return last;
++      if (res.status === 429) retryAfterMs = parseRetryAfter(res.headers.get("retry-after"));
++    } catch (e) {
++      const name = e instanceof Error ? e.name : "";
++      last = {
++        ok: false,
++        retryable: true,
++        error: name === "TimeoutError" ? `タイムアウト（${timeoutMs}ms）` : String(e instanceof Error ? e.message : e),
++        attempts: attempt,
++      };
++    }
++    if (attempt < maxAttempts) {
++      await sleep(Math.max(retryAfterMs ?? 0, backoffDelay(attempt, baseDelayMs, maxDelayMs, random)));
++    }
++  }
++  return last;
++}
+diff --git a/src/lib/notify-client.ts b/src/lib/notify-client.ts
+index 501d1e6..7cf96cf 100644
+--- a/src/lib/notify-client.ts
++++ b/src/lib/notify-client.ts
+@@ -1,8 +1,8 @@
+-// 社内通知サービス（docs/notify-api.md）のクライアント。
+-// - 503・429・通信エラー・タイムアウトは、指数バックオフ（ジッター付き）で決まった回数まで再試行する。429 は Retry-After を守る。
+-// - 400・401 などは再試行しない（送り直しても結果が変わらないため）。
+-// - 同じお知らせには同じ Idempotency-Key を付け、再試行で二重に届かないようにする。
+-// fetch・待ち時間・乱数は差し替えられる（テスト用）。
++// 社内通知サービス（docs/notify-api.md）のクライアント。再試行・タイムアウトは http-retry.ts の共通部分を使う。
++// 同じお知らせには同じ Idempotency-Key を付け、再試行で二重に届かないようにする。
++import { postJsonWithRetry, type RetryOptions } from "./http-retry.ts";
++
++export { backoffDelay, parseRetryAfter } from "./http-retry.ts";
+ 
+ export type Notification = { recipient: string; title: string; body: string; category?: string };
+ 
+@@ -10,89 +10,26 @@ export type SendResult =
+   | { ok: true; id: string; attempts: number }
+   | { ok: false; retryable: boolean; status?: number; error: string; attempts: number };
+ 
+-export type NotifyClientOptions = {
+-  url: string;
+-  token: string;
+-  timeoutMs?: number; // 1 回の要求のタイムアウト
+-  maxAttempts?: number; // 最初の 1 回を含む試行回数
+-  baseDelayMs?: number; // 再試行の待ち時間の基準（1 回目）
+-  maxDelayMs?: number; // 再試行の待ち時間の上限
+-  fetch?: typeof fetch;
+-  sleep?: (ms: number) => Promise<void>;
+-  random?: () => number;
+-};
++export type NotifyClientOptions = RetryOptions & { url: string; token: string };
+ 
+ export type NotifyClient = { send(n: Notification, idempotencyKey: string): Promise<SendResult> };
+ 
+-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+-
+-/** Retry-After（秒、または HTTP 日付）をミリ秒にする。読めなければ undefined。 */
+-export function parseRetryAfter(value: string | null, now: number = Date.now()): number | undefined {
+-  if (!value) return undefined;
+-  if (/^\d+$/.test(value.trim())) return Number(value.trim()) * 1000;
+-  const at = Date.parse(value);
+-  return Number.isNaN(at) ? undefined : Math.max(0, at - now);
+-}
+-
+-/** n 回目（1 始まり）の失敗の後の待ち時間。base × 2^(n-1) を上限で切り、50〜100% のジッターをかける。 */
+-export function backoffDelay(n: number, base: number, max: number, random: () => number = Math.random): number {
+-  const exp = Math.min(max, base * 2 ** (n - 1));
+-  return Math.round(exp * (0.5 + random() * 0.5));
+-}
+-
+ export function createNotifyClient(options: NotifyClientOptions): NotifyClient {
+-  const {
+-    url,
+-    token,
+-    timeoutMs = 10_000,
+-    maxAttempts = 5,
+-    baseDelayMs = 500,
+-    maxDelayMs = 8_000,
+-    fetch: doFetch = fetch,
+-    sleep = defaultSleep,
+-    random = Math.random,
+-  } = options;
++  const { url, token, ...retry } = options;
+   const endpoint = new URL("/v1/notifications", url).toString();
+-
+   return {
+     async send(n, idempotencyKey) {
+-      let last: SendResult = { ok: false, retryable: true, error: "未送信", attempts: 0 };
+-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+-        let retryAfterMs: number | undefined;
+-        try {
+-          const res = await doFetch(endpoint, {
+-            method: "POST",
+-            headers: {
+-              authorization: `Bearer ${token}`,
+-              "content-type": "application/json",
+-              "idempotency-key": idempotencyKey,
+-            },
+-            body: JSON.stringify({ category: "calibration", ...n }),
+-            signal: AbortSignal.timeout(timeoutMs),
+-          });
+-          if (res.ok) {
+-            const data = (await res.json().catch(() => ({}))) as { id?: unknown };
+-            return { ok: true, id: typeof data.id === "string" ? data.id : "", attempts: attempt };
+-          }
+-          const text = (await res.text().catch(() => "")).slice(0, 200);
+-          const retryable = res.status === 429 || res.status >= 500;
+-          last = { ok: false, retryable, status: res.status, error: text || `HTTP ${res.status}`, attempts: attempt };
+-          if (!retryable) return last;
+-          if (res.status === 429) retryAfterMs = parseRetryAfter(res.headers.get("retry-after"));
+-        } catch (e) {
+-          const name = e instanceof Error ? e.name : "";
+-          last = {
+-            ok: false,
+-            retryable: true,
+-            error: name === "TimeoutError" ? `タイムアウト（${timeoutMs}ms）` : String(e instanceof Error ? e.message : e),
+-            attempts: attempt,
+-          };
+-        }
+-        if (attempt < maxAttempts) {
+-          await sleep(Math.max(retryAfterMs ?? 0, backoffDelay(attempt, baseDelayMs, maxDelayMs, random)));
+-        }
++      const r = await postJsonWithRetry(
++        endpoint,
++        { authorization: `Bearer ${token}`, "idempotency-key": idempotencyKey },
++        { category: "calibration", ...n },
++        retry,
++      );
++      if (r.ok) {
++        const id = (r.data as { id?: unknown } | undefined)?.id;
++        return { ok: true, id: typeof id === "string" ? id : "", attempts: r.attempts };
+       }
+-      return last;
++      return { ok: false, retryable: r.retryable, status: r.status, error: r.error, attempts: r.attempts };
+     },
+   };
+ }
+diff --git a/src/lib/reservations.ts b/src/lib/reservations.ts
+index c9c27a3..f4ddc56 100644
+--- a/src/lib/reservations.ts
++++ b/src/lib/reservations.ts
+@@ -166,12 +166,15 @@ export function cancelReservation(
+   });
+ }
+ 
+-/** 使用停止になった計測器の、これから（終了日が今日以降）の予約を取り消す。トランザクションの中で呼ぶ。 */
+-export function cancelUpcomingReservations(instrumentId: number, cancelledBy: string, db: Db, now: Date = new Date()): number {
+-  const { changes } = db
+-    .prepare(
+-      "UPDATE reservations SET status = 'cancelled', cancelled_at = ?, cancelled_by = ? WHERE instrument_id = ? AND status = 'active' AND end_on >= ?",
+-    )
+-    .run(now.toISOString(), cancelledBy, instrumentId, todayJst(now));
+-  return Number(changes);
++/**
++ * 計測器を使えなくなったとき（校正の不合格で使用停止・校正に出す発注）に、これから（終了日が今日以降）の予約を取り消す。
++ * 取り消した予約を返す。トランザクションの中で呼ぶ。
++ */
++export function cancelUpcomingReservations(instrumentId: number, cancelledBy: string, db: Db, now: Date = new Date()): Reservation[] {
++  const rows = db
++    .prepare(`SELECT ${COLUMNS} FROM reservations WHERE instrument_id = ? AND status = 'active' AND end_on >= ? ORDER BY start_on, id`)
++    .all(instrumentId, todayJst(now)) as Row[];
++  const cancel = db.prepare("UPDATE reservations SET status = 'cancelled', cancelled_at = ?, cancelled_by = ? WHERE id = ?");
++  for (const r of rows) cancel.run(now.toISOString(), cancelledBy, r.id);
++  return rows.map((r) => ({ ...toReservation(r), status: "cancelled", cancelledAt: now.toISOString(), cancelledBy }));
+ }
+diff --git a/tests/calibration-orders.test.ts b/tests/calibration-orders.test.ts
+new file mode 100644
+index 0000000..448b86a
+--- /dev/null
++++ b/tests/calibration-orders.test.ts
+@@ -0,0 +1,131 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import type { AgencyClient, AgencyOrder, AgencyResult } from "../src/lib/agency-client.ts";
++import { createAgencyClient } from "../src/lib/agency-client.ts";
++import { recordCalibration } from "../src/lib/calibrations.ts";
++import { createOrder, listOrders, sendOrder, sendPendingOrders, validateOrderInput } from "../src/lib/calibration-orders.ts";
++import { openDb } from "../src/lib/db/index.ts";
++import { getInstrument, listInstruments, updateInstrument } from "../src/lib/instruments.ts";
++import { lendInstrument } from "../src/lib/loans.ts";
++import { createReservation, listReservations } from "../src/lib/reservations.ts";
++
++const NOW = new Date("2026-11-10T01:00:00Z"); // 日本時間 2026-11-10
++const byNo = (db: ReturnType<typeof openDb>, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!;
++
++function agency(results: AgencyResult[]) {
++  const sent: AgencyOrder[] = [];
++  const client: AgencyClient = {
++    async order(o) {
++      sent.push(o);
++      return results.shift() ?? { ok: true, orderId: `AG-${sent.length}`, estimatedReturnOn: "2026-11-24", attempts: 1 };
++    },
++  };
++  return { client, sent };
++}
++
++describe("createOrder", () => {
++  it("records a pending order, puts the instrument into calibration and cancels upcoming reservations", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001");
++    const r = createReservation(inst.id, "suzuki", { startOn: "2026-11-20", endOn: "2026-11-21" }, db, NOW);
++    assert.ok(r.ok);
++    const o = createOrder(inst.id, "sato", { note: "" }, db, NOW);
++    assert.ok(o.ok);
++    assert.equal(o.order.status, "pending");
++    assert.equal(getInstrument(inst.id, db)?.status, "calibrating");
++    assert.deepEqual(o.cancelledReservations.map((x) => x.userId), ["suzuki"]);
++    assert.equal(listReservations(inst.id, db)[0].status, "cancelled");
++  });
++
++  it("allows only in-use or suspended instruments and one open order per instrument", () => {
++    const db = openDb();
++    assert.deepEqual(createOrder(byNo(db, "MI-0002").id, "sato", { note: "" }, db, NOW), { ok: false, reason: "not_orderable" }); // 貸出中
++    assert.deepEqual(createOrder(byNo(db, "MI-0005").id, "sato", { note: "" }, db, NOW), { ok: false, reason: "not_orderable" }); // 校正中
++    assert.deepEqual(createOrder(byNo(db, "MI-0008").id, "sato", { note: "" }, db, NOW), { ok: false, reason: "not_orderable" }); // 廃棄
++    const suspended = byNo(db, "MI-0007");
++    assert.equal(createOrder(suspended.id, "sato", { note: "" }, db, NOW).ok, true);
++    updateInstrument(suspended.id, { status: "suspended" }, db);
++    assert.deepEqual(createOrder(suspended.id, "sato", { note: "" }, db, NOW), { ok: false, reason: "already_ordered" });
++  });
++
++  it("validates the note", () => {
++    assert.deepEqual(validateOrderInput(undefined), { ok: true, value: { note: "" } });
++    assert.equal(validateOrderInput({ note: "x".repeat(501) }).ok, false);
++  });
++});
++
++describe("sendOrder / sendPendingOrders", () => {
++  it("marks the order accepted with the agency's number and return date", async () => {
++    const db = openDb();
++    const o = createOrder(byNo(db, "MI-0001").id, "sato", { note: "" }, db, NOW);
++    assert.ok(o.ok);
++    const a = agency([]);
++    const sent = await sendOrder(a.client, o.order.id, db, NOW);
++    assert.equal(sent?.status, "accepted");
++    assert.equal(sent?.agencyOrderId, "AG-1");
++    assert.equal(sent?.estimatedReturnOn, "2026-11-24");
++    assert.deepEqual(a.sent[0].item, { managementNo: "MI-0001", name: "デジタルマルチメータ", model: "DMM-7510" });
++    assert.equal(a.sent[0].requestedBy, "sato");
++  });
++
++  it("keeps a failed order pending and resends it later with the same client reference", async () => {
++    const db = openDb();
++    const o = createOrder(byNo(db, "MI-0001").id, "sato", { note: "" }, db, NOW);
++    assert.ok(o.ok);
++    const a = agency([{ ok: false, retryable: true, status: 503, error: "maintenance", attempts: 5 }]);
++    assert.equal((await sendOrder(a.client, o.order.id, db, NOW))?.status, "pending");
++    const summary = await sendPendingOrders(a.client, db, NOW);
++    assert.deepEqual(summary, { pending: 1, accepted: 1, failed: 0, skipped: 0 });
++    assert.equal(a.sent[0].clientReference, a.sent[1].clientReference);
++    assert.equal(listOrders(o.order.instrumentId, db)[0].attempts, 6);
++  });
++
++  it("marks orders refused by the agency as failed and does not resend them", async () => {
++    const db = openDb();
++    const o = createOrder(byNo(db, "MI-0001").id, "sato", { note: "" }, db, NOW);
++    assert.ok(o.ok);
++    const a = agency([{ ok: false, retryable: false, status: 400, error: "bad", attempts: 1 }]);
++    assert.equal((await sendOrder(a.client, o.order.id, db, NOW))?.status, "failed");
++    assert.equal((await sendPendingOrders(a.client, db, NOW)).pending, 0);
++  });
++
++  it("completes the open order when a calibration is recorded", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001");
++    const o = createOrder(inst.id, "sato", { note: "" }, db, NOW);
++    assert.ok(o.ok);
++    recordCalibration(inst.id, { calibratedOn: "2026-11-20", result: "pass", agency: "東日本計測サービス", certificateNo: "" }, "sato", db, NOW);
++    assert.equal(listOrders(inst.id, db)[0].status, "completed");
++    assert.equal(getInstrument(inst.id, db)?.status, "in_use");
++    assert.equal(createOrder(inst.id, "sato", { note: "" }, db, NOW).ok, true);
++  });
++
++  it("does not order an instrument on loan", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0003");
++    lendInstrument(inst.id, { borrowerId: "suzuki", dueOn: "2026-11-12" }, db, NOW);
++    assert.deepEqual(createOrder(inst.id, "sato", { note: "" }, db, NOW), { ok: false, reason: "not_orderable" });
++  });
++});
++
++describe("agency client", () => {
++  const json = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status });
++  it("sends the API key and uses the client reference as the idempotency key; treats 409 duplicate as accepted", async () => {
++    const calls: { url: string; headers: Record<string, string> }[] = [];
++    const responses = [json(503), json(409, { error: "duplicate", orderId: "AG-9" })];
++    const c = createAgencyClient({
++      url: "http://agency.test",
++      apiKey: "k3y",
++      sleep: async () => {},
++      fetch: (async (url: string, init: RequestInit) => {
++        calls.push({ url, headers: init.headers as Record<string, string> });
++        return responses.shift()!;
++      }) as unknown as typeof fetch,
++    });
++    const r = await c.order({ clientReference: "ref-1", item: { managementNo: "MI-0001", name: "x", model: "" }, requestedBy: "sato" });
++    assert.deepEqual(r, { ok: true, orderId: "AG-9", estimatedReturnOn: null, attempts: 2 });
++    assert.equal(calls[0].url, "http://agency.test/v1/orders");
++    assert.equal(calls[0].headers["x-api-key"], "k3y");
++    assert.equal(calls[1].headers["idempotency-key"], "ref-1");
++  });
++});

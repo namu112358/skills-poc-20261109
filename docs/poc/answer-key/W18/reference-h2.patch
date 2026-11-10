@@ -1,0 +1,63 @@
+diff --git a/src/lib/instruments.ts b/src/lib/instruments.ts
+index 8a0c37f..75cc345 100644
+--- a/src/lib/instruments.ts
++++ b/src/lib/instruments.ts
+@@ -3,6 +3,7 @@ import { getDb, transaction, type Db } from "./db/index.ts";
+ import { diffFields, recordHistory } from "./history.ts";
+ import { isValidDate } from "./dates.ts";
+ import { findLocationByName, getLocation } from "./locations.ts";
++import { cancelUpcomingReservations } from "./reservations.ts";
+ 
+ export type InstrumentStatus = "in_use" | "on_loan" | "calibrating" | "suspended" | "disposed";
+ 
+@@ -293,6 +294,10 @@ export function updateInstrument(
+     if (diff.length > 0) {
+       recordHistory(db, { instrumentId: id, actorId, action: "instrument.updated", summary: "台帳を編集", changes: diff }, now);
+     }
++    // 使えなくなった（使用停止・廃棄）ときは、校正の不合格と同じく、これからの予約を取り消す
++    if (current.status !== updated.status && (updated.status === "suspended" || updated.status === "disposed")) {
++      cancelUpcomingReservations(id, actorId, db, now);
++    }
+     return updated;
+   });
+ }
+diff --git a/src/lib/reservations.ts b/src/lib/reservations.ts
+index 27adf98..350aa97 100644
+--- a/src/lib/reservations.ts
++++ b/src/lib/reservations.ts
+@@ -184,10 +184,10 @@ export function cancelReservation(
+ }
+ 
+ /**
+- * 計測器を使えなくなったとき（校正の不合格で使用停止・校正に出す発注）に、これから（終了日が今日以降）の予約を取り消す。
++ * 計測器を使えなくなったとき（校正の不合格・台帳の編集で使用停止・廃棄、校正に出す発注）に、これから（終了日が今日以降）の予約を取り消す。
+  * 取り消した予約を返す。トランザクションの中で呼ぶ。
+  */
+-export function cancelUpcomingReservations(instrumentId: number, cancelledBy: string, db: Db, now: Date = new Date()): Reservation[] {
++export function cancelUpcomingReservations(instrumentId: number, cancelledBy: string | null, db: Db, now: Date = new Date()): Reservation[] {
+   const rows = db
+     .prepare(`SELECT ${COLUMNS} FROM reservations WHERE instrument_id = ? AND status = 'active' AND end_on >= ? ORDER BY start_on, id`)
+     .all(instrumentId, todayJst(now)) as Row[];
+diff --git a/tests/reservations.test.ts b/tests/reservations.test.ts
+index f4f538d..541765c 100644
+--- a/tests/reservations.test.ts
++++ b/tests/reservations.test.ts
+@@ -108,3 +108,18 @@ describe("reservations and loans", () => {
+     updateInstrument(id, { status: "in_use" }, db);
+   });
+ });
++
++describe("ledger edits that make an instrument unusable", () => {
++  it("cancel upcoming reservations when the status becomes suspended or disposed, but not for other edits", () => {
++    for (const status of ["suspended", "disposed"] as const) {
++      const db = openDb();
++      const id = byNo(db, "MI-0001").id;
++      const r = createReservation(id, "suzuki", { startOn: "2026-11-20", endOn: "2026-11-22" }, db, NOW);
++      assert.ok(r.ok);
++      updateInstrument(id, { note: "x" }, db, "sato", NOW);
++      assert.equal(listReservations(id, db)[0].status, "active");
++      updateInstrument(id, { status }, db, "sato", NOW);
++      assert.equal(listReservations(id, db)[0].status, "cancelled");
++    }
++  });
++});
