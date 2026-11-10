@@ -253,7 +253,66 @@ def legacy_mutants(app, base):
     return out, len(muts)
 
 
-def characterization(app, base, work):
+A_TEST_MARK = r"管理番号|東日本計測サービス|R8\.|令和|importCalibrationCsv"
+
+
+def is_importer_src(n):
+    return n.startswith("src/lib/") and ("import" in n or "legacy" in n or "csv" in n.lower())
+
+
+def is_test_file(n):
+    return n.startswith("tests/") or ".test." in n
+
+
+def transcript_order(raw, app):
+    """トランスクリプト（raw/<試行ID>/step*.jsonl）で、A 社の形式を確かめるテストのファイルへの最初の書き込みと、
+    取込処理のソースへの最初の変更の、どちらが先かを見る（2026-11-10 コーディネーターの指示。最後に 1 回だけコミットする
+    候補でも、先にテストを書いていれば点が入るように）。ファイルを書く道具（Write・Edit・MultiEdit）と、Bash のリダイレクト・
+    sed -i・tee を数える。テストのファイルは、書いた中身か、作業後のファイルに A 社の印（見出し・値・関数名）があれば数える。"""
+    raw, app = Path(raw), Path(app)
+    steps = sorted(raw.glob("step*.jsonl"), key=lambda f: int(re.sub(r"\D", "", f.stem) or 0))
+    root = str(app.resolve()) + "/"
+    seq = 0
+    first_test = first_change = None
+
+    def rel(pth):
+        pth = str(pth)
+        return pth[len(root):] if pth.startswith(root) else pth.lstrip("./")
+
+    def final_has_mark(n):
+        f = app / n
+        return f.exists() and bool(re.search(A_TEST_MARK, f.read_text(errors="ignore")))
+
+    for f in steps:
+        for line in f.read_text(errors="ignore").splitlines():
+            try:
+                j = json.loads(line)
+            except ValueError:
+                continue
+            if j.get("type") != "assistant":
+                continue
+            for c in (j.get("message") or {}).get("content") or []:
+                if not isinstance(c, dict) or c.get("type") != "tool_use":
+                    continue
+                seq += 1
+                inp = c.get("input") or {}
+                writes = []
+                if c.get("name") in ("Write", "Edit", "MultiEdit"):
+                    body = inp.get("content") or inp.get("new_string") or json.dumps(inp.get("edits") or "", ensure_ascii=False)
+                    writes.append((rel(inp.get("file_path", "")), body))
+                elif c.get("name") == "Bash":
+                    cmd = inp.get("command", "")
+                    for m in re.finditer(r"(?:>>?|tee(?:\s+-a)?|sed\s+-i\S*\s+(?:'[^']*'|\"[^\"]*\"|\S+))\s+([\w./@\[\]-]+)", cmd):
+                        writes.append((rel(m.group(1)), cmd))
+                for n, body in writes:
+                    if first_test is None and is_test_file(n) and (re.search(A_TEST_MARK, body) or final_has_mark(n)):
+                        first_test = seq
+                    if first_change is None and is_importer_src(n):
+                        first_change = seq
+    return {"tool_calls": seq, "first_characterization_call": first_test, "first_importer_change_call": first_change}
+
+
+def characterization(app, base, work, raw=None):
     sys.path.insert(0, str(HERE))
     import grade_w10  # noqa: E402
     muts, total = legacy_mutants(app, base)
@@ -275,16 +334,23 @@ def characterization(app, base, work):
     first_test = first_change = None
     for i, h in enumerate(log):
         names = g14.git(app, "show", "--name-only", "--format=", h).split()
-        if first_change is None and any(n.startswith("src/lib/") and ("import" in n or "legacy" in n or "csv" in n.lower()) for n in names):
+        if first_change is None and any(is_importer_src(n) for n in names):
             first_change = i
         if first_test is None:
             for n in names:
-                if n.startswith("tests/") or ".test." in n:
+                if is_test_file(n):
                     body = g14.git(app, "show", f"{h}:{n}") if n else ""
-                    if re.search(r"管理番号|東日本計測サービス|R8\.|令和|importCalibrationCsv", body):
+                    if re.search(A_TEST_MARK, body):
                         first_test = i
                         break
     res.update({"commits": len(log), "first_characterization_commit": first_test, "first_importer_change_commit": first_change})
+    res["order_by"] = "commits"
+    # 試行ではトランスクリプトの順番で判定する（コミットの順番は記録だけ）。トランスクリプトが無い（試行前の確認の実装）ときはコミットの順番
+    if raw is not None and any(Path(raw).glob("step*.jsonl")):
+        t = transcript_order(raw, app)
+        res["transcript"] = t
+        res["order_by"] = "transcript"
+        first_test, first_change = t["first_characterization_call"], t["first_importer_change_call"]
     if first_test is None:
         res["order"] = "none"
     elif first_change is None or first_test < first_change:
@@ -296,7 +362,7 @@ def characterization(app, base, work):
     return res
 
 
-def evaluate(app, base, work, mutation=True):
+def evaluate(app, base, work, mutation=True, raw=None):
     app, work = Path(app), Path(work)
     work.mkdir(parents=True, exist_ok=True)
     checks = {}
@@ -318,7 +384,7 @@ def evaluate(app, base, work, mutation=True):
         out["public"], out["hidden"] = b_suite(app, work)
     else:
         out.update({"golden": [], "public": [], "hidden": []})
-    out["characterization"] = characterization(app, base, work)
+    out["characterization"] = characterization(app, base, work, raw)
     if mutation:
         import grade_w10  # noqa: E402
         out["mutation"] = grade_w10.mutation(str(app), base, str(work / "mutation"))
@@ -367,7 +433,7 @@ def main():
     grade.main()
     result = json.loads(grade.OUT.read_text())
     base = (grade.RAW / "baseline-commit").read_text().strip()
-    w15 = evaluate(grade.APP, base, Path(tempfile.mkdtemp(prefix=f"w15-grade-{trial}-")))
+    w15 = evaluate(grade.APP, base, Path(tempfile.mkdtemp(prefix=f"w15-grade-{trial}-")), raw=grade.RAW)
     w15["checks"] = {k: v["pass"] for k, v in w15["checks"].items()}
     result["w15"] = w15
     import grade_w10  # noqa: E402
