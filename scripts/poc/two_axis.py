@@ -46,9 +46,14 @@ LABEL = {
     "feature-dev": "Feature Dev",
     "compound-engineering": "Compound Engineering",
     "gstack": "gstack",
-    "baseline-conventions": "baseline-conventions（規約だけ）",
+    "baseline-conventions": "baseline-conventions（規約だけ・参考値）",
+    # W12 の追加条件: 汎用の開発標準を CLAUDE.md に足した試行
+    "superpowers+std": "Superpowers + 標準", "feature-dev+std": "Feature Dev + 標準",
+    "compound-engineering+std": "Compound Engineering + 標準", "gstack+std": "gstack + 標準",
+    "baseline+std": "baseline + 標準",
 }
-ORDER = ["superpowers", "feature-dev", "compound-engineering", "gstack", "baseline-conventions", "baseline"]
+ORDER = ["superpowers", "feature-dev", "compound-engineering", "gstack", "baseline-conventions", "baseline",
+         "superpowers+std", "feature-dev+std", "compound-engineering+std", "gstack+std", "baseline+std"]
 
 # W ごとの品質系の内訳（scores.json のキー、見出し、満点）。W4・W6〜W8 のキーは採点スクリプトができたら合わせる。
 QUALITY = {

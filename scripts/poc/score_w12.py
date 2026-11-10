@@ -101,8 +101,11 @@ def score(t):
     design = round(rv["mean"] * 15 / 18, 2) if rv else 0.0
     business = round(public_pts + hidden_pts, 2)
     files = t["diff"]["files"]
+    # 汎用の開発標準を CLAUDE.md に足した試行（POC_STANDARD=generic、回の番号 11・12）は、別の条件「<候補>+std」として扱う
+    standard = (RAW / t["trial"] / "standard").exists()
     return {
-        "trial": t["trial"], "candidate": t["candidate"], "run": t["run"],
+        "trial": t["trial"], "candidate": t["candidate"] + ("+std" if standard else ""), "base_candidate": t["candidate"],
+        "standard": standard, "run": t["run"],
         "total": round(business + migration + robustness + ops + design + strength, 1),
         "business": business, "business_public": public_pts, "business_hidden": hidden_pts,
         "migration": migration, "robustness": robustness, "robustness_v1": robustness_v1,

@@ -106,6 +106,15 @@ if [[ "$CAND" == baseline-conventions ]]; then
   cat "$ROOT/docs/poc/tasks/wf-W12-conventions.md" >> "$APP/CLAUDE.md"
   sha256sum "$ROOT/docs/poc/tasks/wf-W12-conventions.md" | sed "s#$ROOT/##" > "$OUT/conventions"
 fi
+# 汎用の開発標準（W12 の追加条件。POC_STANDARD=generic、W12 のときだけ）: docs/poc/standards/generic-dev-standard.md の
+# 区切り（コメント）より下を、そのまま CLAUDE.md の末尾に足す。試行 ID は回の番号 11・12 で区別する（設計書 §5）。
+if [[ "${POC_STANDARD:-}" == generic && "$SCENARIO" == W12 ]]; then
+  STD="$ROOT/docs/poc/standards/generic-dev-standard.md"
+  { echo; sed -n '/^-->$/,$p' "$STD" | tail -n +2; } >> "$APP/CLAUDE.md"
+  sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/standard"
+elif [[ -n "${POC_STANDARD:-}" ]]; then
+  echo "POC_STANDARD は W12 で generic のときだけ使える: ${POC_STANDARD} ($SCENARIO)" >&2; exit 1
+fi
 ( cd "$APP" && git add -A && git -c user.name=poc -c user.email=poc@example.invalid commit -qm baseline )
 git -C "$APP" config user.name poc
 git -C "$APP" config user.email poc@example.invalid
