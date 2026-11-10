@@ -50,7 +50,7 @@
 - 10 本とも完了（介入 0 回、$30 を超えた試行なし。最大は compound-engineering-2 の $14.1）。設計の筋を除く点数は 61.0〜81.5。
 - 設計の筋のブラインドレビュー（2 名）を実行中。そろったら report・PLAN を書いて PR を作る。W15 の試行は 04:36 UTC に始めた。
 
-## 2026-11-10 05:20 UTC — 節目: 全試行の採点と report がそろった（PR を作る）
+## 2026-11-10 04:50 UTC — 節目: 全試行の採点と report がそろった（PR を作る）
 
 - 品質の平均: Compound Engineering 96.5 > Feature Dev 90.2 > baseline 84.5 ≒ gstack 84.2 > Superpowers 81.0。Compound Engineering の費用は baseline の約 10 倍。
 - 採点の誤検出を 2 か所直して全 10 本に当て直した（H04 の使用終了の見方・H08 の絞り込みのクエリ）。Compound Engineering #2 は、手順書どおり `?dryRun=false` でジョブを呼ぶ補正をした。いずれも試行前の 3 種類の実装で結果が変わらないことを確かめ、report の判断の記録に書いた。
