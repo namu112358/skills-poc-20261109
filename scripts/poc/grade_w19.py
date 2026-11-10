@@ -62,6 +62,20 @@ def pick(ids, pattern, defaults, limit=10):
     return list(dict.fromkeys(defaults + found))[:limit]
 
 
+def full_text(c, path, timeout=120):
+    """応答の本文を全部返す（grade_w14 の Client は本文を 2000 文字で切るため。画面や一覧の中を探すときに使う。試行後の修正）。"""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(c.base + path, headers={"authorization": f"Bearer {c.token}"} if c.token else {})
+    try:
+        with c.opener.open(req, timeout=timeout) as r:
+            return r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+        return str(e)
+
+
 def deep_find(j, value, path=""):
     """JSON の中で value と等しい値を持つ場所（キーの道のり）を返す。"""
     out = []
@@ -117,7 +131,8 @@ def api_suite(app, work, routes, base):
 
         # 担当者を付ける方法を探す
         assign_keys = ov.get("assign_keys") or pick(ids, r"(?i)inspect|assign", ["inspectorId", "inspector_id", "inspectionAssigneeId", "assigneeId", "inspector"])
-        assign_routes = [r for r in routes if re.search(r"(?i)inspector|assign", r["path"]) and "[" in r["path"]]
+        # 単数形の inspection（担当者・周期の設定）も含める。記録の送り先（inspections）は除く（2026-11-10 試行後の修正）
+        assign_routes = [r for r in routes if re.search(r"(?i)inspector|assign|inspection(?!s)|schedule|plan", r["path"]) and "[" in r["path"]]
 
         def try_assign(no, user):
             iid = by_no[no]
@@ -136,13 +151,18 @@ def api_suite(app, work, routes, base):
                 for k in re.findall(r"\bextra\??\.\??\[?[\"'`]?(\w+)", l):
                     if re.search(r"(?i)inspect|assign", k) and k not in extra_keys and not re.search(r"(?i)^(last_)?inspect(ed|ions?)$|_on$|date", k):
                         extra_keys.append(k)
-            tries += [("PATCH", "/api/instruments/[id]", k, True) for k in extra_keys + [k for k in assign_keys if k not in extra_keys]]
+            # extra.inspector は初期状態の自由記述の点検者なので、担当者を付ける方法としては試さない（試行後の修正）
+            tries += [("PATCH", "/api/instruments/[id]", k, True) for k in extra_keys + [k for k in assign_keys if k not in extra_keys]
+                      if k != "inspector"]
             last = None
             for m, path, key, wrap in tries:
                 r = c.call(m, fill(path, iid), body(key, wrap))
                 last = r
                 if 200 <= r["status"] < 300:
                     j = inst(no)
+                    # 担当者を、計測器とは別の送り先（GET）でだけ返す作りもある（試行後の修正）
+                    if path != "/api/instruments/[id]" and any(x["path"] == path and "GET" in x["methods"] for x in routes):
+                        j = {"instrument": j, "assign": c.call("GET", fill(path, iid))["json"]}
                     hits = [p for p in deep_find(j, user) if "manager" not in p.lower()]
                     if hits:
                         st["assign"] = (m, path, key, wrap)
@@ -174,7 +194,7 @@ def api_suite(app, work, routes, base):
                 if inst_key:
                     body[inst_key] = iid
                 return c.call(m, fill(path, iid), body)
-            last = None
+            last, fallback = None, None
             for r in rec_routes or [{"path": "/api/instruments/[id]/inspections", "methods": ["POST"]}]:
                 inst_keys = [None] if "[" in r["path"] else pick(ids, r"(?i)^instrument_?id$", ["instrumentId", "instrument_id"], 3)
                 for inst_key, dk, wk, rk, v in itertools.product(inst_keys, date_keys, who_keys, res_keys, val[:3]):
@@ -184,6 +204,11 @@ def api_suite(app, work, routes, base):
                     resp = c.call("POST", fill(r["path"], iid), body)
                     last = resp
                     if 200 <= resp["status"] < 300:
+                        # 点検した人の項目名が違うと、無視されて登録した人（ログインした人）が入る作りがある。応答に
+                        # 送った人が出なければ、ほかの項目名も試す（試行後の修正。feature-dev 1 の H02 を誤って落としていた）
+                        if resp["json"] is not None and who != "sato" and not deep_find(resp["json"], who):
+                            fallback = fallback or (("POST", r["path"], dk, wk, rk, inst_key), v, resp)
+                            continue
                         st["record"] = ("POST", r["path"], dk, wk, rk, inst_key)
                         if good:
                             st["good"], st["repair"] = v, repairs[0]
@@ -193,6 +218,15 @@ def api_suite(app, work, routes, base):
                         return resp
                     if resp["status"] == 404:
                         break
+            if fallback:
+                rec, v, resp = fallback
+                st["record"] = rec
+                if good:
+                    st["good"], st["repair"] = v, repairs[0]
+                else:
+                    st["repair"], st["good"] = v, goods[0]
+                st["rec_path"] = rec[1]
+                return resp
             return last or {"status": 0, "text": "点検の記録の API が見つからない", "json": None}
 
         def p2():
@@ -209,7 +243,7 @@ def api_suite(app, work, routes, base):
                 if re.search(r"(?i)inspect", r["path"]) and "GET" in r["methods"]:
                     path = fill(r["path"], iid)
                     q = "" if "[" in r["path"] else f"?instrumentId={iid}"
-                    texts.append(c.call("GET", path + q)["text"])
+                    texts.append(full_text(c, path + q))
             texts.append(json.dumps(inst(no), ensure_ascii=False))
             return "\n".join(texts)
 
@@ -260,7 +294,10 @@ def api_suite(app, work, routes, base):
             need(st.get("record"), "P2 が失敗")
             # MI-0003 の最後の点検は 2026-08-25、周期は決めていなければ 3 か月 → 2026-11-25
             t = get_records("MI-0003")
-            lst = c.call("GET", "/api/instruments")["text"]
+            lst = full_text(c, "/api/instruments")
+            # 画面（詳細・一覧）に出す作りも認める（試行後の修正）
+            if "2026-11-25" not in t + lst:
+                lst += full_text(c, f"/instruments/{by_no['MI-0003']}") + full_text(c, "/instruments")
             need("2026-11-25" in t or "2026-11-25" in lst, "次の点検予定日（最後の点検日 + 3 か月）が見えない")
         hid.check("H05", "次の点検予定日は「最後の点検日 + 周期（既定 3 か月）」", h05)
 
@@ -271,8 +308,10 @@ def api_suite(app, work, routes, base):
             marked = marked or any(re.search(r"(?i)never|uninspected|not_?inspected", k) and v for o in objects(j) for k, v in o.items())
             marked = marked or "未点検" in s
             if not marked:
-                page = c.call("GET", "/instruments")
-                marked = "未点検" in page["text"]
+                marked = "未点検" in full_text(c, "/instruments")
+            if not marked:
+                # 詳細の画面に出す作りも認める（試行後の修正）
+                marked = "未点検" in full_text(c, f"/instruments/{by_no['MI-0005']}")
             need(marked, "未点検の計測器が分からない")
         hid.check("H06", "点検の記録が無い計測器は「未点検」と分かる", h06)
 
@@ -285,16 +324,24 @@ def api_suite(app, work, routes, base):
                 if {"MI-0002", "MI-0006"} <= nos and "MI-0001" not in nos:
                     st["filter_key"] = k
                     return f"?{k}=kato"
+            # 画面（一覧）での絞り込みも認める（Q5 は利用者が絞り込みたい。試行後の修正: baseline 2 などを落としていた）
+            for k in keys:
+                page = full_text(c, f"/instruments?{k}=kato")
+                if "MI-0002" in page and "MI-0006" in page and "MI-0001" not in page:
+                    st["filter_key"] = k
+                    return f"画面 /instruments?{k}=kato"
             raise AssertionError("担当者で絞り込めない")
         hid.check("H07", "担当者で絞り込める", h07)
 
         def h08():
             need(st.get("record") and st.get("assign"), "P1・P2 が失敗")
-            for no in ("MI-0002", "MI-0006"):
-                post_rec(no, "2026-01-05", "kato")
-            # 加藤さんの担当 2 台（MI-0002・MI-0006）は最後の点検が 2026-01-05 なので遅れている。
-            # 比べるために、遅れていない 1 台（MI-0008、直近に点検）も加藤さんの担当にする（3 台と答えたら誤り）
+            # 加藤さんの担当は 4 台。遅れているのは、最後の点検が 2026-01-05 の MI-0002・MI-0007 の 2 台。
+            # MI-0006（H07 で担当にした）は旧データの最終点検日 R8.9.10 があり、MI-0008 は直近に点検したので遅れていない。
+            # 試行後の修正: 当初は MI-0006 を遅れの側にしていたが、旧データの 9 月の点検の方が新しいため遅れにならない（正しい実装を落としていた）
+            try_assign("MI-0007", "kato")
             try_assign("MI-0008", "kato")
+            for no in ("MI-0002", "MI-0007"):
+                post_rec(no, "2026-01-05", "kato")
             post_rec("MI-0008", "2026-11-01", "kato")
             gets = [r["path"] for r in routes if "GET" in r["methods"] and "[" not in r["path"] and r["path"] != "/api/instruments"]
             for p in gets:
@@ -304,12 +351,29 @@ def api_suite(app, work, routes, base):
                         vals = list(o.values())
                         if "kato" in vals and any(isinstance(v, int) and not isinstance(v, bool) and v == 2 for v in vals):
                             return f"{p}{q}"
+            # 毎朝の集計の仕事（/api/jobs/...。Q5 の「毎朝知りたい」）で、担当者ごとの台数を返す作りも認める（試行後の修正）
+            jc = g14.Client(srv.base(), token=g14.JOBS_TOKEN)
+            for r in routes:
+                if r["path"].startswith("/api/jobs/") and re.search(r"(?i)inspect", r["path"]) and "[" not in r["path"]:
+                    j = jc.call("POST" if "POST" in r["methods"] else "GET", r["path"], timeout=300)["json"]
+                    for o in objects(j):
+                        vals = list(o.values())
+                        if "kato" in vals and any(isinstance(v, int) and not isinstance(v, bool) and v == 2 for v in vals):
+                            return f"{r['path']}（集計の仕事）"
             fk = st.get("filter_key", "inspector")
             for k in pick(ids, r"(?i)overdue|late|delay", ["overdue", "late", "delayed"], 6):
                 for v in ("1", "true"):
                     nos = list_nos(c.call("GET", f"/api/instruments?{fk}=kato&{k}={v}")["json"])
-                    if sorted(nos) == ["MI-0002", "MI-0006"]:
+                    if sorted(nos) == ["MI-0002", "MI-0007"]:
                         return f"?{fk}=kato&{k}={v}"
+            # 画面（一覧など）に担当者ごとの台数を出す作りも認める（試行後の修正: compound-engineering 2 を落としていた）。
+            # 「加藤」の後ろ 80 文字以内に、日付・数の一部でない「2」があれば、担当者ごとの遅れの台数とみなす
+            for path in ["/instruments"] + [r["path"] for r in routes if r["path"].startswith("/") and not r["path"].startswith("/api")
+                                            and "[" not in r["path"] and re.search(r"(?i)inspect|overdue|summary", r["path"])]:
+                text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", full_text(c, path)))
+                for m in re.finditer("加藤", text):
+                    if re.search(r"(?<![\d\-/.:])2(?![\d\-/.:])", text[m.end():m.end() + 80]) and re.search("遅れ|期限|overdue", text):
+                        return f"画面 {path}"
             raise AssertionError("担当者ごとの、点検が遅れている台数が分からない")
         hid.check("H08", "担当者ごとに、点検が遅れている台数が分かる", h08)
 
@@ -443,7 +507,9 @@ def assignment_map(db):
         n = sum(1 for r in rows if r["v"] in USER_IDS)
         if n > best_n:
             best, best_n = {r["no"]: r["v"] for r in rows if r["v"] in USER_IDS}, n
-    tables = [r["name"] for r in g14.db_query(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+    # 計測器の列に担当者が無いときだけ、計測器を参照する表を見る（試行後の修正: 移行で作った点検の記録が計測器 1 件に 1 行のとき、
+    # 記録の「点検した人」を担当者と取り違え、日付が読めて記録ができた行だけを数えていた）
+    tables = [] if best_n else [r["name"] for r in g14.db_query(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
     for t in tables:
         if t in BASE_TABLES:
             continue
@@ -550,18 +616,8 @@ def migration_suite(app, base, work, static):
     return {"checks": ck, "detail": dt}, db
 
 
-_BASE_BUILD = {}
-
-
 def rollback_check(app, base, work, db):
-    key = (str(Path(app).resolve()), base)
-    if key not in _BASE_BUILD:
-        bdir = g14.export_base(app, base, ".")
-        nm = Path(app) / "node_modules"
-        subprocess.run(["cp", "-al", str(nm.resolve()), str(bdir / "node_modules")], check=False)
-        code, out = g14.sh("npm run build", bdir, timeout=900)
-        _BASE_BUILD[key] = bdir if code == 0 else None
-    bdir = _BASE_BUILD[key]
+    bdir, _ = g14.built_base(app, base)  # 中身ごとに 1 回だけビルドして使い回す（一時領域が一杯になったため）
     if bdir is None:
         return False, "初期状態のビルドに失敗"
     copy = Path(work) / "rollback.db"
