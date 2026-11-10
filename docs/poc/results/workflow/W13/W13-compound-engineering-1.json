@@ -16,11 +16,11 @@
     },
     "test": {
       "pass": true,
-      "log": "pe: 'suite'\n  ...\n# Subtest: findConflictingReservation / cancelActiveReservations\n    # Subtest: finds another person's reservation inside the range and skips the excepted reserver's\n    ok 1 - finds another person's reservation inside the range and skips the excepted reserver's\n      ---\n      duration_ms: 41.033768\n      type: 'test'\n      ...\n    # Subtest: cancels reservations that have not ended and leaves the rest\n    ok 2 - cancels reservations that have not ended and leaves the rest\n      ---\n      duration_ms: 42.227635\n      type: 'test'\n      ...\n    1..2\nok 34 - findConflictingReservation / cancelActiveReservations\n  ---\n  duration_ms: 83.405962\n  type: 'suite'\n  ...\n1..34\n# tests 106\n# suites 34\n# pass 106\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 3398.254563\n"
+      "log": "pe: 'suite'\n  ...\n# Subtest: findConflictingReservation / cancelActiveReservations\n    # Subtest: finds another person's reservation inside the range and skips the excepted reserver's\n    ok 1 - finds another person's reservation inside the range and skips the excepted reserver's\n      ---\n      duration_ms: 42.709143\n      type: 'test'\n      ...\n    # Subtest: cancels reservations that have not ended and leaves the rest\n    ok 2 - cancels reservations that have not ended and leaves the rest\n      ---\n      duration_ms: 42.177871\n      type: 'test'\n      ...\n    1..2\nok 34 - findConflictingReservation / cancelActiveReservations\n  ---\n  duration_ms: 85.082619\n  type: 'suite'\n  ...\n1..34\n# tests 106\n# suites 34\n# pass 106\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 3403.242003\n"
     },
     "build": {
       "pass": true,
-      "log": "/[id]/reservations/[reservationId]/cancel\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/reject\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/reservations/awaiting-approval\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:8194) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8191) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8192) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      "log": "d]/reservations/[reservationId]/cancel\n├ ƒ /api/instruments/[id]/reservations/[reservationId]/reject\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/reservations/awaiting-approval\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:23631) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:23637) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:23630) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
     }
   },
   "e2e": [],
@@ -349,13 +349,8 @@
             "@notnull"
           ]
         },
-        "jobs": [],
-        "notes": "v1。予約者はログイン中の本人。一覧（GET）は取り消し済みや終了日を過ぎた予約を返さない（listActiveReservations）ため、取消後の予約は一覧に出ず、cancelled の状態は一覧からは確認できない。status は cancelledAt（null=有効、非 null=取消）の組み合わせで表現した。取消の応答は {reservation: {...}} で cancelledAt が入る。承認・却下の API は無い。ジョブ API は無い。"
+        "jobs": []
       },
-      "drafted": [
-        "v1",
-        "v2"
-      ],
       "v2": {
         "create": {
           "method": "POST",
@@ -368,7 +363,14 @@
         },
         "list": {
           "method": "GET",
-          "path": "/api/instruments/{instrumentId}/reservations?status=pending",
+          "paths": [
+            "/api/instruments/{instrumentId}/reservations",
+            "/api/instruments/{instrumentId}/reservations?status=pending",
+            "/api/instruments/{instrumentId}/reservations?status=confirmed",
+            "/api/instruments/{instrumentId}/reservations?status=rejected",
+            "/api/instruments/{instrumentId}/reservations?status=expired",
+            "/api/instruments/{instrumentId}/reservations?status=cancelled"
+          ],
           "items": "reservations"
         },
         "cancel": {
@@ -410,8 +412,7 @@
             "expired"
           ]
         },
-        "jobs": [],
-        "notes": "一覧 API は ?status= 未指定だと「これからの仮予約と確定」だけを返し、却下・期限切れ・取消は含まない。全状態を一括で取る方法はなく、状態ごとに ?status=pending|confirmed|rejected|expired|cancelled を指定して呼ぶ必要がある。list の path は代表として ?status=pending を付けたが、テスト側で状態に応じてクエリを差し替えること（指定なしなら pending と confirmed が混在）。未指定の一覧は終了日が今日以降のものに限られる。期限切れは保存されず今日から判定される（ジョブ無し）。予約者はログイン中の本人で本文に user は不要。承認する人本人（管理者、無効なら部署代表者）が登録した予約は 201 の時点で confirmed になる。承認・却下は管理者（無効なら代表者）のみ、取消は予約者本人と管理者のみ。reservations.ts の末尾（approve/reject の実装）は途中で切れており未確認。"
+        "jobs": []
       }
     },
     "v1_commit": "635fa1760471bc65efa84abc1adcecdb376e3622",
@@ -543,8 +544,8 @@
       {
         "id": "P03",
         "name": "（変更依頼）仮予約を管理者が承認すると確定になり、14 日を大きく超える予約は断る",
-        "pass": false,
-        "detail": "承認の後の状態: absent"
+        "pass": true,
+        "detail": ""
       },
       {
         "id": "K01",
@@ -597,8 +598,8 @@
       {
         "id": "C01",
         "name": "新しい予約は仮予約で、管理者の承認で確定になる（区別できる）",
-        "pass": false,
-        "detail": "承認の後の状態: absent"
+        "pass": true,
+        "detail": ""
       },
       {
         "id": "C02",
@@ -609,8 +610,8 @@
       {
         "id": "C03",
         "name": "管理者が無効なら、部署の代表者が承認できる（同じ部署のほかの人はできない）",
-        "pass": false,
-        "detail": "確定になっていない"
+        "pass": true,
+        "detail": ""
       },
       {
         "id": "C04",
@@ -706,32 +707,32 @@
             {
               "id": "N3x",
               "name": "本番の予約（取消以外）が、同じ期間・同じ人のまま一覧に残る",
-              "pass": false,
-              "detail": "A（MI-0001 2026-11-20〜2026-11-22）: undefined"
+              "pass": true,
+              "detail": ""
             },
             {
               "id": "N4",
               "name": "本番の予約（14 日を超えるものを含む）は確定、取り消した予約は取消のまま",
-              "pass": false,
-              "detail": "A: undefined（undefined）"
+              "pass": true,
+              "detail": ""
             },
             {
               "id": "N5",
               "name": "本番の DB で、本番の予約と重なる予約は断り、新しい予約は仮予約として作れて承認できる",
-              "pass": false,
-              "detail": "承認の後: absent"
+              "pass": true,
+              "detail": ""
             },
             {
               "id": "S1",
               "name": "移行後の予約の状態の値が、変更後のコードが知っている値だけ",
-              "pass": false,
-              "detail": "予約が読めない"
+              "pass": true,
+              "detail": ""
             },
             {
               "id": "facts",
               "name": "記録",
               "pass": true,
-              "detail": "{\"statuses\":[],\"found\":{}}"
+              "detail": "{\"statuses\":[\"\\\"confirmed\\\"\",\"\\\"cancelled\\\"\"],\"found\":{\"A\":{\"id\":1,\"status\":\"approved\",\"raw\":\"confirmed\"},\"B\":{\"id\":2,\"status\":\"approved\",\"raw\":\"confirmed\"},\"D\":{\"id\":3,\"status\":\"approved\",\"raw\":\"confirmed\"},\"C\":{\"id\":4,\"status\":\"cancelled\",\"raw\":\"cancelled\"}}}"
             }
           ],
           "user_version": 6,
@@ -743,14 +744,14 @@
             {
               "id": "N3x",
               "name": "本番の予約（取消以外）が、同じ期間・同じ人のまま一覧に残る",
-              "pass": false,
-              "detail": "A（MI-0001 2026-11-20〜2026-11-22）: undefined"
+              "pass": true,
+              "detail": ""
             },
             {
               "id": "N4",
               "name": "本番の予約（14 日を超えるものを含む）は確定、取り消した予約は取消のまま",
-              "pass": false,
-              "detail": "A: undefined（undefined）"
+              "pass": true,
+              "detail": ""
             },
             {
               "id": "N5",
@@ -761,14 +762,14 @@
             {
               "id": "S1",
               "name": "移行後の予約の状態の値が、変更後のコードが知っている値だけ",
-              "pass": false,
-              "detail": "予約が読めない"
+              "pass": true,
+              "detail": ""
             },
             {
               "id": "facts",
               "name": "記録",
               "pass": true,
-              "detail": "{\"statuses\":[],\"found\":{}}"
+              "detail": "{\"statuses\":[\"\\\"confirmed\\\"\",\"\\\"cancelled\\\"\"],\"found\":{\"A\":{\"id\":1,\"status\":\"approved\",\"raw\":\"confirmed\"},\"B\":{\"id\":2,\"status\":\"approved\",\"raw\":\"confirmed\"},\"D\":{\"id\":3,\"status\":\"approved\",\"raw\":\"confirmed\"},\"C\":{\"id\":4,\"status\":\"cancelled\",\"raw\":\"cancelled\"}}}"
             }
           ],
           "user_version": 6,
@@ -794,11 +795,11 @@
       "checks": {
         "N1": true,
         "N2": true,
-        "N3": false,
-        "N4": false,
-        "N5": false,
-        "N6": false,
-        "S1": false
+        "N3": true,
+        "N4": true,
+        "N5": true,
+        "N6": true,
+        "S1": true
       }
     },
     "mutation": {
@@ -1292,13 +1293,13 @@
     "suite_retries": [],
     "points_without_design": {
       "v1": 15.0,
-      "change": 16.8,
+      "change": 25.0,
       "unchanged": 15.0,
-      "migration": 8,
-      "stale": 2.5,
+      "migration": 20,
+      "stale": 5.0,
       "design": 0.0,
       "test_strength": 4.42,
-      "total": 61.72,
+      "total": 84.42,
       "regressions": []
     }
   }
