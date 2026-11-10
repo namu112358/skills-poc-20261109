@@ -1,6 +1,7 @@
 # W13 の設計: 途中で要件が変わる
 
 - 作成: 2026-11-10（試行の前に固定。試行中・採点中は変えない）
+- 確認: コーディネーター（2026-11-10。配点・隠れ要件・変更依頼の文言とタイミング、変更依頼にも候補の手順を使うこと）
 - 計画: コーディネーターの W13〜W17 の計画（`docs/poc/tasks/wf-W13-W17-plan.md`、ブランチ `claude/intelligent-mendel-hyx7aa`。2026-11-10 ユーザー承認）
 - 採点の詳細: [`docs/poc/answer-key/W13/grading.md`](../answer-key/W13/grading.md)（正解データ。作業用コピーには置かない）
 
@@ -52,13 +53,14 @@ W1〜W11 では、候補（Skills・プラグイン）は「小さく仕様が�
 
 | 条件 | プロファイル | 最初の依頼の手順 | 変更依頼の手順 |
 |---|---|---|---|
-| Superpowers | `wf-superpowers` | 課題文（Skill の自動発火） | 変更依頼の文言 |
+| Superpowers | `wf-superpowers` | 課題文（Skill の自動発火） | 変更依頼の文言（Skill の自動発火。v1 と同じ流れで、コマンドは付けない） |
 | Feature Dev | `wf-feature-dev` | `/feature-dev:feature-dev <課題>` | `/feature-dev:feature-dev <変更依頼>` |
 | gstack | `wf-gstack` | 課題文 → `/review` | 変更依頼 → `/review` |
 | Compound Engineering | `wf-compound-engineering` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` | `/ce-plan <変更依頼>` → `/ce-work` → `/ce-code-review` |
-| baseline | `baseline` | 課題文 | 変更依頼の文言 |
-| baseline-conventions | `baseline-conventions` | 課題文（`CLAUDE.md` の末尾に下の規約） | 変更依頼の文言 |
+| baseline | `baseline` | 課題文 | 変更依頼の文言（だけ） |
+| baseline-conventions | `baseline-conventions` | 課題文（`CLAUDE.md` の末尾に下の規約） | 変更依頼の文言（だけ） |
 
+- 変更依頼にも各候補の手順を使う（コーディネーター確認、2026-11-10）。実際に各ツールを使う人は変更のときもツールの手順を使うのが自然で、W13 は「ツールを入れた開発の流れ全体」が変更にどう追従するかを測るため。代案の「全候補とも変更依頼の文言だけを送る」は、計画・レビューの工程を持つ候補がその工程を変更に使わない不自然な条件になり、候補の特長（と費用）が結果に出なくなるため採らなかった。baseline・baseline-conventions は文言だけなので、手順による費用の差もそのまま結果になる。
 - 6 条件 × 2 回 = 12 本。前半（各条件の 1 回目）と後半（2 回目）で実行順を逆にする。並列は 2 本まで。W12 の試行が終わってから始める。
 - 費用の上限は付けない（`POC_MAX_TRIAL_USD` を渡さない。歯止めは 1 ステップ 40 分の `POC_STEP_TIMEOUT`）。1 試行が $30 を超えたら、続ける前にコーディネーターに報告する。使用量の上限で失敗した試行はリセット後にやり直し、判断の記録に書く。
 - モデル・Claude Code: 既存の W と同じ（`claude-sonnet-5-5`、Claude Code 2.1.321）。
