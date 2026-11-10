@@ -32,12 +32,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "docs" / "poc" / "results" / "workflow"
 
-SCENARIOS = ["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W9", "W10"]
+SCENARIOS = ["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W9", "W10", "W12"]
 TITLES = {
     "W1": "小さな変更", "W2": "仕様が明確な機能追加", "W3": "曖昧な要望から要件を固める",
     "W4": "既存コードを横断する大きな変更", "W5": "バグ修正", "W6": "UI 実装からブラウザ検証・PR 作成まで",
     "W7": "続けて行う作業での学習効果", "W8": "人の介入なしでの自律実行",
     "W9": "レビューで不具合を見つける", "W10": "仕様に書かれていない落とし穴がある機能追加",
+    "W12": "短い要件から、運用まで考えて作る",
 }
 LABEL = {
     "baseline": "baseline（候補なし）",
@@ -45,8 +46,9 @@ LABEL = {
     "feature-dev": "Feature Dev",
     "compound-engineering": "Compound Engineering",
     "gstack": "gstack",
+    "baseline-conventions": "baseline-conventions（規約だけ）",
 }
-ORDER = ["superpowers", "feature-dev", "compound-engineering", "gstack", "baseline"]
+ORDER = ["superpowers", "feature-dev", "compound-engineering", "gstack", "baseline-conventions", "baseline"]
 
 # W ごとの品質系の内訳（scores.json のキー、見出し、満点）。W4・W6〜W8 のキーは採点スクリプトができたら合わせる。
 QUALITY = {
@@ -62,6 +64,9 @@ QUALITY = {
     "W9": [("recall", "再現率", 40), ("precision", "適合率", 25), ("specificity", "具体性", 20)],
     "W10": [("acceptance", "公開の受け入れテスト", 25), ("hidden", "隠しテスト", 40), ("test_strength", "テストの強さ", 20),
             ("review", "ブラインドレビュー", 15)],
+    # W12: 品質 100。質問の指標は品質にも効率にも入れない（report に別に出す）。baseline-conventions は効率の基準に入れない
+    "W12": [("business", "業務の受け入れ", 30), ("migration", "DB マイグレーション", 20), ("robustness", "外部呼び出しの堅牢さ", 15),
+            ("ops", "運用", 10), ("design", "設計の筋", 15), ("test_strength", "テストの強さ", 10)],
 }
 # 介入の仕組み（定型の「お任せします」で続けさせる）が無い W。W1 は導入前に実施した。
 # W8 は「最初の指示と定型回答以外は介入しない」シナリオなので介入を使わない（POC_MAX_NUDGES=0。途中停止は品質の「暴走なし」で見る）。
