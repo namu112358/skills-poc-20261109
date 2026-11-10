@@ -14,6 +14,7 @@
 """
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -24,6 +25,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 KEY = ROOT / "docs" / "poc" / "answer-key" / "W15"
+FAKE_NOW = "2027-01-15T03:00:00Z"  # B 社の CSV を確かめるときの採点のサーバーの時計（b_suite を参照）
 RESULTS = ROOT / "docs" / "poc" / "results" / "workflow" / "W15"
 sys.path.insert(0, str(HERE))
 import grade_w14 as g14  # noqa: E402  サーバー・HTTP・DB の部品は W14 と同じ
@@ -188,7 +190,10 @@ def b_suite(app, work):
             st["b04"] = r
             need(r["status"] == 200, f"取り込めない: {g14.show(r)}")
             j = r["json"] or {}
-            need(j.get("imported") == 2, f"台帳に無い番号・読めない判定以外の 2 件を取り込まない: {g14.show(r)}")
+            # 取り込んだ件数ではなく、記録そのもので見る（同じ日の重複を読み飛ばさないと 3 件になり、B07 と二重に落ちるため。試行の後に直した）
+            need(any(x["date"] == "2026-12-05" for x in recs("MI-0001")) and any(x["date"] == "2026-12-06" for x in recs("MI-0009")),
+                 f"台帳に無い番号・読めない判定以外の行を取り込まない: {g14.show(r)}")
+            need(not any(x["date"] == "2026-12-05" for x in recs("MI-0009")), f"読めない判定（UNKNOWN）の行を取り込んだ: {g14.show(r)}")
             need(len(j.get("errors", [])) >= 2, f"誤りの行が返らない: {g14.show(r)}")
         hid.check("B09", "台帳に無い機器番号・読めない判定の行は誤りにして、ほかの行は取り込む", b09)
 
@@ -213,7 +218,19 @@ def b_suite(app, work):
         hid.check("B10", "取込の応答の形（imported・skipped・errors と各要素の line）が変わっていない", b10)
         return {}
 
-    with_server(app, work, "b-suite", go)
+    # 採点のサーバーの時計を 2027-01-15 に進める（B 社の CSV の日付が 2026 年 12 月で、採点の日より後のため。未来の日付を
+    # 誤りにする作りを誤って落としていたので、試行の後に足した。黄金テスト（A 社）は黄金を作ったときと同じ本当の時計で動かす）
+    saved = {k: os.environ.get(k) for k in ("NODE_OPTIONS", "POC_FAKE_NOW")}
+    os.environ["NODE_OPTIONS"] = (saved["NODE_OPTIONS"] + " " if saved["NODE_OPTIONS"] else "") + f"--require {KEY / 'fake-now.cjs'}"
+    os.environ["POC_FAKE_NOW"] = FAKE_NOW
+    try:
+        with_server(app, work, "b-suite", go)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
     order = ["B02", "B03", "B04", "B05", "B06", "B07", "B08", "B09", "B10"]
     hid.results.sort(key=lambda r: order.index(r["id"]))
     return pub.results, hid.results
@@ -425,6 +442,23 @@ def main():
         else:
             print(text)
         print(summary_line(r), file=sys.stderr)
+        return
+    if args and args[0] == "--recheck-b":
+        # 採点の誤検出を直したあと、B 社の CSV の確かめ（公開・隠し）だけをやり直し、結果の JSON の public・hidden を差し替える
+        # （ビルド済みの作業用コピーで。黄金テスト・特性テスト・ミューテーションは変えない。前の値は *_before_recheck に残す）
+        results = ROOT / "docs" / "poc" / "results" / "workflow" / "W15"
+        for trial in args[1:]:
+            f = results / f"{trial}.json"
+            res = json.loads(f.read_text())
+            raw = ROOT / "docs" / "poc" / "results" / "workflow" / "raw" / trial
+            app = Path((raw / "workdir").read_text().strip()) / "app"
+            w = res["w15"]
+            pub, hid = b_suite(app, Path(tempfile.mkdtemp(prefix=f"w15-recheck-{trial}-")))
+            for k, v in (("public", pub), ("hidden", hid)):
+                w.setdefault(f"{k}_before_recheck", w.get(k))
+                w[k] = v
+            f.write_text(json.dumps(res, ensure_ascii=False, indent=2) + "\n")
+            print(trial, "public", "".join("o" if x["pass"] else "x" for x in pub), "hidden", "".join("o" if x["pass"] else "x" for x in hid))
         return
     trial = args[0]
     flags = set(args[1:])
