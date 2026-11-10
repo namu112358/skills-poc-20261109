@@ -351,7 +351,7 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 > | W9 レビューで不具合を見つける | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W9/report.md)・[report.html](results/workflow/W9/report.html) |
 > | W10 仕様に書かれていない落とし穴がある機能追加 | 完了（2026-11-09。4 候補 × 2 回 + baseline） | [report.md](results/workflow/W10/report.md)・[report.html](results/workflow/W10/report.html) |
 > | W11 実在する OSS の解決済み課題 | 完了（2026-11-09。6 課題 × 4 候補 × 1 回 + baseline） | [report.md](results/workflow/W11/report.md)・[report.html](results/workflow/W11/report.html) |
-> | W12 短い要件から、運用まで考えて作る | 実施中（2026-11-10。6 条件 × 2 回 + 標準あり 10 本 + Haiku 5 本 + 乱れた初期状態 5 本） | [report.md](results/workflow/W12/report.md)・[report.html](results/workflow/W12/report.html) |
+> | W12 短い要件から、運用まで考えて作る | 完了（2026-11-10。6 条件 × 2 回 + 汎用の開発標準あり 5 × 2 + Haiku 5 × 1 + 乱れた初期状態 5 × 1、計 32 本） | [report.md](results/workflow/W12/report.md)・[report.html](results/workflow/W12/report.html) |
 >
 > 状態は「未着手」「実施中」「完了」のいずれか。「完了」は結果レポート（report.md と report.html）と採点を含む PR が main にマージされた状態を指す。
 

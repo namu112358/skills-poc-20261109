@@ -11,7 +11,7 @@
         "claude-sonnet-5-5": 0.9168
       },
       "run": 1,
-      "total": 73.2,
+      "total": 88.2,
       "business": 26.62,
       "business_public": 8.0,
       "business_hidden": 18.62,
@@ -32,7 +32,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 15.0,
       "test_strength": 7.0,
       "hidden_items": {
         "H01": true,
@@ -136,7 +136,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R01",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "期限計算は dates.ts、判断と送信記録は calibration-alerts.ts、通信は notify.ts、入口は requireJobAuth 付きの Route に分かれている。送信済みテーブルと Idempotency-Key で二重送信を防ぎ、サービス不調時や 4 分の時間上限で残りを次回に回す。fetch・期限・時間上限を差し替えて境界と失敗をテストし、運用メモに仮定（30 日前、月末期限、A のみ、代表者へのフォールバック、24 時間を超えた再送で重複しうること）を書いている。",
+          "日付・送り先・通知クライアント・実行本体・Route がはっきり分かれ、1 回の実行の時間上限（4 分）やサービス全体の不調での中断、冪等キーの 24 時間の限界まで文書に書いている。fetch・時刻・時間上限を差し替えられ、失敗の分類までテストしている。"
+        ]
+      },
       "questions": {
         "total": 9,
         "by_route": {
@@ -372,7 +410,7 @@
         "errors": "",
         "questions": 9
       },
-      "total_v1": 66.4
+      "total_v1": 81.4
     },
     {
       "trial": "W12-baseline-11",
@@ -385,7 +423,7 @@
         "claude-sonnet-5-5": 1.1485
       },
       "run": 11,
-      "total": 76.4,
+      "total": 91.4,
       "business": 28.31,
       "business_public": 8.0,
       "business_hidden": 20.31,
@@ -406,7 +444,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 15.0,
       "test_strength": 7.17,
       "hidden_items": {
         "H01": true,
@@ -508,9 +546,48 @@
         "needs_review": false,
         "notes": [
           "新しい項目: importance"
+        ],
+        "default_existing": "medium"
+      },
+      "review_detail": {
+        "code": "R05",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "業務の判断（calibration-notices）と通信（notify）を分け、fetch・待ち時間（sleep）・時刻（now）を差し替えて、429 の再試行・不調時の停止・400 で続行することをテストしている。運用メモに curl の --max-time や 5xx の意味、移行後の初期値まで書かれている。重要度を high/medium/low にしたのは独自の判断だが、文書に書かれている。",
+          "業務ルールと通信を分け、fetch・sleep・時刻・送信を差し替えて、境界・401・503・400 をテストしている。429 は Retry-After に従って 1 回だけ再送する。仮定とリリース時の注意は CLAUDE.md と operations.md に書かれている。冪等キーに宛先が入っていない点が小さな気がかり。"
         ]
       },
-      "review_detail": null,
       "questions": {
         "total": 2,
         "by_route": {
@@ -598,7 +675,7 @@
           },
           {
             "id": "R04",
-            "detail": "要求 1 回（ジョブ 502、1507ms）"
+            "detail": "要求 1 回（ジョブ 502、1506ms）"
           }
         ],
         "mutants": 60,
@@ -683,7 +760,7 @@
         "errors": "",
         "questions": 2
       },
-      "total_v1": 68.2
+      "total_v1": 83.2
     },
     {
       "trial": "W12-baseline-12",
@@ -696,7 +773,7 @@
         "claude-sonnet-5-5": 1.1775
       },
       "run": 12,
-      "total": 73.8,
+      "total": 87.6,
       "business": 26.62,
       "business_public": 8.0,
       "business_hidden": 18.62,
@@ -717,7 +794,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 13.75,
       "test_strength": 7.67,
       "hidden_items": {
         "H01": true,
@@ -818,9 +895,48 @@
         "needs_review": false,
         "notes": [
           "新しい項目: importance"
+        ],
+        "default_existing": "B"
+      },
+      "review_detail": {
+        "code": "R11",
+        "totals": [
+          16,
+          17
+        ],
+        "mean": 16.5,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            2
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "plan（業務判断）と send（送信と記録）、notify（HTTP）、Route が分かれ、日付関数は dates.ts に足している。決まりどおりのジョブで時間上限と打ち切りはあるが、同時実行は Idempotency-Key 頼みで、宛先なしでも毎日 502 になる点が粗い。fetch・clock を差し替えて境界・失敗・マイグレーションをテストしている。仮定は運用メモに定義が書かれる程度。",
+          "計画と送信を分け、時間上限と abort 分類で途中打ち切りと再送に対応し、clock・fetch・send を差し替えて JST の境界までテストしている。ただし宛先の決定を users の既存関数ではなく独自の JOIN の SQL で作り直している。"
         ]
       },
-      "review_detail": null,
       "questions": {
         "total": 10,
         "by_route": {
@@ -991,7 +1107,7 @@
           },
           {
             "id": "R04",
-            "detail": "要求 1 回（ジョブ 502、1509ms）"
+            "detail": "要求 1 回（ジョブ 502、1507ms）"
           }
         ],
         "mutants": 60,
@@ -1082,7 +1198,7 @@
         "errors": "",
         "questions": 10
       },
-      "total_v1": 67.0
+      "total_v1": 80.8
     },
     {
       "trial": "W12-baseline-2",
@@ -1095,7 +1211,7 @@
         "claude-sonnet-5-5": 0.7899
       },
       "run": 2,
-      "total": 78.0,
+      "total": 92.2,
       "business": 30.0,
       "business_public": 8.0,
       "business_hidden": 22.0,
@@ -1116,7 +1232,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 14.17,
       "test_strength": 8.5,
       "hidden_items": {
         "H01": true,
@@ -1220,7 +1336,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R02",
+        "totals": [
+          17,
+          17
+        ],
+        "mean": 17.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            2
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "層は分かれ、既存の logger・requireJobAuth・todayJst・getUserDetail を使い、送信記録と冪等キーで二重送信も防いでいる。ただし 429・503 でも送信を止めず、時間の上限もないため、通知サービスの混雑時に長時間かかり続けるおそれがある。借りている人への通知は依頼の範囲を超えるが、運用メモに書かれている。",
+          "宛先ごとの記録、OR IGNORE、401 なら中断、未送信分は次回に再送、と配慮があり、テストも境界と失敗を確かめている。ただし通知ジョブで計測器の取得を独自の SQL と Row 型で書き直していて、listInstruments を使っていない。仮定は CLAUDE.md と operations.md に整理されている。"
+        ]
+      },
       "questions": {
         "total": 5,
         "by_route": {
@@ -1413,7 +1567,7 @@
         "errors": "",
         "questions": 5
       },
-      "total_v1": 76.6
+      "total_v1": 90.8
     },
     {
       "trial": "W12-baseline-21",
@@ -1426,7 +1580,7 @@
         "claude-haiku-5-5": 0.3676
       },
       "run": 21,
-      "total": 69.6,
+      "total": 83.3,
       "business": 23.23,
       "business_public": 8.0,
       "business_hidden": 15.23,
@@ -1447,7 +1601,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 13.75,
       "test_strength": 8.17,
       "hidden_items": {
         "H01": true,
@@ -1551,7 +1705,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R04",
+        "totals": [
+          16,
+          17
+        ],
+        "mean": 16.5,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            2
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "層は分かれ、既存の部品を使っている。401・429 では止めるが 503 では止めず、時間の上限もない。冪等キーに実行日を含めるため、24 時間以内の再送を通知サービス側で防ぐ効果が弱い。期限は月末ではなく同じ日（月末に丸め）で、対象に校正中・使用停止を含めるなどの判断は運用メモに書かれず、コードのコメントだけにある。移行を確かめるテストがある。",
+          "層は分かれていて、401・429 なら止める、記録は OR IGNORE で二重を避ける、と配慮も十分。テストも境界と失敗を確かめている。ただし operations.md の追記は短く、期限の定義（月末に丸める）や対象（校正中も含む）といった仮定は主にコードのコメントにとどまる。冪等キーに実行日を含めているため、通知サービス側の重複防止は同じ日の中しか効かない。"
+        ]
+      },
       "questions": {
         "total": 8,
         "by_route": {
@@ -1810,7 +2002,7 @@
         "errors": "",
         "questions": 8
       },
-      "total_v1": 65.5
+      "total_v1": 79.2
     },
     {
       "trial": "W12-baseline-31",
@@ -1823,7 +2015,7 @@
         "claude-sonnet-5-5": 0.6615
       },
       "run": 31,
-      "total": 71.6,
+      "total": 85.0,
       "business": 24.92,
       "business_public": 8.0,
       "business_hidden": 16.92,
@@ -1844,7 +2036,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 13.33,
       "test_strength": 7.17,
       "hidden_items": {
         "H01": true,
@@ -1964,7 +2156,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R30",
+        "totals": [
+          16,
+          16
+        ],
+        "mean": 16.0,
+        "items": {
+          "a": [
+            2,
+            2
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            2
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "通知クライアントが calibration-notices.ts に同居している。ジョブは失敗があっても常に 200 を返し、送信記録と冪等キーは宛先を含まない（計測器・期限・種類だけ）。new URL で URL のパスの接頭辞が落ちる点も弱い。fetch・時刻は差し替えられ、テストとマイグレーションのテストもある。運用メモは要点を押さえている。",
+          "通知クライアント（createNotifySender）が業務判断と同じ calibration-notices.ts に同居し、Route が環境変数を直接読むなど一部が混ざる。429 だけで打ち切り、503 やタイムアウトでは 1 件 60 秒ずつ続けて待つので、全体の時間の上限がない。fetch・タイムアウトは差し替えでき、境界・失敗・マイグレーションのテストもある。運用メモに定義・対象・宛先・初回は全件 B であることが書かれている。"
+        ]
+      },
       "questions": {
         "total": 6,
         "by_route": {
@@ -2178,7 +2408,7 @@
         "errors": "",
         "questions": 6
       },
-      "total_v1": 66.1
+      "total_v1": 79.5
     },
     {
       "trial": "W12-baseline-conventions-1",
@@ -2191,7 +2421,7 @@
         "claude-sonnet-5-5": 0.6913
       },
       "run": 1,
-      "total": 78.1,
+      "total": 92.3,
       "business": 26.62,
       "business_public": 8.0,
       "business_hidden": 18.62,
@@ -2212,7 +2442,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 14.17,
       "test_strength": 6.5,
       "hidden_items": {
         "H01": true,
@@ -2317,7 +2547,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R13",
+        "totals": [
+          16,
+          18
+        ],
+        "mean": 17.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "期限計算(dates.ts)・対象と宛先(calibration-notices)・HTTP と再試行(notify)・入口が分かれ、既存の部品を使っている。ジョブの決まりには沿うが、1 件ごとに最大 4 回×60 秒の再試行をして全体の時間上限がなく、多重実行の対策も Idempotency-Key だけ。fetch/sleep/random を差し替えてバックオフ・429・タイムアウトや境界をテストし、既存 DB へのマイグレーションも確かめている。仮定は運用メモと CLAUDE.md に短く書かれている。",
+          "dates.ts の拡張、notify（バックオフ付き再試行）、通知判断、Route がきれいに分かれている。送信済みテーブルと固定キーで再実行を冪等にし、失敗時は 502 を返す。fetch・sleep・random を差し替えたテストと、既存 DB でのマイグレーションのテストがある。"
+        ]
+      },
       "questions": {
         "total": 7,
         "by_route": {
@@ -2521,7 +2789,7 @@
         "errors": "",
         "questions": 7
       },
-      "total_v1": 76.7
+      "total_v1": 90.9
     },
     {
       "trial": "W12-baseline-conventions-2",
@@ -2534,7 +2802,7 @@
         "claude-sonnet-5-5": 1.0315
       },
       "run": 2,
-      "total": 77.2,
+      "total": 92.2,
       "business": 24.92,
       "business_public": 8.0,
       "business_hidden": 16.92,
@@ -2555,7 +2823,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 15.0,
       "test_strength": 7.33,
       "hidden_items": {
         "H01": true,
@@ -2660,7 +2928,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R17",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "期限判定・宛先決定・文面・送信・記録が関数ごとに分かれ、Route は薄い。notify は fetch・sleep・random を差し替えられ、Idempotency-Key・連続失敗での打ち切り・失敗分を記録しない再試行があり、境界と失敗をテストしている。30 日の根拠・対象状態・代表者への切り替えも README と運用メモに書かれ、マイグレーションは末尾追加で既存の行は B になることをテストで確かめている。",
+          "classifyDue・宛先の決定・通知の組み立て・ジョブ・クライアントがきれいに分かれ、既存の listInstruments や users.ts の関数を使っている。Idempotency-Key と指数バックオフ（Retry-After 対応）、3 件連続の失敗で打ち切る仕組み、502 を返す動きがあり、fetch・sleep・random を差し替えてテストしている。CLAUDE.md と運用メモに対象・30 日・宛先・移行の内容を書き、マイグレーションのテストもある。"
+        ]
+      },
       "questions": {
         "total": 5,
         "by_route": {
@@ -2851,7 +3157,7 @@
         "errors": "",
         "questions": 5
       },
-      "total_v1": 77.2
+      "total_v1": 92.2
     },
     {
       "trial": "W12-compound-engineering-1",
@@ -2865,7 +3171,7 @@
         "claude-haiku-5-5": 0.0208
       },
       "run": 1,
-      "total": 75.3,
+      "total": 89.1,
       "business": 28.31,
       "business_public": 8.0,
       "business_hidden": 20.31,
@@ -2886,7 +3192,7 @@
         "R11": false
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 13.75,
       "test_strength": 8.83,
       "hidden_items": {
         "H01": true,
@@ -2990,7 +3296,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R15",
+        "totals": [
+          15,
+          18
+        ],
+        "mean": 16.5,
+        "items": {
+          "a": [
+            2,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "通知クライアントと Route は分かれているが、通知の種別判定などの業務ルールが dates.ts に入り、calibration-notices に宛先・文面・送信・記録が集まっている。決まりどおりのジョブで、サービスの不調時は打ち切るが、全体の時間上限や同時実行の扱いは Idempotency-Key 頼み。send/fetchImpl/env を差し替えて境界・失敗・未設定をテストしている。仮定は運用メモに断片的に書かれる程度。",
+          "日付計算は dates.ts に追加し、通知クライアントと判断と Route を分けている。送信記録と固定キーで二重送信を防ぎ、障害時は打ち切って 502 で cron に知らせる。send・fetch・env を差し替えて境界と失敗をテストしている。重要度の既定は B で、マイグレーションは末尾に追加している。"
+        ]
+      },
       "questions": {
         "total": 13,
         "by_route": {
@@ -3330,7 +3674,7 @@
         "errors": "",
         "questions": 13
       },
-      "total_v1": 68.5
+      "total_v1": 82.3
     },
     {
       "trial": "W12-compound-engineering-11",
@@ -3344,7 +3688,7 @@
         "claude-haiku-5-5": 0.0246
       },
       "run": 11,
-      "total": 76.2,
+      "total": 91.2,
       "business": 28.31,
       "business_public": 8.0,
       "business_hidden": 20.31,
@@ -3365,7 +3709,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 15.0,
       "test_strength": 8.33,
       "hidden_items": {
         "H01": true,
@@ -3467,9 +3811,48 @@
         "needs_review": false,
         "notes": [
           "新しい項目: importance"
+        ],
+        "default_existing": "B"
+      },
+      "review_detail": {
+        "code": "R06",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "判断・通信・入口が分かれ、todayJst・isActiveUser・logger を使い、送信の結果を 4 種類に分けて不調時には残りを止める。now と fetch を差し替えて、境界・失敗・記録の失敗まで細かくテストしている。運用メモに 24 時間を超えた再送で重複しうることや、一括で A に変えたときの影響まで書かれている。開発用の初期データ（seed）を A に変えているが、本番のデータには影響しない。",
+          "判断（種類・送り先）、日付（dates.ts）、通知クライアント（結果を 4 種に分類）、ジョブ本体、Route がきれいに分かれている。一時的な障害なら止めて記録の失敗も数えるなど、途中で止まった場合の扱いが細かく、テストも境界・障害・記録失敗まで確かめている。シードの重要度を A に変えたのは開発用データへの小さな変更にとどまる。"
         ]
       },
-      "review_detail": null,
       "questions": {
         "total": 9,
         "by_route": {
@@ -3627,7 +4010,7 @@
           },
           {
             "id": "R04",
-            "detail": "要求 1 回（ジョブ 502、1508ms）"
+            "detail": "要求 1 回（ジョブ 502、1507ms）"
           }
         ],
         "mutants": 60,
@@ -3754,7 +4137,7 @@
         "errors": "",
         "questions": 9
       },
-      "total_v1": 69.4
+      "total_v1": 84.4
     },
     {
       "trial": "W12-compound-engineering-12",
@@ -3768,10 +4151,10 @@
         "claude-haiku-5-5": 0.0214
       },
       "run": 12,
-      "total": 72.0,
-      "business": 24.92,
+      "total": 88.2,
+      "business": 26.62,
       "business_public": 8.0,
-      "business_hidden": 16.92,
+      "business_hidden": 18.62,
       "migration": 20,
       "robustness": 9.55,
       "robustness_v1": 2.73,
@@ -3789,10 +4172,10 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 14.58,
       "test_strength": 7.5,
       "hidden_items": {
-        "H01": false,
+        "H01": true,
         "H02": false,
         "H03": false,
         "H04": true,
@@ -3891,9 +4274,48 @@
         "needs_review": false,
         "notes": [
           "新しい項目: importance"
+        ],
+        "default_existing": "B"
+      },
+      "review_detail": {
+        "code": "R21",
+        "totals": [
+          18,
+          17
+        ],
+        "mean": 17.5,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            2
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "純粋な業務ルール（calibration-due）・送信の処理・ジョブの組み立て・通知クライアントが分かれ、Route は認証だけ。pending と sent の状態、23 時間の再送の窓、時間の上限、ON CONFLICT による同時実行への対策があり、send・now・sleep を差し替え、本物の HTTP サーバーも使ってテストしている。運用メモに状況ごとの対応表と仮置きの点を明記した。seed の重要度を書き換えたのは開発データの範囲で、本番データは既定の B のまま。",
+          "期限の判断（純粋関数）・送信・ジョブ・クライアント・Route が明確に分かれている。pending の状態、23 時間の窓、実行時間の上限を持ち、二重送信と途中停止への配慮は非常に厚い。ただし計測器は listInstruments を使わず、独自の SQL と行の型で読み直しており、一部を作り直している。fetch・sleep・now を差し替え、実際の HTTP サーバーでもテストしている。仮置きの窓口も文書に明記している。"
         ]
       },
-      "review_detail": null,
       "questions": {
         "total": 16,
         "by_route": {
@@ -4093,10 +4515,6 @@
         "public_failed": [],
         "hidden_failed": [
           {
-            "id": "H01",
-            "detail": "既存の計測器の重要度: \"A\"（段階 [\"A\",\"B\",\"C\"]）"
-          },
-          {
             "id": "H02",
             "detail": "絞り込み: {\"api\":false,\"page\":false,\"param\":null}"
           },
@@ -4120,7 +4538,7 @@
           },
           {
             "id": "R04",
-            "detail": "要求 1 回（ジョブ 502、1518ms）"
+            "detail": "要求 1 回（ジョブ 502、1515ms）"
           }
         ],
         "mutants": 60,
@@ -4252,7 +4670,7 @@
         "errors": "",
         "questions": 16
       },
-      "total_v1": 65.2
+      "total_v1": 81.4
     },
     {
       "trial": "W12-compound-engineering-2",
@@ -4265,7 +4683,7 @@
         "claude-sonnet-5-5": 15.8481
       },
       "run": 2,
-      "total": 77.0,
+      "total": 91.6,
       "business": 30.0,
       "business_public": 8.0,
       "business_hidden": 22.0,
@@ -4286,7 +4704,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 14.58,
       "test_strength": 7.5,
       "hidden_items": {
         "H01": true,
@@ -4391,7 +4809,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R22",
+        "totals": [
+          17,
+          18
+        ],
+        "mean": 17.5,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "期限計算は dates、送信は notify、判定と記録は calibration-notices に分かれ、Route は薄い（ただし通知の種別の判定が dates.ts にある）。Idempotency-Key と送信済みの記録で同じ日の再実行には対応するが、停止中に 1 件 30 秒の待ちを全件で繰り返す点への上限がなく、多重起動への備えも明示されていない。send・now・today を差し替え、境界と失敗のテストが厚い。運用メモに期限の定義・借り手・500 の条件・重要度変更のログまで書かれている。",
+          "Route は 13 行と薄く、判定・宛先・送信記録は lib、HTTP は notify.ts に分かれ、listInstruments の絞り込みや isActiveUser など既存の部品を使っている。送信はトランザクションの外で行い、冪等キーと送信記録で二重送信を防ぐ。実装計画の文書を置き、運用メモで失敗時の応答と移行を詳しく書いている。連続失敗での打ち切りはないが、全件失敗のときは 500 で気づける。"
+        ]
+      },
       "questions": {
         "total": 9,
         "by_route": {
@@ -4678,7 +5134,7 @@
         "errors": "",
         "questions": 9
       },
-      "total_v1": 77.0
+      "total_v1": 91.6
     },
     {
       "trial": "W12-compound-engineering-21",
@@ -4692,7 +5148,7 @@
         "claude-sonnet-5-5": 1.2859
       },
       "run": 21,
-      "total": 74.7,
+      "total": 88.4,
       "business": 28.31,
       "business_public": 8.0,
       "business_hidden": 20.31,
@@ -4713,7 +5169,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 13.75,
       "test_strength": 8.17,
       "hidden_items": {
         "H01": true,
@@ -4817,7 +5273,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R08",
+        "totals": [
+          16,
+          17
+        ],
+        "mean": 16.5,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            2
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "層は分かれ、既存の部品を使い、送信記録と冪等キーで二重送信を防いでいるが、429・503 でも止まらず、時間の上限もない。期限を「同じ日（月末に丸め）」とし、重要度を変えられるのを管理者に限るなどの判断は、表示された運用メモにはほとんど書かれていない。権限の制限は新しい項目（重要度）だけにかかるので、既存の動きは保たれている。",
+          "日付計算は dates.ts、送り先・送信・記録は calibration-notices.ts、通知は notify.ts、入口は Route に分かれ、送信関数・fetch・時刻を差し替えて境界と失敗をテストしている。決めた内容（7:30、重要度 A、失敗時は 502 で翌日に再送）は operations.md にあるが、期限の定義や 30 日前といった仮定は文書の差分には見えず、コミットのタイトルから推し量るしかない。"
+        ]
+      },
       "questions": {
         "total": 14,
         "by_route": {
@@ -5145,7 +5639,7 @@
         "errors": "",
         "questions": 14
       },
-      "total_v1": 74.7
+      "total_v1": 88.4
     },
     {
       "trial": "W12-compound-engineering-31",
@@ -5159,7 +5653,7 @@
         "claude-opus-5-5": 0.631
       },
       "run": 31,
-      "total": 71.8,
+      "total": 86.0,
       "business": 24.92,
       "business_public": 8.0,
       "business_hidden": 16.92,
@@ -5180,7 +5674,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 14.17,
       "test_strength": 7.33,
       "hidden_items": {
         "H01": true,
@@ -5299,7 +5793,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R12",
+        "totals": [
+          16,
+          18
+        ],
+        "mean": 17.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "期限計算は dates.ts、対象・宛先・文面・記録は calibration-due.ts、HTTP は notify.ts、入口は Route と分かれ、古い date-utils ではなく todayJst・listInstruments・logger を使っている。決まりに沿うが、全体の時間上限や多重実行の扱いは Idempotency-Key と INSERT OR IGNORE 任せ。send を差し替えて境界・失敗・重なった実行をテストし、マイグレーションのテストもある。計画文書のコミットはあるが、差分で見える仮定の記述は運用メモ程度。",
+          "date-utils がある版だが、新しいコードは dates.ts・todayJst・logger に寄せていて、責務も分かれている。送信済みの記録、固定キー、重なって実行された場合のテスト、502/500 の使い分けがそろっている。計画の文書と運用メモで判断が追える。"
+        ]
+      },
       "questions": {
         "total": 11,
         "by_route": {
@@ -5621,7 +6153,7 @@
         "errors": "",
         "questions": 11
       },
-      "total_v1": 70.4
+      "total_v1": 84.6
     },
     {
       "trial": "W12-feature-dev-1",
@@ -5634,7 +6166,7 @@
         "claude-sonnet-5-5": 2.8946
       },
       "run": 1,
-      "total": 75.7,
+      "total": 90.7,
       "business": 30.0,
       "business_public": 8.0,
       "business_hidden": 22.0,
@@ -5655,7 +6187,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 15.0,
       "test_strength": 7.5,
       "hidden_items": {
         "H01": true,
@@ -5760,7 +6292,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R14",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "期限判定(calibration-due)・宛先と文面・送信記録・実行・HTTP クライアント・Route が明確に分かれ、listInstruments・currentLoan・todayJst・logger を再利用している。1 文で確保するリース付きの送信記録、時間上限、連続失敗・401・429 での打ち切りまで考え、client・now・sleep を差し替えて境界と失敗をテストしている。二重送信と取りこぼしのどちらを優先したかなど、判断を運用メモに理由付きで書いている。",
+          "期限計算・計画・文面・送信権の確保（リース付き claim）・クライアントを分けている。多重実行・途中停止・時間上限・連続失敗に配慮し、now・sleep・client を差し替えて 429 や 401 などをテストしている。運用メモには二重送信を許容する判断まで明記している。"
+        ]
+      },
       "questions": {
         "total": 8,
         "by_route": {
@@ -6009,7 +6579,7 @@
         "errors": "",
         "questions": 8
       },
-      "total_v1": 75.7
+      "total_v1": 90.7
     },
     {
       "trial": "W12-feature-dev-11",
@@ -6022,7 +6592,7 @@
         "claude-sonnet-5-5": 1.623
       },
       "run": 11,
-      "total": 77.0,
+      "total": 91.6,
       "business": 30.0,
       "business_public": 8.0,
       "business_hidden": 22.0,
@@ -6043,7 +6613,7 @@
         "R11": false
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 14.58,
       "test_strength": 7.5,
       "hidden_items": {
         "H01": true,
@@ -6149,7 +6719,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R25",
+        "totals": [
+          18,
+          17
+        ],
+        "mean": 17.5,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            2
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "判断（planCalibrationNotices）と送信（runCalibrationNotices）、通知クライアント（notify.ts）、Route が分かれ、logger・requireJobAuth・todayJst・dates.ts を使っている。送信記録と Idempotency-Key で二重送信を防ぎ、通知サービスが使えないときは 503 で止める。fetch を差し替えて境界と失敗をテストし、期限の定義・宛先・失敗時の扱い・リリース手順は operations.md に整理されている。",
+          "plan（業務判断）と run（送信）を分け、クライアントは notify.ts、Route は入口だけになっている。サービスが使えなければ打ち切って 503 を返し、記録とキーで二重送信を防いでいる。fetch/timeout を差し替え、境界・400・503・タイムアウトをテストしている。運用メモにリリース後の手順と当日中の再実行まで書かれている。一方、初期データ（seed）の重要度を A に書き換えたため、開発環境の動きや既存のテストの前提が変わるおそれがある。"
+        ]
+      },
       "questions": {
         "total": 8,
         "by_route": {
@@ -6388,7 +6996,7 @@
         "errors": "",
         "questions": 8
       },
-      "total_v1": 68.8
+      "total_v1": 83.4
     },
     {
       "trial": "W12-feature-dev-12",
@@ -6401,7 +7009,7 @@
         "claude-sonnet-5-5": 3.2731
       },
       "run": 12,
-      "total": 78.7,
+      "total": 93.7,
       "business": 30.0,
       "business_public": 8.0,
       "business_hidden": 22.0,
@@ -6422,7 +7030,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 15.0,
       "test_strength": 7.83,
       "hidden_items": {
         "H01": true,
@@ -6528,7 +7136,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R09",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "期限計算(dates.ts)・宛先と業務判断(calibration-notices)・送信記録と再送(notifications)・HTTP(notify)・入口(route)がはっきり分かれ、todayJst・transaction・logger・requireJobAuth を再利用している。行の確保とロック期限、時間上限、結果不明の送信と Idempotency-Key の 24 時間の扱いまで考え、now/sleep/fetch を差し替えて境界と失敗をテストし、運用メモに定義と判断を理由付きで整理している。",
+          "業務ルール・送信記録（アウトボックス）・HTTP を分け、transaction・logger・todayJst を使っている。claim とロックのタイムアウト、結果が分からない送信の 24 時間対策、dead 状態まで設計して運用メモに詳しく書いている。InstrumentInput の importance を省略できるようにして既存の API 利用者との互換も保っている。"
+        ]
+      },
       "questions": {
         "total": 10,
         "by_route": {
@@ -6704,7 +7350,7 @@
           },
           {
             "id": "R04",
-            "detail": "要求 1 回（ジョブ 200、1509ms）"
+            "detail": "要求 1 回（ジョブ 200、1520ms）"
           }
         ],
         "mutants": 60,
@@ -6798,7 +7444,7 @@
         "errors": "",
         "questions": 10
       },
-      "total_v1": 78.7
+      "total_v1": 93.7
     },
     {
       "trial": "W12-feature-dev-2",
@@ -6811,7 +7457,7 @@
         "claude-sonnet-5-5": 1.5367
       },
       "run": 2,
-      "total": 77.2,
+      "total": 92.2,
       "business": 30.0,
       "business_public": 8.0,
       "business_hidden": 22.0,
@@ -6832,7 +7478,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 15.0,
       "test_strength": 7.67,
       "hidden_items": {
         "H01": true,
@@ -6936,7 +7582,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R19",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "plan（読み取りだけ）・compose・send・record が分かれ、Route は認証・設定確認・409 だけを持つ。多重起動のフラグ、時間の上限、401 での打ち切り、Idempotency-Key、dryRun があり、fetch・now を差し替えたテストで境界と失敗を確かめている。月末期限・借り手・送れない場合の扱いを README と運用メモに明記し、API の変更は任意の絞り込みを足すだけ。",
+          "通知の計画（planCalibrationNotices）と送信（runCalibrationDueJob）、クライアント、Route が分かれ、listInstruments・isActiveUser・todayJst を使っている。実行中の 409、時間の上限、401 での打ち切り、dryRun、同じ Idempotency-Key での送り直しまで考えられ、fetch と now を差し替えたテストもある。運用メモに対象・宛先・失敗時の扱い・移行後の見直しを書いている。"
+        ]
+      },
       "questions": {
         "total": 13,
         "by_route": {
@@ -7218,7 +7902,7 @@
         "errors": "",
         "questions": 13
       },
-      "total_v1": 75.8
+      "total_v1": 90.8
     },
     {
       "trial": "W12-feature-dev-21",
@@ -7232,7 +7916,7 @@
         "claude-sonnet-5-5": 0.7897
       },
       "run": 21,
-      "total": 77.4,
+      "total": 91.5,
       "business": 30.0,
       "business_public": 8.0,
       "business_hidden": 22.0,
@@ -7253,7 +7937,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 14.17,
       "test_strength": 9.17,
       "hidden_items": {
         "H01": true,
@@ -7356,7 +8040,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R29",
+        "totals": [
+          17,
+          17
+        ],
+        "mean": 17.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            2
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "sending/sent/failed の状態と ON CONFLICT による送信権の確保で、同時実行や途中停止にも配慮しており、ジョブの作り方は手厚い。テストでは途中停止で sending のまま残った行と、届いたか分からない失敗を確かめている。運用メモは応答コードと手での復旧手順が中心で、期限の定義・対象・宛先の仮定はコードのコメントにしか無い。品質保証部だけが重要度を変えられる制限も、依頼者に確かめた形跡がないまま入っている。",
+          "sending/sent/failed の行で送信権を取り、並行実行や途中停止でも二重に送らない設計になっている。届いたか不明なものは自動では再送せず、運用手順を書いている。fetch・時刻・タイムアウトを差し替えでき、クラッシュ後の状態まで含めて境界・失敗をテストしている。一方、運用メモは応答と復旧の手順が中心で、30 日前・月末起算・品質保証部だけが重要度を変更できる、といった仮定はコードのコメントにしか書かれていない。"
+        ]
+      },
       "questions": {
         "total": 18,
         "by_route": {
@@ -7600,7 +8322,7 @@
           },
           {
             "id": "R04",
-            "detail": "要求 1 回（ジョブ 502、1511ms）"
+            "detail": "要求 1 回（ジョブ 502、1510ms）"
           }
         ],
         "mutants": 60,
@@ -7690,7 +8412,7 @@
         "errors": "",
         "questions": 18
       },
-      "total_v1": 78.8
+      "total_v1": 92.9
     },
     {
       "trial": "W12-feature-dev-31",
@@ -7703,7 +8425,7 @@
         "claude-sonnet-5-5": 2.1995
       },
       "run": 31,
-      "total": 78.1,
+      "total": 93.1,
       "business": 30.0,
       "business_public": 8.0,
       "business_hidden": 22.0,
@@ -7724,7 +8446,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 15.0,
       "test_strength": 7.17,
       "hidden_items": {
         "H01": true,
@@ -7844,7 +8566,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R32",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "古い log()・date-utils がある版だが、新しいコードは logger と dates.ts に寄せている。持ち時間・連続失敗での打ち切り、429 で Retry-After を待つ処理、冪等キーがあり、clock・sleep・fetch・timeout を差し替えて境界と失敗をテストしている。応答は常に 200 で失敗が cron に伝わらない点と、一覧画面の getKikiList を listInstruments に置き換えた点は小さな懸念。",
+          "期限計算(dates)・宛先決定・通知クライアント・ジョブ入口・送信記録がきれいに分かれ、logger/todayJst/requireJobAuth/listInstruments を再利用している。1 回 15 秒・全体 5 分・連続 3 回失敗での打ち切りと Idempotency-Key を備え、clock/fetch/sleep を差し替えて境界と失敗をテストしている。運用メモに期限の定義・30 日前・対象・宛先・失敗時の扱い・移行後は全件 B であることが整理されている。"
+        ]
+      },
       "questions": {
         "total": 9,
         "by_route": {
@@ -8098,7 +8858,7 @@
         "errors": "",
         "questions": 9
       },
-      "total_v1": 74.0
+      "total_v1": 89.0
     },
     {
       "trial": "W12-gstack-1",
@@ -8111,7 +8871,7 @@
         "claude-sonnet-5-5": 3.4228
       },
       "run": 1,
-      "total": 75.2,
+      "total": 90.2,
       "business": 26.62,
       "business_public": 8.0,
       "business_hidden": 18.62,
@@ -8132,7 +8892,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 15.0,
       "test_strength": 9.0,
       "hidden_items": {
         "H01": true,
@@ -8237,7 +8997,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R31",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "notify.ts、判断・宛先、Route が分かれ、画面から重要度を変える処理も lib の setImportance を通している。サービス全体の失敗では打ち切り、1 件だけの誤りは飛ばして続け、送れなかった分は記録しないので次回に送り直す。502 を返すのは 1 件も送れなかったときだけ。運用メモには『依頼者の指示でお任せ』と決めた点も書いている。",
+          "対象抽出・宛先・文面・送信・記録が src/lib に分かれ、Route は入口だけになっている。サービス全体の不調では打ち切り、全件失敗なら 502 を返し、キーは安定している。fetch/send を差し替えて境界・400 と 503 の違いをテストしている（タイムアウトは定数）。運用メモに仮定や依頼者の判断（変更権限はお任せ）まで書かれ、移行は末尾に追加して既存は B。"
+        ]
+      },
       "questions": {
         "total": 8,
         "by_route": {
@@ -8486,7 +9284,399 @@
         "errors": "",
         "questions": 8
       },
-      "total_v1": 68.4
+      "total_v1": 83.4
+    },
+    {
+      "trial": "W12-gstack-11",
+      "candidate": "gstack+std",
+      "base_candidate": "gstack",
+      "standard": true,
+      "model": "claude-sonnet-5-5",
+      "messy": false,
+      "models_used": {
+        "claude-sonnet-5-5": 3.7465
+      },
+      "run": 11,
+      "total": 94.6,
+      "business": 26.62,
+      "business_public": 8.0,
+      "business_hidden": 18.62,
+      "migration": 20,
+      "robustness": 15.0,
+      "robustness_v1": 15.0,
+      "robust_v1_items": {
+        "R01": true,
+        "R02": true,
+        "R03": true,
+        "R04": true,
+        "R05": true,
+        "R06": true,
+        "R07": true,
+        "R08": true,
+        "R09": true,
+        "R10": true,
+        "R11": true
+      },
+      "ops": 10.0,
+      "design": 15.0,
+      "test_strength": 8.0,
+      "hidden_items": {
+        "H01": true,
+        "H02": false,
+        "H03": true,
+        "H04": true,
+        "H05": true,
+        "H06": true,
+        "H07": true,
+        "H08": false,
+        "H09": true,
+        "H10": true,
+        "H11": true,
+        "H12": true,
+        "H13": true
+      },
+      "public_items": {
+        "P01": true,
+        "P02": true,
+        "P03": true,
+        "P04": true
+      },
+      "robust_items": {
+        "R01": true,
+        "R02": true,
+        "R03": true,
+        "R04": true,
+        "R05": true,
+        "R06": true,
+        "R07": true,
+        "R08": true,
+        "R09": true,
+        "R10": true,
+        "R11": true
+      },
+      "migration_items": {
+        "M1": true,
+        "M2": true,
+        "M3": true,
+        "M4": true,
+        "M5": true,
+        "M6": true
+      },
+      "escape": {
+        "rewrote_existing_migration": false,
+        "lost_or_recreated_data": false,
+        "stuffed_into_existing_column": false,
+        "not_persisted": false
+      },
+      "ops_detail": {
+        "O1_logger": 3.0,
+        "O2_structured": 3.0,
+        "O3_no_secrets": 2.0,
+        "O4_env": 2.0,
+        "total": 10.0
+      },
+      "ops_facts": {
+        "logger_used": true,
+        "console_lines": [],
+        "json_events": [
+          "calibration_notice.rejected",
+          "calibration_notice.sent",
+          "calibration_notice.unavailable",
+          "job.completed",
+          "notify.retry"
+        ],
+        "info_lines": 61,
+        "warn_error_lines": 12,
+        "unstructured_lines": [],
+        "leaked_tokens": [],
+        "notify_auth_ok": true,
+        "reads_documented_env": true,
+        "aliases": {},
+        "notify_aliases": [],
+        "hardcoded_urls": [],
+        "env_names": [
+          "NOTIFY_API_TOKEN",
+          "NOTIFY_API_URL"
+        ]
+      },
+      "adapter": {
+        "key": "importance",
+        "levels": [
+          "A",
+          "B",
+          "C"
+        ],
+        "default": "B",
+        "set": "post",
+        "filter": {
+          "api": false,
+          "page": false,
+          "param": null
+        },
+        "job": {
+          "method": "POST",
+          "path": "/api/jobs/calibration-notices",
+          "unauthStatus": 401
+        },
+        "needs_review": false,
+        "notes": [
+          "新しい項目: importance"
+        ],
+        "default_existing": "B"
+      },
+      "review_detail": {
+        "code": "R23",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "対象の抽出・宛先の決定・文面・送信・記録が分かれ、Route は設定の確認と呼び出しだけ。Idempotency-Key・連続した応答なしでの打ち切り・401 での中止・重複した実行で記録済みでも続ける処理があり、fetch・sleep・send・now を差し替えて境界と失敗をテストしている。運用メモに月末期限・対象・送り先・失敗時の扱い・既存は B になることを書いている。",
+          "通知の判定と送信の記録は lib、HTTP の再試行は notify.ts、Route は入口だけ、と分担がはっきりしている。fetch・sleep・now を差し替えられ、連続 unavailable での打ち切り、401 での中止、重なった実行もテストしている。期限の定義（月末）・対象・宛先を依頼者の回答として運用メモに書き、既存の計測器が B になることも明記している。"
+        ]
+      },
+      "questions": {
+        "total": 8,
+        "by_route": {
+          "ask-po": 8,
+          "message": 0
+        },
+        "ask_po_calls": 2,
+        "message_rounds": 0,
+        "hit": 7,
+        "hit_rate": 0.88,
+        "reask": 0,
+        "before_impl": 6,
+        "before_impl_rate": 0.75,
+        "q_ids": [
+          "Q1",
+          "Q3",
+          "Q4",
+          "Q5",
+          "Q6",
+          "Q8",
+          "Q10",
+          "Q11"
+        ],
+        "o_ids": [
+          "O4"
+        ],
+        "d_ids": [],
+        "kinds": {
+          "requirement": 6,
+          "operations": 1,
+          "documented": 0,
+          "confirmation": 0,
+          "other": 1
+        },
+        "persona_cost_usd": 0.0745,
+        "errors": [],
+        "items": [
+          {
+            "route": "ask-po",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q1"
+            ],
+            "before": true,
+            "question": "重要度は「高・中・低」の3段階でよいか。既存の計測器の初期値は「中」でよいか。",
+            "answer": "重要度は A・B・C の3段階です。A は品質記録（検査成績書）に使う計測器です。今ある計測器はいったん全部 B にして、あとで各管理者が見直します。"
+          },
+          {
+            "route": "ask-po",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q5"
+            ],
+            "before": true,
+            "question": "重要度が高い計測器だけを通知の対象にする理解でよいか。",
+            "answer": "はい、知らせるのは重要度 A だけです。B・C は知らせなくてよいです。"
+          },
+          {
+            "route": "ask-po",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q3",
+              "Q4",
+              "Q10"
+            ],
+            "before": true,
+            "question": "校正期限（前回校正日＋校正周期）の何日前から通知するか。期限を過ぎても未校正のものも通知するか。",
+            "answer": "期限の30日前の日から知らせてください。校正期限は、前回校正日に校正周期（月）を足した月の末日です。たとえば前回が 2026-02-10 で周期12か月なら 2027-02-28 です。日付は日本時間で考えます。期限を過ぎても校正されていなければ、「期限切れ」を1回だけ知らせてください。"
+          },
+          {
+            "route": "ask-po",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q8"
+            ],
+            "before": true,
+            "question": "通知は期限まで毎日送るのか、1回だけか。",
+            "answer": "同じ期限についての「期限が近い」お知らせは1回だけです。毎日届くと読まれなくなるからです。"
+          },
+          {
+            "route": "ask-po",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q6"
+            ],
+            "before": true,
+            "question": "廃棄・使用停止・校正中の計測器は対象外でよいか。",
+            "answer": "はい、校正中・使用停止・廃棄の計測器には知らせません。校正中は手配済みで、使用停止と廃棄は使わないからです。"
+          },
+          {
+            "route": "ask-po",
+            "kind": "requirement",
+            "sheet_ids": [
+              "Q11"
+            ],
+            "before": true,
+            "question": "管理者が退職・休職中のときは、部署の代表者に送る形でよいか。",
+            "answer": "はい、管理者が退職・休職などで無効になっていたら、その管理者の部署の代表者に知らせてください。台帳の管理者の付け替えが遅れることがあるためです。"
+          },
+          {
+            "route": "ask-po",
+            "kind": "other",
+            "sheet_ids": [],
+            "before": false,
+            "question": "重要度の変更を、その計測器の管理者や品質保証部だけに限る必要はあるか",
+            "answer": "お任せします。"
+          },
+          {
+            "route": "ask-po",
+            "kind": "operations",
+            "sheet_ids": [
+              "O4"
+            ],
+            "before": false,
+            "question": "通知サービスに断られた通知は、毎日再試行するか、1回断られたら以後は再試行しないか",
+            "answer": "送れなかったお知らせは、翌朝の実行で送り直してくれればよいです。ただし、1件送れないせいでほかの人に届かないのは困ります。"
+          }
+        ]
+      },
+      "facts": {
+        "checks": {
+          "typecheck": true,
+          "test": true,
+          "build": true
+        },
+        "peeked": false,
+        "public_failed": [],
+        "hidden_failed": [
+          {
+            "id": "H02",
+            "detail": "絞り込み: {\"api\":false,\"page\":false,\"param\":null}"
+          },
+          {
+            "id": "H08",
+            "detail": "管理者 tanaka: 1 件、借りている人 matsumoto: 0 件"
+          }
+        ],
+        "robust_failed": [],
+        "mutants": 60,
+        "killed": 48,
+        "kill_rate": 0.8,
+        "static": {
+          "inProcessScheduler": [],
+          "console_lines": [],
+          "logger_used": true,
+          "env_names": [
+            "NOTIFY_API_TOKEN",
+            "NOTIFY_API_URL"
+          ],
+          "hardcoded_urls": [],
+          "new_deps": false
+        },
+        "migrations_static": {
+          "readable": true,
+          "base_versions": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "rewritten": [],
+          "added": [
+            5
+          ],
+          "appended_in_order": true
+        },
+        "interventions": 0,
+        "answer_key_access": [],
+        "isolation_suspects": 0,
+        "code_added": 327,
+        "test_added": 384,
+        "artifacts": [
+          "CLAUDE.md",
+          "docs/operations.md"
+        ],
+        "cost_usd": 3.7465,
+        "elapsed_seconds": 592,
+        "active_seconds": 570,
+        "turns": 99,
+        "subagents": 11,
+        "subagent_types": {
+          "general-purpose": 11
+        },
+        "skills_used": [],
+        "tool_calls": {
+          "Bash": 66,
+          "Edit": 40,
+          "Write": 4,
+          "Read": 15,
+          "Agent": 11
+        },
+        "denials": 3,
+        "denial_list": [
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"python3 - <<'EOF'\\nimport re\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\ns=s.rstrip()\\nassert s.endswith(\\\"];\\\")\\ns=s[:-2]+'''  {\\n    version: 5,\\n    name: \\\"instrument_importance_"
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"sed -i 's/assert.deepEqual(r.value, { ...VALID, model: \\\"\\\", location: \\\"\\\", note: \\\"\\\", status: \\\"in_use\\\" });/assert.deepEqual(r.value, { ...VALID, model: \\\"\\\", location: \\\"\\\", note: \\\""
+          },
+          {
+            "tool": "Bash",
+            "input": "{\"command\": \"cat >> tests/calibration-notices.test.ts <<'EOF'\\n\\ndescribe(\\\"migration 5\\\", () => {\\n  it(\\\"upgrades a version-4 database in place, keeping instruments and defaulting importance to B\\\","
+          }
+        ],
+        "commits": [
+          "00a6e27 校正期限の通知: レビューでの指摘を修正",
+          "a7d4d04 重要度 A の計測器の校正期限を管理者に通知する"
+        ],
+        "errors": "stepend killed leftover: next-server (v16.4.3)                                                       \nstepend killed leftover: next-server (v16.4.3)                                                       \n",
+        "questions": 8
+      },
+      "total_v1": 94.6
     },
     {
       "trial": "W12-gstack-12",
@@ -8499,7 +9689,7 @@
         "claude-sonnet-5-5": 8.9381
       },
       "run": 12,
-      "total": 76.2,
+      "total": 91.2,
       "business": 28.31,
       "business_public": 8.0,
       "business_hidden": 20.31,
@@ -8520,7 +9710,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 15.0,
       "test_strength": 8.33,
       "hidden_items": {
         "H01": true,
@@ -8622,9 +9812,48 @@
         "needs_review": false,
         "notes": [
           "新しい項目: importance"
+        ],
+        "default_existing": "B"
+      },
+      "review_detail": {
+        "code": "R27",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "notify.ts（Sender）、判断・宛先、Route が分かれている。連続失敗と持ち時間（clock を差し替え可）で打ち切り、送信記録と冪等キーで二重送信を防ぐ。v4 からのマイグレーションで既存の行が B になることをテストし、503 の条件・curl のタイムアウト・一括設定の手順まで運用メモに詳しく書いている。",
+          "期限・宛先・文面・実行の制御が lib にあり、クライアントは notify.ts に分かれている（重要度変更のログだけ Route にある）。持ち時間 5 分・連続失敗 3 回での打ち切り、計測器ごとの例外の隔離、送信済みの記録で二重送信を防いでいる。clock/fetch/timeout を差し替え、v4 からの移行も含めて境界と失敗をテストしている。運用メモには定義の例、503 を返す条件、cron のタイムアウト、一括設定の手順まで整理されている。"
         ]
       },
-      "review_detail": null,
       "questions": {
         "total": 13,
         "by_route": {
@@ -8824,7 +10053,7 @@
           },
           {
             "id": "R04",
-            "detail": "要求 1 回（ジョブ 503、1511ms）"
+            "detail": "要求 1 回（ジョブ 503、1507ms）"
           }
         ],
         "mutants": 60,
@@ -8930,7 +10159,7 @@
         "errors": "",
         "questions": 13
       },
-      "total_v1": 70.7
+      "total_v1": 85.7
     },
     {
       "trial": "W12-gstack-2",
@@ -8943,7 +10172,7 @@
         "claude-sonnet-5-5": 5.8455
       },
       "run": 2,
-      "total": 72.8,
+      "total": 86.6,
       "business": 24.92,
       "business_public": 8.0,
       "business_hidden": 16.92,
@@ -8964,7 +10193,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 13.75,
       "test_strength": 8.37,
       "hidden_items": {
         "H01": true,
@@ -9068,7 +10297,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R26",
+        "totals": [
+          17,
+          16
+        ],
+        "mean": 16.5,
+        "items": {
+          "a": [
+            2,
+            2
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            2
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "通知サービスの HTTP クライアント（sendNotification）が業務の判断と同じ calibration-notices.ts に入っており、層の分け方が一部混ざる。既存の部品を使い、送信記録と冪等キー、一時的な失敗での打ち切りと 502 の扱い、fetch を差し替えたテスト（境界・各ステータス・URL の接頭辞）、運用メモの記述はそろっている。",
+          "通知クライアント（sendNotification）が calibration-notices.ts に同居し、Route が環境変数を直接読むため、層の分け方がやや混ざる。一時的な失敗では打ち切って 502 を返し、送信済みを記録して二重送信を防いでいる。fetch を差し替えて 400/401/429/5xx/例外をテストしている（タイムアウトは定数）。運用メモは要点を押さえているが、期限の定義（単純な月加算）や宛先の判断理由は簡素。"
+        ]
+      },
       "questions": {
         "total": 7,
         "by_route": {
@@ -9298,7 +10565,7 @@
         "errors": "",
         "questions": 7
       },
-      "total_v1": 66.0
+      "total_v1": 79.8
     },
     {
       "trial": "W12-gstack-21",
@@ -9311,7 +10578,7 @@
         "claude-haiku-5-5": 2.0064
       },
       "run": 21,
-      "total": 74.0,
+      "total": 86.5,
       "business": 26.62,
       "business_public": 8.0,
       "business_hidden": 18.62,
@@ -9332,7 +10599,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 12.5,
       "test_strength": 9.17,
       "hidden_items": {
         "H01": true,
@@ -9436,7 +10703,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R03",
+        "totals": [
+          14,
+          16
+        ],
+        "mean": 15.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            3
+          ],
+          "f": [
+            1,
+            1
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "ジョブの分け方と送信記録は適切だが、通知サービスの不調時に止まらず、1 件ごとに 90 秒待つため実行が長引くおそれがある。既存の PATCH（状態・管理者・周期・前回校正日）と POST に 403 の権限制限を加えており、既存 API の動きを変えている（依頼の範囲を超える）。リリース手順は詳しいが、期限の定義などの仮定は主にコードのコメントにしか書かれていない。",
+          "通知の層分け・テスト・リリース手順や切り戻しの文書は丁寧。ただし既存の PATCH で管理者・状態・周期・前回校正日の変更を管理者本人と品質保証部に限ったため、これまで通っていた更新が 403 になる。既存 API の動きを依頼の範囲外まで変えている。"
+        ]
+      },
       "questions": {
         "total": 14,
         "by_route": {
@@ -9644,7 +10949,7 @@
           },
           {
             "id": "R04",
-            "detail": "要求 1 回（ジョブ 502、1509ms）"
+            "detail": "要求 1 回（ジョブ 502、1512ms）"
           }
         ],
         "mutants": 60,
@@ -9753,7 +11058,7 @@
         "errors": "",
         "questions": 14
       },
-      "total_v1": 74.0
+      "total_v1": 86.5
     },
     {
       "trial": "W12-gstack-31",
@@ -9766,7 +11071,7 @@
         "claude-sonnet-5-5": 3.2777
       },
       "run": 31,
-      "total": 70.2,
+      "total": 85.2,
       "business": 23.23,
       "business_public": 8.0,
       "business_hidden": 15.23,
@@ -9787,7 +11092,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 15.0,
       "test_strength": 7.41,
       "hidden_items": {
         "H01": true,
@@ -9906,7 +11211,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R24",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "宛先の決定・未通知の抽出・文面・送信・記録が分かれ、Route は薄い。Idempotency-Key、連続したサービスの失敗での打ち切り、記録の失敗の分離があり、トリガーで記録の失敗を起こすテストや、既存 DB へのマイグレーションのテストもある。ただし打ち切らなかった日の一部の失敗は 200 になり、cron では気づけない。30 日の根拠・対象状態・代表者への切り替え・タイムアウトを運用メモに明記し、期限切れを別に通知せず 1 回にまとめることも書いている。",
+          "期限計算・宛先決定・通知クライアント・ジョブ入口が分かれ、Route は requireJobAuth と todayJst を使う薄い入口になっている。Idempotency-Key、連続失敗での打ち切りと 503、送信済みの記録まで考えられており、fetch と send を差し替えて境界と失敗をテストしている。マイグレーションは末尾に追加され、既存の計測器を B にする移行もテストで確かめている。"
+        ]
+      },
       "questions": {
         "total": 7,
         "by_route": {
@@ -10142,7 +11485,7 @@
         "errors": "",
         "questions": 7
       },
-      "total_v1": 64.7
+      "total_v1": 79.7
     },
     {
       "trial": "W12-superpowers-1",
@@ -10156,7 +11499,7 @@
         "claude-opus-5-5": 0.5274
       },
       "run": 1,
-      "total": 78.7,
+      "total": 93.7,
       "business": 30.0,
       "business_public": 8.0,
       "business_hidden": 22.0,
@@ -10177,7 +11520,7 @@
         "R11": false
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 15.0,
       "test_strength": 7.83,
       "hidden_items": {
         "H01": true,
@@ -10280,7 +11623,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R28",
+        "totals": [
+          18,
+          18
+        ],
+        "mean": 18.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            3,
+            3
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "期限の計算と対象の抽出（calibration-due）、送信記録、通知クライアント、ジョブ、Route の 5 層に分かれている。send・sleep・db を差し替えて、Retry-After、タイムアウト時のキーの扱い、例外を確かめている。失敗しても応答は 200 で cron からは気づきにくいが、ログと翌日の再送でカバーしている。マイグレーションは 5・6 を末尾に足している。",
+          "期限計算・対象抽出（calibration-due）、送信記録（calibration-notices）、ジョブ（calibration-due-job）、クライアント（notify）、Route の 5 層に分かれている。日付付きのキーで同じ日の再実行でも二重に送らず、再送の待ちは 30 秒まで、1 件の失敗では止まらない。send/sleep/fetch を差し替え、Retry-After・タイムアウト・例外までテストしている。運用メモに定義・対象・宛先・二重送信のリスク・cron の設定が詳しく書かれている。"
+        ]
+      },
       "questions": {
         "total": 14,
         "by_route": {
@@ -10590,7 +11971,7 @@
         "errors": "",
         "questions": 14
       },
-      "total_v1": 78.7
+      "total_v1": 93.7
     },
     {
       "trial": "W12-superpowers-11",
@@ -10603,7 +11984,7 @@
         "claude-sonnet-5-5": 1.1537
       },
       "run": 11,
-      "total": 75.0,
+      "total": 88.4,
       "business": 28.31,
       "business_public": 8.0,
       "business_hidden": 20.31,
@@ -10624,7 +12005,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 13.33,
       "test_strength": 7.17,
       "hidden_items": {
         "H01": true,
@@ -10728,7 +12109,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R07",
+        "totals": [
+          15,
+          17
+        ],
+        "mean": 16.0,
+        "items": {
+          "a": [
+            3,
+            2
+          ],
+          "b": [
+            2,
+            3
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            3,
+            3
+          ],
+          "f": [
+            2,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "addDays・daysBetween を dates.ts に置かず機能のモジュール内に作り直している。どの失敗でも送信を続けるため、通知サービスの不調時（429・503）に送り続ける。通知サービスの設定がないときの事前確認もない。同じリリースの中で、追加したばかりのテーブルを移行 6 でコピー・削除・改名して作り直しており、移行の書き方が冗長。仮定は運用メモに整理されている。",
+          "期限の計算（endOfMonthAfter/addDays/daysBetween）を dates.ts に置かず通知モジュールに抱え込んでいて、分担が一部混ざる。宛先ごとの記録、Idempotency-Key、502、タイムアウトへの配慮は十分で、仮定は operations.md に整理されている。マイグレーション 6 は 5 を書き換えずに表を作り直し、データも移している。"
+        ]
+      },
       "questions": {
         "total": 13,
         "by_route": {
@@ -11002,7 +12421,7 @@
         "errors": "",
         "questions": 13
       },
-      "total_v1": 73.6
+      "total_v1": 87.0
     },
     {
       "trial": "W12-superpowers-12",
@@ -11016,7 +12435,7 @@
         "claude-opus-5-5": 0.4031
       },
       "run": 12,
-      "total": 73.2,
+      "total": 86.5,
       "business": 26.62,
       "business_public": 8.0,
       "business_hidden": 18.62,
@@ -11037,7 +12456,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 13.33,
       "test_strength": 7.0,
       "hidden_items": {
         "H01": true,
@@ -11142,7 +12561,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R16",
+        "totals": [
+          15,
+          17
+        ],
+        "mean": 16.0,
+        "items": {
+          "a": [
+            3,
+            3
+          ],
+          "b": [
+            2,
+            2
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "判断(calibration-notices)・HTTP(notify)・入口(Route)の分担ははっきりしているが、月の加算や日数計算を既存の dates.ts に置かず通知モジュールに作り直している。決まりどおりのジョブだが、時間上限や多重実行の対策はなく、失敗があっても 200 を返す。実行日を含めた Idempotency-Key で再送の扱いは考えている。send・log を差し替えて境界・失敗・429 をテストし、マイグレーションのテストもある。仮定は運用メモに書かれる程度。",
+          "判断（calibration-notices）・送信（notify、fetch と timeout を差し替え可）・入口（requireJobAuth のジョブ Route）が分かれ、送信記録と実行日入りの Idempotency-Key で再実行と再送に対応している。ただし月の加算などの日付計算を dates.ts ではなく通知モジュール内に作っている。運用メモには対象・宛先・失敗時の扱いが整理されている。"
+        ]
+      },
       "questions": {
         "total": 9,
         "by_route": {
@@ -11313,7 +12770,7 @@
           },
           {
             "id": "R04",
-            "detail": "要求 1 回（ジョブ 200、1506ms）"
+            "detail": "要求 1 回（ジョブ 200、1508ms）"
           }
         ],
         "mutants": 60,
@@ -11411,7 +12868,7 @@
         "errors": "",
         "questions": 9
       },
-      "total_v1": 67.7
+      "total_v1": 81.0
     },
     {
       "trial": "W12-superpowers-2",
@@ -11425,7 +12882,7 @@
         "claude-opus-5-5": 0.782
       },
       "run": 2,
-      "total": 76.9,
+      "total": 89.4,
       "business": 30.0,
       "business_public": 8.0,
       "business_hidden": 22.0,
@@ -11446,7 +12903,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 12.5,
       "test_strength": 7.33,
       "hidden_items": {
         "H01": true,
@@ -11550,7 +13007,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R20",
+        "totals": [
+          15,
+          15
+        ],
+        "mean": 15.0,
+        "items": {
+          "a": [
+            2,
+            2
+          ],
+          "b": [
+            3,
+            2
+          ],
+          "c": [
+            2,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            2
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "判定と記録は calibration-alerts に分けたが、notify.ts が通知サービスのクライアントと一括送信・文面作成を兼ね、calibration-alerts に依存していて層が混ざる。認証と Idempotency-Key はあるが、多重起動や時間の上限への配慮は件数の上限だけで弱い。fetch を差し替えて送信の失敗と境界をテストしている。月末期限は書いたが、借り手にも送る判断は運用メモにない。",
+          "notify.ts が通知サービスのクライアントと一括送信の流れ（業務の処理）の両方を持ち、計測器は独自の SQL で読み直しているため、責務と再利用の面でやや混ざっている。Idempotency-Key・送信記録・unavailable での打ち切り・502 で運用の決まりに沿っている。fetch を差し替えたテストもある。運用メモは短く、既存の計測器が B になることや借りている人へも送ることなど、決めた点の記載が一部にとどまる。"
+        ]
+      },
       "questions": {
         "total": 7,
         "by_route": {
@@ -11818,7 +13313,7 @@
         "errors": "",
         "questions": 7
       },
-      "total_v1": 70.1
+      "total_v1": 82.6
     },
     {
       "trial": "W12-superpowers-21",
@@ -11831,7 +13326,7 @@
         "claude-haiku-5-5": 0.6508
       },
       "run": 21,
-      "total": 72.0,
+      "total": 85.3,
       "business": 28.31,
       "business_public": 8.0,
       "business_hidden": 20.31,
@@ -11852,7 +13347,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 13.33,
       "test_strength": 6.83,
       "hidden_items": {
         "H01": true,
@@ -11957,7 +13452,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R18",
+        "totals": [
+          16,
+          16
+        ],
+        "mean": 16.0,
+        "items": {
+          "a": [
+            2,
+            3
+          ],
+          "b": [
+            3,
+            2
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            2
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "notify・期限計算・宛先は分かれているが、runCalibrationNotices に対象の SQL・保留管理・記録がまとまっている。transaction・logger・requireJobAuth を使い、保留テーブル・時間の上限・結果不明の扱いまで二重実行と途中停止に深く配慮し、clock・send を差し替えたテストも厚い。月末期限や借り手にも送るといった判断は運用メモに十分書かれておらず（設計書は差分に見えない）、e は一部にとどまる。",
+          "Route・lib・notify は分かれている。ただし宛先の決定で users と departments を独自の SQL で引き、計測器も独自の SQL で読み直すなど、既存の users.ts や listInstruments を使っていない（transaction と logger は使っている）。送信前に pending を記録し、結果不明の分は自動で再送せず、時間の上限も持つため、二重送信への配慮は厚い。send と clock を差し替えたテストもある。運用メモは失敗時の手順が中心で、期限の定義などの仮定は見えない設計書に頼っている。"
+        ]
+      },
       "questions": {
         "total": 16,
         "by_route": {
@@ -12191,7 +13724,7 @@
           },
           {
             "id": "R04",
-            "detail": "要求 1 回（ジョブ 500、1518ms）"
+            "detail": "要求 1 回（ジョブ 500、1510ms）"
           },
           {
             "id": "R07",
@@ -12298,7 +13831,7 @@
         "errors": "",
         "questions": 16
       },
-      "total_v1": 72.0
+      "total_v1": 85.3
     },
     {
       "trial": "W12-superpowers-31",
@@ -12312,7 +13845,7 @@
         "claude-opus-5-5": 0.7908
       },
       "run": 31,
-      "total": 74.0,
+      "total": 86.9,
       "business": 24.92,
       "business_public": 8.0,
       "business_hidden": 16.92,
@@ -12333,7 +13866,7 @@
         "R11": true
       },
       "ops": 10.0,
-      "design": 0.0,
+      "design": 12.92,
       "test_strength": 8.17,
       "hidden_items": {
         "H01": true,
@@ -12452,7 +13985,45 @@
         ],
         "default_existing": "B"
       },
-      "review_detail": null,
+      "review_detail": {
+        "code": "R10",
+        "totals": [
+          15,
+          16
+        ],
+        "mean": 15.5,
+        "items": {
+          "a": [
+            2,
+            2
+          ],
+          "b": [
+            2,
+            2
+          ],
+          "c": [
+            3,
+            3
+          ],
+          "d": [
+            3,
+            3
+          ],
+          "e": [
+            2,
+            3
+          ],
+          "f": [
+            3,
+            3
+          ]
+        },
+        "gaps": [],
+        "comments": [
+          "対象選定・ジョブ本体・通知クライアントは分かれているが、文面作成が notify.ts にあり、Route が環境変数を直接確かめるなど一部が混ざる。addDays/addMonths を既存の dates.ts ではなく通知モジュールに作り直している。プロセス内の多重実行防止・時間上限・1 日 2 回の実行で 24 時間の重複防止の期限に配慮し、send/now の差し替えで境界と失敗をテストしている。仮定は運用メモに書かれているが設計メモは差分に見えない。",
+          "ジョブ本体・判断・クライアントを分けたが、notify.ts が業務の文面（PendingNotice）を持ち、層が少し混ざっている。addMonths/addDays も dates.ts ではなく通知モジュールに作っている。多重実行の防止（409）と時間上限は入っていて、テストもそれを確かめている。"
+        ]
+      },
       "questions": {
         "total": 7,
         "by_route": {
@@ -12702,7 +14273,7 @@
         "errors": "",
         "questions": 7
       },
-      "total_v1": 72.6
+      "total_v1": 85.5
     }
   ]
 }
