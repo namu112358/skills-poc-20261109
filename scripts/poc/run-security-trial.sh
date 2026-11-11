@@ -64,6 +64,9 @@ if [[ "$TARGET" == diff ]]; then
   ( cd "$APP" && git add -A && git commit -qm "タスクにコメントを書けるようにする" )
 fi
 git -C "$APP" rev-parse HEAD > "$OUT/head-commit"
+# git の設定とフックは読み取り専用にする（設定やフックを仕込んで、許可した git の読み取りから任意のコマンドを起動できないように）。
+# root で動く環境では効かないので、書き込みの許可に .git を含めないことが実際の守り
+chmod a-w "$APP/.git/config"; chmod -R a-w "$APP/.git/hooks"
 
 # 2) ツールと権限（全許可にはしない。対象のコードの実行と依存の取得は許可しない）
 # find（-exec）や git -C（-c で設定を上書きして任意のコマンドを起動できる）は許可しない。ファイルの探索は Glob・Grep で足りる
@@ -107,12 +110,17 @@ else
   echo "anthropics/claude-plugins-official@$CPO_REF plugins/claude-security" > "$OUT/tool-ref"
   PLUG="$WORK/plugins/claude-security"; mkdir -p "$WORK/plugins"
   cp -R "$CACHE/claude-plugins-official/plugins/claude-security" "$PLUG"
+  # プラグインのコピーは読み取り専用にする（書き換えたスクリプトを python3 で動かせないように）。
+  # ただし root で動く環境では効かない。実際の守りは、書き込みの許可を結果の置き場に絞ることと、実行できるスクリプトを名前で決めること
+  chmod -R a-w "$PLUG"
   PLUGINS=(--plugin-dir "$PLUG" --add-dir "$PLUG")
-  # 結果はリポジトリの中（CLAUDE-SECURITY-<時刻>/）に書く作りなので、作業ディレクトリへの書き込みを許す。対象のソースは変えないよう依頼し、
+  # 結果はリポジトリの中（CLAUDE-SECURITY-<時刻>/）に書く作りなので、そこへの書き込みだけを許す。対象のソースは変えないよう依頼し、
   # 終了後に変わっていないかを source-changes に記録する。git の読み取りは、Skill の allowed-tools にあるものから、決まった形だけを許す
   ALLOWED+=(
-    "Write" "Edit" "Workflow" "Workflow(claude-security:scan)"
-    "Bash(python3 $PLUG/scripts/:*)" "Bash(bash $PLUG/scripts/keep-waiting.sh:*)" "Bash(date:*)" "Bash(sleep:*)"
+    "Write(/$APP/CLAUDE-SECURITY-*/**)" "Edit(/$APP/CLAUDE-SECURITY-*/**)" "Workflow" "Workflow(claude-security:scan)"
+    "Bash(python3 $PLUG/scripts/render_report.py:*)" "Bash(python3 $PLUG/scripts/save_result.py:*)"
+    "Bash(python3 $PLUG/scripts/write_scan_meta.py:*)" "Bash(python3 $PLUG/scripts/patch_artifacts.py:*)"
+    "Bash(bash $PLUG/scripts/keep-waiting.sh:*)" "Bash(date:*)" "Bash(sleep:*)"
     "Bash(git rev-list:*)" "Bash(git diff --stat:*)" "Bash(git diff --name-only:*)" "Bash(git merge-base:*)" "Bash(git branch --show-current)"
     "Bash(GIT_TERMINAL_PROMPT=0 git rev-list:*)" "Bash(GIT_TERMINAL_PROMPT=0 git rev-parse:*)" "Bash(GIT_TERMINAL_PROMPT=0 git status:*)"
   )
