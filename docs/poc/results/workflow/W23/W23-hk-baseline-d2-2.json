@@ -1,0 +1,40 @@
+{
+  "trial": "W23-hk-baseline-d2-2",
+  "scenario": "W23",
+  "config": "hk-baseline",
+  "case": "d2",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスクにコメントを付けられるようにする\n\n対象: 未コミットの差分（`git diff HEAD`）。コメントの読み書き・編集・削除、API、詳細画面の表示、マイグレーション v3、テスト。\n\nマージ前に直すべき指摘を重要度順に並べます。\n\n---\n\n## 1. 本文のリンクに `javascript:` などの URL を許しており、保存型 XSS になる\n\n- **重要度**: 高\n- **場所**: `src/lib/comments.ts` の `renderBody()`（63 行目の `.replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)\\)/g, ...)`）。表示側は `src/app/tasks/[id]/page.tsx` の `dangerouslySetInnerHTML`。\n- **何が問題か**: `escapeHtml` は `<` `>` `&` `\"` しかエスケープしないため、URL の部分に `:` や `(` を含む `javascript:` は素通りします。コメント本文に `[クリック](javascript:alert(document.cookie))` と書いて保存すると、詳細画面を開いた全員のブラウザで `<a href=\"javascript:alert(document.cookie)\">` が実行されます（`[^)\\s]+` の範囲内なので、スキームもそのまま通ります）。ログイン中のユーザーに対して任意の操作ができてしまいます。\n- **直し方**: リンク先を `http:` と `https:` に限定してください。`new URL(url)` で解析し、プロトコルが一致しない場合はリンクにせず、エスケープ済みの文字列のまま出します。併せて、テストに `[x](javascript:alert(1))` と `[x](JavaScript:alert(1))` が `<a>` にならないことを追加してください。より安全にするなら、`dangerouslySetInnerHTML` をやめて、React の要素（テキストと `<a>`）を組み立てる形にするのが望ましいです。\n\n## 2. コメントの編集（PATCH）に作成者チェックが無く、他人のコメントを書き換えられる\n\n- **重要度**: 高\n- **場所**: `src/app/api/comments/[commentId]/route.ts` の `PATCH`（`DELETE` は 27 行目で `comment.authorId !== user.id` を確認しているが、`PATCH` にはこの確認が無い）。\n- **何が問題か**: ログインしている任意のユーザー（例: `suzuki`）が、他人（例: `sato`）のコメント ID に対して `PATCH` を送ると、本文が書き換えられます。削除は作成者だけ、編集は誰でも、という非対称な状態です。\n- **直し方**: `PATCH` にも `DELETE` と同じ作成者チェック（403 `自分のコメントだけを編集できます`）を入れてください。あわせて、他人のコメントの編集が 403 になることを確認するテストを追加してください。\n\n## 3. 存在しないタスクへのコメント投稿が 404 にならず、500 になる\n\n- **重要度**: 中\n- **場所**: `src/app/api/tasks/[id]/comments/route.ts` の `POST`。\n- **何が問題か**: `POST` は `parseTaskId` の結果だけを見ていて、タスクの存在を確認していません（`GET` は `getTask(id)` を確認しています）。`PRAGMA foreign_keys = ON` なので、`POST /api/tasks/99999/comments` は外部キー違反で例外になり、Next.js は 500 を返します。CLAUDE.md の「対象が無いときは 404」の規約に反します。\n- **直し方**: `GET` と同じく `if (id === undefined || !getTask(id)) return jsonError(404, ...)` を入れてください。\n\n## 4. コメントの並び順が月をまたぐと壊れる\n\n- **重要度**: 中\n- **場所**: `src/lib/comments.ts` の `formatCreatedAt()`（`addComment()` から呼ばれ、`created_at` に保存される）と、`listComments()` の 29 行目 `ORDER BY created_at, id`。\n- **何が問題か**: `toLocaleString(\"ja-JP\")` は月と日をゼロ埋めしません（`2026/9/5 10:00:00` と `2026/10/1 10:00:00` になることを確認しました）。`created_at` は文字列として比較されるため、9 月に投稿したコメントが 10 月のコメントより後ろに並びます。同様に、タイムゾーン情報が欠落し、ロケール依存の表記になっています。\n- **直し方**: DB には ISO 8601 の UTC 文字列（`new Date().toISOString()`）を保存し、表示するときだけ `Asia/Tokyo` の日時に整形してください。`addComment` の `now` 引数はそのまま使えます。テストとして、`2026-09-05` と `2026-10-01` の 2 件を投稿して順序を確認するケースを追加してください。\n\n## 5. テストが API の認可・入力検証と、セキュリティ上の境界をカバーしていない\n\n- **重要度**: 中\n- **場所**: `tests/comments.test.ts`（API ルートのテストは無い）。\n- **何が問題か**: 追加されたテストは `lib` の関数だけです。次が未検証です。\n  - 他人のコメントの編集・削除（指摘 2 を見逃します）\n  - 未ログインの 401、存在しないタスク・コメントの 404、不正な本文の 400（CLAUDE.md の規約 9）\n  - `javascript:` などの危険な URL。現在のテストは `https:` のリンクしか見ていないため、指摘 1 を見逃します\n  - 月をまたぐ並び順（指摘 4 を見逃します）\n- **直し方**: 上の各ケースを `tests/` に追加してください。API ルートは、`openDb()` を使って `lib` の関数の挙動を確認する形から始めてください。\n\n## 6. コメント ID の検証に `parseTaskId` を流用している\n\n- **重要度**: 低\n- **場所**: `src/app/api/comments/[commentId]/route.ts` の 12 行目 `parseTaskId((await params).commentId)`（`PATCH` と `DELETE` の両方）。\n- **何が問題か**: 動作上は問題ありませんが、名前が「タスク ID」を示しているため、読み手が混乱します。将来 `parseTaskId` の仕様が変わったときに、コメント ID にも影響します。\n- **直し方**: `parseId` のような汎用の関数に名前を変えるか、コメント ID 用の検証関数を `comments.ts` に置いてください。\n\n## 7. `getComment(...)!` の非 null アサーション\n\n- **重要度**: 低\n- **場所**: `src/lib/comments.ts` の `addComment()`、45 行目 `return getComment(Number(lastInsertRowid), db)!;`。\n- **何が問題か**: 挿入直後なので通常は必ず見つかりますが、型で保証されていません。将来、トランザクションの扱いが変わったときに、`undefined` が API のレスポンスに流れる可能性があります。\n- **直し方**: 見つからない場合に例外を投げるか、戻り値を `Comment | undefined` にして呼び出し側で扱ってください。\n\n---\n\n## 問題が無いと確認した点（参考）\n\n- マイグレーション v3 は既存のマイグレーションを書き換えず、末尾に追加されています（CLAUDE.md の規約 7）。\n- SQL は全てプレースホルダ（`?`）を使っています（規約 8）。\n- 詳細画面の SQL は `src/lib/comments.ts` に置かれ、ページはデータの取得と表示のみを行っています（規約 1）。\n- 本文の検証は `validateCommentBody` を通してから使われています（規約 9）。\n",
+  "review_chars": 3836,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0204,
+    "tokens": {
+      "input": 26,
+      "output": 12064,
+      "cache_read": 621630,
+      "cache_creation": 40748
+    },
+    "turns": 13,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp && node -e 'const f=d=>d.toLocaleString(\\\"ja-JP\\\",{timeZone:\\\"Asia/Tokyo\\\"}); console.log(f(new Date(\\\"2026-09-05T01:00:00Z\\\")), \\\"|\\\", f(new Date(\\\"2026-10-01T01:00:00Z\\\")))'; cd"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 2,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 62,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き直し、そのファイルだけをコミットしました（コミット `ef8bc10`）。コードは変更していません。\n\n直前のレビューの 7 件はすべて残し、新しい指摘は足していません。各指摘に「重要度・場所・何が問題か・直し方」の見出しを付けました。\n\n- 1 高: `renderBody()` の `javascript:` リンクによる保存型 XSS\n- 2 高: `PATCH` に作成者チェックが無く、他人のコメントを編集できる\n- 3 中: 存在しないタスクへの投稿が 500 になる\n- 4 中: `created_at` の表示用文字列が、月をまたぐと並び順を壊す\n- 5 中: テストが認可・入力検証・危険な URL・並び順を検証していない\n- 6 低: コメント ID の検証に `parseTaskId` を流用している\n- 7 低: `getComment(...)!` の非 null アサーション\n\n直し方は前回と同じ内容で、行番号だけ直しました。前回の 1 件目は「46 行目」と書いていましたが、正しくは 63 行目です。"
+  },
+  "interventions": 0
+}

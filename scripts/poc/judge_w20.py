@@ -76,7 +76,7 @@ def prepare(dest):
         (dest / f"{code}.md").write_text(NAMES.sub("[redacted]", body))
     by_cfg = {}
     for code, t in mapping.items():
-        by_cfg.setdefault(re.sub(r"-c\d+-\d+$", "", t), []).append(code)
+        by_cfg.setdefault(re.sub(r"-[cd]\d+-\d+$", "", t), []).append(code)
     per = max(1, round(len(mapping) * 0.25 / max(1, len(by_cfg))))
     twice = sorted(c for codes in by_cfg.values() for c in rnd.sample(codes, min(per, len(codes))))
     JUDGE.mkdir(parents=True, exist_ok=True)

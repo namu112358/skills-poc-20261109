@@ -1,0 +1,53 @@
+{
+  "trial": "W23-ce-review-d1-2",
+  "scenario": "W23",
+  "config": "ce-review",
+  "case": "d1",
+  "rep": 2,
+  "review_md": "# レビュー: ダッシュボードを追加する\n\n対象: `git diff HEAD`（`/dashboard`、`GET /api/dashboard`、`src/lib/dashboard.ts`、`cache.ts`、`week.ts`、`tests/dashboard.test.ts`）\n\n結論: **Not ready**。高 4 件・中 3 件・低 1 件。特に 1（他ユーザーのデータが見える）はマージ前に必ず直してください。\n\nレビューは、手元での通読と、独立した敵対的レビュー（ローカルのレビュアー 1 つ）の 2 本で行いました。外部モデルによるレビューは使えませんでした。コマンドの実行承認が得られず、ここでは使える外部モデルを確認できなかったためです。コードは実行しておらず、指摘はすべてソースの読解にもとづきます。\n\n## 高\n\n### 1. キャッシュキーがユーザーごとでなく、他ユーザーのダッシュボードが表示される\n- 場所: `src/lib/dashboard.ts` の `buildDashboard`（`return cached(\"dashboard\", CACHE_TTL_MS, ...)`）、`src/lib/cache.ts` の `cached`\n- 問題: キーが固定文字列 `\"dashboard\"` です。`sato` がアクセスした結果が保存され、30 秒以内に `suzuki` がアクセスすると、`sato` の `Dashboard`（タスクのタイトル・件数・`userId: \"sato\"`）がそのまま返ります。ページでは見出しが `suzuki` の名前で中身が `sato` のタスクになり、API でも `suzuki` のセッションに `sato` のデータが返ります。担当タスクの情報漏えいにあたります。\n- 直し方: キーに `userId` を含める（例: `` `dashboard:${userId}` ``）。`db` も結果に影響するので、テストでの混在を避けるにはキーに含めるか、テストごとに `clearCache()` を呼びます。そもそもこのキャッシュが必要かも再検討してください（2 を参照）。\n\n### 2. 日曜日に `weekRange` が「来週」を返す\n- 場所: `src/lib/week.ts` の `weekRange`（`const start = addDays(today, 1 - dow);`）\n- 問題: `dow` は日曜が 0 です。日曜（例: 2026-11-15）だと `start = 今日 + 1 = 11-16`、`end = 11-22` になり、「今週（月〜日）」が翌週になります。日曜に「今週が期限」から当日分と週内の残りが消え、翌週のタスクが出ます。テストは水曜（11-11）しか見ていないので気づけません。\n- 直し方: `const offset = (dow + 6) % 7; const start = addDays(today, -offset);`。日曜・月曜・土曜の境界のテストを `tests/dashboard.test.ts` に追加してください。\n\n### 3. `countByStatus` が共有定数 `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` の `countByStatus`（`const order = TASK_STATUSES as TaskStatus[]; return order.reverse()...`）\n- 問題: `as` は型の指定だけでコピーしません。`.reverse()` が `tasks.ts` の共有配列そのものをその場で逆順にするため、呼ぶたびに全体の並びが反転します。ダッシュボードの「完了が先頭」はキャッシュが切れるたびに「未着手が先頭」と交互に変わり、同じ配列を使う他の処理にも影響します。テスト「done first」は 1 回目の呼び出しでだけ通り、順番に依存します。\n- 直し方: `[...TASK_STATUSES].reverse()` とコピーしてから並べ替える。同じ入力で 2 回呼んでも結果が同じことを確認するテストを追加してください。\n\n### 4. タスクが 0 件のとき完了率が `NaN` になる\n- 場所: `src/lib/dashboard.ts` の `completionRate`（`Math.round((done / tasks.length) * 100)`）\n- 問題: 担当タスクが 1 件もない人（新規ユーザーなど）は `0 / 0 = NaN` になります。画面には「完了率 NaN%」と出て、API の JSON では `null` になり、数値を期待するクライアントが壊れます。\n- 直し方: `tasks.length === 0` のときは 0 を返す。0 件のテストを追加してください。\n\n## 中\n\n### 5. SQL を文字列連結で組み立てている（コーディング規約 8 違反）\n- 場所: `src/lib/dashboard.ts` の `listAssignedTasks`（`WHERE assignee = '${userId}'`）\n- 問題: `userId` に `'` が含まれるとクエリが壊れ、`' OR '1'='1` なら全ユーザーのタスクが返ります。今の呼び出し元はセッションのユーザー ID なので、すぐに悪用できる経路はありません。ただ、この関数は文字列を受ける公開関数で、将来リクエスト由来の値を渡すと SQL インジェクションになります。規約 8（必ずプレースホルダ）にも反します。\n- 直し方: `.prepare(\"SELECT ... WHERE assignee = ? ORDER BY due_date, id\").all(userId)`。\n\n### 6. 30 秒キャッシュのせいで、更新が最大 30 秒反映されず、古いエントリも消えない\n- 場所: `src/lib/cache.ts` の `cached` / `store`、`src/lib/dashboard.ts` の `buildDashboard`\n- 問題: タスクを `PATCH` で完了にして `/dashboard` を開き直しても、件数・完了率・期限切れ一覧が最大 30 秒古いままです。作成・更新に連動した無効化がありません。また、期限切れのエントリは上書きされるだけで削除されず、キーが増えると `Map` が増え続けます（キーをユーザー別にすると増え方が速くなります）。\n- 直し方: タスクの作成・更新時に該当キーを消す、期限切れのエントリを読み出し時に削除する、またはこの規模（SQLite、数件）ならキャッシュ自体をやめる。\n\n### 7. テストが重要なケースを検証できていない\n- 場所: `tests/dashboard.test.ts`\n- 問題: 上の 1〜4 はどれも既存テストをすり抜けます。`buildDashboard` は 1 回しか呼ばれず、別ユーザーの混在もテストされていません。0 件と日曜のケースもありません。`/api/dashboard` と `/dashboard` の未ログイン（401 / リダイレクト）も未検証です（規約 5・9 の趣旨）。\n- 直し方: ①`sato` の後に `suzuki` で呼んで結果が別になる ②タスク 0 件で完了率 0 ③日曜・月曜の `weekRange` ④`countByStatus` を 2 回呼んでも順番が同じ ⑤API の 401 を追加してください。\n\n## 低\n\n### 8. 「今週が期限」に期限切れが重複して出る（仕様の確認）\n- 場所: `src/lib/dashboard.ts` の `dueThisWeek`\n- 問題: 今週の月曜〜昨日が期限の未完了タスクは「期限切れ」と「今週が期限」の両方に出ます（テストでも id 1 が両方に入る前提です）。意図どおりなら問題ありませんが、一覧が二重に見えます。\n- 直し方: 仕様として意図なら、コメントかテストで明記する。そうでなければ `dueThisWeek` を今日以降に限定してください。\n",
+  "review_chars": 3526,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.7317,
+    "tokens": {
+      "input": 52,
+      "output": 11745,
+      "cache_read": 1502138,
+      "cache_creation": 151118
+    },
+    "turns": 6,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W23-ce-review-d1-2/plugins/compound-engineering/skills/ce-code-review; python3 $SKILL_DIR/scripts/review-scope.py --base HEAD --docs-root docs; git ls-files --ot"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"command -v codex grok agy antigravity 2>&1; echo \\\"CLAUDE=$CLAUDECODE\\\"; cat /tmp/poc-trials/W23-ce-review-d1-2/app/.compound-engineering/config*.yaml 2>&1 | head\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"command -v codex; command -v grok; command -v agy; ls /tmp/poc-trials/W23-ce-review-d1-2/app/.compound-engineering 2>&1\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 8,
+      "Bash": 9,
+      "Agent": 2,
+      "ReadNotifications": 2,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 2,
+    "subagent_types": {
+      "general-purpose": 1,
+      "Explore": 1
+    },
+    "questions": 0,
+    "active_seconds": 44,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "追加のコミットはしていません。直前のレビューの指摘は、すでに依頼どおりの形式で `REVIEW.md` に書いてコミット済み（94a8c84）だからです。\n\n- **書式:** 8 件の指摘それぞれに、重要度（高・中・低）、場所（ファイルと関数）、何が問題か（どんな入力・状況で何が起きるか）、直し方を書いてあります。\n- **漏れ・追加:** 直前の指摘（高 4・中 3・低 1）は全部入っています。新しい指摘は足していません。\n- **状態:** `REVIEW.md` の作業ツリーはコミットと同じで、差分はありません。ダッシュボード本体の 6 ファイルは未コミットのままで、コードは直していません。\n\n「同じ指摘はまとめてよい」については、キャッシュの無効化の欠落と古いエントリが消えない件を 1 件（6）にまとめています。この点は前回のコミットですでに反映済みです。"
+  },
+  "interventions": 0
+}

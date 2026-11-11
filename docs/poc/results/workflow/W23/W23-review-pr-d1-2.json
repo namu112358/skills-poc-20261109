@@ -1,0 +1,33 @@
+{
+  "trial": "W23-review-pr-d1-2",
+  "scenario": "W23",
+  "config": "review-pr",
+  "case": "d1",
+  "rep": 2,
+  "review_md": "# レビュー: ダッシュボードの追加\n\nマージ前に直すべき問題は下の 7 件です（高 3、中 3、低 1）。`npm run typecheck` と `npm test` は通りますが、下記の問題は今のテストでは検出されません。\n\n## 高\n\n### 1. キャッシュのキーがユーザーごとに分かれておらず、他人のダッシュボードが返る\n- 場所: `src/lib/dashboard.ts` の `buildDashboard`（`cached(\"dashboard\", ...)`）\n- 問題: キーが固定文字列 `\"dashboard\"` です。sato が `/dashboard` を開くと、その結果が 30 秒間プロセス内に保存されます。その間に suzuki が開く（または `GET /api/dashboard` を呼ぶ）と、sato のタスク名・期限・件数がそのまま返ります。`userId` も sato のままです。担当者以外にタスク情報が見え、自分の件数も表示されません。\n- 直し方: キーに `userId` を含めます（例: `` `dashboard:${userId}` ``）。そのうえで次の 2 点も直します。\n  - タスクの作成・更新（`POST /api/tasks`、`PATCH /api/tasks/:id`）の後に該当ユーザーのキャッシュを無効化するか、キャッシュをやめます。そうしないと更新後も最大 30 秒は古い値が出ます（指摘 6）。\n  - 複数ユーザーのテスト（sato の後に suzuki を呼ぶ）を追加します。\n\n### 2. SQL に `userId` を文字列連結で埋め込んでいる（SQL インジェクション）\n- 場所: `src/lib/dashboard.ts` の `listAssignedTasks`（`WHERE assignee = '${userId}'`）\n- 問題: CLAUDE.md の規約 8（値は必ずプレースホルダ）に違反しています。現状の `userId` はセッション由来で攻撃者が直接指定する値ではありません。しかし、`' OR '1'='1` のような値が入ると全員分のタスクが返ります。この関数は `export` されており、他の経路から呼ばれる可能性があります。\n- 直し方: `WHERE assignee = ?` とし、`.all(userId)` に渡します。\n\n### 3. `countByStatus` が共有定数 `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` の `countByStatus`（`(TASK_STATUSES as TaskStatus[]).reverse()`）\n- 問題: `reverse()` は配列を直接書き換えます。型キャストで `readonly` を外しているため、コンパイルは通ります。`TASK_STATUSES` は全体で共有されており、次の症状が出ます。\n  - ダッシュボードを開くたびに並びが反転します。1 回目は done 先頭、2 回目は todo 先頭になり、表示が不安定です。\n  - `src/app/tasks/page.tsx` の絞り込みセレクトの並びも、ダッシュボードを開いた後は変わります。\n  - テストは 1 回しか呼ばないため通ります。\n- 直し方: `[...TASK_STATUSES].reverse()` とコピーしてから並べ替えます（`toReversed()` でも可）。キャストはやめます。2 回続けて呼んでも結果が同じになるテストと、`TASK_STATUSES` が変わらないことを確認するテストを追加します。\n\n## 中\n\n### 4. 担当タスクが 0 件のとき完了率が `NaN` になる\n- 場所: `src/lib/dashboard.ts` の `completionRate`\n- 問題: `0 / 0` が `NaN` になり、`Math.round(NaN)` も `NaN` です。画面には「完了率 NaN%」と出ます。`GET /api/dashboard` の JSON では `NaN` が `null` に変わります。タスクを持たない新規ユーザーで起きます。\n- 直し方: `tasks.length === 0` のときは 0 を返します。表示を「—」にする案もあります。この場合は型を `number | null` にします。0 件のテストを追加します。\n\n### 5. 「期限切れ」と「今週が期限」が重複する\n- 場所: `src/lib/dashboard.ts` の `dueThisWeek`\n- 問題: `dueThisWeek` は週の開始日（月曜）以降だけを見ており、今日より前かどうかを見ていません。そのため今週の月曜〜昨日が期限の未完了タスクは、両方の一覧に出ます。実際、テストの期待値 `[1, 2]` では、期限切れのタスク 1 が「今週が期限」にも入っています。「今週が期限」の見出しの意味は「これから期限が来る」に近く、利用者には二重に見えます。\n- 直し方: どちらにするか仕様を決めます。重複させない場合は、`dueThisWeek` を `t.dueDate >= today` から `end` までにします。重複を意図するなら、その旨を PR とコメントに明記します。どちらの場合も、テストで挙動を固定します。\n\n### 6. 更新後も最大 30 秒は古い内容が出る\n- 場所: `src/lib/cache.ts`、`src/lib/dashboard.ts`\n- 問題: タスクの状態を `PATCH` で変更しても、ダッシュボードは最大 30 秒前の件数・一覧を返します。ほかの画面は即時反映されるため、ずれて見えます。キャッシュは単純な Map のため、エントリが消えません（期限切れでも残ります）。ユーザーごとにキーを分けると、ユーザー数に応じて増えます。\n- 直し方: 件数が少ない PoC なので、キャッシュ自体をやめるのが最も安全です。残す場合は、更新時に無効化し、期限切れのエントリを削除します。\n\n## 低\n\n### 7. テストが足りない\n- 場所: `tests/dashboard.test.ts`\n- 問題: 規約 5 に沿ってテストはありますが、上の不具合を検出できません。足りないのは次のとおりです。\n  - 別ユーザーでの `buildDashboard`（キャッシュ混線）\n  - `countByStatus` の繰り返し呼び出し\n  - タスク 0 件\n  - `/api/dashboard` の 401\n  - 週境界（日曜・月曜）と JST の日付またぎ\n  - キャッシュの期限切れ\n- 直し方: 上記を追加します。API Route は、未ログインで 401 になることを最低限確認します。\n",
+  "review_chars": 2952,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2486,
+    "tokens": {
+      "input": 20,
+      "output": 4190,
+      "cache_read": 354399,
+      "cache_creation": 42793
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 43,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回の指摘は、すべて依頼の形式（重要度・場所・問題・直し方）で `REVIEW.md` に書き終えてコミット済みです。指摘は 7 件のままで、新しい指摘は足しておらず、削ってもいません。\n\n- コミット `f192588` に含まれるのは `REVIEW.md` だけです。\n- 作業ツリーに `REVIEW.md` の未コミットの変更はありません。\n- 今回は `REVIEW.md` を書き直さず、新しいコミットも作っていません。\n- コードも変更していません。"
+  },
+  "interventions": 0
+}

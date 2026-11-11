@@ -1,0 +1,60 @@
+{
+  "trial": "W23-hk-baseline-d3-2",
+  "scenario": "W23",
+  "config": "hk-baseline",
+  "case": "d3",
+  "rep": 2,
+  "review_md": "# コードレビュー: ダッシュボードとタスクのコメント\n\n対象: 未コミットの差分（`git diff HEAD`）。`npm run typecheck`・`npm test`（30 件）は通ることを確認済み。ただし下記のとおり、テストは問題の多くを検出していません。\n\nマージ前に直すべき指摘を、重要度の高い順に並べています。\n\n---\n\n## 1. 高: ダッシュボードのキャッシュが利用者をまたいで共有される\n\n- 場所: `src/lib/dashboard.ts` `buildDashboard()`（`cache(\"dashboard\", …)`）\n- 問題: キャッシュのキーが `\"dashboard\"` の固定値で、`userId` が含まれていません。30 秒以内に別の人がアクセスすると、前の人のダッシュボードが返ります。\n  - 再現: `buildDashboard(\"sato\", db, now)` の直後に `buildDashboard(\"suzuki\", db, now)` を呼ぶと、`d2.userId` が `\"sato\"` になります（確認済み）。\n  - 影響: ログインしている別の人の担当タスク（タイトル・期限）が見えてしまいます。`/dashboard` と `GET /api/dashboard` の両方に影響します。\n- 直し方: キーに利用者を含めます（例: `cached(`dashboard:${userId}`, …)`）。あわせて、`db` を引数に取る関数はキャッシュの対象にしないか、キーに DB の識別子も含めます。利用者を変えて続けて呼ぶテストを追加してください（現在のテストは `clearCache()` で毎回消すため、この問題を検出できません）。\n\n## 2. 高: コメント本文の `javascript:` リンクで XSS が起きる\n\n- 場所: `src/lib/comments.ts` `renderBody()`、および `src/app/tasks/[id]/page.tsx`（`dangerouslySetInnerHTML`）\n- 問題: リンクの URL に制限がなく、`[文字](javascript:…)` が `<a href=\"javascript:…\">` になります。HTML エスケープは `<` `>` `&` `\"` にしか効かず、スキームは検査していません。\n  - 再現: 本文 `[click](javascript:alert(1))` を保存すると、表示は `<a href=\"javascript:alert(1\" …>click</a>)` になり、クリックで任意のスクリプトが動きます（確認済み）。コメントは他の利用者全員に表示されるため、保存型 XSS です。\n- 直し方: 許可するスキームを `http:` と `https:` に限り、それ以外はリンクにせずエスケープした文字列のまま表示します。`javascript:`・大文字混じり（`JaVaScRiPt:`）・先頭の空白や制御文字を含むケースのテストを追加してください。`dangerouslySetInnerHTML` を使わず、React の要素として組み立てる方法も検討してください。\n\n## 3. 高: `countByStatus()` が共有の定数 `TASK_STATUSES` を書き換える\n\n- 場所: `src/lib/dashboard.ts` `countByStatus()`\n- 問題: `order.reverse()` は配列を破壊的に並べ替えます。`order` は `TASK_STATUSES` そのものなので、呼ぶたびに並びが反転し、アプリ全体で使う定数の順序が変わります（確認済み: 1 回目の呼び出し後は `done, in_progress, todo`、2 回目の後は `todo, in_progress, done` に戻る）。`TASK_STATUSES` を使う他の画面の表示順も呼び出し回数で変わります。\n- 直し方: `[...TASK_STATUSES].reverse()` にコピーしてから反転するか、表示順を明示的な配列（`[\"done\", \"in_progress\", \"todo\"]`）で持ちます。並びの結果を確かめるテストを追加してください（現在のテストは 1 回の呼び出ししか見ていないため、変化に気づけません）。\n\n## 4. 高: 他人のコメントを編集できる（`PATCH /api/comments/:commentId`）\n\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`\n- 問題: `DELETE` は投稿者本人のみ許可していますが、`PATCH` は作成者の確認をしていません。ログインしている誰でも、他人のコメント本文を書き換えられます。\n- 直し方: `DELETE` と同じく `comment.authorId !== user.id` の場合は 403 を返します。他人のコメントを編集しようとした場合のテスト（API の経路テストがあれば理想的）を追加してください。\n\n## 5. 中: 週の範囲が日曜日に間違う（来週を「今週」とする）\n\n- 場所: `src/lib/week.ts` `weekRange()`\n- 問題: `dow` は日曜で 0 のため、`start = today + (1 - 0)` となり、日曜日は翌日（翌月曜）が週の始まりになります（確認済み: 2026-11-15（日）で `start: 2026-11-16`）。その結果、日曜日の「今週が期限」の一覧には翌週のタスクが出て、当週の月曜〜土曜の期限のタスクは出ません。\n- 直し方: 日曜は `dow = 7` として扱います（`const dow = (day + 6) % 7` で月曜を 0 にする形が簡単）。日曜日を含むテストを追加してください（現在のテストは水曜日のみ）。\n\n## 6. 中: 利用者のタスクが 0 件のとき、完了率が「NaN%」になる\n\n- 場所: `src/lib/dashboard.ts` `completionRate()`、および `src/app/dashboard/page.tsx`（`完了率 {d.completionRate}%`）\n- 問題: `0 / 0` が NaN になり、`Math.round(NaN)` も NaN のため、タスクが無い新規ユーザーの画面に「完了率 NaN%」と出ます（確認済み）。\n- 直し方: `tasks.length === 0` のとき 0 を返すか、画面で「タスクはありません」と表示します。空の配列のテストを追加してください。\n\n## 7. 中: コメントの並び順が作成日時の文字列の順序になっていない\n\n- 場所: `src/lib/comments.ts` `formatCreatedAt()` と `listComments()`（`ORDER BY created_at, id`）\n- 問題: `toLocaleString(\"ja-JP\")` は `2026/11/1 9:00:00` のような形式で、月・日・時がゼロ埋めされていません。文字列としての比較が時刻の順になりません（確認済み: 9 月のコメントが 11 月より後に並ぶ）。また、他の時刻（`sessions.expires_at` など）は ISO 8601 の UTC で保存しており、表示用の文字列を保存するのは既存の方針と合いません。\n- 直し方: `created_at` は ISO 8601（UTC）で保存し、表示するときだけ日本時間に変換します。既存のセッションの扱いと合わせてください。並び順のテスト（月をまたぐ日付）を追加してください。\n\n## 8. 中: SQL に利用者 ID を文字列連結で埋め込んでいる\n\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks()`\n- 問題: `WHERE assignee = '${userId}'` と文字列を埋め込んでいます。コーディング規約 8（SQL に値を埋め込むときはプレースホルダを使う）に違反します。現在の `userId` はセッションから来る DB の値なので直ちに悪用はできませんが、値に `'` が入ると SQL が壊れ、将来ほかの入力を渡す経路ができると注入になります。\n- 直し方: `db.prepare(\"... WHERE assignee = ? ORDER BY due_date, id\").all(userId)` に変えます。\n\n## 9. 中: PR の説明と実装が合っていない（画面からコメントを書けない）\n\n- 場所: `src/app/tasks/[id]/page.tsx`\n- 問題: PR の説明には「タスクの詳細画面で、コメントを読み書きできる」とありますが、画面に入力フォームはありません。書き込みは API（`POST /api/tasks/:id/comments`）だけです。\n- 直し方: 画面から投稿できるフォームを追加する（Server Action か、クライアントから API を呼ぶ形）か、PR の説明を「読み取りは画面、書き込みは API」に直します。\n\n## 10. 低: 期限切れと今週の一覧が重なる\n\n- 場所: `src/lib/dashboard.ts` `dueThisWeek()`\n- 問題: 今週の月曜・火曜が期限で未完了のタスクは、「期限切れ」と「今週が期限」の両方に出ます。意図どおりかどうか仕様で決めていないように見えます。\n- 直し方: 意図を確認し、どちらかに寄せるか、画面に「今週が期限（期限切れを除く）」と明記します。\n\n## 11. 低: テストが指摘の箇所を検出できない\n\n- 現在のテストは水曜日・同じ利用者・キャッシュを毎回消す、という条件だけを見ています。そのため、指摘 1・3・5・6・7 はテストが通ったまま残ります。\n- 直し方: 上記の各指摘に対応するテストを追加します。`/api/comments` の認可と `/api/dashboard` の 401 を確認する API のテストも追加してください（規約 5・9）。\n\n---\n\n## 問題が無いと判断した点（参考）\n\n- `GET`・`POST /api/tasks/:id/comments` の認証（401）、ID の検証（404）、本文の検証（400）は規約どおりです。\n- `DELETE /api/comments/:commentId` は投稿者本人だけ削除できます。\n- マイグレーションは末尾に追加されており、既存の番号は変わっていません。\n- `renderBody()` はリンク以外を先にエスケープしているため、スクリプトの直接注入は防がれています（問題は指摘 2 のリンクのスキームのみ）。\n",
+  "review_chars": 4679,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0286,
+    "tokens": {
+      "input": 36,
+      "output": 14540,
+      "cache_read": 1062108,
+      "cache_creation": 53354
+    },
+    "turns": 23,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat package.json | head -30 && (npm run typecheck 2>&1 | tail -15) ; (npm test 2>&1 | tail -40)\", \"description\": \"Run typecheck and unit tests\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W23-hk-baseline-d3-2-app/5eeacc1a-ce16-4c48-ad84-a074977bcd33/scratchpad/probe && cat > /tmp/claude-0/-tmp-poc-trials-W23-hk-baseline-d3-2-app/5eeac"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit --only -m \\\"$(printf 'docs: ダッシュボードとコメントのコードレビュー結果を追加\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.ai/cod"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit --only -F /tmp/claude-0/-tmp-poc-trials-W23-hk-baseline-d3-2-app/5eeacc1a-ce16-4c48-ad84-a074977bcd33/scratchpad/probe/msg.txt -- REVIEW.md; echo exit=$?\","
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit --only -F /tmp/claude-0/-tmp-poc-trials-W23-hk-baseline-d3-2-app/5eeacc1a-ce16-4c48-ad84-a074977bcd33/scratchpad/probe/msg.txt -- REVIEW.md; echo exit=$?; "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit --only -m \\\"docs: ダッシュボードとコメントのコードレビュー結果を追加\\\" -m \\\"Co-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\" -m \\\"Claude-Session: https://claude.ai/code/s"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 16,
+      "Write": 3,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 80,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "この依頼に対応する変更はありません。直前のレビュー結果は、すでに依頼どおりの形式で `REVIEW.md` に書かれ、コミット `225dea5` に入っています。作業ツリーの `REVIEW.md` にも未コミットの変更はありません。\n\n`REVIEW.md` には、直前のレビューで出た 11 件すべてが入っています。各項目には場所・何が問題か（再現条件を含む）・直し方・重要度（高・中・低）があります。\n\n- 高: 1（キャッシュの利用者間共有）、2（`javascript:` リンクによる XSS）、3（`TASK_STATUSES` の破壊的な反転）、4（他人のコメントの `PATCH` 編集）\n- 中: 5（日曜日の週範囲）、6（完了率の NaN）、7（コメントの並び順）、8（SQL の文字列連結）、9（画面から書き込めない）\n- 低: 10（期限切れと今週の重なり）、11（テストが指摘を検出できない）\n\n内容は変えていないので、空のコミットは作っていません。コードも変更していません。"
+  },
+  "interventions": 0
+}

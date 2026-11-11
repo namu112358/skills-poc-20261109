@@ -1,0 +1,47 @@
+{
+  "trial": "W23-hk-baseline-d1-1",
+  "scenario": "W23",
+  "config": "hk-baseline",
+  "case": "d1",
+  "rep": 1,
+  "review_md": "# コードレビュー: ダッシュボード追加（`/dashboard` と `GET /api/dashboard`）\n\n対象: 未コミットの差分（`git diff HEAD`）。`npm test` は 27 件すべて通過。ただし下記の指摘は既存のテストでは検出されない。\n\n指摘 1〜4 は再現を確認済み。\n\n---\n\n## 指摘 1\n\n- **場所**: `src/lib/dashboard.ts` の `buildDashboard()`（64 行目付近の `cached(\"dashboard\", ...)`）、`src/lib/cache.ts` の `cached()`\n- **何が問題か**: キャッシュのキーが固定の `\"dashboard\"` のため、30 秒以内に別のユーザーがアクセスすると、前のユーザーの結果がそのまま返る。`userId` も `db` も `now` もキーに含まれない。\n  - 再現: `cached(\"dashboard\", 30000, () => \"A's data\", t)` の後に `cached(\"dashboard\", 30000, () => \"B's data\", t + 1000)` を呼ぶと `\"A's data\"` が返る。\n  - 実際の画面では、佐藤さんがダッシュボードを開いた 30 秒以内に鈴木さんが開くと、鈴木さんの画面に佐藤さんの担当タスク（タスク名・期限・件数）が表示される。個人のタスク情報の漏えい。\n  - キャッシュが効いている間は `now` と `db` の引数も無視される。\n- **直し方**: キーに `userId` を含める（例: `cached(\\`dashboard:${userId}\\`, ...)`）。さらに、キャッシュ対象を「DB から読んだ担当タスク」だけにし、期限切れ・今週の判定は毎回 `now` で計算する。または PoC では 30 秒キャッシュ自体を削除する（SQLite の同期読み取りで十分軽い）。ユーザーごとに結果が分かれることを確かめるテストを追加する。\n- **重要度**: 高\n\n## 指摘 2\n\n- **場所**: `src/lib/dashboard.ts` の `listAssignedTasks()`（27 行目付近）\n- **何が問題か**: `WHERE assignee = '${userId}'` と文字列テンプレートで SQL を組み立てている。`userId` が `'` を含むと SQL が壊れ、条件を書き換えられる。\n  - 再現: `listAssignedTasks(\"x' OR '1'='1\", db)` が担当者に関係なく全 7 件を返すことを確認。\n  - 現状の `userId` はセッションの `users.id`（`sato` など）なので、今すぐ外から攻撃できる経路は見当たらない。ただしユーザー ID に記号を使えるようになれば全件漏えいになる。また CLAUDE.md の規約 8 に違反する。\n- **直し方**: プレースホルダを使う。\n  ```ts\n  db.prepare(\"SELECT id, title, status, assignee, due_date FROM tasks WHERE assignee = ? ORDER BY due_date, id\").all(userId) as Row[];\n  ```\n  記号を含む ID で 0 件になることを確かめるテストを追加する。\n- **重要度**: 高\n\n## 指摘 3\n\n- **場所**: `src/lib/dashboard.ts` の `countByStatus()`（37 行目付近の `order.reverse()`）\n- **何が問題か**: `reverse()` は元の配列を並べ替える。`TASK_STATUSES`（`src/lib/tasks.ts`）は共有の定数なので、呼ぶたびに並びが反転する。\n  - 再現: `countByStatus([])` を 1 回呼ぶと `TASK_STATUSES` が `[\"done\", \"in_progress\", \"todo\"]` になり、2 回目で元に戻る。\n  - 影響: 同じプロセス内で `TASK_STATUSES` を使う他の処理の結果が、呼ばれた回数で変わる。テストの順序依存の原因にもなる。\n- **直し方**: コピーしてから逆順にする（`[...TASK_STATUSES].reverse()`）。または表示順を明示的に定義する。元の配列が変わらないことを確かめるテストを追加する。\n- **重要度**: 高\n\n## 指摘 4\n\n- **場所**: `src/lib/week.ts` の `weekRange()`（19 行目付近の `const dow`、`addDays(today, 1 - dow)`）\n- **何が問題か**: 日曜日（`getUTCDay() === 0`）のとき `1 - dow` が `1` になり、翌日の月曜から始まる範囲を返す。月曜はじまりの週では、日曜は前の月曜から始まる週に属する。\n  - 再現: 2026-11-15（日）10:00 JST で `weekRange` を呼ぶと `{ start: \"2026-11-16\", end: \"2026-11-22\" }` が返る（正しくは `2026-11-09`〜`2026-11-15`）。\n  - 影響: 日曜日は「今週が期限」の一覧に今週のタスクが入らず、翌週のタスクが入る（`src/app/dashboard/page.tsx` の 45 行目付近に表示される）。\n  - テストは水曜日（2026-11-11）だけで確かめているため検出できていない。\n- **直し方**: 月曜を 0 とする曜日に変換する。\n  ```ts\n  const dow = (new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7; // 月=0 … 日=6\n  const start = addDays(today, -dow);\n  ```\n  日曜・月曜・土曜の各境界を含むテストを追加する。\n- **重要度**: 中\n\n## 指摘 5\n\n- **場所**: `src/lib/dashboard.ts` の `completionRate()`（45 行目付近）、`src/app/dashboard/page.tsx` の完了率の表示（42 行目付近）\n- **何が問題か**: `tasks.length === 0` のとき `0 / 0` で `NaN` になり、画面に `完了率 NaN%` と表示される。担当タスクが 1 件も無いユーザーで必ず起きる。\n- **直し方**: 件数が 0 のときは `0` を返す（または「—」などの表示にする）。0 件のテストを追加する。\n- **重要度**: 中\n\n## 指摘 6\n\n- **場所**: `tests/dashboard.test.ts`\n- **何が問題か**: 次の場合のテストが無い。\n  - 日曜・月曜・土曜などの週の境界（指摘 4 を検出できない）。\n  - 担当タスクが 0 件のとき（指摘 5 を検出できない）。\n  - 2 人のユーザーで続けて呼んだとき（指摘 1 を検出できない）。\n  - `countByStatus` を 2 回呼んでも結果が変わらないこと（指摘 3 を検出できない）。\n  - `/api/dashboard` の未ログイン（401）と、ログイン時の応答の形。\n- **直し方**: 上記のケースをテストに追加する。指摘 1・3・4 は、修正前に失敗することを確かめてから直す。\n- **重要度**: 中\n\n## 指摘 7\n\n- **場所**: `src/lib/dashboard.ts` の `dueThisWeek()`（57 行目付近）\n- **何が問題か**: 期限が今週の月曜以降であれば対象にするため、今週の月曜〜今日までに期限が過ぎた未完了のタスクは「期限切れ」（`overdueTasks`）と「今週が期限」の両方に表示される。\n- **直し方**: 仕様を決める。「今週が期限」を今日以降に限るか、重複を許すかを決め、条件とテストを合わせる。\n- **重要度**: 低\n\n## 指摘 8\n\n- **場所**: `src/lib/cache.ts` の `clearCache()`、`tests/dashboard.test.ts` の `beforeEach`\n- **何が問題か**: キャッシュはモジュールの共有 `Map` に状態を持つため、テストごとの分離は `clearCache()` の呼び出しに頼っている。指摘 1 の対応でキャッシュを削除するなら、この関数も不要になる。\n- **直し方**: 指摘 1 の方針を決めるときに一緒に整理する。\n- **重要度**: 低\n\n---\n\n## 問題が無いと判断した点（参考）\n\n- 未ログインのページ（`requireUser`）と API（`requireApiUser`）の確認は既存の仕組みを使っている。\n- 日本語の文言、型（`Task` / `TaskStatus`）、`/tasks/${t.id}` へのリンク先は既存のものと一致している。\n- 新しい外部ライブラリは追加されていない。\n\n## まとめ（マージ前に必須）\n\n指摘 1〜3（いずれも高）と指摘 4（中）を直し、対応するテストを追加してから再レビューを依頼してください。指摘 5・6 は同じ PR で直すことを勧めます。指摘 7・8 はマージ後でもかまいません。\n",
+  "review_chars": 4131,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0275,
+    "tokens": {
+      "input": 34,
+      "output": 15950,
+      "cache_read": 913270,
+      "cache_creation": 51962
+    },
+    "turns": 20,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/poc-trials/W23-hk-baseline-d1-1/scratch_check.ts 2>/dev/null; mkdir -p /tmp/claude-0/scratchpad 2>/dev/null; cat > ${TMPDIR:-/tmp}/chk.ts <<'EOF'\\nimport { weekRange } from \\\"/"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"D=/tmp/claude-0/-tmp-poc-trials-W23-hk-baseline-d1-1-app/e300b597-10b8-4fee-ba77-43776742f5e3/scratchpad; mkdir -p \\\"$D\\\"; cat > \\\"$D/chk.ts\\\" <<'EOF'\\nimport { weekRange } from \\\"/tmp/po"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"rm -f /tmp/poc-trials/W23-hk-baseline-d1-1/scratch_check.ts; cd /tmp/poc-trials/W23-hk-baseline-d1-1/app && git add REVIEW.md && git commit -m \\\"$(printf 'レビュー結果を REVIEW.md に追加\\\\n\\\\nCo-Au"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Write": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 76,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を依頼の形式に書き直し、そのファイルだけを `290d2c3` としてコミットしました。コードは変更していません。\n\n各指摘には「場所（ファイル・関数・行）」「何が問題か（入力と結果）」「直し方」「重要度」を付けました。指摘は前回の 8 件をすべて残し、新しい指摘は足していません。行番号は現在の差分から取り直しました。\n\n- 高: 指摘 1（キャッシュがユーザー間で共有される）、指摘 2（SQL の文字列連結）、指摘 3（`TASK_STATUSES` の書き換え）\n- 中: 指摘 4（日曜日の週の範囲）、指摘 5（完了率の `NaN%`）、指摘 6（テストの不足）\n- 低: 指摘 7（期限切れと今週の重複）、指摘 8（テスト用の `clearCache`）\n\n前回の内容からの変更は、形式を揃えたことと行番号を入れたことだけです。「問題が無いと判断した点」と「まとめ」は残しています。ダッシュボードの未コミットの 6 ファイルは、そのまま残しています。"
+  },
+  "interventions": 0
+}

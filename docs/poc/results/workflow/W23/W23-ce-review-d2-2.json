@@ -1,0 +1,57 @@
+{
+  "trial": "W23-ce-review-d2-2",
+  "scenario": "W23",
+  "config": "ce-review",
+  "case": "d2",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスクへのコメント機能\n\n対象: 未コミットの差分（`git diff HEAD`）。コードは変更していません。\n判定: **Not ready**（高 2 件はマージ前に直す）。\n\n## 指摘\n\n### 1. [高] 保存型 XSS: コメントの `javascript:` リンクがそのまま `href` になる\n- 場所: `src/lib/comments.ts` の `renderBody`（`.replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)\\)/g, '<a href=\"$2\" ...>$1</a>')`）。表示側は `src/app/tasks/[id]/page.tsx` の `dangerouslySetInnerHTML={{ __html: renderBody(c.body) }}`。\n- 問題: `escapeHtml` で属性の外へ出る入力は防げているが、URL のスキームを検証していない。ログイン済みの誰かが `[詳細](javascript:alert(document.cookie))` というコメントを投稿すると `<a href=\"javascript:alert(document.cookie\" ...>` になる（実行して確認済み）。タスク詳細を開いた全ユーザーがクリックすると、そのユーザーの権限でアプリのオリジン上のスクリプトが動き、`PATCH /api/tasks/:id` の改ざんやなりすましの投稿ができる。`data:` も同様。\n- 直し方: `^https?://` に一致する URL だけをリンクにし、それ以外は文字のまま出す。より安全なのは `dangerouslySetInnerHTML` をやめ、本文を「文字」と「リンク」に分けて React 要素として描画する方法（改行は `<br>` 要素か `white-space: pre-wrap`）。`javascript:` / `data:` を入れたテストも追加する。\n\n### 2. [高] 認可漏れ: `PATCH /api/comments/:commentId` が投稿者を確認しない\n- 場所: `src/app/api/comments/[commentId]/route.ts` の `PATCH`（`return NextResponse.json({ comment: updateComment(comment.id, result.value) })`）。`DELETE` には `comment.authorId !== user.id` の確認がある。\n- 問題: tanaka が sato のコメント ID に `PATCH {\"body\":\"...\"}` を送ると、本文が書き換わり、表示上の投稿者は sato のまま残る（なりすまし）。1 と組み合わせると、他人のコメントに XSS を仕込める。\n- 直し方: `DELETE` と同じ所有者確認（403）を `PATCH` にも入れる。確認は `src/lib/` の関数にまとめて両方から使うとよい。なお CLAUDE.md 規約 9 は 400/401/404 だけを挙げているので、403 を使うことは PR で明示する。\n\n### 3. [中] 存在しないタスクへの `POST` が 500 になる\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` の `POST`（`if (id === undefined) return jsonError(404, ...)` の後、`getTask` を呼ばずに `addComment`）。`GET` は `getTask` で確認している。\n- 問題: `POST /api/tasks/99999/comments` に正しい本文を送ると、`PRAGMA foreign_keys = ON` のため外部キー違反で INSERT が例外になり、未処理の 500 になる（`addComment(999, ...)` が `FOREIGN KEY constraint failed` で失敗することを確認済み）。規約 9「対象が無いときは 404」に反する。\n- 直し方: `if (id === undefined || !getTask(id)) return jsonError(404, \"タスクが見つかりません\");` にする。ルートのテストか、少なくとも存在確認を `src/lib/` に置いたテストを追加する。\n\n### 4. [中] `created_at` を日本語表記の文字列で保存し、それで並べている\n- 場所: `src/lib/comments.ts` の `formatCreatedAt`（`toLocaleString(\"ja-JP\", ...)`）で保存し、`listComments` が `ORDER BY created_at, id`。\n- 問題: 月・日・時がゼロ埋めされないため、文字列の順序が時系列と一致しない。11/9（`2026/11/9 10:00:00`）のコメントが 11/10（`2026/11/10 10:00:00`）より後ろに並ぶ（確認済み）。`9:00:00` と `10:00:00` でも同じ。「古い順」というコメントと挙動が食い違う。既存の `sessions.expires_at` は ISO 8601（UTC）で保存しており、それとも揃っていない。テストは同じ日の 10 時と 11 時だけなので検出できない。\n- 直し方: DB には `now.toISOString()`（または epoch）を保存して並べ、日本時間への整形は表示時だけにする。月初の 9→10 日や時刻の桁が変わる日時をまたぐテストを追加する。\n\n### 5. [中] 画面から書き込めない（PR の説明と実装が一致しない）\n- 場所: `src/app/tasks/[id]/page.tsx`。\n- 問題: PR は「詳細画面でコメントを読み書きできる」としているが、追加されたのは一覧表示だけで、投稿・編集・削除のフォームやボタンが無い。書き込みは API を直接呼ぶしかない。\n- 直し方: 投稿フォーム（日本語の文言）を追加するか、PR の説明を「API のみ書き込み可」に直す。意図を確認したい。\n\n### 6. [低] 本文の長さをトリム前に検査している\n- 場所: `src/lib/comments.ts` の `validateCommentBody`（`body.length > MAX_BODY` の後に `body.trim()`）。\n- 問題: 前後の空白を含めて 2001 文字以上になる本文は、保存される値（トリム後）が 2000 文字以内でも 400 になる。`length` は UTF-16 単位なので、絵文字は 2 文字分に数えられる。\n- 直し方: 先にトリムしてから長さを検査する。\n\n### 7. [低] コメント ID の解析に `parseTaskId` を流用している\n- 場所: `src/app/api/comments/[commentId]/route.ts` の両ハンドラ。\n- 問題: 動作は正しいが、名前と型がタスク用で意図が読み取りにくい。\n- 直し方: `parseCommentId` を用意するか、共通の名前に直す。\n\n### 8. [低] 更新と削除の競合時の応答と、件数の上限\n- 場所: `src/app/api/comments/[commentId]/route.ts` の `PATCH`、`src/lib/comments.ts` の `listComments`。\n- 問題: 取得後に別の要求でコメントが削除されると、`updateComment` が `undefined` を返し、`{ comment: undefined }` が 200 で返る。また 1 人が投稿できる件数に上限がなく、`listComments` はページ分割なしで全件を描画するため、投稿が増えるほど詳細画面が重くなる（PoC なら許容範囲）。\n- 直し方: `updateComment` の結果が `undefined` なら 404 を返す。件数の上限やページ分割は必要になった時点で。\n\n### 9. [低] テストの不足\n- 場所: `tests/comments.test.ts`。\n- 問題: 上記 1〜4 のいずれも検出できない（`javascript:` リンク、日付またぎの並び順、存在しないタスク、他人のコメントの編集）。存在しない ID に対する `updateComment` / `deleteComment` も未確認。規約 5 は `src/lib/` のロジックのテストを求めているので、所有者確認や存在確認を `src/lib/` に置けば、そこでテストできる。\n- 直し方: 各指摘の修正と合わせて、再現入力を入れたテストを追加する。\n\n### 10. [低] 依頼の範囲を超える機能が含まれている可能性（規約 6）\n- 場所: `src/app/api/comments/[commentId]/route.ts`（`PATCH` / `DELETE`）、`src/lib/comments.ts` の `updateComment` / `deleteComment`。\n- 問題: 規約 6「変更は依頼された範囲にとどめる」に照らすと、PR の説明は「コメントを読み書きできる」で、編集・削除までは述べていません。依頼された範囲かどうかが読み取れません（指摘 2 の認可漏れもこの機能に由来します）。\n- 直し方: 編集・削除が必要なら PR の説明に明記する。不要なら外す。\n\n## 確認して問題が無かった点（参考）\n- SQL はすべてプレースホルダ（規約 8）。マイグレーションは末尾に version 3 を追加し、既存は未変更（規約 7）。\n- 各ハンドラは最初にログインを確認している。投稿者は本文ではなくセッションから決まるため、投稿時のなりすましはできない。\n\n## カバレッジと制限\n- この環境ではレビュー用スクリプト（差分サイズの集計、別モデルによる独立レビュー、検証・統合の自動工程）を実行できませんでした。代わりに、差分の読解と実行確認に加え、独立した 2 つのレビュアー（正確性・規約、セキュリティ・敵対的）の結果を統合しています。別モデルによる確認は行っていません。\n- `npm run typecheck` / `npm test` / ブラウザでの表示確認は今回は実施していません。1・3・4 は小さなスクリプトで再現しました。2 はコードの読解から判断しています。\n",
+  "review_chars": 4577,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.9266,
+    "tokens": {
+      "input": 68,
+      "output": 18006,
+      "cache_read": 2318918,
+      "cache_creation": 143297
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W23-ce-review-d2-2/plugins/compound-engineering/skills/ce-code-review; python3 $SKILL_DIR/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W23-ce-review-d2-2/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs 2>&1 | head -60\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"command -v codex grok antigravity claude cursor-agent npx node; echo CROSS=$CROSS_MODEL_PEERS; cat /tmp/poc-trials/W23-ce-review-d2-2/app/.compound-engineering/config.yaml 2>&1 | head; ec"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"command -v codex grok antigravity claude cursor-agent npx node; ls /tmp/poc-trials/W23-ce-review-d2-2/app/.compound-engineering 2>&1\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 7,
+      "Bash": 15,
+      "Agent": 2,
+      "ReadNotifications": 2,
+      "Write": 1,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 2,
+    "subagent_types": {
+      "general-purpose": 2
+    },
+    "questions": 0,
+    "active_seconds": 56,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの指摘がすでに「場所・問題・直し方・重要度」の形式で書いてありました。足りなかった 1 件だけを加えて、`REVIEW.md` だけをコミットしました（1a0ebdd）。\n\n加えたのは、規約 6 に関する低の指摘です。PR の説明は「読み書き」としか述べていないのに、編集・削除の API まで含まれています。ここは、レビュアーの一人が出していたのに、前回の `REVIEW.md` に載せ忘れていました。\n\nそれ以外の指摘（高 2・中 3・低 4）は、前回のまま 1〜9 に収まっています。新しい指摘は足しておらず、削ったものもありません。コードは変更していません。"
+  },
+  "interventions": 0
+}
