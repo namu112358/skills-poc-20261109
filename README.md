@@ -13,25 +13,57 @@ AI エージェント（主に Claude Code）を使って新規開発を進め�
 
 ## 1. どの Skills・プラグイン・MCP を入れるか
 
-### 必須のもの
+### 全てのプロジェクトに共通するツール
+
+どのプロジェクトにも最初から入れる必須のツールです。用途ごとに分けています。
+
+#### UI/UX・デザイン
+
+画面のデザイン品質を上げ、使いやすさ・アクセシビリティのルールに沿っているかを確認します。
+
+| 種別 | ツール | 提供元 | リポジトリ | 導入方法 | 設定箇所 |
+|---|---|---|---|---|---|
+| Skill | Frontend Design | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/frontend-design) | 固定コミットから vendoring | `.claude/skills/frontend-design` |
+| Skill | Web Design Guidelines | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines) | 固定コミットから vendoring | `.claude/skills/web-design-guidelines` |
+| Plugin | Impeccable | Paul Bakaus | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | marketplace `pbakaus/impeccable` | `.claude/settings.json` |
+| Plugin | UI/UX Pro Max | nextlevelbuilder | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | marketplace `nextlevelbuilder/ui-ux-pro-max-skill` | `.claude/settings.json` |
+
+#### テスト・動作確認
+
+ブラウザを操作して、実際の画面で動作を確かめます。
+
+| 種別 | ツール | 提供元 | リポジトリ | 導入方法 | 設定箇所 |
+|---|---|---|---|---|---|
+| MCP | Playwright MCP | Microsoft | [microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp) | `npx @playwright/mcp@0.0.84` | `.mcp.json` |
+| Skill | Webapp Testing | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/webapp-testing) | 固定コミットから vendoring | `.claude/skills/webapp-testing` |
+
+#### セキュリティ
+
+コードを編集するときに、脆弱性につながる書き方を検知して警告します。
+
+| 種別 | ツール | 提供元 | リポジトリ | 導入方法 | 設定箇所 |
+|---|---|---|---|---|---|
+| Plugin | Security Guidance | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/security-guidance) | marketplace `claude-plugins-official` | `.claude/settings.json` |
+
+#### GitHub 連携・開発フロー
+
+Issue・PR の操作や、stacked PR（小さな PR を積み重ねる開発）を AI エージェントから行います。
 
 | 種別 | ツール | 提供元 | リポジトリ | 導入方法 | 設定箇所 |
 |---|---|---|---|---|---|
 | MCP | GitHub MCP | GitHub | [github/github-mcp-server](https://github.com/github/github-mcp-server) | リモート MCP（`api.githubcopilot.com/mcp/`） | `.mcp.json` |
-| MCP | Playwright MCP | Microsoft | [microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp) | `npx @playwright/mcp@0.0.84` | `.mcp.json` |
-| Skill | Frontend Design | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/frontend-design) | 固定コミットから vendoring | `.claude/skills/frontend-design` |
-| Skill | Web Design Guidelines | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines) | 固定コミットから vendoring | `.claude/skills/web-design-guidelines` |
-| Skill | Webapp Testing | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/webapp-testing) | 固定コミットから vendoring | `.claude/skills/webapp-testing` |
-| Skill | Skill Creator | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/skill-creator) | 固定コミットから vendoring | `.claude/skills/skill-creator` |
-| Skill | gh stack（stacked PR の作成・同期・マージ） | GitHub | [github/gh-stack](https://github.com/github/gh-stack/tree/main/skills/gh-stack) | 固定コミットから vendoring | `.claude/skills/gh-stack` |
 | Skill | gh（エージェントから GitHub CLI を使う際の作法） | GitHub | [cli/cli](https://github.com/cli/cli/tree/trunk/skills/gh) | 固定コミットから vendoring | `.claude/skills/gh` |
-| Plugin | Impeccable | Paul Bakaus | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | marketplace `pbakaus/impeccable` | `.claude/settings.json` |
-| Plugin | Security Guidance | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/security-guidance) | marketplace `claude-plugins-official` | `.claude/settings.json` |
-| Plugin | UI/UX Pro Max | nextlevelbuilder | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | marketplace `nextlevelbuilder/ui-ux-pro-max-skill` | `.claude/settings.json` |
+| Skill | gh stack（stacked PR の作成・同期・マージ） | GitHub | [github/gh-stack](https://github.com/github/gh-stack/tree/main/skills/gh-stack) | 固定コミットから vendoring | `.claude/skills/gh-stack` |
 
-Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.claude/skills/SOURCES.md) を参照してください。
+#### Skill の作成・改善
 
-### 採用技術・利用サービスに応じて追加するもの
+プロジェクト独自の Skill を作ったり、既存の Skill を評価・改善したりします。
+
+| 種別 | ツール | 提供元 | リポジトリ | 導入方法 | 設定箇所 |
+|---|---|---|---|---|---|
+| Skill | Skill Creator | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/skill-creator) | 固定コミットから vendoring | `.claude/skills/skill-creator` |
+
+### 採用技術に応じて追加するもの
 
 `scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...` で、該当するプロジェクトにだけ追加します（`.mcp.json`・`.claude/skills/`・`.claude/settings.json` を更新）。`--dest` を省略すると、このリポジトリ自身に追加します。
 
@@ -42,6 +74,15 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 | `react-nextjs` | 〃 | Skill | Composition Patterns | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/composition-patterns) | 不要 |
 | `react-nextjs` | 〃 | Skill | React View Transitions | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/react-view-transitions) | 不要 |
 | `react-nextjs` | 〃 | MCP | Next.js DevTools MCP（`next-devtools-mcp@0.4.0`。Next.js 16 以上の `next dev` 起動中に使う） | Vercel | [vercel/next-devtools-mcp](https://github.com/vercel/next-devtools-mcp) | 不要 |
+
+- TypeScript LSP を使うには、`npm install -g typescript-language-server typescript` で言語サーバーを入れておく必要があります。
+
+### 利用サービスに応じて追加するもの
+
+採用技術と同じく `scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...` で追加します。認証が必要なものは OAuth で認証し、トークンをファイルに書きません。
+
+| stack | 対象 | 種別 | ツール | 提供元 | リポジトリ | 認証 |
+|---|---|---|---|---|---|---|
 | `supabase` | Supabase を使う場合 | MCP | Supabase MCP（`https://mcp.supabase.com/mcp?project_ref=${SUPABASE_PROJECT_REF}`。開発用プロジェクトに限定） | Supabase | [supabase/mcp](https://github.com/supabase/mcp) | 初回接続時に OAuth（`/mcp` から） |
 | `vercel` | Vercel を使う場合 | MCP | Vercel MCP（`https://mcp.vercel.com`） | Vercel | [Vercel MCP ドキュメント](https://vercel.com/docs/agent-resources/vercel-mcp) | 初回接続時に OAuth（`/mcp` から） |
 | `sentry` | Sentry を使う場合 | MCP | Sentry MCP（`https://mcp.sentry.dev/mcp`） | Sentry | [getsentry/sentry-mcp](https://github.com/getsentry/sentry-mcp) | 初回接続時に OAuth（`/mcp` から） |
@@ -52,8 +93,10 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 scripts/add-stack.sh --dest ../my-project typescript react-nextjs supabase vercel
 ```
 
-- TypeScript LSP を使うには、`npm install -g typescript-language-server typescript` で言語サーバーを入れておく必要があります。
 - Supabase MCP を使う場合は、開発用プロジェクトの project ref を環境変数 `SUPABASE_PROJECT_REF` に設定します（`.env.example` 参照）。
+- 各サービスの MCP の権限の絞り方は「[権限と認証情報](#権限と認証情報)」を参照してください。
+
+Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.claude/skills/SOURCES.md) を参照してください。
 
 ### 追加の候補と、重なりの整理（調査のみ）
 
