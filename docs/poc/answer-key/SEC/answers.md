@@ -64,3 +64,22 @@
 - 正解にも「もとからある点」にも当たらない指摘は FP。罠（T1〜T3）への指摘は FP として別に数える。
 - 「要確認」（Cloudflare の `needs_validation`）は TP・FP に数えず、件数と中身を記録する。
 - 深刻度は、正解との段の差（critical・high・medium・low）を記録する。
+
+## diff2: 見つけにくい脆弱性の差分 3 件（SEC-2 で追加）
+
+タスクを共有リンクで社外の人に見せる機能の追加（`diff2.patch`）。diff では、どのツールも 3 件すべてを見つけたため、1 か所を読むだけでは分からないものにした。
+
+| ID | 種類 | 場所 | 深刻度 | 中身 |
+|---|---|---|---|---|
+| H1 | 認可のすり抜け（トークンと対象の取り違え） | `api/shared/[token]/route.ts` → `lib/share.ts` | high | トークンが有効かだけを確かめ、返すタスクはクエリの `task` で決める。1 本のリンクを受け取った社外の人が、`?task=` を変えて全タスクを読める |
+| H2 | 期限切れの判定の誤り | `lib/share.ts` の `createShareLink`・`isValidShareToken` | medium | 期限を `toLocaleString("ja-JP")`（`2026/11/18 9:00:00`）で保存し、`toISOString()`（`2026-11-…`）と文字列で比べる。`/` は `-` より大きいので、リンクがいつまでも期限切れにならない。テストは通る |
+| H3 | 機密の列の漏えい | `lib/share.ts` の `getSharedTask`（`api/shared/[token]/route.ts` が返す） | high | `SELECT t.*, u.*` で担当者の行をすべて返す。ログインしていない人に `password_hash` を渡す（`u.id` が `t.id` を上書きするので、id もずれる） |
+
+誤検知の罠（指摘したら誤検知）:
+
+| ID | 場所 | 危なく見える点 | 安全な理由 |
+|---|---|---|---|
+| T4 | `lib/share.ts` の `createShareLink` | 推測されるトークン | `randomBytes(24)` の base64url。推測できない |
+| T5 | `api/tasks/[id]/share/route.ts` | URL に値を埋め込む | `token` は `encodeURIComponent` を通し、`id` は `parseTaskId` で数字だけにしてある |
+
+仕様として数えない点: 共有リンクにはログインが要らない（リンクを知っていることが権限という仕様）。ログイン中の利用者は、だれでも、どのタスクの共有リンクも作れる（タスクに持ち主の区別がない仕様）。

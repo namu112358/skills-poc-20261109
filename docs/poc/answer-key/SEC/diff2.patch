@@ -1,0 +1,126 @@
+diff --git a/src/app/api/shared/[token]/route.ts b/src/app/api/shared/[token]/route.ts
+new file mode 100644
+index 0000000..25fa702
+--- /dev/null
++++ b/src/app/api/shared/[token]/route.ts
+@@ -0,0 +1,15 @@
++// GET /api/shared/:token?task=… — 共有リンクのタスクを返す。ログインは不要（リンクを知っていることが権限）。
++import { NextResponse } from "next/server";
++import { jsonError } from "@/lib/api";
++import { getSharedTask, isValidShareToken } from "@/lib/share";
++import { parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ token: string }> };
++
++export async function GET(request: Request, { params }: Context) {
++  const { token } = await params;
++  if (!isValidShareToken(token)) return jsonError(404, "共有リンクが見つかりません");
++  const taskId = parseTaskId(new URL(request.url).searchParams.get("task"));
++  const task = taskId === undefined ? undefined : getSharedTask(taskId);
++  return task ? NextResponse.json({ task }) : jsonError(404, "タスクが見つかりません");
++}
+diff --git a/src/app/api/tasks/[id]/share/route.ts b/src/app/api/tasks/[id]/share/route.ts
+new file mode 100644
+index 0000000..d59eca4
+--- /dev/null
++++ b/src/app/api/tasks/[id]/share/route.ts
+@@ -0,0 +1,17 @@
++// POST /api/tasks/:id/share — タスクの共有リンクを作る。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { createShareLink } from "@/lib/share";
++import { getTask, parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
++  const token = createShareLink(id, user.id);
++  const url = new URL(`/shared/${encodeURIComponent(token)}?task=${id}`, request.url);
++  return NextResponse.json({ url: url.toString() }, { status: 201 });
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 4e1b0a4..e2cc62f 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -38,4 +38,16 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX sessions_user ON sessions(user_id);
+     `,
+   },
++  {
++    version: 3,
++    name: "share_links",
++    sql: `
++      CREATE TABLE share_links (
++        token      TEXT PRIMARY KEY,
++        task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
++        created_by TEXT NOT NULL REFERENCES users(id),
++        expires_at TEXT NOT NULL
++      );
++    `,
++  },
+ ];
+diff --git a/src/lib/share.ts b/src/lib/share.ts
+new file mode 100644
+index 0000000..fae04b6
+--- /dev/null
++++ b/src/lib/share.ts
+@@ -0,0 +1,35 @@
++// タスクの共有リンク。ログインしていない社外の人にも、リンクを知っていれば 1 件のタスクを見せる。
++import { randomBytes } from "node:crypto";
++import { getDb, type Db } from "./db/index.ts";
++
++/** 共有リンクの有効期間 */
++export const SHARE_TTL_DAYS = 7;
++
++export function createShareLink(taskId: number, createdBy: string, db: Db = getDb(), now = new Date()): string {
++  const token = randomBytes(24).toString("base64url");
++  const expires = new Date(now.getTime() + SHARE_TTL_DAYS * 24 * 60 * 60 * 1000);
++  db.prepare("INSERT INTO share_links (token, task_id, created_by, expires_at) VALUES (?, ?, ?, ?)").run(
++    token,
++    taskId,
++    createdBy,
++    expires.toLocaleString("ja-JP"),
++  );
++  return token;
++}
++
++/** 有効な共有リンクなら true。期限切れ・不明なトークンは false。 */
++export function isValidShareToken(token: string, db: Db = getDb(), now = new Date()): boolean {
++  const row = db.prepare("SELECT expires_at FROM share_links WHERE token = ?").get(token) as
++    | { expires_at: string }
++    | undefined;
++  return row !== undefined && row.expires_at > now.toISOString();
++}
++
++export type SharedTask = Record<string, unknown>;
++
++/** 共有画面に出すタスクと担当者の情報 */
++export function getSharedTask(taskId: number, db: Db = getDb()): SharedTask | undefined {
++  return db
++    .prepare("SELECT t.*, u.* FROM tasks t JOIN users u ON u.id = t.assignee WHERE t.id = ?")
++    .get(taskId) as SharedTask | undefined;
++}
+diff --git a/tests/share.test.ts b/tests/share.test.ts
+new file mode 100644
+index 0000000..531684d
+--- /dev/null
++++ b/tests/share.test.ts
+@@ -0,0 +1,14 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { createShareLink, getSharedTask, isValidShareToken } from "../src/lib/share.ts";
++
++describe("share links", () => {
++  it("creates a valid link for a task", () => {
++    const db = openDb();
++    const token = createShareLink(1, "sato", db);
++    assert.equal(isValidShareToken(token, db), true);
++    assert.equal(isValidShareToken("unknown", db), false);
++    assert.equal(getSharedTask(1, db)?.title, "要件定義書のレビュー");
++  });
++});

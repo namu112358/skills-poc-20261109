@@ -4,6 +4,7 @@
 #   ツール: cloudflare（security-audit Skill） | claude-security（Claude Security プラグイン）
 #           | security-review（Claude Code 組み込みの /security-review。題材 diff だけ。深さは default）
 #   題材:   clean（poc-app のまま） | vulns（answer-key/SEC/vulns.patch を当てる） | diff（diff.patch を作業ブランチのコミットにする）
+#           | diff2（diff2.patch。見つけにくい脆弱性の差分。SEC-2 で追加）
 #   深さ:   cloudflare は quick | standard | deep、claude-security は low | medium | high（どちらも各ツールの言葉）
 #   例: POC_MODEL=claude-opus-5-5 scripts/poc/run-security-trial.sh cloudflare vulns standard 1
 # 作業用コピー（既定は /tmp/poc-trials/<ID>。POC_TRIAL_ROOT で変更可）に、poc-app のソースだけを写す
@@ -23,8 +24,8 @@ case "$TOOL:$LEVEL" in
   cloudflare:quick|cloudflare:standard|cloudflare:deep|claude-security:low|claude-security:medium|claude-security:high|security-review:default) ;;
   *) echo "ツールと深さの組み合わせが正しくない: $TOOL $LEVEL" >&2; exit 1 ;;
 esac
-case "$TARGET" in clean|vulns|diff) ;; *) echo "題材は clean・vulns・diff のいずれか: $TARGET" >&2; exit 1 ;; esac
-[[ "$TOOL" == security-review && "$TARGET" != diff ]] && { echo "security-review は題材 diff だけ" >&2; exit 1; }
+case "$TARGET" in clean|vulns|diff|diff2) ;; *) echo "題材は clean・vulns・diff・diff2 のいずれか: $TARGET" >&2; exit 1 ;; esac
+[[ "$TOOL" == security-review && "$TARGET" != diff* ]] && { echo "security-review は題材 diff だけ" >&2; exit 1; }
 MODEL="${POC_MODEL:-claude-opus-5-5}"
 CACHE="${POC_CACHE:-$ROOT/.poc-cache}"
 KEY="$ROOT/docs/poc/answer-key/SEC"
@@ -59,11 +60,15 @@ if [[ "$TARGET" == vulns ]]; then
 fi
 ( cd "$APP" && git add -A && git commit -qm "タスク管理アプリ" )
 git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
-if [[ "$TARGET" == diff ]]; then
-  git -C "$APP" switch -q -c feature/comments
-  git -C "$APP" apply "$KEY/diff.patch"
-  sha256sum "$KEY/diff.patch" | sed "s#$ROOT/##" > "$OUT/injected-patch"
-  ( cd "$APP" && git add -A && git commit -qm "タスクにコメントを書けるようにする" )
+if [[ "$TARGET" == diff* ]]; then
+  case "$TARGET" in
+    diff) BRANCH=feature/comments; MSG="タスクにコメントを書けるようにする" ;;
+    diff2) BRANCH=feature/share-links; MSG="タスクを共有リンクで社外の人に見せられるようにする" ;;
+  esac
+  git -C "$APP" switch -q -c "$BRANCH"
+  git -C "$APP" apply "$KEY/$TARGET.patch"
+  sha256sum "$KEY/$TARGET.patch" | sed "s#$ROOT/##" > "$OUT/injected-patch"
+  ( cd "$APP" && git add -A && git commit -qm "$MSG" )
 fi
 git -C "$APP" rev-parse HEAD > "$OUT/head-commit"
 # git の設定とフックは読み取り専用にする（設定やフックを仕込んで、許可した git の読み取りから任意のコマンドを起動できないように）。
@@ -90,8 +95,8 @@ if [[ "$TOOL" == cloudflare ]]; then
     "Bash(node $SKILL/validate-findings.cjs:*)" "Bash(node $SKILL/validate-coverage-ledger.cjs:*)"
     "Bash(node .claude/skills/security-audit/validate-findings.cjs:*)" "Bash(node .claude/skills/security-audit/validate-coverage-ledger.cjs:*)"
   )
-  if [[ "$TARGET" == diff ]]; then
-    SCOPE="- 範囲（scoped run）: 2 つのコミットの差分（$BASE..HEAD。ブランチ feature/comments の変更）
+  if [[ "$TARGET" == diff* ]]; then
+    SCOPE="- 範囲（scoped run）: 2 つのコミットの差分（$BASE..HEAD。ブランチ $BRANCH の変更）
 - 差分を調べるために git diff $BASE..HEAD と git show HEAD を使ってかまいません"
     ALLOWED+=("Bash(git diff $BASE..HEAD:*)" "Bash(git diff $BASE HEAD:*)" "Bash(git show HEAD:*)" "Bash(git show --stat HEAD)")
   else
@@ -134,8 +139,8 @@ else
     "Bash(git rev-list:*)" "Bash(git diff --stat:*)" "Bash(git diff --name-only:*)" "Bash(git merge-base:*)" "Bash(git branch --show-current)"
     "Bash(GIT_TERMINAL_PROMPT=0 git rev-list:*)" "Bash(GIT_TERMINAL_PROMPT=0 git rev-parse:*)" "Bash(GIT_TERMINAL_PROMPT=0 git status:*)"
   )
-  if [[ "$TARGET" == diff ]]; then
-    JOB="scan my branch's changes (the branch feature/comments, base $BASE) at $LEVEL"
+  if [[ "$TARGET" == diff* ]]; then
+    JOB="scan my branch's changes (the branch $BRANCH, base $BASE) at $LEVEL"
   else
     JOB="scan the whole codebase at $LEVEL"
   fi
