@@ -97,7 +97,8 @@ REVIEW = """# 判定の依頼
 
 
 def ask(prompt, cwd, tools=("Read",)):
-    p = subprocess.run(["claude", "-p", prompt, "--model", MODEL, "--output-format", "json", "--allowedTools", *tools],
+    flags = ["--allowedTools", *tools] if tools else []
+    p = subprocess.run(["claude", "-p", prompt, "--model", MODEL, "--output-format", "json", *flags],
                        cwd=cwd, capture_output=True, text=True, timeout=1800, stdin=subprocess.DEVNULL)
     d = json.loads(p.stdout)
     text = d.get("result", "")
