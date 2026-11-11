@@ -62,7 +62,16 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 
 ### 更新
 
-- Skills: `scripts/sync-skills.sh <anthropics/skills のコミット> <vercel-labs/agent-skills のコミット> <github/gh-stack のコミット> <cli/cli のコミット>` を実行し、差分をレビューしてからコミット
+- Skills: `scripts/sync-skills.sh <anthropics/skills のコミット> <vercel-labs/agent-skills のコミット> <github/gh-stack のコミット> <cli/cli のコミット>` を実行し、差分をレビューしてからコミット（指紋 `scripts/skills.lock.json` も作り直される）
+
+### Skills の検査
+
+`python3 scripts/check-skills.py` で、Skills をモデルを呼ばずに機械的に検査します（PyYAML が必要）。
+
+- vendored Skills: 指紋（`scripts/skills.lock.json`）と内容が一致するか（手で編集されていないか）、`SOURCES.md` に載っているか。上流の形式の問題は警告だけにする。
+- 自作の Skills: frontmatter（skill-creator の `quick_validate.py`）、`name` とディレクトリ名の一致、`SKILL.md` が 500 行以内か、参照先のファイルがあるか、評価ケース（`evals/evals.json`）と発火の評価（`evals/trigger.json`）の定義が正しいか。
+
+評価ケースを実際のモデルで動かして採点するのは、費用がかかり結果も毎回ぶれるため、この検査には含めません。必要なときに skill-creator の手順で行います。
 - Playwright MCP: `.mcp.json` のバージョンを上げて PR でレビュー
 - Plugins: `/plugin` から更新し、動作確認後にチームへ周知
 

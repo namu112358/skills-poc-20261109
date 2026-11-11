@@ -60,6 +60,10 @@ vendor_vercel_skills() { # skill...
     echo "Skill: $s を配置 (vercel-labs/agent-skills@$VERCEL_SKILLS_REF)"
   done
   rm -rf "$work"
+  # vendored Skills の指紋を作り直す（scripts/check-skills.py が手での編集を検出するのに使う）
+  if [[ -f "$ROOT/scripts/check-skills.py" ]]; then
+    python3 "$ROOT/scripts/check-skills.py" --update-lock
+  fi
 }
 
 for stack in "$@"; do
