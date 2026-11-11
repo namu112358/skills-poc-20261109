@@ -1,0 +1,251 @@
+{
+  "scenario": "W7a",
+  "trial": "W7a-superpowers-21",
+  "candidate": "superpowers",
+  "run": 21,
+  "elapsed_seconds": 207,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 1,
+  "continued_from": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "  type: 'test'\n      ...\n    1..4\nok 16 - validateTaskInput\n  ---\n  duration_ms: 900.96895\n  type: 'suite'\n  ...\n# Subtest: createTask / updateTask\n    # Subtest: creates a task and updates only the given fields\n    ok 1 - creates a task and updates only the given fields\n      ---\n      duration_ms: 129.866783\n      type: 'test'\n      ...\n    1..1\nok 17 - createTask / updateTask\n  ---\n  duration_ms: 130.083351\n  type: 'suite'\n  ...\n# Subtest: isTaskStatus\n    # Subtest: accepts known statuses only\n    ok 1 - accepts known statuses only\n      ---\n      duration_ms: 0.197012\n      type: 'test'\n      ...\n    1..1\nok 18 - isTaskStatus\n  ---\n  duration_ms: 0.266226\n  type: 'suite'\n  ...\n1..18\n# tests 37\n# suites 18\n# pass 37\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2580.110965\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "oute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/me\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /api/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /api/tasks/[id]/completion\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:26039) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:26046) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:26045) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは GET・POST・DELETE とも 401",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告の無いタスクは { completion: null }（200）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "担当者が完了報告すると 201 で完了報告が返り、メモは前後の空白を除く",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告するとタスクのステータスが完了（done）になり、GET で同じ完了報告が返る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "すでに完了のタスクへの完了報告は 409（完了報告済み・初期データで完了の両方）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "担当者以外の完了報告は 403 で、ステータスは変わらない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "存在しないタスク・不正な ID は 404",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "メモが 500 文字を超える・文字列でない・本文がオブジェクトでないときは 400 で、ステータスは変わらない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "メモは省略でき（空文字）、500 文字ちょうどは受け付ける",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "詳細画面に「完了報告」と完了した人の名前・メモが表示される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告の無いタスクの詳細画面には完了報告を表示しない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告をした本人以外の取り消しは 403",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "本人が取り消すと 204 で、完了報告が消え、ステータスは進行中（in_progress）に戻る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了報告の無いタスクの取り消しは 409",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "取り消した後は、もう一度完了報告できる",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] タスクの更新（PATCH）とコメントは今までどおり使える",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/api/tasks/[id]/completion/route.ts",
+        "added": 35,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/tasks/[id]/page.tsx",
+        "added": 15,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/completions.ts",
+        "added": 93,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/db/migrations.ts",
+        "added": 12,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "tests/completions.test.ts",
+        "added": 105,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/tasks/[id]/completion/route.ts",
+      "src/lib/completions.ts",
+      "tests/completions.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "1ff632f 完了報告の日時を toUtcIso で保存し、formatJst で日本時間表示にする",
+      "003c76b 完了報告: PATCH でステータスが戻された後の古い報告を置き換えて再報告できるようにする",
+      "db1ff08 タスクの完了報告（API・画面表示）を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.7546,
+    "tokens": {
+      "input": 84,
+      "output": 22316,
+      "cache_read": 2401640,
+      "cache_creation": 81121
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > tests/completions.test.ts <<'EOF'\\nimport { describe, it } from \\\"node:test\\\";\\nimport assert from \\\"node:assert/strict\\\";\\nimport { openDb } from \\\"../src/lib/db/index.ts\\\";\\nimpor"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 npm start >/tmp/claude-0/srv.log 2>&1 &) ; sleep 4\\nB=http://localhost:3917; J=/tmp/claude-0/j\\nlogin(){ curl -s -c $J.$1 -X POST $B/api/login -H 'content-type: application/jso"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 npm start >/dev/null 2>&1 &); sleep 5; bash /tmp/claude-0/-tmp-poc-trials-W7a-superpowers-21-app/e2565cf9-e2f0-4ae0-88ea-8aa4dc16994c/scratchpad/e2e.sh; pkill -f \\\"next start\\\""
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"PORT=3917 nohup npm start > /dev/null 2>&1 &\\nsleep 5; echo started\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sleep 4; bash /tmp/claude-0/-tmp-poc-trials-W7a-superpowers-21-app/e2565cf9-e2f0-4ae0-88ea-8aa4dc16994c/scratchpad/e2e.sh\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W7a-superpowers-21-app/e2565cf9-e2f0-4ae0-88ea-8aa4dc16994c/scratchpad/e2e.sh\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"D=/tmp/claude-0/-tmp-poc-trials-W7a-superpowers-21-app/e2565cf9-e2f0-4ae0-88ea-8aa4dc16994c/scratchpad; B=http://localhost:3917/api/tasks; for a in \\\"sato GET abc/completion\\\" \\\"sato DELE"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git diff f9755fe..db1ff08 --stat && git diff f9755fe..db1ff08 -- src && (npm test 2>&1 | tail -15; npm run typecheck 2>&1 | tail -5)\"}"
+      }
+    ],
+    "tool_calls": {
+      "Skill": 2,
+      "Bash": 24,
+      "Write": 4,
+      "Edit": 11,
+      "TaskStop": 1,
+      "Read": 9,
+      "Agent": 1
+    },
+    "skills_used": [
+      "superpowers:brainstorming",
+      "superpowers:requesting-code-review"
+    ],
+    "subagents": 1,
+    "subagent_types": {
+      "general-purpose": 1
+    },
+    "questions": 0,
+    "active_seconds": 46,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "完了報告の日時を、プロジェクトの決まりに合わせて直し、コミットしました（`1ff632f`）。テスト 37 件、型チェック、ビルドはいずれも通っています。\n\n- **保存:** `src/lib/completions.ts` で、`now.toISOString()` の代わりに `toUtcIso(now)` を使うようにしました。DB には ISO 8601 の UTC で保存されます。\n- **表示:** `src/app/tasks/[id]/page.tsx` で、サーバーの時間帯に頼る `toLocaleString(\"ja-JP\")` をやめ、`formatJst` を使うようにしました。日本時間の「YYYY/MM/DD HH:mm」で表示されます。`<time dateTime>` には UTC の ISO 値をそのまま入れています。\n\n既存のコメント表示（`comments.tsx`）にも同じ `toLocaleString` があります。今回追加した部分ではないので、変更していません。\n\n画面表示の修正後に、ブラウザやサーバーでの再確認はしていません。"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": false,
+        "P2": true,
+        "P1_reasons": [
+          "詳細画面に日本時間（{\"y\":2026,\"m\":11,\"d\":10,\"h\":1,\"mi\":1}）で表示されていない"
+        ],
+        "P2_failed": []
+      },
+      {
+        "round": 2,
+        "build": true,
+        "error": "",
+        "P1": true,
+        "P2": true,
+        "P1_reasons": [],
+        "P2_failed": []
+      }
+    ],
+    "check_seconds": 10,
+    "auto_memory_disabled": true,
+    "control": false,
+    "memory": {
+      "in_app": [],
+      "in_home": []
+    },
+    "injected_patch": "a5dd7b7a25fd46b9f24dd3a076d8ea7127d68b9c42535e2b0a0e9bf3e03df28e  docs/poc/answer-key/W7/base.patch"
+  }
+}

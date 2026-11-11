@@ -1,0 +1,158 @@
+diff --git a/src/app/api/me/worklogs/route.ts b/src/app/api/me/worklogs/route.ts
+new file mode 100644
+index 0000000..8372ac3
+--- /dev/null
++++ b/src/app/api/me/worklogs/route.ts
+@@ -0,0 +1,14 @@
++// GET /api/me/worklogs?date=YYYY-MM-DD — ログイン中のユーザーが、その日（日本時間）に記録した作業記録と合計。ログインが必要。
++import { NextResponse } from "next/server";
++import { currentApiUser, withApi } from "@/lib/api";
++import { isValidDate } from "@/lib/datetime";
++import { ValidationError } from "@/lib/errors";
++import { listMyWorklogs, totalMinutes } from "@/lib/worklogs";
++
++export const GET = withApi(async (request) => {
++  const user = await currentApiUser();
++  const date = new URL(request.url).searchParams.get("date");
++  if (!isValidDate(date)) throw new ValidationError(["日付は YYYY-MM-DD 形式で指定してください"]);
++  const worklogs = listMyWorklogs(user.id, date);
++  return NextResponse.json({ date, worklogs, totalMinutes: totalMinutes(worklogs) });
++});
+diff --git a/src/app/my/worklogs/page.tsx b/src/app/my/worklogs/page.tsx
+new file mode 100644
+index 0000000..be14663
+--- /dev/null
++++ b/src/app/my/worklogs/page.tsx
+@@ -0,0 +1,43 @@
++import { formatJst, isValidDate } from "@/lib/datetime";
++import { requireUser } from "@/lib/session";
++import { listMyWorklogs, totalMinutes } from "@/lib/worklogs";
++
++type Props = {
++  searchParams: Promise<{ date?: string | string[] }>;
++};
++
++export default async function MyWorklogsPage({ searchParams }: Props) {
++  const user = await requireUser();
++  const date = (await searchParams).date;
++  if (!isValidDate(date)) {
++    return (
++      <main>
++        <h1>自分の作業記録</h1>
++        <p>日付を YYYY-MM-DD の形で指定してください。</p>
++      </main>
++    );
++  }
++  const worklogs = listMyWorklogs(user.id, date);
++  return (
++    <main>
++      <h1>自分の作業記録</h1>
++      <p data-testid="my-worklog-date">{date}</p>
++      {worklogs.length === 0 ? (
++        <p>この日の作業記録はありません。</p>
++      ) : (
++        <>
++          <p data-testid="my-worklog-total">合計 {totalMinutes(worklogs)} 分</p>
++          <ul>
++            {worklogs.map((w) => (
++              <li key={w.id} data-testid="my-worklog">
++                <a href={`/tasks/${w.taskId}`}>{w.taskTitle}</a> {w.minutes} 分{" "}
++                <time dateTime={w.recordedAt}>{formatJst(w.recordedAt)}</time>
++                {w.note && <p style={{ whiteSpace: "pre-wrap" }}>{w.note}</p>}
++              </li>
++            ))}
++          </ul>
++        </>
++      )}
++    </main>
++  );
++}
+diff --git a/src/lib/datetime.ts b/src/lib/datetime.ts
+index f7497d4..8badee6 100644
+--- a/src/lib/datetime.ts
++++ b/src/lib/datetime.ts
+@@ -20,3 +20,22 @@ export function formatJst(iso: string): string {
+   const parts = Object.fromEntries(JST.formatToParts(new Date(iso)).map((p) => [p.type, p.value]));
+   return `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
+ }
++
++const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
++const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
++
++/** 日本時間の日付（YYYY-MM-DD）として正しいか（存在しない日付は false）。 */
++export function isValidDate(value: unknown): value is string {
++  if (typeof value !== "string") return false;
++  const m = DATE_RE.exec(value);
++  if (!m) return false;
++  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
++  return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
++}
++
++/** 日本時間の日付（YYYY-MM-DD）の 0 時から翌日 0 時までを、保存用の日時（ISO 8601 形式の UTC）の範囲 [start, end) にする。 */
++export function jstDayRange(date: string, days = 1): { start: string; end: string } {
++  const [y, m, d] = date.split("-").map(Number);
++  const start = Date.UTC(y, m - 1, d) - JST_OFFSET_MS;
++  return { start: new Date(start).toISOString(), end: new Date(start + days * 24 * 60 * 60 * 1000).toISOString() };
++}
+diff --git a/src/lib/worklogs.ts b/src/lib/worklogs.ts
+index 7cae191..2d276d6 100644
+--- a/src/lib/worklogs.ts
++++ b/src/lib/worklogs.ts
+@@ -1,4 +1,4 @@
+-import { toUtcIso } from "./datetime.ts";
++import { jstDayRange, toUtcIso } from "./datetime.ts";
+ import { getDb, type Db } from "./db/index.ts";
+ import { ConflictError, ForbiddenError, NotFoundError } from "./errors.ts";
+ import { getTask, type ValidationResult } from "./tasks.ts";
+@@ -78,3 +78,19 @@ export function deleteWorklog(taskId: number, worklogId: number, userId: string,
+   if (w.author !== userId) throw new ForbiddenError("自分の作業記録だけを削除できます");
+   db.prepare("DELETE FROM worklogs WHERE id = ?").run(worklogId);
+ }
++
++export type MyWorklog = Worklog & { taskTitle: string };
++
++/** userId が、日本時間の日付 from〜to（両端を含む）に記録した作業記録（記録日時の古い順、同じなら ID の小さい順）。 */
++export function listMyWorklogs(userId: string, from: string, to: string = from, db: Db = getDb()): MyWorklog[] {
++  const { start } = jstDayRange(from);
++  const { end } = jstDayRange(to);
++  const rows = db
++    .prepare(
++      `SELECT w.id, w.task_id, w.author, u.name AS author_name, w.minutes, w.note, w.recorded_at, t.title AS task_title
++       FROM worklogs w JOIN users u ON u.id = w.author JOIN tasks t ON t.id = w.task_id
++       WHERE w.author = ? AND w.recorded_at >= ? AND w.recorded_at < ? ORDER BY w.recorded_at, w.id`,
++    )
++    .all(userId, start, end) as (Row & { task_title: string })[];
++  return rows.map((r) => ({ ...toWorklog(r), taskTitle: r.task_title }));
++}
+diff --git a/tests/my-worklogs.test.ts b/tests/my-worklogs.test.ts
+new file mode 100644
+index 0000000..2986b35
+--- /dev/null
++++ b/tests/my-worklogs.test.ts
+@@ -0,0 +1,26 @@
++import assert from "node:assert/strict";
++import { test } from "node:test";
++import { isValidDate, jstDayRange } from "../src/lib/datetime.ts";
++import { openDb } from "../src/lib/db/index.ts";
++import { createWorklog, listMyWorklogs } from "../src/lib/worklogs.ts";
++
++test("isValidDate は存在しない日付を弾く", () => {
++  assert.equal(isValidDate("2026-11-10"), true);
++  assert.equal(isValidDate("2026-02-30"), false);
++  assert.equal(isValidDate("2026-1-1"), false);
++  assert.equal(isValidDate(undefined), false);
++});
++
++test("jstDayRange は日本時間の 0 時を UTC にする", () => {
++  assert.deepEqual(jstDayRange("2026-11-10"), { start: "2026-11-09T15:00:00.000Z", end: "2026-11-10T15:00:00.000Z" });
++});
++
++test("listMyWorklogs は日本時間の日付で絞り、自分の記録だけを古い順に返す", () => {
++  const db = openDb();
++  createWorklog({ taskId: 3, author: "sato", minutes: 10, note: "" }, db, new Date("2026-11-09T14:59:00Z"));
++  const b = createWorklog({ taskId: 3, author: "sato", minutes: 20, note: "" }, db, new Date("2026-11-09T15:00:00Z"));
++  const c = createWorklog({ taskId: 6, author: "sato", minutes: 30, note: "" }, db, new Date("2026-11-10T14:30:00Z"));
++  createWorklog({ taskId: 3, author: "suzuki", minutes: 40, note: "" }, db, new Date("2026-11-10T01:00:00Z"));
++  assert.deepEqual(listMyWorklogs("sato", "2026-11-10", "2026-11-10", db).map((w) => w.id), [b.id, c.id]);
++  assert.equal(listMyWorklogs("sato", "2026-11-10", "2026-11-10", db)[1].taskTitle, "E2E テストの追加");
++});

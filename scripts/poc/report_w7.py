@@ -38,6 +38,7 @@ def md(s):
     s = str(s)
     s = re.sub(r"<code>(.*?)</code>", lambda m: "`" + m.group(1) + "`", s, flags=re.S)
     s = re.sub(r"<strong>(.*?)</strong>", lambda m: "**" + m.group(1) + "**", s, flags=re.S)
+    s = re.sub(r'<a href="([^"]*?)\.html">(.*?)</a>', lambda m: f"[{m.group(2)}]({m.group(1)}.md)", s, flags=re.S)
     s = re.sub(r"<li>", "\n- ", s)
     s = re.sub(r"</p>\s*", "\n\n", s)
     s = re.sub(r"<ul>\s*", "\n", s)

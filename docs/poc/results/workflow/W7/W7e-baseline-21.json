@@ -1,0 +1,156 @@
+{
+  "scenario": "W7e",
+  "trial": "W7e-baseline-21",
+  "candidate": "baseline",
+  "run": 21,
+  "elapsed_seconds": 86,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "W7d-baseline-21",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "ts newest first with total\n    ok 1 - creates and lists newest first with total\n      ---\n      duration_ms: 129.384619\n      type: 'test'\n      ...\n    # Subtest: rejects done and missing tasks\n    ok 2 - rejects done and missing tasks\n      ---\n      duration_ms: 118.544266\n      type: 'test'\n      ...\n    # Subtest: deletes only own worklog of the given task\n    ok 3 - deletes only own worklog of the given task\n      ---\n      duration_ms: 130.455542\n      type: 'test'\n      ...\n    # Subtest: validates input\n    ok 4 - validates input\n      ---\n      duration_ms: 0.647185\n      type: 'test'\n      ...\n    1..4\nok 24 - worklogs\n  ---\n  duration_ms: 380.25468\n  type: 'suite'\n  ...\n1..24\n# tests 46\n# suites 24\n# pass 46\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2433.493952\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "pi/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /api/tasks/[id]/completion\n├ ƒ /api/tasks/[id]/schedules\n├ ƒ /api/tasks/[id]/worklogs\n├ ƒ /api/tasks/[id]/worklogs/[worklogId]\n├ ƒ /login\n├ ƒ /my/worklogs\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:22615) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:22608) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:22614) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは 401",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "記録の無い期間は見出しの行だけ（200、CSV の Content-Type と添付のファイル名）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "自分の作業記録だけが古い順に 1 行ずつ出る（タスクの名前・作業時間・メモ）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "改行は CRLF",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ほかの人の CSV には自分の記録だけが出る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "from・to が無い・形式が違う・存在しない日付・from が to より後・31 日を超えるときは 400（CSV を返さない）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "期間の境界（ちょうど 31 日、from と to が同じ日）は受け付ける",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] タスクの作業記録の API は今までどおり使える",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/api/me/worklogs/export/route.ts",
+        "added": 21,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/worklogs.ts",
+        "added": 50,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "tests/worklogs-export.test.ts",
+        "added": 53,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/me/worklogs/export/route.ts",
+      "tests/worklogs-export.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "0bedd63 自分の作業記録を期間指定で CSV 書き出しする API を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.2934,
+    "tokens": {
+      "input": 24,
+      "output": 11023,
+      "cache_read": 604965,
+      "cache_creation": 30659
+    },
+    "turns": 15,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat >> src/lib/worklogs.ts <<'EOF'\\n\\nexport const EXPORT_MAX_DAYS = 31;\\n\\n/**\\n * 書き出す期間の入力を検証する。from・to は実在する YYYY-MM-DD で、from が to 以前、\\n * 両端を含めて 31 日以内であること。\\n */\\nexport function v"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 npx next dev -p 3917 >/tmp/claude-0/dev.log 2>&1 &) ; sleep 8\\nB=http://localhost:3917\\ncurl -s -o /dev/null -w \\\"unauth %{http_code}\\\\n\\\" \\\"$B/api/me/worklogs/export?from=2026"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W7a-baseline-21-app/1131566a-ab0b-4e7f-ad9d-b757c423f970/scratchpad/check.sh\", \"timeout\": 60000}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 9,
+      "Edit": 2,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 79,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`GET /api/me/worklogs/export?from=…&to=…` を追加し、コミットしました（`0bedd63`）。実サーバーを起動しての動作確認はできていません。確認できたのは、単体テスト 46 件の通過、型チェック、`npm run build` の成功です。サーバー起動を伴うコマンドが無人実行では承認待ちになり、実行できませんでした。\n\n**変更内容**\n- `src/lib/worklogs.ts` に次の 3 つを追加しました。\n  - `validateExportRange`: `from`・`to` の形式、存在する日付か、`from` が `to` 以前か、両端を含めて 31 日以内かを検証します。\n  - `listUserWorklogsInRange`: 日本時間で `from` の 0:00 から `to` の 24:00 までの、本人の作業記録を返します。古い順で、同じ時刻なら ID の小さい順です。\n  - `worklogsToCsv`: 見出し行と各行を `\\r\\n` 区切りで組み立てます。カンマ・ダブルクォート・改行を含む値は、ダブルクォートで囲んで中のクォートを 2 つ重ねます。記録日時は画面と同じ `YYYY/MM/DD HH:mm`（日本時間）です。\n- `src/app/api/me/worklogs/export/route.ts` を新規作成しました。\n  - 未ログインは 401、入力誤りは 400（JSON）で、エラー時に CSV は返しません。\n  - 成功時は仕様どおりの `Content-Type` と `Content-Disposition` を付けて 200 を返します。\n- `tests/worklogs-export.test.ts` を追加しました。日本時間の日付境界、他人の記録の除外、31 日の上限、CSV のクォート処理、記録が無いときの見出しのみの出力を確認しています。\n- 作業記録のデータや既存の API は変えていません。画面も変更していません。\n\n**判断した点**\n- 本文の先頭に UTF-8 の BOM を付けています。付けないと、Excel が日本語を文字化けして開くためです。CSV を読む側には BOM は見えません。\n- 「31 日を超える」は、両端を含めて 32 日以上のときに 400 としています。10/1〜10/31 は通り、10/1〜11/1 は 400 です。\n- メモが `=` や `+` で始まる場合の対策は入れていません。表計算ソフトで数式として解釈される恐れがあります。仕様どおり値をそのまま出力するためです。必要なら別途対応できます。"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": true,
+        "P2": true,
+        "P1_reasons": [],
+        "P2_failed": []
+      }
+    ],
+    "check_seconds": 4,
+    "auto_memory_disabled": true,
+    "control": false,
+    "memory": {
+      "in_app": [],
+      "in_home": []
+    },
+    "memory_reads": []
+  }
+}

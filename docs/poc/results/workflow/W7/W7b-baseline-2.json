@@ -1,0 +1,210 @@
+{
+  "scenario": "W7b",
+  "trial": "W7b-baseline-2",
+  "candidate": "baseline",
+  "run": 2,
+  "elapsed_seconds": 121,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "W7a-baseline-2",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "1\n      type: 'test'\n      ...\n    # Subtest: can delete a worklog on a done task\n    ok 4 - can delete a worklog on a done task\n      ---\n      duration_ms: 113.823092\n      type: 'test'\n      ...\n    1..4\nok 17 - worklogs\n  ---\n  duration_ms: 570.116249\n  type: 'suite'\n  ...\n# Subtest: validateWorklogInput\n    # Subtest: accepts valid input and trims note\n    ok 1 - accepts valid input and trims note\n      ---\n      duration_ms: 0.408329\n      type: 'test'\n      ...\n    # Subtest: rejects bad input\n    ok 2 - rejects bad input\n      ---\n      duration_ms: 0.334457\n      type: 'test'\n      ...\n    1..2\nok 18 - validateWorklogInput\n  ---\n  duration_ms: 0.891847\n  type: 'suite'\n  ...\n1..18\n# tests 34\n# suites 18\n# pass 34\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2188.91392\n"
+    },
+    "build": {
+      "pass": true,
+      "log": " /api/me\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /api/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /api/tasks/[id]/completion\n├ ƒ /api/tasks/[id]/worklogs\n├ ƒ /api/tasks/[id]/worklogs/[worklogId]\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:2311) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:2309) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:2304) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "未ログインでは GET・POST・DELETE とも 401",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "作業記録の無いタスクは空配列と合計 0（200）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "作業記録を追加すると 201 で返り、記録した人はログイン中のユーザー・メモは前後の空白を除く",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "メモは省略でき（空文字）、ほかの人も記録できる",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "一覧は新しい順で、合計が返る",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "作業時間が 1〜1440 の整数でない・メモが 200 文字を超える・文字列でない・本文がオブジェクトでないときは 400",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "境界値（1 分・1440 分・メモ 200 文字）は受け付ける",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "完了（done）のタスクには追加できず 409",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "存在しないタスク・不正な ID は 404",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "詳細画面に作業記録が新しい順に並び、名前・作業時間・メモと合計が表示される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "作業記録の無いタスクの詳細画面には「作業記録はまだありません。」と表示する",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "記録した本人以外の削除は 403、URL のタスクの記録でないときは 404",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "本人が削除すると 204 で、一覧と合計から消える",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "[既存] タスクの更新（PATCH）とコメントは今までどおり使える",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/api/tasks/[id]/worklogs/[worklogId]/route.ts",
+        "added": 18,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/api/tasks/[id]/worklogs/route.ts",
+        "added": 29,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/tasks/[id]/page.tsx",
+        "added": 19,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/db/migrations.ts",
+        "added": 15,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/worklogs.ts",
+        "added": 126,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "tests/worklogs.test.ts",
+        "added": 103,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/tasks/[id]/worklogs/[worklogId]/route.ts",
+      "src/app/api/tasks/[id]/worklogs/route.ts",
+      "src/lib/worklogs.ts",
+      "tests/worklogs.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "5541f03 タスクの作業記録（API・画面表示）を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.4232,
+    "tokens": {
+      "input": 32,
+      "output": 16701,
+      "cache_read": 930404,
+      "cache_creation": 40760
+    },
+    "turns": 23,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\ni=s.rstrip().rfind('];')\\ns=s[:i]+'''  {\\n    version: 5,\\n    name: \\\"worklogs\\\",\\n    sql: `\\n      CREATE TABLE workl"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && mkdir -p \\\"src/app/api/tasks/[id]/worklogs/[worklogId]\\\" && tail -5 src/lib/db/migrations.ts\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run typecheck 2>&1 | tail -3; npm run build 2>&1 | grep -iE \\\"error|worklog\\\" | head; (PORT=3457 npm start >/tmp/claude-0/srv.log 2>&1 &) ; sleep 4\\nB=http://localhost:3457; J=/tmp/cl"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W7a-baseline-2-app/63409269-344b-49fb-9420-eb1d250c73b0/scratchpad/e2e.sh 2>&1 | tail -20\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Edit": 6,
+      "Write": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 115,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "作業記録の API とタスク詳細画面の表示を実装し、コミットしました（`5541f03`）。型チェック・単体テスト 34 件・本番ビルドは通っています。ただし、サーバーを起動して API を実際に叩く確認は、実行が許可されず行っていません。\n\n**変更内容**\n- **DB**: マイグレーション 5 を末尾に追加しました。`worklogs` テーブルは、作業時間を 1〜1440 の範囲に制限し、タスク削除時は連動して消えます。\n- **ロジック**: `src/lib/worklogs.ts` に、一覧（記録日時の新しい順、同じなら ID の大きい順）、合計、入力検証、追加、削除を置きました。完了（`done`）のタスクへの追加は 409、削除は記録した本人のみ（他人は 403）、記録が無い・別タスクの記録なら 404 です。\n- **API**:\n  - `GET` / `POST /api/tasks/:id/worklogs`\n  - `DELETE /api/tasks/:id/worklogs/:worklogId`\n  - 記録した人は常にログイン中のユーザーで、本文の `author` は使いません。\n- **画面**: `/tasks/:id` の、タスク情報の下でコメントの上に「作業記録」を追加しました。各記録は `data-testid=\"worklog\"`、合計は `worklog-total`（「合計 N 分」、0 件でも表示）です。0 件のときは「作業記録はまだありません。」と出ます。\n- **テスト**: `tests/worklogs.test.ts` に、並び順と合計、404・409・403、各種の不正入力を追加しました。\n\n**課題文に無かった判断**\n- 検証の順序は、タスクが無ければ 404、入力誤りなら 400、完了済みなら 409 としています。完了報告 API の既存の順序に合わせました。\n- 完了済みタスクでも、作業記録の削除はできます。禁止されているのは追加だけです。"
+  },
+  "w7": {
+    "pitfalls": [
+      {
+        "round": 1,
+        "build": true,
+        "error": "",
+        "P1": true,
+        "P2": true,
+        "P1_reasons": [],
+        "P2_failed": []
+      }
+    ],
+    "check_seconds": 5,
+    "auto_memory_disabled": true,
+    "control": false,
+    "memory": {
+      "in_app": [],
+      "in_home": []
+    },
+    "memory_reads": []
+  }
+}
