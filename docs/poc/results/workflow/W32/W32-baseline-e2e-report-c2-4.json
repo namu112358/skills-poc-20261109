@@ -1,0 +1,75 @@
+{
+  "trial": "W32-baseline-e2e-report-c2-4",
+  "scenario": "W32",
+  "config": "baseline-e2e-report",
+  "case": "c2",
+  "rep": 4,
+  "review_md": "# コードレビュー: 計測器ごとの定期点検の追加\n\n## 動作確認の結果（`npm run build` → `npm run start`、ポート 3417、sato でログイン）\n\n| 対象 | 状態コード | エラー表示・例外 |\n|---|---|---|\n| ビルド | 成功 | なし |\n| `GET /instruments`（一覧） | 200 | なし。未点検・期限切れの太字表示あり |\n| `GET /instruments/1`、`/3`、`/9`（詳細） | **500** | **あり**（下記 指摘 1） |\n| `GET /instruments/999`（画面） | 未確認 | - |\n| `GET /api/instruments/{3,999}/inspection` | 200 / 404 | なし |\n| `GET /api/instruments/{3,6}/inspections` | 200 | なし（旧データの移行結果は期待どおり: 「鈴木さん」→ suzuki、`R8.9.10` → 2026-09-10） |\n| 未ログインで `GET /api/instruments/1/inspection` | 401 | なし |\n| `PATCH /api/instruments/1/inspection`（在籍中の担当者・周期 6） | 200 | なし |\n| `PATCH` 休職者（kondo）を担当者に | 400（日本語のメッセージ） | 想定どおり |\n| `POST /api/instruments/2/inspections`（repair） | 201、状態が suspended に | なし |\n| `POST` 未来日 / 退職者を点検した人に | 400 | 想定どおり |\n\n## 指摘\n\n### 1. 【高】計測器の詳細画面が必ず 500 になる\n- **場所**: `src/app/instruments/[id]/page.tsx`（`<InspectionForms users={listActiveUsers()} />`）、`src/lib/users.ts` の `listActiveUsers`\n- **何が問題か**: `node:sqlite` の行は prototype が null のオブジェクト。それをそのままクライアントコンポーネント（`inspection-forms.tsx`）の props に渡しているため、全計測器の詳細画面（/instruments/1, /3, /9 で確認）が 500 になる。サーバーログに `Only plain objects, and a few built-ins, can be passed to Client Components from Server Components` が利用者の人数分出る。ビルド・型チェック・単体テストでは検出できず、画面を開かないと分からない。詳細画面から点検の担当者・周期の変更や点検記録の登録ができない（リリースすると既存の詳細画面も壊れる）。\n- **直し方**: `listActiveUsers` で `{ id: r.id, name: r.name }` に詰め替える（または page 側で `.map(u => ({ id: u.id, name: u.name }))`）。画面を開くテスト（または詳細ページの描画テスト）を足す。\n\n### 2. 【高】担当者での絞り込み・並べ替え、担当者ごとの遅れ台数が無い\n- **場所**: `src/app/instruments/page.tsx`、`src/lib/inspections.ts`\n- **何が問題か**: 合意した要件「担当者で絞り込み・並べ替え」「担当者ごとに点検が遅れている台数を毎朝知りたい」が未実装。一覧は表示のみ。\n- **直し方**: `src/lib/` に担当者・状況での絞り込み、並べ替え、担当者別の遅れ台数の集計関数を作り、クエリパラメータは型ガードで検証して使う。\n\n### 3. 【高】一覧が 5 万件規模で遅くなる作りになっている\n- **場所**: `src/app/instruments/page.tsx` の `listInspectionPlans()`、`PLAN_SELECT`\n- **何が問題か**: 画面に出る件数に関係なく、全計測器（本番約 5 万件）分の点検状況を相関サブクエリで毎回計算して Map に載せている。絞り込み・ページ分けもできない。毎朝開く一覧が重くなる。\n- **直し方**: 絞り込み後（またはページ分け後）の計測器だけを対象にする。最終点検日は JOIN／集計にするか、`instruments` に最終点検日を持たせる。遅れ判定は SQL（`addMonths` 相当）で行い、5 万件のデータで時間を測る。\n\n### 4. 【高】「要修理」で、貸出中・校正中の計測器の状態まで使用停止に上書きする\n- **場所**: `src/lib/inspections.ts` `recordInspection`（`status <> 'disposed'` のみ除外）\n- **何が問題か**: 「貸出中は貸出・返却の操作でだけ変わる」という規則に反する。貸出中（`on_loan`）の計測器に要修理を登録すると `suspended` になり、貸出の記録（未返却）と状態が食い違う。返却操作が失敗する可能性もある。\n- **直し方**: 貸出中は状態を変えず、貸出中であることを応答・画面で示す（または 409 で拒否）。方針を決めてテストを足す。\n\n### 5. 【中】「最後の点検日」が MAX(点検日) なので、入力ミスを訂正の記録で直せない\n- **場所**: `src/lib/inspections.ts` `PLAN_SELECT`\n- **何が問題か**: 記録は消さず、訂正の記録を足す方針だが、誤って遠い日付（例: 今日に近い日付）を入れると、後から正しい日付を足しても最大値のまま残り、次の点検予定日が直らない。訂正を表す仕組み（訂正の対象・無効化）もない。\n- **直し方**: 記録に訂正対象（`corrects_id`）を持たせ、訂正された記録を集計から外す。または「最後に登録した記録」を基準にする。\n\n### 6. 【中】前の版のアプリへ戻したとき、点検の記録が前の版から見えず、旧データとずれる\n- **場所**: マイグレーション 6（`src/lib/db/migrations.ts`）、`importLegacyInspections`\n- **何が問題か**: 列・テーブルの追加だけで `extra` は残しているので前の版は動くが、新しい版で登録した点検・担当者の変更は `extra` に反映されない。戻すと前の版の一覧は古い点検者・最終点検日を表示し、再度進めた場合も新しい記録は引き継がれない。\n- **直し方**: 戻す手順（点検の記録は新しい版でだけ見える等）を `docs/operations.md` と PR に書く。必要なら担当者の変更時に `extra` へも書き戻す。\n\n### 7. 【中】旧データ移行で、周期・点検者の読み取りが粗い\n- **場所**: `src/lib/inspections-legacy.ts` `importLegacyInspections` / `normalizeInspectorName`\n- **何が問題か**: 同姓の利用者が複数いると `legacy_inspector` に回る（捨てないので可）が、点検者だけで日付の無いデータは記録を作らない。また `extra.inspector` が文字列以外（数値など）だと黙って無視され、元の値が `legacy_*` に残らない。「黙って捨てない」に反する。移行件数・残した件数のログも出ない。\n- **直し方**: 文字列以外も `String()` で保存する、移行結果（担当者にした件数・残した件数）をログに出す。\n\n### 8. 【低】点検周期のみの変更が廃棄済みでも通る／権限の確認が無い\n- **場所**: `src/app/api/instruments/[id]/inspection/route.ts`、`inspections/route.ts`\n- **何が問題か**: ログインした利用者なら誰でも、どの計測器の担当者・周期でも変更でき、点検記録を登録できる（既存 API と同水準だが、他人の名義の記録は `inspectorId` で自由に指定できる）。廃棄済みの計測器にも記録を登録できる。\n- **直し方**: 方針を確認し、必要なら制限を入れる。\n\n### 9. 【低】テストが画面・API の結果をカバーしていない\n- **場所**: `tests/inspections.test.ts`\n- **何が問題か**: ロジックのテストだけで、詳細画面の描画や API Route の応答、5 万件での性能は検証されていない（指摘 1 がすり抜けた原因）。「検証結果」も build/typecheck/test の成功のみ。\n- **直し方**: 画面（RSC → クライアントコンポーネントの props）と API のスモークテストを足す。\n",
+  "review_chars": 3956,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.5641,
+    "tokens": {
+      "input": 60,
+      "output": 12218,
+      "cache_read": 1746838,
+      "cache_creation": 66771
+    },
+    "turns": 49,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat docs/operations.md | head -60; (npm run build 2>&1 | tail -30)\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run build > /tmp/b.log 2>&1; tail -25 /tmp/b.log; grep -n \\\"suspended\\\\|on_loan\\\" src/lib/calibrations.ts | head; sed -n 1,40p src/lib/seed.ts 2>/dev/null; grep -n \\\"inspector\\\\|last_"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3417 npm run start > /tmp/srv.log 2>&1 &) ; sleep 5; tail -5 /tmp/srv.log; grep -n \\\"id:\\\\|active\\\" src/lib/db/seed.ts | head -20\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp; B=localhost:3417; J=/tmp/cj.txt; grep -n \\\"active: false\\\" /tmp/poc-trials/W32-baseline-e2e-report-c2-4/app/src/lib/db/seed.ts | head -3\\ncurl -s -c $J -X POST $B/api/login -H 'c"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for p in /instruments /instruments/1 /instruments/3 /instruments/6 /instruments/9 /instruments/999; do curl -s -b /tmp/cj.txt -o /tmp/o.html -w \\\"$p %{http_code} \\\" localhost:3417$p; grep"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"curl -s -b /tmp/cj.txt -o /tmp/list.html -w \\\"%{http_code}\\\\n\\\" localhost:3417/instruments; grep -ciE 'Application error|Internal Server|TypeError' /tmp/list.html; grep -o 'data-testid=\\\""
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"curl -s -b /tmp/cj.txt -o /tmp/d1.html -w \\\"%{http_code}\\\\n\\\" localhost:3417/instruments/1; grep -ciE 'Application error|Internal Server|TypeError' /tmp/d1.html; curl -s -b /tmp/cj.txt -o"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f \\\"next start\\\"; pkill -f \\\"next-server\\\"; sleep 1; curl -s -o /dev/null -w \\\"%{http_code}\\\\n\\\" localhost:3417/login\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'E'\\nimport re\\np='REVIEW.md'\\ns=open(p,encoding='utf-8').read()\\nhead,rest=s.split('## 指摘\\\\n',1)\\nitems=re.split(r'\\\\n### ',rest)\\nout=[]\\nfor it in items:\\n    it=it.lstrip("
+      }
+    ],
+    "tool_calls": {
+      "Bash": 36,
+      "Read": 3,
+      "ToolSearch": 1,
+      "TaskStop": 1,
+      "Write": 1,
+      "Edit": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 119,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は前回のレビューで出した 9 件の指摘をすべて含んだ状態で、`REVIEW.md` だけをコミットしました（9ba6a92）。新しい指摘は足しておらず、削った指摘もありません。コードは変更していません。\n\n前回の時点で、各指摘は「場所・何が問題か・直し方」を書いており、重要度は見出しの【高】【中】【低】で示していました。今回は項目名を「場所」「何が問題か」「直し方」の太字ラベルに統一しました。\n\n確認結果の表では、`/instruments/999` の画面の行を「未確認」と書き直しました。この画面は実際には開いていないためです。\n\n重要度を見出しの【高】などで示す形は、最初の依頼の形式として足りていると判断してそのままにしました。「重要度」という専用の項目名には変えていません。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,70 @@
+{
+  "trial": "W32-baseline-e2e-report-c2-3",
+  "scenario": "W32",
+  "config": "baseline-e2e-report",
+  "case": "c2",
+  "rep": 3,
+  "review_md": "# レビュー: 計測器ごとの定期点検の追加\n\n結論: **このままではマージできません。** 計測器の詳細画面がすべて 500 になります（指摘 1）。要件の未実装（指摘 2）、業務ルール違反（指摘 3）もあります。\n\n## 動作確認の結果\n\n`npm run build`（成功）→ `npm run start -p 3917` → `sato` でログイン → 画面・API を実際に呼んだ結果です。確認後にサーバーは停止しました。\n\n| 対象 | 状態コード | エラー表示・備考 |\n|---|---|---|\n| `POST /api/login` | 200 | |\n| `/login` | 200 | |\n| `/instruments` | 200 | エラー表示なし。点検の 4 列が出る。MI-0001 は佐藤・期限内、MI-0002 は未設定・未点検、MI-0004 は井上（退職者）・期限切れ、MI-0009 は「外部委託」（元の書き方を残している）。移行は想定どおり |\n| `/instruments/3`、`/instruments/1` | **500** | サーバーログに `Only plain objects ... can be passed to Client Components` が出る（指摘 1）。ページは表示されない |\n| `/instruments/999` | 404 | 想定どおり |\n| `GET /api/instruments/3/inspection` | 200 | 担当者 suzuki（「鈴木さん」から移行）。想定どおり |\n| `GET /api/instruments/3/inspections` | 200 | 移行した記録が 1 件。想定どおり |\n| `GET .../999/inspection`、`GET .../999/inspections` | 404 | 想定どおり |\n| `GET .../3/inspection`（Cookie なし） | 401 | 想定どおり |\n| `PATCH .../3/inspection`（退職者 inoue を指定） | 400 | 想定どおり |\n| `PATCH .../3/inspection`（周期 6・担当者 tanaka） | 200 | |\n| `POST .../3/inspections`（要修理） | 201 | 計測器が使用停止になった |\n| `POST .../3/inspections`（不正な日付・結果・退職者） | 400 | 3 項目のエラーが返る。想定どおり |\n| `POST .../2/inspections`（本文が壊れた JSON） | 400 | |\n| `POST .../2/inspections`（要修理、MI-0002 は貸出中） | 201 | 貸出中のまま使用停止になった（指摘 3） |\n\n## 指摘\n\n### 1. 【高】計測器の詳細画面が全件 500 になる\n- 場所: `src/lib/users.ts` `listActiveUsers()`、`src/app/instruments/[id]/page.tsx` の `choices` / `planChoices`、`inspection-forms.tsx`（クライアントコンポーネント）\n- 問題: `node:sqlite` の `.all()` が返す行は prototype を持たないオブジェクトです。`listActiveUsers()` の結果をそのまま Client Component の `users` に渡しているため、ログイン後に `/instruments/<既存の ID>` を開くと必ず 500 になります（本番ビルドで再現）。`npm test` と `npm run build` では検出できません（実行時に描画して初めて起きるため）。点検の担当者・記録の画面も使えません。\n- 直し方: クライアントへ渡す前に `choices.map((u) => ({ id: u.id, name: u.name }))` で素のオブジェクトにします。`listActiveUsers()` 側で変換してもかまいません。詳細ページを描画するテストか E2E を足してください。\n\n### 2. 【高】要件の未実装: 担当者での絞り込み・並べ替え、遅れている台数の通知\n- 場所: `src/app/instruments/page.tsx`、`src/lib/inspections.ts`、`src/app/api/jobs/`\n- 問題: 合意した要件は「担当者で絞り込み・並べ替えができる」「担当者ごとに点検が遅れている台数を毎朝知りたい」です。一覧に担当者の列は出ますが、絞り込み・並べ替えはありません。担当者ごとの遅延台数を集計・通知する処理もありません（既存の `overdue-loans` のような定期ジョブがありません）。\n- 直し方: 担当者の絞り込み・並べ替えは、`isInspectorId` のような型ガードでクエリを検証し、`src/lib/` の関数で SQL に `WHERE inspector_id = ?` / `ORDER BY` を付けます。遅延台数は `src/app/api/jobs/overdue-inspections/route.ts` を足し、`requireJobAuth()` で認証して `docs/operations.md` に載せます。冪等にしてください。\n\n### 3. 【中】要修理の登録が、貸出中・校正中の計測器の状態を直接書き換える\n- 場所: `src/lib/inspections.ts` `recordInspection()` の `UPDATE instruments SET status = 'suspended' WHERE ... status <> 'disposed'`\n- 問題: CLAUDE.md には「貸出中は貸出・返却の操作でだけ変わる」とあります。実際に貸出中の MI-0002 へ要修理を登録すると、貸出が開いたまま状態が `suspended` になりました（返却や貸出一覧との整合が崩れます）。校正中（`calibrating`）も同様に上書きされます。\n- 直し方: 貸出中の扱い（要修理の登録を拒否する、返却時に使用停止にする、など）を決めます。決められなければ、仮定を PR に書きます。`on_loan` の挙動のテストも足してください。\n\n### 4. 【中】一覧（約 5 万件）が毎回、全計測器の点検状況を読み込む\n- 場所: `src/app/instruments/page.tsx` の `listInspectionPlans()`、`inspections.ts` の `PLAN_SELECT`\n- 問題: 絞り込み（状態・部署）をしても、全計測器分の点検状況を相関サブクエリで計算して Map に載せています。毎朝開く画面で、本番の規模では遅くなります。ページングも担当者の絞り込みもありません。\n- 直し方: 表示する計測器だけの点検状況を取得します（`listInstruments` の結果の ID、または JOIN）。最後の点検日を `instruments` に持たせるか、`inspection_records(instrument_id, inspected_on)` のインデックスを使う集計に絞ります。本番規模のデータで実測してください。\n\n### 5. 【中】前の版に戻したときの影響が書かれていない\n- 場所: `src/lib/db/migrations.ts` マイグレーション 6、PR の説明\n- 問題: 要件に「前の版のアプリに戻すことがある（DB はそのまま）」とあります。`extra` を消さずに残している点はよいです。ただし、新しい版を動かしたあとに旧版へ戻すと、点検の担当者・記録は旧版の画面に出ず、旧版が `extra` を直した内容も新しい版に反映されません（マイグレーションは 1 回だけ）。担当者が `NOT NULL` ではないので、旧版が計測器を追加しても壊れはしません。\n- 直し方: 戻したときに点検の情報が見えなくなること、再度進めたときの扱いを PR と `docs/operations.md` に書きます。\n\n### 6. 【低】廃棄・使用停止の計測器も「期限切れ」「未点検」として目立つ\n- 場所: `src/lib/inspections.ts` `judgeDue()`、一覧の「点検の状況」\n- 問題: 廃棄済み・使用停止の計測器も点検が遅れているように表示されます（担当者ごとの遅延台数にも含まれてしまいます）。\n- 直し方: 廃棄済みは対象外にします。使用停止の扱いは依頼者に確認してください。\n\n### 7. 【低】旧データの照合が、同じ名前の利用者が複数いると担当者にしない\n- 場所: `src/lib/inspections-legacy.ts` `importLegacyInspections()`\n- 問題: 同名の利用者が 2 人以上いる場合は担当者にならず元の書き方が残ります。黙って捨てないという要件は満たしていますが、画面でその旨が分からないため、移行結果の件数をログに出すとよいです。\n- 直し方: 移行した件数・元の書き方を残した件数を `logger` に出します。\n",
+  "review_chars": 4017,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.529,
+    "tokens": {
+      "input": 58,
+      "output": 10950,
+      "cache_read": 1643428,
+      "cache_creation": 63765
+    },
+    "turns": 51,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run build 2>&1 | tail -30)\", \"timeout\": 400000}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run build > /tmp/claude-0/build.log 2>&1; tail -30 /tmp/claude-0/build.log\", \"timeout\": 400000}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 nohup npm run start -- -p 3917 > /tmp/claude-0/server.log 2>&1 &) ; sleep 4; curl -s -o /dev/null -w \\\"%{http_code}\\\\n\\\" localhost:3917/login\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"nohup npm run start -- -p 3917 > /tmp/claude-0/server.log 2>&1 &\\nsleep 5; curl -s -o /dev/null -w \\\"%{http_code}\\\\n\\\" localhost:3917/login\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c2-3-app/771775bd-71a9-4900-8646-0faa95da73eb/scratchpad; mkdir -p $S; npm run start -- -p 3917 > $S/server.log 2>&1\", \"run_in_back"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0 && sleep 4; curl -s -c cj -o /dev/null -w \\\"login page %{http_code}\\\\n\\\" localhost:3917/login; curl -s -c cj -w \\\"\\\\nPOST login %{http_code}\\\\n\\\" -H 'content-type: applic"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pwd; for p in /instruments \\\"/instruments?status=in_use\\\" /instruments/1 /instruments/4 /instruments/6 /instruments/9 /instruments/999 /instruments/abc; do curl -s -b cj.txt -o out.html -"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed 's/<\\\\/tr>/\\\\n/g' out1.html | sed 's/<[^>]*>/ /g' | sed -n '4,12p'\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 42,
+      "Read": 3,
+      "ToolSearch": 1,
+      "TaskStop": 1,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 120,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は、直前のレビューの指摘 7 件をすべて、指定の形式で書いたものがコミット済みです。そのため書き直しはしていません。7 件とも、重要度・場所・何が問題か・直し方の順で書いてあり、新しい指摘は足さず、削ってもいません。\n\n`REVIEW.md` に未コミットの変更はなく、最新のコミットは `11174b9` です。コードは直していません。\n\n| 重要度 | 指摘 |\n|---|---|\n| 高 | 計測器の詳細画面が全件 500 になる |\n| 高 | 担当者での絞り込み・並べ替えと、遅延台数の通知が未実装 |\n| 中 | 要修理の登録が、貸出中・校正中の状態を直接書き換える |\n| 中 | 一覧が、約 5 万件の全計測器の点検状況を毎回読み込む |\n| 中 | 前の版に戻したときの影響が書かれていない |\n| 低 | 廃棄済み・使用停止の計測器も「期限切れ」「未点検」と出る |\n| 低 | 旧データの照合で、同名の利用者が複数いると担当者にならず、画面で分からない |\n\n画面・API ごとの状態コードを確かめた結果の表も、そのまま `REVIEW.md` に入っています。"
+  },
+  "interventions": 0
+}
