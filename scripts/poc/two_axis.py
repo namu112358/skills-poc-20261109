@@ -32,12 +32,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "docs" / "poc" / "results" / "workflow"
 
-SCENARIOS = ["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W9", "W10"]
+SCENARIOS = ["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W9", "W10", "W12", "W13", "W14", "W15", "W19"]
 TITLES = {
     "W1": "小さな変更", "W2": "仕様が明確な機能追加", "W3": "曖昧な要望から要件を固める",
     "W4": "既存コードを横断する大きな変更", "W5": "バグ修正", "W6": "UI 実装からブラウザ検証・PR 作成まで",
     "W7": "続けて行う作業での学習効果", "W8": "人の介入なしでの自律実行",
     "W9": "レビューで不具合を見つける", "W10": "仕様に書かれていない落とし穴がある機能追加",
+    "W12": "短い要件から、運用まで考えて作る",
+    # W14・W15 は report_w14.py が md_section を呼ぶ（2026-11-10 ユーザーの指示で summary にも入れた）
+    "W13": "途中で要件が変わる",
+    "W14": "安全な DB 移行", "W15": "テストの無い古いコードの改修",
+    "W19": "粗悪な既存実装に引っ張られない",
 }
 LABEL = {
     "baseline": "baseline（候補なし）",
@@ -45,8 +50,23 @@ LABEL = {
     "feature-dev": "Feature Dev",
     "compound-engineering": "Compound Engineering",
     "gstack": "gstack",
+    "baseline-conventions": "baseline-conventions（規約だけ・参考値）",
+    # W12 の追加条件: 汎用の開発標準を CLAUDE.md に足した試行
+    "superpowers+std": "Superpowers + 標準", "feature-dev+std": "Feature Dev + 標準",
+    "compound-engineering+std": "Compound Engineering + 標準", "gstack+std": "gstack + 標準",
+    "baseline+std": "baseline + 標準",
+    # W12 の追加条件: 試行する側のモデルを Haiku にした試行、乱れた初期状態の試行
+    "superpowers@haiku": "Superpowers（Haiku）", "feature-dev@haiku": "Feature Dev（Haiku）",
+    "compound-engineering@haiku": "Compound Engineering（Haiku）", "gstack@haiku": "gstack（Haiku）", "baseline@haiku": "baseline（Haiku）",
+    "superpowers+messy": "Superpowers（乱れ）", "feature-dev+messy": "Feature Dev（乱れ）",
+    "compound-engineering+messy": "Compound Engineering（乱れ）", "gstack+messy": "gstack（乱れ）", "baseline+messy": "baseline（乱れ）",
+    # W19 の Feature Dev の代理人なし（対照）。report_w14.py が raw/<試行ID>/proxy を見て分ける。W をまたぐ要約の表には出さない
+    "feature-dev-noproxy": "Feature Dev（代理人なし）",
 }
-ORDER = ["superpowers", "feature-dev", "compound-engineering", "gstack", "baseline"]
+ORDER = ["superpowers", "feature-dev", "compound-engineering", "gstack", "baseline-conventions", "baseline",
+         "superpowers+std", "feature-dev+std", "compound-engineering+std", "gstack+std", "baseline+std",
+         "superpowers@haiku", "feature-dev@haiku", "compound-engineering@haiku", "gstack@haiku", "baseline@haiku",
+         "superpowers+messy", "feature-dev+messy", "compound-engineering+messy", "gstack+messy", "baseline+messy"]
 
 # W ごとの品質系の内訳（scores.json のキー、見出し、満点）。W4・W6〜W8 のキーは採点スクリプトができたら合わせる。
 QUALITY = {
@@ -62,6 +82,19 @@ QUALITY = {
     "W9": [("recall", "再現率", 40), ("precision", "適合率", 25), ("specificity", "具体性", 20)],
     "W10": [("acceptance", "公開の受け入れテスト", 25), ("hidden", "隠しテスト", 40), ("test_strength", "テストの強さ", 20),
             ("review", "ブラインドレビュー", 15)],
+    # W12: 品質 100。質問の指標は品質にも効率にも入れない（report に別に出す）。baseline-conventions は効率の基準に入れない
+    "W12": [("business", "業務の受け入れ", 30), ("migration", "DB マイグレーション", 20), ("robustness", "外部呼び出しの堅牢さ", 15),
+            ("ops", "運用", 10), ("design", "設計の筋", 15), ("test_strength", "テストの強さ", 10)],
+    # W13: 品質 100。質問の指標・手戻りは品質にも効率にも入れない（report に別に出す）
+    "W13": [("v1", "最初の版の受け入れ", 15), ("change", "変更への追従", 25), ("unchanged", "変わっていない要件・後退", 15),
+            ("migration", "マイグレーション", 20), ("stale", "古い前提の残り", 5), ("design", "設計の筋", 15),
+            ("test_strength", "テストの強さ", 5)],
+    "W14": [("business", "業務", 25), ("migration", "移行", 30), ("normalize", "表記ゆれ", 15), ("ops", "運用", 5),
+            ("design", "設計", 15), ("test_strength", "テスト", 10)],
+    "W15": [("business", "新形式", 30), ("golden", "後退なし", 25), ("characterization", "特性テスト", 20),
+            ("design", "設計", 15), ("test_strength", "テスト", 10)],
+    "W19": [("business", "業務", 25), ("structure", "持ち方", 25), ("migration", "移行", 20), ("scope", "範囲", 5),
+            ("design", "設計", 15), ("test_strength", "テスト", 10)],
 }
 # 介入の仕組み（定型の「お任せします」で続けさせる）が無い W。W1 は導入前に実施した。
 # W8 は「最初の指示と定型回答以外は介入しない」シナリオなので介入を使わない（POC_MAX_NUDGES=0。途中停止は品質の「暴走なし」で見る）。
@@ -452,6 +485,8 @@ def summary_md(all_):
               "- W1 は介入の仕組み（定型の「お任せします」で続けさせる）を導入する前に実施したため、効率は 費用 60 + 時間 40 で計算した。W1 の質問回数は記録が無いため「—」。",
               "- 「品質に差なし」の判定: 最高品質の候補との差が、両者それぞれの 2 回の差の大きい方以下なら差なし。baseline は 1 回だけなので、ばらつきは相手の候補の値を使う。",
               "- W1・W2 の Feature Dev 補足の再試行（新文言）は参考値として各 report の別表に出し、本表の平均には混ぜない。",
+              "- W14・W15 は 5 条件 × 2 回（baseline も 2 回）で、全条件の作業用コピーの CLAUDE.md に汎用の開発標準を足した。baseline-conventions は使わない（2026-11-10 コーディネーターの連絡）。両 W とも、試行の後に採点の誤検出を直して全試行に当て直した（各 report の判断の記録）。",
+              "- W11（実在する OSS の課題）は課題ごとの採点で、この一覧の形（候補 × 2 回の品質・効率）に合わないため載せていない（[W11/report.md](W11/report.md)）。",
               "- W7 は W7b の費用・時間で効率を計算する（W7a 比は参考値）。W4・W6〜W8 の品質の内訳キーは採点スクリプトの作成時に `two_axis.py` の QUALITY に合わせるか、scores.json に `two_axis_quality` を書く。",
               ""]
     lines += ["## 更新のしかた", "",

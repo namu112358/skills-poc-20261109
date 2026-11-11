@@ -36,7 +36,7 @@ while _prev and _prev not in SAME_CHAIN:
     SAME_CHAIN.add(_prev)
     _cf = ROOT / "docs" / "poc" / "results" / "workflow" / "raw" / _prev / "continued-from"
     _prev = _cf.read_text().strip() if _cf.exists() else ""
-TRIAL_ID = re.compile(r"\bW\d+[a-z]?-(?:baseline|superpowers|feature-dev|compound-engineering|gstack)-\d+\b")
+TRIAL_ID = re.compile(r"\bW\d+[a-z]?-(?:baseline(?:-conventions)?|superpowers|feature-dev|compound-engineering|gstack)-\d+\b")
 OUT = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO / ("supplement" if "--supplement" in FLAGS else "") / f"{TRIAL}.json"
 
 # 候補が作る管理用ファイル（コード量の集計から除く。過剰さの判定では別に数える）

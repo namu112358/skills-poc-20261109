@@ -1,0 +1,133 @@
+diff --git a/src/app/api/notify-due/route.ts b/src/app/api/notify-due/route.ts
+new file mode 100644
+index 0000000..caa780f
+--- /dev/null
++++ b/src/app/api/notify-due/route.ts
+@@ -0,0 +1,23 @@
++// 優先度が高い計測器の校正期限が近いものを管理者に通知する
++import { NextResponse } from "next/server";
++import { listInstruments } from "@/lib/instruments";
++
++export async function POST() {
++  const now = new Date();
++  let sent = 0;
++  for (const i of listInstruments()) {
++    if (i.priority !== "high") continue;
++    const due = new Date(i.lastCalibratedOn);
++    due.setMonth(due.getMonth() + i.intervalMonths);
++    const days = (due.getTime() - now.getTime()) / 86400000;
++    if (days < 0 || days > 14) continue;
++    await fetch(process.env.NOTIFY_API_URL + "/v1/notifications", {
++      method: "POST",
++      headers: { "content-type": "application/json", authorization: "Bearer " + process.env.NOTIFY_API_TOKEN },
++      body: JSON.stringify({ recipient: i.managerId, title: `校正期限が近い: ${i.managementNo}`, body: `${i.name} の校正期限は ${due.toISOString().slice(0, 10)} です` }),
++    });
++    console.log("notified", i.managementNo, process.env.NOTIFY_API_TOKEN);
++    sent++;
++  }
++  return NextResponse.json({ sent });
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 3178071..adb70b5 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -54,7 +54,8 @@ export const MIGRATIONS: readonly Migration[] = [
+         last_calibrated_on TEXT NOT NULL, -- YYYY-MM-DD
+         status             TEXT NOT NULL DEFAULT 'in_use'
+                            CHECK (status IN ('in_use', 'on_loan', 'calibrating', 'suspended', 'disposed')),
+-        note               TEXT NOT NULL DEFAULT ''
++        note               TEXT NOT NULL DEFAULT '',
++        priority           TEXT NOT NULL DEFAULT 'normal'
+       );
+       CREATE INDEX instruments_manager ON instruments(manager_id);
+     `,
+diff --git a/src/lib/instruments.ts b/src/lib/instruments.ts
+index 97538e9..c6d7800 100644
+--- a/src/lib/instruments.ts
++++ b/src/lib/instruments.ts
+@@ -15,6 +15,7 @@ export type Instrument = {
+   lastCalibratedOn: string; // 前回校正日 YYYY-MM-DD
+   status: InstrumentStatus;
+   note: string;
++  priority: string;
+ };
+ 
+ export const INSTRUMENT_STATUSES: readonly InstrumentStatus[] = ["in_use", "on_loan", "calibrating", "suspended", "disposed"];
+@@ -50,10 +51,11 @@ type InstrumentRow = {
+   last_calibrated_on: string;
+   status: InstrumentStatus;
+   note: string;
++  priority: string;
+ };
+ 
+ const COLUMNS =
+-  "id, management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note";
++  "id, management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note, priority";
+ 
+ function toInstrument(row: InstrumentRow): Instrument {
+   return {
+@@ -67,6 +69,7 @@ function toInstrument(row: InstrumentRow): Instrument {
+     lastCalibratedOn: row.last_calibrated_on,
+     status: row.status,
+     note: row.note,
++    priority: row.priority,
+   };
+ }
+ 
+@@ -163,6 +166,7 @@ export function validateInstrumentInput(
+     if (!isInstrumentStatus(s) || !EDITABLE_STATUSES.includes(s)) errors.push("状態が正しくありません");
+     else value.status = s;
+   }
++  if ("priority" in b) value.priority = b.priority === "high" ? "high" : "normal";
+   return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
+ }
+ 
+@@ -173,8 +177,8 @@ export function managementNoExists(managementNo: string, db: Db = getDb()): bool
+ export function createInstrument(input: InstrumentInput, db: Db = getDb()): Instrument {
+   const { lastInsertRowid } = db
+     .prepare(
+-      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note)
+-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note, priority)
++       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     )
+     .run(
+       input.managementNo,
+@@ -186,6 +190,7 @@ export function createInstrument(input: InstrumentInput, db: Db = getDb()): Inst
+       input.lastCalibratedOn,
+       input.status,
+       input.note,
++      input.priority ?? "normal",
+     );
+   return getInstrument(Number(lastInsertRowid), db)!;
+ }
+@@ -197,7 +202,7 @@ export function updateInstrument(id: number, changes: Partial<InstrumentInput>,
+   const next = { ...current, ...changes };
+   db.prepare(
+     `UPDATE instruments SET management_no = ?, name = ?, model = ?, location = ?, manager_id = ?, interval_months = ?,
+-       last_calibrated_on = ?, status = ?, note = ? WHERE id = ?`,
++       last_calibrated_on = ?, status = ?, note = ?, priority = ? WHERE id = ?`,
+   ).run(
+     next.managementNo,
+     next.name,
+@@ -208,6 +213,7 @@ export function updateInstrument(id: number, changes: Partial<InstrumentInput>,
+     next.lastCalibratedOn,
+     next.status,
+     next.note,
++    next.priority,
+     id,
+   );
+   return getInstrument(id, db);
+diff --git a/tests/instruments.test.ts b/tests/instruments.test.ts
+index a3e24c1..5c0b734 100644
+--- a/tests/instruments.test.ts
++++ b/tests/instruments.test.ts
+@@ -76,7 +76,7 @@ describe("createInstrument / updateInstrument", () => {
+   it("creates and updates only the given fields", () => {
+     const db = openDb();
+     const created = createInstrument(
+-      { ...VALID, model: "", location: "", note: "", status: "in_use" },
++      { ...VALID, model: "", location: "", note: "", status: "in_use", priority: "normal" },
+       db,
+     );
+     assert.equal(getInstrument(created.id, db)?.managementNo, "MI-0100");

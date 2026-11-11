@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 採用技術・利用サービスに応じた Skills / MCP をプロジェクトに追加する（何度実行しても同じ結果になる）。
-# 使い方: scripts/add-stack.sh <stack>...
+# 使い方: scripts/add-stack.sh [--dest <対象リポジトリのパス>] <stack>...
+#   --dest を省略すると、このリポジトリ自身に追加する
 #   react-nextjs : Vercel の React / Next.js 向け Skills + Next.js DevTools MCP
 #   sentry       : Sentry MCP（リモート、OAuth）
 #   cloudflare   : Cloudflare API MCP + Cloudflare Docs MCP（リモート、OAuth / 認証なし）
@@ -14,11 +15,17 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERCEL_SKILLS_REF="1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62" # vercel-labs/agent-skills
 NEXT_DEVTOOLS_MCP_VERSION="0.4.0"                         # vercel/next-devtools-mcp
 
-[[ $# -gt 0 ]] || { sed -n '2,11p' "$0"; exit 1; }
+DEST="$ROOT"
+if [[ "${1:-}" == --dest ]]; then
+  DEST="$(cd "${2:?--dest にパスを指定してください}" && pwd)"
+  shift 2
+fi
+
+[[ $# -gt 0 ]] || { sed -n '2,12p' "$0"; exit 1; }
 
 # .mcp.json にサーバーを追加し、.claude/settings.json の enabledMcpjsonServers に登録する
 add_mcp() { # name json
-  python3 - "$ROOT" "$1" "$2" <<'PY'
+  python3 - "$DEST" "$1" "$2" <<'PY'
 import json, sys, pathlib
 root, name, server = pathlib.Path(sys.argv[1]), sys.argv[2], json.loads(sys.argv[3])
 mcp = root / ".mcp.json"
@@ -37,7 +44,7 @@ PY
 
 # .claude/settings.json の enabledPlugins にプラグインを登録する
 add_plugin() { # plugin@marketplace
-  python3 - "$ROOT" "$1" <<'PY2'
+  python3 - "$DEST" "$1" <<'PY2'
 import json, sys, pathlib
 root, plugin = pathlib.Path(sys.argv[1]), sys.argv[2]
 st = root / ".claude" / "settings.json"
@@ -55,11 +62,15 @@ vendor_vercel_skills() { # skill...
   git -C "$work/repo" fetch -q --depth 1 origin "$VERCEL_SKILLS_REF"
   git -C "$work/repo" checkout -q FETCH_HEAD
   for s in "$@"; do
-    rm -rf "${ROOT:?}/.claude/skills/$s"
-    cp -R "$work/repo/skills/$s" "$ROOT/.claude/skills/$s"
+    mkdir -p "$DEST/.claude/skills"
+    rm -rf "${DEST:?}/.claude/skills/$s"
+    cp -R "$work/repo/skills/$s" "$DEST/.claude/skills/$s"
     echo "Skill: $s を配置 (vercel-labs/agent-skills@$VERCEL_SKILLS_REF)"
   done
   rm -rf "$work"
+  # vendored Skills の指紋を作り直す（scripts/check-skills.py が手での編集を検出するのに使う）
+  # 指紋を作り直す。配布先にあるスクリプトは実行せず、このリポジトリの版で配布先を対象にする
+  python3 "$ROOT/scripts/check-skills.py" --root "$DEST" --update-lock
 }
 
 for stack in "$@"; do

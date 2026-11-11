@@ -1,0 +1,923 @@
+{
+ "checks": {
+  "typecheck": true,
+  "test": true,
+  "build": true
+ },
+ "static": {
+  "migrations": {
+   "readable": true,
+   "rewritten": [],
+   "added": [
+    5
+   ],
+   "drops_location": false,
+   "rebuilds_instruments": false,
+   "updates_in_sql": false
+  },
+  "logger_used": true,
+  "console_lines": [],
+  "doc_files": [
+   "CLAUDE.md",
+   "docs/operations.md"
+  ],
+  "doc_rollback": true,
+  "doc_steps": true,
+  "new_deps": false,
+  "changed_src_files": [
+   "src/app/api/instruments/[id]/route.ts",
+   "src/app/api/instruments/route.ts",
+   "src/app/api/jobs/backfill-locations/route.ts",
+   "src/app/api/locations/[id]/route.ts",
+   "src/app/api/locations/route.ts",
+   "src/app/instruments/page.tsx",
+   "src/lib/db/index.ts",
+   "src/lib/db/migrations.ts",
+   "src/lib/instruments.ts",
+   "src/lib/locations.ts"
+  ]
+ },
+ "routes": [
+  {
+   "path": "/api/instruments/[id]",
+   "methods": [
+    "GET",
+    "PATCH"
+   ]
+  },
+  {
+   "path": "/api/instruments",
+   "methods": [
+    "GET",
+    "POST"
+   ]
+  },
+  {
+   "path": "/api/jobs/backfill-locations",
+   "methods": [
+    "POST"
+   ]
+  },
+  {
+   "path": "/api/locations/[id]",
+   "methods": [
+    "PATCH"
+   ]
+  },
+  {
+   "path": "/api/locations",
+   "methods": [
+    "GET",
+    "POST"
+   ]
+  }
+ ],
+ "public": [
+  {
+   "id": "P1",
+   "name": "場所マスタの一覧を取得できる",
+   "pass": true,
+   "detail": "/api/locations 16 件"
+  },
+  {
+   "id": "P2",
+   "name": "場所マスタに場所を追加できる",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "P3",
+   "name": "計測器の登録で場所マスタの場所を選べる",
+   "pass": true,
+   "detail": "locationId"
+  },
+  {
+   "id": "P4",
+   "name": "計測器の編集で場所を変えられ、一覧に場所の名前が出る",
+   "pass": true,
+   "detail": ""
+  }
+ ],
+ "hidden": [
+  {
+   "id": "H01",
+   "name": "場所マスタに無い場所（存在しない ID・自由入力）では登録できない",
+   "pass": true,
+   "detail": "存在しない ID: 400 / 自由入力: 400"
+  },
+  {
+   "id": "H03",
+   "name": "設置場所は未設定のまま登録できる（必須にしない）",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "H04",
+   "name": "使用終了の場所は新しく選べないが、既存の計測器はそのまま表示される",
+   "pass": true,
+   "detail": "PATCH {'active': False}"
+  },
+  {
+   "id": "H05",
+   "name": "場所は消さない（使用中の場所を削除できない）",
+   "pass": true,
+   "detail": "削除の API なし"
+  },
+  {
+   "id": "H06",
+   "name": "場所の名前を変えると、計測器の表示（と古い列）も新しい名前になる",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "H07",
+   "name": "一覧・詳細の location は場所の名前の文字列のまま（古い読み手の互換）",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "H08",
+   "name": "確認中（寄せられない値）の計測器を一覧で絞り込める",
+   "pass": true,
+   "detail": "API ?locationStatus=unresolved"
+  },
+  {
+   "id": "H09",
+   "name": "ハンディ端末の自由入力で、寄せられる文字は正式な場所になる",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "H10",
+   "name": "ハンディ端末の寄せられない文字は、受け付けて元の文字を残す（どこかの場所にしない）",
+   "pass": true,
+   "detail": ""
+  },
+  {
+   "id": "H11",
+   "name": "ハンディ端末の API の応答の形・認証が変わっていない",
+   "pass": true,
+   "detail": ""
+  }
+ ],
+ "discovery": {
+  "schema": {
+   "new_tables": [
+    "locations"
+   ],
+   "instrument_new_columns": [
+    "location_id",
+    "location_status"
+   ],
+   "master": "locations",
+   "name_col": "name",
+   "active_col": "active",
+   "fk_col": "location_id",
+   "location_col_kept": true,
+   "notes": []
+  },
+  "api": {
+   "list": "/api/locations",
+   "item": "/api/locations/[id]",
+   "id_key": "locationId",
+   "notes": [],
+   "item_methods": [
+    "PATCH"
+   ],
+   "id_key_candidates": [
+    "locationId",
+    "location_id",
+    "placeId",
+    "siteId"
+   ]
+  }
+ },
+ "migration": {
+  "checks": {
+   "M7": true,
+   "M8": true,
+   "M9": true,
+   "M1": true,
+   "M2": true,
+   "M4": true,
+   "M5": true,
+   "M3": true,
+   "M6": true
+  },
+  "detail": {
+   "first_request_seconds": 0.93,
+   "jobs": [
+    {
+     "path": "/api/jobs/backfill-locations",
+     "method": "POST",
+     "status": 200,
+     "ms": 7
+    }
+   ],
+   "write_latency_ms_max": 24,
+   "write_failures": 0,
+   "schema": {
+    "new_tables": [
+     "locations"
+    ],
+    "instrument_new_columns": [
+     "location_id",
+     "location_status"
+    ],
+    "master": "locations",
+    "name_col": "name",
+    "active_col": "active",
+    "fk_col": "location_id",
+    "location_col_kept": true,
+    "notes": []
+   },
+   "linked_ratio_of_exact_names": 1.0,
+   "backfill_seconds": 61.1,
+   "lost_rows": 0,
+   "changed_rows": 0,
+   "location_emptied": 0,
+   "m5_key": "locationId",
+   "m5": {
+    "target": "技術部 電波暗室",
+    "old_column": "技術部 電波暗室"
+   },
+   "user_version": 5,
+   "rollback": {
+    "shows": "技術部 電波暗室",
+    "get": 200,
+    "list": 200,
+    "create": 201,
+    "edit": 200
+   }
+  }
+ },
+ "normalize": {
+  "available": true,
+  "schema": {
+   "new_tables": [
+    "locations"
+   ],
+   "instrument_new_columns": [
+    "location_id",
+    "location_status"
+   ],
+   "master": "locations",
+   "name_col": "name",
+   "active_col": "active",
+   "fk_col": "location_id",
+   "location_col_kept": true,
+   "notes": []
+  },
+  "export_accuracy": 0.9985,
+  "hidden_accuracy": 0.8381,
+  "wrong_links": 0,
+  "wrong_rate": 0.0,
+  "wrong_examples": [],
+  "unresolved_kept_ratio": 1.0,
+  "master_rows": 16,
+  "distinct_identities": 16,
+  "split_places": 0
+ },
+ "ops": {
+  "O1": true,
+  "O2": true,
+  "progress_events": [
+   "location.backfill_completed",
+   "location.created",
+   "location.created",
+   "location.created",
+   "location.updated",
+   "location.updated",
+   "location.backfill_completed"
+  ],
+  "total": 5.0
+ },
+ "mutation": {
+  "baseline_tests_pass": true,
+  "baseline_fails": 0,
+  "baseline_log": "",
+  "mutants": 60,
+  "killed": 33,
+  "kill_rate": 0.55,
+  "files": [
+   "src/lib/db/index.ts",
+   "src/lib/db/migrations.ts",
+   "src/lib/instruments.ts",
+   "src/lib/locations.ts"
+  ],
+  "survivors": [
+   {
+    "file": "src/lib/db/index.ts",
+    "line": 91,
+    "old": "!",
+    "new": "",
+    "snippet": "if (!globalForDb.__pocDb) {"
+   },
+   {
+    "file": "src/lib/db/index.ts",
+    "line": 92,
+    "old": "||",
+    "new": "&&",
+    "snippet": "globalForDb.__pocDb = openDb(process.env.DATABASE_PATH || \":memory:\");"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 49,
+    "old": "===",
+    "new": "!==",
+    "snippet": "return typeof value === \"string\" && (LOCATION_STATUSES as readonly string[]).includes(value);"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 49,
+    "old": "&&",
+    "new": "||",
+    "snippet": "return typeof value === \"string\" && (LOCATION_STATUSES as readonly string[]).includes(value);"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 156,
+    "old": "false",
+    "new": "true",
+    "snippet": "const v = \"model\" in b ? text(b, \"model\", 100, false) : \"\";"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 166,
+    "old": "||",
+    "new": "&&",
+    "snippet": "else if (!Number.isInteger(id) || (id as number) < 1) errors.push(\"設置場所の指定が正しくありません\");"
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 166,
+    "old": "1",
+    "new": "2",
+    "snippet": "else if (!Number.isInteger(id) || (id as number) < 1) errors.push(\"設置場所の指定が正しくありません\");"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 57,
+    "old": "!==",
+    "new": "===",
+    "snippet": "if (typeof body !== \"object\" || body === null || Array.isArray(body)) {"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 57,
+    "old": "||",
+    "new": "&&",
+    "snippet": "if (typeof body !== \"object\" || body === null || Array.isArray(body)) {"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 58,
+    "old": "false",
+    "new": "true",
+    "snippet": "return { ok: false, errors: [\"リクエストの形式が正しくありません\"] };"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 63,
+    "old": "!",
+    "new": "",
+    "snippet": "if (!options.partial || \"name\" in b) {"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 64,
+    "old": "===",
+    "new": "!==",
+    "snippet": "const name = typeof b.name === \"string\" ? b.name.trim().replace(/\\s+/g, \" \") : \"\";"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 65,
+    "old": "===",
+    "new": "!==",
+    "snippet": "if (name === \"\" || name.length > 100) errors.push(\"場所の名前は 1〜100 文字で入力してください\");"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 65,
+    "old": "||",
+    "new": "&&",
+    "snippet": "if (name === \"\" || name.length > 100) errors.push(\"場所の名前は 1〜100 文字で入力してください\");"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 65,
+    "old": "100",
+    "new": "101",
+    "snippet": "if (name === \"\" || name.length > 100) errors.push(\"場所の名前は 1〜100 文字で入力してください\");"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 73,
+    "old": " > ",
+    "new": " >= ",
+    "snippet": "return errors.length > 0 ? { ok: false, errors } : { ok: true, value };"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 99,
+    "old": "true",
+    "new": "false",
+    "snippet": "return listLocations({ includeInactive: true }, db).find((l) => l.id !== options.exceptId && locationKey(l.name) === key);"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 110,
+    "old": ".trim()",
+    "new": "",
+    "snippet": "if (raw.normalize(\"NFKC\").trim() === \"\") return { status: \"unset\", locationId: null, name: \"\" };"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 128,
+    "old": "1000",
+    "new": "1001",
+    "snippet": "const batchSize = options.batchSize ?? 1000;"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 129,
+    "old": "0",
+    "new": "1",
+    "snippet": "const counts = { processed: 0, resolved: 0, unresolved: 0, unset: 0 };"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 129,
+    "old": "0",
+    "new": "1",
+    "snippet": "const counts = { processed: 0, resolved: 0, unresolved: 0, unset: 0 };"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 154,
+    "old": "0",
+    "new": "1",
+    "snippet": "const total = { processed: 0, resolved: 0, unresolved: 0, unset: 0 };"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 154,
+    "old": "0",
+    "new": "1",
+    "snippet": "const total = { processed: 0, resolved: 0, unresolved: 0, unset: 0 };"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 157,
+    "old": "1",
+    "new": "2",
+    "snippet": "const r = backfillLocations(db, { maxBatches: 1 });"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 159,
+    "old": "0",
+    "new": "1",
+    "snippet": "if (r.remaining > 0) {"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 160,
+    "old": "20",
+    "new": "21",
+    "snippet": "setTimeout(step, 20);"
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 161,
+    "old": "0",
+    "new": "1",
+    "snippet": "} else if (total.processed > 0) {"
+   }
+  ],
+  "details": [
+   {
+    "file": "src/lib/db/index.ts",
+    "line": 91,
+    "old": "!",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/db/index.ts",
+    "line": 92,
+    "old": "||",
+    "new": "&&",
+    "killed": false
+   },
+   {
+    "file": "src/lib/db/migrations.ts",
+    "line": 107,
+    "old": "'pending'",
+    "new": "'approved'",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 49,
+    "old": "===",
+    "new": "!==",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 49,
+    "old": "&&",
+    "new": "||",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 92,
+    "old": " AND ",
+    "new": " OR ",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 155,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 156,
+    "old": "false",
+    "new": "true",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 157,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 160,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 163,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 165,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 166,
+    "old": "||",
+    "new": "&&",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 166,
+    "old": "1",
+    "new": "2",
+    "killed": false
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 169,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 170,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 170,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/instruments.ts",
+    "line": 250,
+    "old": "!==",
+    "new": "===",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 14,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 14,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 19,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 21,
+    "old": "!",
+    "new": "",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 40,
+    "old": "1",
+    "new": "2",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 46,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 57,
+    "old": "!==",
+    "new": "===",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 57,
+    "old": "||",
+    "new": "&&",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 58,
+    "old": "false",
+    "new": "true",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 63,
+    "old": "!",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 64,
+    "old": "===",
+    "new": "!==",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 65,
+    "old": "===",
+    "new": "!==",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 65,
+    "old": "||",
+    "new": "&&",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 65,
+    "old": "100",
+    "new": "101",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 73,
+    "old": " > ",
+    "new": " >= ",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 73,
+    "old": "false",
+    "new": "true",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 73,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 87,
+    "old": "!==",
+    "new": "===",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 87,
+    "old": "&&",
+    "new": "||",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 91,
+    "old": "!==",
+    "new": "===",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 91,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 99,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 99,
+    "old": "!==",
+    "new": "===",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 99,
+    "old": "true",
+    "new": "false",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 110,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 110,
+    "old": ".trim()",
+    "new": "",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 128,
+    "old": "1000",
+    "new": "1001",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 129,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 129,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 131,
+    "old": "'pending'",
+    "new": "'approved'",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 132,
+    "old": "'pending'",
+    "new": "'approved'",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 133,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 133,
+    "old": "||",
+    "new": "&&",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 135,
+    "old": "===",
+    "new": "!==",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 135,
+    "old": "0",
+    "new": "1",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 146,
+    "old": "'pending'",
+    "new": "'approved'",
+    "killed": true
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 154,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 154,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 157,
+    "old": "1",
+    "new": "2",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 159,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 160,
+    "old": "20",
+    "new": "21",
+    "killed": false
+   },
+   {
+    "file": "src/lib/locations.ts",
+    "line": 161,
+    "old": "0",
+    "new": "1",
+    "killed": false
+   }
+  ]
+ },
+ "work": "/tmp/w14-grade-48huk756"
+}
