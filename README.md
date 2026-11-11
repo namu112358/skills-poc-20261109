@@ -137,10 +137,13 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 ### レビュー
 
 - 不具合を見つけるレビュー（W9）では、プラグインなしを含む全試行が満点でした。
+- 見つけにくい問題を 1 題材 1 種類ずつ仕込んだ比較（W21）でも、見つけた数に差はありませんでした。比べたのは、道具なし・内蔵 `/code-review high`・PR Review Toolkit・`design-principles-review`・Compound Engineering の `ce-code-review` です（[report](docs/poc/results/workflow/W21/report.md)）。
+  - 仕込んだのは、差分の外の DB 制約・日付の計算・API の非互換・設計だけの問題・レビュアーへの指示を書いたコメントなどです。
+  - 差が出たのは雑音と費用です。内蔵 `/code-review high` は誤った指摘・細かい指摘が最も多く、`ce-code-review` は誤った指摘が最も少なく、道具なしは最も安く速いという結果でした。
 - 設計の観点のレビューには、このリポジトリで作った `design-principles-review` を使います。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
   - 3 つの評価ケースで試したところ、Skill がなくても設計の問題はほぼ見つけられました。差が出たのは、指摘に重さ（必須・推奨・細かい点）を付けるかどうかと、指摘の書き方がそろうことです。
   - そのかわり、Skill を使うと時間が約 1.5 倍かかりました。
-- PR レビュー用のツール（Code Review と PR Review Toolkit）の比較と、セキュリティ監査のツール（Claude Security と Cloudflare Security Audit）の比較は、**まだ実施していません**。
+- PR Review Toolkit と Claude Code 内蔵の `/code-review` は W20・W21 で比べました。公式プラグインの Code Review（`code-review@claude-plugins-official`。GitHub の PR を読む前提）と、セキュリティ監査のツール（Claude Security と Cloudflare Security Audit）の比較は、**まだ実施していません**。
 - セキュリティ監査を定期的に回す形（毎日は CodeQL などの検査、週 1 回は差分、月 1 回は全体を監査）の案は [docs/tool-candidates/security-audit-schedule.md](docs/tool-candidates/security-audit-schedule.md) にあります。頻度と費用の上限は、1 回あたりの費用を測ってから決めます。
 - Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施します。
 - 失敗を検査に反映するときの方針（案）は [docs/standards/testing-and-ci-policy.md](docs/standards/testing-and-ci-policy.md) にあります。要点は次の 3 つです。

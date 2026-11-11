@@ -1,0 +1,57 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "listTasks の SQL が assignee_id AS assignee と別名を付けているのに toTask は row.assignee_id を読むため、一覧（GET /api/tasks・/tasks 画面）で担当者が undefined になる",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "validateTaskInput とレスポンスの項目名が assignee から assigneeId に変わり、assignee を送る作成は 400、PATCH は黙って無視され、応答の task.assignee も undefined になるため PR の「API は変えない」に反する",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "マイグレーション 3 で列名を変えてもインデックス名 tasks_assignee が残り命名がちぐはぐなので、DROP INDEX して作り直すべき",
+   "severity": "中",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "マイグレーション 3 適用済みの DB に旧ビルドが SELECT assignee を実行すると no such column で失敗し、ローリングデプロイやロールバックで問題になる",
+   "severity": "中",
+   "match": "D1",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "listTasks の結果の assigneeId を確かめるテストがなく、別名の不具合があっても npm test が通ってしまう",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "バージョン 2 の DB にマイグレーション 3 を適用してデータ・外部キー・インデックスが保たれることを確かめるテストがない",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "一覧ページの担当者列が利用者の表示名ではなく ID をそのまま表示しており、詳細ページの表示名と食い違う",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0632558
+ }
+}

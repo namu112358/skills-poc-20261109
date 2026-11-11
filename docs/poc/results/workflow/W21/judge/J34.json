@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "NOTIFIER_KIND=slack/email を選ぶと SlackNotifier/EmailNotifier.send が必ず例外を投げ、emit が捕まえないため updateTask の UPDATE 後に API が 500 を返す（DB は更新済み・監査記録なし）。",
+   "severity": "中",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "NotifierFactory.create は未知の NOTIFIER_KIND を黙って console に落とすため、設定ミスに気づけない。",
+   "severity": "中",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "記録先はログだけという合意に対し、EventBus・Notifier/NotifierFactory・未実装の Slack/Email・環境変数・使われないイベント種類を追加しており作りすぎ。updateTask で console.log を出すだけにすべき。",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "tests/notify.test.ts はバスとファクトリの動作だけを試し、担当者が変わったときだけログが出る・変わらないときは出ないという要件を確かめていない。",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "notify/index.ts が import 時に購読を登録し、プロセス全体で共有される eventBus を通じて tasks.ts の import だけで副作用が起き、テストから見えず差し替えもできない。",
+   "severity": "低",
+   "match": "P2",
+   "kind": ""
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.057199799999999995
+ }
+}
