@@ -1,0 +1,33 @@
+{
+  "trial": "W20-review-pr-c2-1",
+  "scenario": "W20",
+  "config": "review-pr",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: 計測器ごとの定期点検（担当者・周期・点検記録）\n\n対象: 未コミットの差分（`git diff HEAD`）。コードは直していない。`npm run typecheck`・`npm test`・`npm run build` が通っていることは PR の記載を前提にした。\n\nマイグレーションと移行（extra を消さない・dept に触れない・冪等）、プレースホルダの使用、API の認証・400/404、`addMonths`・`judgeDue` の境界は、読んだ範囲では問題なかった。以下がマージ前に直すべき点。\n\n## 高\n\n### 1. 要件「担当者で絞り込み・並べ替え」「担当者ごとの遅れ台数」が実装されていない\n- 場所: `src/app/instruments/page.tsx`、`src/lib/instruments.ts` の `listInstruments`、`src/lib/inspections.ts`（`listInspectionPlans`）\n- 問題: 一覧には担当者の列が増えただけで、担当者での絞り込み・並べ替えが無い。担当者ごとの「点検が遅れている台数」を出す関数も画面も API も無い（「毎朝知りたい」という要件）。検証用のテストも無い。\n- 直し方: 担当者での絞り込み・並べ替え（クエリは `isInstrumentStatus` と同様の型ガードで検証し、不正な値は指定なし）と、担当者別の遅れ台数の集計（未点検・期限切れ）を `src/lib/inspections.ts` に SQL で書き、画面に出す。テストを足す。\n\n### 2. 約 5 万件で、一覧が毎回全件を読み込む\n- 場所: `src/app/instruments/page.tsx`（`listInspectionPlans()` を絞り込み前に全件呼ぶ）、`src/lib/inspections.ts` `listInspectionPlans` / `PLAN_SELECT`\n- 問題: 状態・部署で絞り込んでいても、全計測器（約 5 万行）の点検状況を毎回計算して `Map` に載せる。期限の判定も JS で全件に対して行う。毎朝開く画面なので遅くなる。`plans.get(i.id)!` は、絞り込み後の行より多くを計算している。\n- 直し方: 表示する計測器に絞って取得する（絞り込み・並べ替え・ページングは SQL 側）。「最後の点検日」は件数が増えると重いので、`instruments` に最終点検日の列を持つ（記録の登録と同じトランザクションで更新）か、`inspection_records(instrument_id, inspected_on)` の索引を使って必要な行だけ引く。期限切れの判定も SQL で行えるようにし、5 万件規模のデータで時間を測ったことを PR に書く。\n\n## 中\n\n### 3. 「要修理」で貸出中の計測器が使用停止になり、貸出が閉じられなくなる\n- 場所: `src/lib/inspections.ts` `recordInspection`（`status <> 'disposed'` だけを除外）\n- 問題: 貸出中（`on_loan`）の計測器に「要修理」を登録すると `suspended` になる。CLAUDE.md は「貸出中は貸出・返却の操作でだけ変わる」とあり、返却は `WHERE status = 'on_loan'` でしか `in_use` に戻さない（`loans.ts`）。結果、貸出の記録が未返却のまま残る。校正中（`calibrating`）も同様に黙って上書きされる。\n- 直し方: 貸出中のときの扱いを決める（拒否して理由を返す、または点検記録は残して状態は返却後に反映する、など）。決めた内容を PR に書き、テストを足す。\n\n### 4. 間違えた点検記録を訂正できない（最後の点検日が `MAX(inspected_on)`）\n- 場所: `src/lib/inspections.ts` `PLAN_SELECT`、`recordInspection`\n- 問題: 要件は「消さない。間違えたら訂正の記録を足す」。しかし最後の点検日は日付の最大値なので、日付を誤って新しく入れた記録（例: 2026-11-09 を 2026-11-19… ではなく年違い・月違いで未来寄りに誤入力）は、正しい日付の記録を足しても次回予定日に影響し続け、訂正にならない。訂正のための記録の種類（どの記録を訂正するか）も無い。\n- 直し方: 訂正の記録（元の記録 ID を持つ）を足せるようにし、訂正された記録は最後の点検日の計算から外す。または最後の点検日を「登録順で最新の有効な記録」にする。テストを足す（現在のテスト「古い日付を後から登録」は日付の最大値の挙動を固定している）。\n\n### 5. 廃棄・使用停止の計測器も「期限切れ／未点検」になる\n- 場所: `src/lib/inspections.ts` `judgeDue`、`listInspectionPlans`\n- 問題: 状態を見ずに期限を判定する。廃棄済みや使用停止の計測器が「未点検」「期限切れ」として目立ち、担当者ごとの遅れ台数（#1）を水増しする。要修理で使用停止にした計測器も遅れ扱いになる。\n- 直し方: 遅れの判定・集計の対象から廃棄（必要なら使用停止も）を外す。どこまで外すかを仮定として PR に書く。\n\n### 6. 移行で名前の一致が厳しく、担当者にできない・読み捨てる場合がある\n- 場所: `src/lib/inspections-legacy.ts` `normalizeInspectorName` / `importLegacyInspections`\n- 問題:\n  - 入力側だけ空白と敬称を除いて `users.name` と完全一致で比べる。利用者名に空白がある（「鈴木 太郎」）と「鈴木太郎」「鈴木 太郎様」が一致しない。\n  - 同姓が 2 人いると、元の書き方を残すだけで理由が分からない。退職者に一致した場合は黙って担当になる（要件上は可だが、移行結果の一覧が出ない）。\n  - `extra` が壊れた JSON のとき、`catch { continue }` で何も出さず飛ばす。元の extra は残るが、移行されなかった計測器が運用で分からない。「黙って捨てない」に反する。\n  - 「2026年9月1日」（西暦＋年月日）や「令和元年」は読めずに `legacy_date` へ回る。\n- 直し方: 比べるときは利用者名側の空白も除く。移行できなかったもの（曖昧・壊れた JSON・読めない日付）は `logger` で計測器の管理番号つきで出す。西暦の「年月日」形式を足し、テストを追加する。\n\n### 7. マイグレーション 6 が、将来変わりうるアプリのコードに依存している\n- 場所: `src/lib/db/migrations.ts` の `apply: (db) => importLegacyInspections(db)`、`src/lib/inspections-legacy.ts`\n- 問題: 出荷済みのマイグレーションは書き換えない方針（CLAUDE.md・開発標準 10）だが、データ移行が `src/lib/` の関数を呼んでいる。後でこの関数や `parseLegacyDate` を直すと、まだ 6 を適用していない環境の移行結果が変わる。`migrations.ts` と `db/index.ts` が互いを import する循環もある。\n- 直し方: 移行の処理をマイグレーションの中に固定して持つ（または「この関数は 6 のための凍結版」と明記し、変更しないテストを置く）。\n\n## 低\n\n### 8. 読めない日付だけの旧データは「未点検」と表示される\n- 場所: `src/lib/inspections.ts` `PLAN_SELECT`（`MAX(inspected_on)` は NULL を無視する）\n- 問題: 日付が読めないが点検した旨がある計測器が、一覧で「未点検」と強調される。元の書き方は詳細画面の記録にしか出ない。\n- 直し方: 一覧・詳細の点検の状況に「旧データの日付が読めません」を併記し、「未点検」と区別する。\n\n### 9. 担当者・周期の変更と、要修理の判断に対する記録が少ない\n- 場所: `src/lib/inspections.ts` `updateInspectionPlan`\n- 問題: 担当者を変えると `legacy_inspector` を消す。元の書き方は記録側に残るが、誰がいつ担当を変えたかの記録やログが無い（運用で調べにくい。開発標準 15）。\n- 直し方: `logger` に、計測器・変更前後・操作した利用者を出す。\n\n### 10. テストの足りない点\n- 場所: `tests/inspections.test.ts`\n- 問題: 貸出中・校正中での要修理、API Route（401・404・400・201）、壊れた JSON の extra、同名の利用者、5 万件規模の性能は確かめていない。#1・#3 を直すなら、そのテストが必要。\n- 直し方: 上の修正に合わせて追加する。\n",
+  "review_chars": 3936,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4201,
+    "tokens": {
+      "input": 22,
+      "output": 8995,
+      "cache_read": 605999,
+      "cache_creation": 67371
+    },
+    "turns": 10,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 7
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 103,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しくやることはありませんでした。直前のレビューの 10 件は、すべて場所・問題・直し方・重要度の形式で `REVIEW.md` に書いてあり、`REVIEW.md` だけを 7216ce8 でコミット済みです。`git status` でも `REVIEW.md` に未コミットの変更はありません。\n\n指摘を足したり削ったりしていないので、`REVIEW.md` は書き換えず、コミットも増やしていません。コードも直していません。"
+  },
+  "interventions": 0
+}

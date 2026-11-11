@@ -1,0 +1,59 @@
+{
+  "trial": "W20-sp-review-c5-1",
+  "scenario": "W20",
+  "config": "sp-review",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# コードレビュー: 西日本校正センターの CSV 取込\n\n対象: 未コミットの差分（`git diff HEAD`）。PR の要件 1〜10 に照らして確認した。\n`npm run typecheck` と `npm test`（70 件）は通ることを確認した。コードは直していない。\n\n要件 1〜10 のうち、満たしていないと判断したものはない。ただし要件 4 は、指摘 1 の扱いを依頼者に確認する必要がある。\n旧 `legacy/calib-import.ts` と新しい `higashi-nihon.ts` を突き合わせた範囲では、A 社の挙動（和暦・判定語・読み飛ばしの順序・行番号・応答の形）は変わっていない。\n\n## 指摘一覧\n\n| # | 重要度 | 概要 |\n|---|---|---|\n| 1 | 中 | 備考が満杯に近いと、既存の備考を黙って削る |\n| 2 | 中 | B 社のコメントに引用符つきの改行があると、正しいファイルが全件拒否される |\n| 3 | 低 | A 社の取込を守るテストが薄い |\n| 4 | 低 | 文字コード判定の変更で、まれに A 社の Shift_JIS を誤読しうる |\n| 5 | 低 | 追記文の切り詰めがサロゲートペアの途中で切れうる |\n\n## 1. 備考が満杯に近いと、既存の備考を黙って削る\n\n- **重要度**: 中\n- **場所**: `src/lib/calibrations.ts` の `appendToNote`（`ADDENDUM_HEAD_LENGTH` を使う部分）、および `docs/calibration-import.md` の COND の項。\n- **何が問題か**: 備考が 970 文字以上の計測器に COND の行を取り込むと、先頭の「条件付き合格（日付）…」を 30 文字残すために既存の備考の末尾が削られる。\n  - 例: 備考が 980 文字なら、既存の備考の末尾 11 文字が消える。\n  - 削った内容は元に戻せない。同じファイルを取り込み直しても「取込済み」で読み飛ばされるので、やり直せない。\n  - 削ったことはログにも応答にも出ない。\n  - 要件 4 は「備考の末尾に書き足す」で、既存の備考を削ってよいとは書かれていない。PR の説明も「印を残す」としか書いておらず、削る仮定が明記されていない（開発標準 21）。\n- **直し方**（どちらか）:\n  - 既存の備考には触らず、入らないときは書き足しを諦める。その事実を `logger.warn`（管理番号・校正日・証明書番号）に出し、応答の `errors` か `skipped` にも載せて担当者が気づけるようにする。\n  - 削る仕様のままにするなら、削った計測器と文字数を `logger.warn` に出し、仮定を PR に明記して依頼者の承認を取る。\n  - どちらの場合も、備考 980 文字・1000 文字ちょうどの境界で既存の備考がどうなるかを確かめるテストを足す。\n\n## 2. B 社のコメントに引用符つきの改行があると、正しいファイルが全件拒否される\n\n- **重要度**: 中\n- **場所**: `src/lib/calibration-import/csv.ts` の `splitLines`、`src/lib/calibration-import/nishinihon.ts` の `dataRows` の数え方。\n- **何が問題か**: `splitLines` が引用符を考えずに先に改行で分割する。コメント列が `\"範囲 A⏎B で外れ\"` のようになっていると 2 行に割れる。\n  - 割れた分だけデータ行が増えて `END,件数` とずれ、「件数が合わない」として 1 件も取り込まれず 400 になる。\n  - A 社の旧実装にも同じ制限はあったが、A 社は該当行が誤りになるだけだった。B 社は要件 6 によりファイル全体が止まるので、影響が大きい。月初のスクリプト運用では先方への再送依頼が必要になる。\n  - 仕様書（第 2.1 版）には、コメントに改行が入るかどうかの記述がない。発生するかは不明。\n- **直し方**（どちらか）:\n  - 引用符を考慮して「論理的な 1 行」に分割する（行番号は物理行の先頭で数える）。引用符内の改行つきコメントの行を含むファイルのテストも足す。\n  - 先方に改行が入らないことを確認し、その前提を `docs/calibration-import.md` に書く。\n\n## 3. A 社の取込を守るテストが薄い\n\n- **重要度**: 低\n- **場所**: `tests/calibration-import.test.ts`（A 社のロジックの移し先は `src/lib/calibration-import/higashi-nihon.ts`）。\n- **何が問題か**: 旧実装にテストは無かったので、既存テストを弱めたわけではない。ただし今回 A 社のロジックを別ファイルへ移したのに、次のケースが無い。過去 3 年分を監査で取り込み直すことがある（要件 10）ので、移した部分の回帰は守っておきたい（開発標準 16）。\n  - 判定語: `○`・`〇`・`×`・`NG`・`否`・`良`\n  - 和暦の境界: `H31.5.1`（誤り）、`R1.4.30`（誤り）、`令和元年…`\n  - 全角数字の日付\n  - `合計` 行と `#` 行の読み飛ばし\n- **直し方**: 上のケースを、移す前の挙動と同じ結果になる期待値で足す。\n\n## 4. 文字コード判定の変更で、まれに A 社の Shift_JIS を誤読しうる\n\n- **重要度**: 低\n- **場所**: `src/lib/calibration-import/csv.ts` の `decodeCsv`。\n- **何が問題か**: 旧実装は BOM が無ければ常に Shift_JIS だった。新実装は先に厳密な UTF-8 として読む。A 社の通常のファイルは UTF-8 として不正になるので Shift_JIS に戻るが、バイト列がたまたま UTF-8 として有効になると文字化けのまま読まれる。見出しの「管理番号」が読めなければ拒否されるので、静かに壊れる範囲は限られる。\n- **直し方**: 要件 3 と B 社の BOM なし UTF-8 のために必要な変更なので、コードは直さなくてよい。リスクとして PR に書いておく。\n\n## 5. 追記文の切り詰めがサロゲートペアの途中で切れうる\n\n- **重要度**: 低\n- **場所**: `src/lib/calibrations.ts` の `appendToNote` の `slice`。\n- **何が問題か**: 絵文字などが切る位置に来ると、壊れた文字が備考に入る。通常の日本語では起きない。\n- **直し方**: コードポイント単位で切るか、境界が上位サロゲートなら 1 文字戻す。備考の上限の検証（`instruments.ts` の `text()`）は UTF-16 の長さで数えているので、数え方はそろえておく。\n",
+  "review_chars": 3032,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.8438,
+    "tokens": {
+      "input": 48,
+      "output": 26239,
+      "cache_read": 1182667,
+      "cache_creation": 142753
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for f in csv higashi-nihon index nishinihon types; do echo \\\"=== $f\\\"; cat -n src/lib/calibration-import/$f.ts; done\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git ls-tree -r HEAD --name-only | grep -i test; git diff HEAD -- tests/calibrations.test.ts; cat src/lib/dates.ts; sed -n 80,160p src/lib/calibrations.ts; (npm run typecheck 2>&1 | tail -"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git diff HEAD -- src/lib/calibrations.ts src/lib/instruments.ts src/app docs/calibration-import.md && cat src/lib/calibration-import/{csv,types,index,nishinihon}.ts && cat docs/agencies/n"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git diff HEAD -- src/lib/calibrations.ts src/lib/instruments.ts src/app docs/calibration-import.md; for f in csv types index nishinihon higashi-nihon; do echo \\\"=== $f\\\"; cat -n src/lib/c"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -n 60,160p src/lib/calibrations.ts; cat src/lib/dates.ts | head -30; grep -n \\\"updated_at\\\\|UPDATE instruments\\\" -r src/lib | head -20; grep -rn \\\"legacy\\\\|calib-import\\\" --include=* "
+      }
+    ],
+    "tool_calls": {
+      "Bash": 16,
+      "Agent": 1,
+      "Read": 11,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 1,
+    "subagent_types": {
+      "general-purpose": 1
+    },
+    "questions": 0,
+    "active_seconds": 123,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を、指摘ごとに「重要度・場所・何が問題か・直し方」を並べる形式に書き直し、そのファイルだけをコミットしました（e114355）。コードは直していません。\n\n指摘は前回と同じ 5 件で、新しい指摘は足さず、削ってもいません。\n\n- 中: 備考が満杯に近いと、既存の備考を黙って削る（`appendToNote`）\n- 中: B 社のコメントに引用符つきの改行があると、正しいファイルが全件拒否される（`splitLines`）\n- 低: A 社の取込を守るテストが薄い\n- 低: 文字コード判定の変更で、まれに A 社の Shift_JIS を誤読しうる\n- 低: 追記文の切り詰めが、サロゲートペアの途中で切れうる\n\n冒頭には、5 件の一覧表と、typecheck・test の結果、要件 1〜10 の確認結果の要約も置きました。\n\nPR の差分は、これまでどおり未コミットのまま残してあります。"
+  },
+  "interventions": 0
+}

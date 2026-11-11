@@ -1,0 +1,39 @@
+{
+  "trial": "W20-cr-high-c1-2",
+  "scenario": "W20",
+  "config": "cr-high",
+  "case": "c1",
+  "rep": 2,
+  "review_md": "# コードレビュー結果\n\n対象: タスクの検索・削除・一括ステータス変更・期限切れ一覧の追加と、同時編集の検知（未コミットの差分）\n\n## 指摘一覧\n\n| # | 重要度 | 場所 | 概要 |\n|---|---|---|---|\n| 1 | 高 | `src/lib/tasks.ts:83` `searchTasks` | SQL インジェクション（規約 8 違反） |\n| 2 | 高 | `src/lib/tasks.ts:87` `searchTasks` | ページ位置（OFFSET）の計算誤り |\n| 3 | 高 | `src/lib/db/migrations.ts:23` | 既存マイグレーション 1 の書き換え（規約 7 違反） |\n| 4 | 高 | `src/app/api/tasks/search/route.ts:14` | `limit` 未検証、catch で全エラーを空 200 に |\n| 5 | 中 | `src/lib/tasks.ts:99` `listOverdueTasks` | 「今日」が UTC で、日本時間ではない |\n| 6 | 高 | `src/app/api/tasks/[id]/route.ts:38` DELETE | 作成者なしのタスクは誰でも削除できる |\n| 7 | 高 | `src/app/api/tasks/[id]/route.ts:28` PATCH | 楽観ロックが原子的でなく、`version` も未検証 |\n| 8 | 高 | `src/lib/tasks.ts:190` `bulkUpdateStatus` | トランザクションなし。404 でも一部が更新される |\n| 9 | 中 | `tests/tasks-search.test.ts:52` | deleteTask のテストが空振り。主要経路のテスト不足 |\n| 10 | 低 | `src/app/api/tasks/route.ts:18` `createTask` | 引数設計が紛らわしい |\n\n---\n\n### 1. 検索クエリの SQL 埋め込み（SQL インジェクション）【重要度: 高】\n\n- **場所**: `src/lib/tasks.ts:83` `searchTasks`\n- **問題**: WHERE 句をユーザー入力の文字列連結で組み立てている（`title LIKE '%${query}%'`）。CLAUDE.md 規約 8（値の埋め込みは必ずプレースホルダ）に違反する。\n  - 例: ログイン済みのユーザーが `GET /api/tasks/search?q=' OR 1=1) -- ` を呼ぶと、クエリが任意の SQL になる。tasks テーブルの読み書きや、UNION・サブクエリによる他テーブルの参照ができる。\n  - `q=O'Brien` のような入力では SQL 自体が壊れる。さらにルートの catch-all がその失敗を空の結果に変えて隠す（指摘 4）。\n- **直し方**: `title LIKE ? ESCAPE '\\'` とし、`%${escaped}%` をバインドする。`%` と `_` もエスケープして、`q=%` で全件に一致しないようにする。\n\n### 2. ページ位置の計算誤り【重要度: 高】\n\n- **場所**: `src/lib/tasks.ts:87` `searchTasks`\n- **問題**: `page` は 1 始まりなのに OFFSET を `page * limit` にしているため、最初のページが飛ばされる。\n  - 例: 一致が 25 件で page=1, limit=20 のとき OFFSET 20 になり、21〜25 件目だけが返る。1〜20 件目は取得できず、page=2 は空になる。\n  - テストは `total` しか見ておらず、この誤りを検出できない。\n- **直し方**: OFFSET を `(page - 1) * limit` にする。ページ内容を検証するテストを足す。\n\n### 3. 既存マイグレーションの書き換え【重要度: 高】\n\n- **場所**: `src/lib/db/migrations.ts:23`（マイグレーション 1）\n- **問題**: 新しい列 `created_by` と `version` を、新しいマイグレーションを足さず既存のマイグレーション 1 に追加している。規約 7（既存のマイグレーションは書き換えない）に違反する。\n  - 例: `DATABASE_PATH` でファイルに保存した DB で `user_version` が 1 以上のものは、マイグレーション 1 を再実行しない。そのため両方の列が無く、`tasks.ts` の SELECT・INSERT・UPDATE がすべて「no such column」で失敗する。\n- **直し方**: 末尾に version 3 のマイグレーションを追加する（`ALTER TABLE tasks ADD COLUMN created_by ...`、`ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1`）。マイグレーション 1 は元に戻す。シードデータが新しい列と矛盾しないかも確認する。\n\n### 4. `limit` 未検証と、catch による全エラーの握りつぶし【重要度: 高】\n\n- **場所**: `src/app/api/tasks/search/route.ts:14`\n- **問題**: `limit` を検証していない。上限の定数 `SEARCH_LIMIT_MAX` は定義されているが使われていない。さらに素の `catch` がすべてのエラーを「空配列の 200 応答」に変える。PR の説明（範囲外は 400）や規約 2 とも合わない。\n  - `limit=abc` は NaN になってバインドで例外になり、`{tasks:[],total:0}` の 200 が返る。\n  - `limit=-1` は SQLite で「上限なし」を意味するため、全件が返る。\n  - `limit=100000` は上限 50 を超える。`limit=0` や `limit=1.5` も通る。\n  - DB エラーや SQL エラー（指摘 1 のインジェクションや列の欠落など）が「結果なし」に見えて、障害に気づけない。\n- **直し方**: `src/lib/` に `limit`・`page` の検証関数（例: `parseLimitParam`）を置き、1〜50 の整数でなければ 400 を返す（`SEARCH_LIMIT_MAX` を使う）。try/catch は外す。\n\n### 5. 期限切れの「今日」が UTC【重要度: 中】\n\n- **場所**: `src/lib/tasks.ts:99` `listOverdueTasks`\n- **問題**: 「今日」を `now.toISOString().slice(0,10)`（UTC の日付）で求めている。関数のコメントやルートのコメント、PR の説明は日本時間としている。\n  - 例: 2026-11-15T20:00Z は日本ではすでに 2026-11-16 05:00。コードは 2026-11-15 を使うため、期限が 11-15 のタスクが 9 時間遅れて期限切れになる。\n  - テストは 03:00Z（UTC と日本で日付が同じ）だけなので、通ってしまう。\n- **直し方**: `new Date(now.getTime() + 9*3600*1000)` から日付を取るか、`Intl` の `timeZone: 'Asia/Tokyo'` を使う。UTC と日本で日付が分かれる時刻（例: 20:00Z）のテストを足す。\n\n### 6. 作成者なしのタスクを誰でも削除できる【重要度: 高】\n\n- **場所**: `src/app/api/tasks/[id]/route.ts:38`（DELETE）\n- **問題**: 権限チェックが `task.createdBy && task.createdBy !== user.id && task.assignee !== user.id` で、`createdBy` が null だと全体が false になり、チェックが飛ばされる。シードのタスクや、この PR より前に作られたタスクはすべて `createdBy` が null。\n  - 例: suzuki が sato のタスクを DELETE すると 204 が返り、消えてしまう。PR の仕様は「作成者か担当者だけ」で、ほかの人は 403。\n  - 403 になる経路のテストが無い。\n- **直し方**: 作成者なしの場合も担当者の判定にフォールバックする（`task.createdBy !== user.id && task.assignee !== user.id` なら 403）。判定は `src/lib/` の関数に置き、403 のテストを足す。\n\n### 7. 楽観ロックが原子的でなく、`version` も未検証【重要度: 高】\n\n- **場所**: `src/app/api/tasks/[id]/route.ts:28`（PATCH）と `updateTask`\n- **問題**: `current` を `await readJson` の前に読み、`version` を比べたあとの `updateTask` は `WHERE version = ?` なしで上書きする。`version` の型も検証していない。規約 9（本文は `src/lib/` の検証関数を通す）にも反する。\n  - 例: 同じ `version=1` の PATCH が同時に 2 本来ると、どちらも本文を待つ前に current.version=1 を読み、両方が検査を通る。後の方が先の変更を黙って上書きし、409 による保護が働かない。\n  - `version` が `\"1\"` や null のような非整数のときは、400 ではなく 409 になる。\n- **直し方**: 比較を `updateTask` の中に移し、`UPDATE ... WHERE id=? AND version=?` にして、`changes` が 0 なら競合（409）を返す。`version` は検証関数で整数かを確認し、不正なら 400 にする。409 のテストを足す。\n\n### 8. 一括ステータス変更がトランザクションでない【重要度: 高】\n\n- **場所**: `src/lib/tasks.ts:190` `bulkUpdateStatus`、`POST /api/tasks/bulk-status` のルート\n- **問題**: 全体が 1 つのトランザクションになっていない。存在する ID の更新を先に行い、そのあと存在しない ID が見つかって 404 を返す。PR の仕様（1 件でも無ければどれも変えない）と合わない。\n  - 例: ids が [4, 999]、status が done のとき、タスク 4 は更新されて版番号も増えるのに、応答は 404。クライアントは何も変わっていないと思い込む。\n  - 補足: ログイン済みなら誰でも任意のタスクのステータスを変えられる（意図した仕様かは要確認）。本文の検証がルート内に書かれていて、規約 9（`src/lib/` の検証関数）に反する。ルートや、存在する ID と無い ID が混ざるケースのテストも無い。\n- **直し方**: BEGIN〜ROLLBACK（失敗時）で囲むか、更新の前に全 ID の存在を確認する。本文の検証は `src/lib/` の関数に移し、混在ケースのテストを足す。\n\n### 9. テストが空振りで、主要な経路が未検証【重要度: 中】\n\n- **場所**: `tests/tasks-search.test.ts:52`（deleteTask のテスト）ほか\n- **問題**: 削除の前にタスク一覧を取得し、`deleteTask(1, db) !== undefined` を確認している。boolean に対しては常に真になる。`tasks` は削除前の値なので、`tasks.length === 7` は deleteTask が何もしなくても成り立つ。\n  - 例: deleteTask が false を返しても、何も消さなくても、テストは通る。\n  - ほかにも、検索のページ内容（指摘 2）、引用符や `%` を含む検索、PATCH の 409、DELETE の 403 のテストが無い。\n- **直し方**: `deleteTask(1, db) === true`、`getTask(1, db) === undefined`、`deleteTask(999, db) === false` を確認する。上に挙げたケースのテストを足す。\n\n### 10. `createTask` の引数設計が紛らわしい【重要度: 低】\n\n- **場所**: `src/app/api/tasks/route.ts:18`、`createTask` のシグネチャ `(input, db, createdBy)`\n- **問題**: `createdBy` に到達するために、ルートが db の位置に `undefined` を渡している（`createTask(..., undefined, user.id)`）。`user.id` を 2 番目の引数に渡す間違いは、実行時まで気づけない。\n- **直し方**: `createdBy` を入力に含めるか、最後の引数をオプションのオブジェクトにする。\n",
+  "review_chars": 5870,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3151,
+    "tokens": {
+      "input": 14,
+      "output": 8919,
+      "cache_read": 234163,
+      "cache_creation": 61121
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; echo ---; git diff HEAD\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 78,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの 10 件を、場所・問題・直し方・重要度の形式で `REVIEW.md` に書き、`REVIEW.md` だけをコミットしました（コミット `86c8a2b`）。指摘は足しても削ってもいません。コードは直していません。\n\n重要度は、高が 7 件（1〜4、6〜8）、中が 2 件（5、9）、低が 1 件（10）です。\n\n重要度は `/code-review` の出力に付いていなかったので、私が付けました。付けた基準は次のとおりです。\n- **高**: セキュリティ、データの破損、PR の仕様に反する動作、規約違反のうち実害があるもの。\n- **中**: 時刻のずれと、テストの不備。\n- **低**: 引数設計の紛らわしさ。\n\nこのセッションでは、差分を読み直したり、テストを実行したりはしていません。"
+  },
+  "interventions": 0
+}

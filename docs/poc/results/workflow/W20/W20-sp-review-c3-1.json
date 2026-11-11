@@ -1,0 +1,59 @@
+{
+  "trial": "W20-sp-review-c3-1",
+  "scenario": "W20",
+  "config": "sp-review",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# コードレビュー: 設置場所を場所マスタから選べるようにする\n\n対象: 未コミットの差分（`git diff HEAD`）。PR の「合意した要件」1〜9 に照らして確認した。\n結論: **マージ前に直すべき（No）**。要件 7・8 が満たされていない。\n\n確認方法: 差分と周辺コードを通読した。`npm test`・`npm run typecheck` は通った（レビュー担当が実行）。指摘は主にコードを読んで追った結果で、実行して再現できたものは無い。実行して確かめていないものには「未確認」と書いた。\n\n指摘の一覧（重要度順）\n\n| # | 重要度 | 内容 |\n|---|--------|------|\n| 1 | 高 | `location` 列に場所の名前が入らない（要件 7） |\n| 2 | 高 | 前の版に戻すと場所が正しく動かない（要件 8） |\n| 3 | 中 | 移行の結果が DB に残らず、件数も今回の分ではない（要件 9） |\n| 4 | 中 | 起動時の移行が約 5 万件で遅くなる恐れ（要件 9。未確認） |\n| 5 | 中 | ハンディ端末で、確定済みの計測器に分からない文字が来ると捨てる（要件 6） |\n| 6 | 中 | 台帳の登録・編集 API が自由入力の `location` を受け付ける（要件 3） |\n| 7 | 中 | 場所 API の重複を 409 で返す（CLAUDE.md の規約は 400） |\n| 8 | 中 | テストが不具合を固定している |\n| 9 | 低 | 運用メモ（`docs/operations.md`）に戻し手順などが無い |\n| 10 | 低 | 場所の更新で、同じ読み出しを重ねている |\n| 11 | 低 | 16 か所の根拠資料が無い |\n\n## 1. `instruments.location` 列に場所の名前が入らない\n\n- 重要度: **高**（要件 7 に反する）\n- 場所: `src/lib/locations.ts` `linkInstrumentsToLocations` / `src/lib/location-master.ts` `updateLocation` / `src/lib/instruments.ts` `validateLocation`・`createInstrument`・`updateInstrument`・`recordInventory`\n- 何が問題か:\n  - 移行は `location_id` だけを設定し、`location` 列は元の書き方のまま（コメントにも「元の文字列は変えない」とある）。例: 「製造部第１ライン」は `location_id` が付くだけで、列は「製造部第１ライン」のまま。自分たちのテスト（`tests/locations-db.test.ts`）も、元の文字列が残ることを確認している。\n  - `updateLocation` は `locations` だけを UPDATE する。「工事部 倉庫」を改名しても、経理が月末に読む `location` 列は旧名のまま。\n  - 画面や API で `locationId` を選ぶと、`validateLocation` は `locationOriginal` を設定しない（`null` のときだけ空にする）。更新では `{...current, ...changes}` により前の文字列が残る。例: 確認中だった「倉庫」を「製造部 恒温室」に直しても、列は「倉庫」のまま。\n  - 新規登録で `locationId` だけを送ると、`createInstrument` が `input.locationOriginal`（undefined）を INSERT に渡す。`node:sqlite` は undefined のバインドで例外になるはず（未確認）。例外にならない場合も、名前は入らない。画面からの新規登録が失敗する可能性がある。\n  - ハンディ端末で確定したときも、列に入るのはマスタ名ではなく端末が送った文字（`recordInventory` の `locationOriginal: input.location`）。\n  - 結果として、経理の月末の読み取りに、旧名・表記ゆれ・改名前の名前が混ざる。\n- 直し方:\n  - `location` を常に「確定ならマスタ名、確認中なら元の文字、未設定なら空」にする。\n  - 確認中の「元の書き方」を残すには別の保存先が要る。移行で確定した行の元の書き方を残したいなら、新しい列（例 `location_raw`）に退避してから `location` をマスタ名にする。\n  - 移行: 確定した行の `location` をマスタ名にする。\n  - 登録・更新: `locationId` から名前を引き、`location` に書く。\n  - 改名: 同じトランザクションで `UPDATE instruments SET location = ? WHERE location_id = ?`。\n  - ハンディ端末: 確定時はマスタ名を書く。\n  - テストを足す: 移行後・改名後・登録・更新・端末の各経路で `location` 列が名前になること。\n\n## 2. 前の版に戻すと、場所が正しく動かない\n\n- 重要度: **高**（要件 8 に反する）\n- 場所: #1 と同じ（`location` と `location_id` の二重管理）。`src/lib/instruments.ts` `toInstrument`（`row.location_name ?? row.location`）\n- 何が問題か:\n  - 前の版は `location` 列だけを読み書きする。#1 のとおり列が正しくないので、戻すと改名後の名前や選び直した場所が反映されず、古い値が表示される。\n  - 前の版が `location` を書き換えても `location_id` は古いまま残る。再び新しい版に上げると、古いマスタ名が優先されて表示され、前の版での変更が見えなくなる。\n- 直し方: #1 で `location` 列を正とする。再起動時（または移行の再実行時）に、`location_id` の場所名と `location` が食い違う行を検出し、マスタ名に合わせる（または確認中に戻す）。新→旧→新の往復のテストを足す。戻すときの手順は `docs/operations.md` にも書く（#9）。\n\n## 3. 移行の結果が DB に残らず、件数も今回の分ではない\n\n- 重要度: **中**（要件 9）\n- 場所: `src/lib/db/migrations.ts` 移行 5 の `after` / `src/lib/locations.ts` `linkInstrumentsToLocations`\n- 何が問題か:\n  - 件数は標準出力のログ `locations.migrated` にしか出ない。ログが流れた後は確かめられない。\n  - `result.total > 0` のときしか出さない。\n  - 出す内訳は全計測器の現在の状態（確定・未設定・確認中）。今回の移行で寄せた件数ではない。\n  - ログが出ること、件数が正しいことを確かめるテストが無い。\n- 直し方: 移行結果を DB に残す（例: 移行記録テーブルに実行日時・寄せた件数・未設定・確認中の件数）。ログは件数に関わらず出す。件数が正しいことのテストを足す。\n\n## 4. 起動時の移行が約 5 万件で遅くなる恐れがある\n\n- 重要度: **中**（要件 9。実測は未確認）\n- 場所: `src/lib/locations.ts` `linkInstrumentsToLocations` / `matchLocationName`\n- 何が問題か: 5 万行を 1 行ずつ処理し、行ごとに場所 16 件分の `normalizeLocationKey`（NFKC と正規表現）を再計算する。約 80 万回の正規化になる。移行は起動時の同期処理で、1 つのトランザクション。「起動して使えるまで何分も止めない」要件に対して、測っていない。\n- 直し方: `SELECT DISTINCT location` で値の種類（数百程度）だけ照合し、`UPDATE instruments SET location_id = ? WHERE location_id IS NULL AND location = ?` で一括更新する。場所側のキーは 1 回だけ計算する。5 万件で時間を測るテストか確認手順を足す。\n\n## 5. ハンディ端末で、確定済みの計測器に分からない文字が来ると捨てる\n\n- 重要度: **中**（要件 6 とのずれ）\n- 場所: `src/lib/instruments.ts` `recordInventory`（`unmatched_kept`）\n- 何が問題か: 要件は「分からなければ確認中として送られた文字を残す」。実装は、すでに場所が確定した計測器に「倉庫」のような分からない文字が来ると、200 を返しつつ何も保存しない（ログだけ）。端末は送信済みと表示するが、台帳には現場の実際の移動が反映されない。応答の `location` も古い場所のまま。\n- 直し方: 要件どおり確認中に戻して送られた文字を残す。確定済みを守る意図があるなら、その判断を PR に仮定として書き、依頼者に確認する。\n\n## 6. 台帳の登録・編集 API が自由入力の `location` を受け付ける\n\n- 重要度: **中**（要件 3 とのずれ）\n- 場所: `src/lib/instruments.ts` `validateLocation`、`src/app/api/instruments/route.ts`、`src/app/api/instruments/[id]/route.ts`\n- 何が問題か: 文字列の `location` の互換が必要なのは協力会社製のハンディ端末だけ。台帳の API は、文字列でも受け付けて確認中を新しく作れる。「自由に書けるのはやめる」に反する。\n- 直し方: 台帳の API は `locationId` だけにする。文字列を受けるのが意図した互換なら、その理由を PR に書く（CLAUDE.md には従来の `location` も受け付けるとあるので、依頼者に確認する）。\n\n## 7. 場所 API の重複を 409 で返す\n\n- 重要度: **中**\n- 場所: `src/lib/location-master.ts` `validateLocationInput`（`conflict`）と、それを使う `src/app/api/locations/route.ts`・`src/app/api/locations/[id]/route.ts`\n- 何が問題か: 同じ場所がすでにある入力に 409 を返す。CLAUDE.md の規約は、入力誤りは 400。\n- 直し方: 400 にそろえる。409 を使うのが意図的なら、PR に理由を書く。\n\n## 8. テストが不具合を固定している\n\n- 重要度: **中**\n- 場所: `tests/locations-db.test.ts`（64・69 行付近）\n- 何が問題か: 移行後に元の文字列が残ることを正しい動きとして確認している。要件 7 の確認（改名後の列、新規登録、新→旧→新の往復）が無い。\n- 直し方: #1・#2 を直したうえで、これらのテストを足す。\n\n## 9. 運用メモに戻し手順などが無い\n\n- 重要度: **低**\n- 場所: `docs/operations.md`\n- 何が問題か: 前の版へ戻すときの手順、経理が読む `location` 列を 4 月以降どうするか（列の廃止の計画）、`location_id` が残ることの説明、移行結果の確認方法（#3）が書かれていない。\n- 直し方: これらを追記する。\n\n## 10. 場所の更新で、同じ読み出しを重ねている\n\n- 重要度: **低**（件数が少ないので実害は無い）\n- 場所: `src/app/api/locations/[id]/route.ts`（PATCH が `getLocation` を 2 回呼ぶ）、`src/lib/location-master.ts` `validateLocationInput`（重複検査で `listLocations` を全件読む）\n- 何が問題か: 同じ場所を重ねて読む。\n- 直し方: 1 回の読み出しを使い回す。重複検査は対象の名称だけを SQL で引く。\n\n## 11. 16 か所の根拠資料が無い\n\n- 重要度: **低**\n- 場所: `src/lib/db/migrations.ts` `OFFICIAL_LOCATIONS`\n- 何が問題か: 品質保証部の正式な 16 か所である根拠（名称の出典）が示されていない。名称の綴りの確認ができない。\n- 直し方: 出典（依頼者から受け取った一覧など）を PR か運用メモに書き、名称を突き合わせる。\n\n## 問題が無いと判断した点（参考）\n\n- マイグレーション 5 は末尾に追加し、1〜4 は書き換えていない。テーブル作成・照合・`user_version` の更新は同じトランザクション。\n- 照合は完全一致のみで、曖昧な値は寄せない。空欄と空白だけ（全角を含む）は未設定。\n- 新しい API は最初にログインを確認し、SQL はプレースホルダーを使っている。ハンディ端末の応答の形と認証は変わらない。\n- 使用終了の場所の計測器は、旧形式の `location` を送り直しても確認中に戻らない。\n- 既存テストの削除・弱体化は見当たらない。\n",
+  "review_chars": 5867,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.8232,
+    "tokens": {
+      "input": 50,
+      "output": 24981,
+      "cache_read": 1246230,
+      "cache_creation": 138634
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W20-sp-review-c3-1-app/b19a235d-7828-422e-8bd7-2062742c0cb4/scratchpad && cat > /tmp/claude-0/-tmp-poc-trials-W20-sp-review-c3-1-app/b19a235d-7828-4"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --experimental-strip-types /tmp/claude-0/-tmp-poc-trials-W20-sp-review-c3-1-app/b19a235d-7828-422e-8bd7-2062742c0cb4/scratchpad/t.ts 2>&1 | grep -v Warning | head -60\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat src/app/instruments/\\\\[id\\\\]/LocationForm.tsx | head -60; grep -n \\\"locationId\\\\|locationOriginal\\\\|location\\\" src/app/api/instruments/route.ts \\\"src/app/api/instruments/[id]/route.ts"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W20-sp-review-c3-1-app/b19a235d-7828-422e-8bd7-2062742c0cb4/scratchpad\\ncat > $S/t.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W20-sp-review-c3-1/"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --experimental-strip-types /tmp/claude-0/-tmp-poc-trials-W20-sp-review-c3-1-app/b19a235d-7828-422e-8bd7-2062742c0cb4/scratchpad/t.ts 2>&1 | tail -15; grep -n \\\"locationId\\\\|fetch\\\" s"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 17,
+      "Agent": 1,
+      "Write": 4,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 1,
+    "subagent_types": {
+      "general-purpose": 1
+    },
+    "questions": 0,
+    "active_seconds": 115,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き直して、`REVIEW.md` だけをコミットしました。コードは直していません。\n\nレビュー担当が出した指摘を、1 件ずつ「重要度・場所・何が問題か・直し方」の形に整理しました。冒頭に重要度順の一覧表を付けています。新しい指摘は足していません。\n\n| 重要度 | 件数 | 内容 |\n|---|---|---|\n| 高 | 2 | `location` 列に場所の名前が入らない（要件 7）。前の版に戻すと場所が正しく動かない（要件 8）。 |\n| 中 | 6 | 移行件数が DB に残らない。起動時の移行が 5 万件で遅くなる恐れ。ハンディ端末が分からない文字を捨てる。台帳 API が自由入力を受け付ける。場所 API が重複を 409 で返す。テストが不具合を固定している。 |\n| 低 | 3 | 運用メモに戻し手順などが無い。場所の更新で同じ読み出しを重ねている。16 か所の根拠資料が無い。 |\n\n前回の `REVIEW.md` から次の点を直しました。\n- **409 の重要度を「低」から「中」に戻しました。** レビュー担当は「重要」としていたのに、私が下げていました。\n- **前回落としていた 2 件を戻しました。** 場所更新での読み出しの重複と、16 か所の根拠資料が無いことです。\n- **同じ指摘はまとめました。** 高の 2 件は、同じ原因（`location` と `location_id` の二重管理）の別の症状として分けて書いています。\n\n実行して確かめた指摘は無く、コードを読んで追った結果です。「未確認」の印は、`REVIEW.md` の該当箇所に残しています。"
+  },
+  "interventions": 0
+}
