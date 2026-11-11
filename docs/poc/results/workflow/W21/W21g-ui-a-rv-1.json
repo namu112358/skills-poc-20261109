@@ -1,0 +1,81 @@
+{
+  "trial": "W21g-ui-a-rv-1",
+  "scenario": "W21",
+  "task": "W21g",
+  "config": "ui-a-rv",
+  "rep": 1,
+  "transcript": {
+    "cost_usd": 0.6861,
+    "tokens": {
+      "input": 60,
+      "output": 14558,
+      "cache_read": 1709702,
+      "cache_creation": 110176
+    },
+    "turns": 29,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"\\\"/tmp/poc-trials/W21g-ui-a-rv-1/plugins/impeccable/skills/impeccable/scripts/impeccable\\\" context --target src/app/my-tasks/MyTasks.tsx 2>&1 | head -80; git diff HEAD\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W21g-ui-a-rv-1/app; S=/tmp/poc-trials/W21g-ui-a-rv-1/plugins/impeccable/skills/impeccable/scripts/impeccable; $S detect --json src/app/my-tasks 2>&1 | head -80; echo --"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"/tmp/poc-trials/W21g-ui-a-rv-1/plugins/impeccable/skills/impeccable/scripts/impeccable detect --json /tmp/poc-trials/W21g-ui-a-rv-1/app/src/app/my-tasks\"}"
+      }
+    ],
+    "tool_calls": {
+      "Skill": 2,
+      "Bash": 13,
+      "Read": 3,
+      "Agent": 2,
+      "ReadNotifications": 7,
+      "ToolSearch": 1,
+      "Monitor": 1,
+      "Write": 1,
+      "Edit": 2
+    },
+    "skills_used": [
+      "impeccable:impeccable"
+    ],
+    "subagents": 2,
+    "subagent_types": {
+      "general-purpose": 2
+    },
+    "questions": 0,
+    "active_seconds": 95,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "レビューを `REVIEW.md` に書き、`REVIEW.md` だけをコミットしました。コードは変更していません。ただし、検出器（`impeccable detect`）の実行と実ブラウザでの確認は、権限が得られず行えませんでした。指摘はすべてソースの読解に基づき、サイズやコントラスト比の実測値はありません。\n\n`REVIEW.md` には、場所・問題（誰がどう困るか）・直し方・重要度を付けた指摘が 12 件あります。\n\n**高（4 件）**\n- 送信ボタンの `tabIndex={1}`（`MyTasks.tsx:113`）で、最初の Tab が「追加する」に飛びます。フォーカス順が崩れます。\n- タスク行は `<li onClick>` と `window.location` で遷移しており、キーボードや支援技術では詳細へ行けません。`select` を開こうとして外すと誤遷移もします。`/tasks` のようにタイトルを `<a>` にしてください。\n- 追加フォームのエラーが入力欄と結び付いていません（`aria-invalid` / `aria-describedby` やフォーカス移動が無い）。エラーはボタンの下に出るため、スマートフォンでは画面外になりやすいです。\n- ステータス保存失敗のメッセージが消えず、再試行などの案内もありません。保存中の二重操作や、連続変更時の状態の上書きも防げていません。\n\n**中（5 件）**\n- 入力欄・`select`・ボタンが標準サイズのままで、タッチしにくく、iOS ではフォーカス時に拡大されます。\n- ラベルが入力欄と同じ行に流れ込み、必須の表示もありません。\n- 追加直後のハイライトが `prefers-reduced-motion` を無視し、成功の通知文もありません。\n- 各行の `select` の名前が全部「ステータス」で、どのタスクか区別できず、成功の通知もありません。\n- ヘッダーに現在地の表示（`aria-current`）や `nav` がありません。\n- 空の状態にフォームへの案内がありません。見出しが `h1` から `h3` に飛んでいる点も同じ項目に含めています。\n\n**低（2 件）**\n- `#ccc` の枠線のコントラストが低いこと、色の直書き、`layout.tsx` の余白変更が他の画面にも影響することです。\n- `STATUS_LABELS` / `TASK_STATUSES` が `lib/tasks.ts` と二重定義になっていること、期限切れの表示が無いことです。\n\n作業ツリーのうち `REVIEW.md` 以外の PR の変更は、未コミットのまま残しています。"
+  },
+  "elapsed_seconds": 106,
+  "interventions": 0,
+  "review_md": "# レビュー: マイタスク画面（`/my-tasks`）\n\n観点: 画面の見た目・使い勝手・アクセシビリティ（スマートフォン利用が前提）。\n方法: `git diff HEAD` のソースレビュー（`impeccable` の audit / critique の観点）。\n**未実施**: 検出器（`impeccable detect`）の実行と、実ブラウザでの表示確認は、この環境で実行の許可が得られず行えていない。以下はコードから読み取れる問題で、画面の実測値（サイズ・コントラスト比）は含まない。\n\n重要度: 高 = マージ前に必ず直す / 中 = マージ前に直したい / 低 = 余力があれば。\n\n## 高\n\n### 1. 送信ボタンの `tabIndex={1}` でキーボード操作の順序が壊れる\n- 場所: `src/app/my-tasks/MyTasks.tsx:113`（`<button type=\"submit\" tabIndex={1}>`）\n- 問題: 正の `tabIndex` は、ページ内の他のすべての要素より先にフォーカスされる。Tab を最初に押すとヘッダーのリンクではなく「追加する」ボタンに飛び、次に Tab を押すとヘッダー先頭に戻る。キーボード・スクリーンリーダー利用者は、タイトルと期限を入力する前に送信ボタンへ着地し、順序が読み上げ順・画面の並びと食い違う（WCAG 2.4.3 フォーカス順序）。\n- 直し方: `tabIndex` を削除する。DOM 順（タイトル → 期限 → 追加ボタン）がそのままフォーカス順になる。\n\n### 2. タスク行が「クリックできるだけの `li`」で、キーボード・支援技術からは詳細へ行けない\n- 場所: `MyTasks.tsx:79-84`（`<li onClick={() => (window.location.href = ...)}` と `cursor: pointer`）\n- 問題: `li` にはフォーカスも役割もないため、キーボード利用者とスクリーンリーダー利用者はタスク詳細へ移動できない。マウス・タッチでは行のどこでも遷移するため、ステータスの `select` を開こうとして外した指やタップが誤遷移になり、入力途中の追加フォームの内容も消える。リンクとして認識されないので、右クリック／長押しの「新しいタブで開く」も使えない。一覧（`/tasks`）はタイトルが `<a href>` になっており、挙動も不統一。\n- 直し方: タイトルを `<a href={`/tasks/${task.id}`}>` にする（`tasks/page.tsx` と同じ）。`li` の `onClick`・`cursor: pointer`・内側の `stopPropagation` を削除する。行全体を押せるようにしたいなら、リンクの `::after` を行全体に広げる方法をとり、`select` はその前面に置く。\n\n### 3. 入力エラーが入力欄と結び付いておらず、フォーカスも移らない\n- 場所: `MyTasks.tsx:107-122`（フォーム）\n- 問題: エラーは送信ボタンの下に `role=\"alert\"` で出るだけで、どの欄の誤りかが分からない（「タイトルは 1〜200 文字で入力してください」などサーバーのメッセージを並べているだけ）。入力欄に `aria-invalid` / `aria-describedby` が無く、スクリーンリーダーでは欄に戻ったときに誤りが分からない。スマートフォンではソフトキーボードが開いたままエラーが画面外（ボタンの下）に出て、押しても何も起きないように見える。色以外の手がかり（欄の枠線や文言上の対応）も無い。\n- 直し方: エラーを該当欄の直下に出す（`details` を欄ごとに振り分けるか、少なくともフォーム上部にまとめて出す）。エラー領域に `id` を付け、対象の `input` に `aria-invalid=\"true\"` と `aria-describedby` を付ける。送信失敗後に最初の誤り欄またはエラー領域へフォーカスを移す。\n\n### 4. ステータスのエラーが `li` の下端に出るだけで、変更を元に戻した理由が読み取りにくい／消えない\n- 場所: `MyTasks.tsx:50-66`, `:100`\n- 問題: 失敗すると選択が元に戻るが、メッセージ「ステータスを変更できませんでした。」は行の最下部に出て、次に同じ行で成功するまで消えない（成功時は `false` に戻るが、別の行を操作しても残る）。どの変更が失敗したのか、何をすればよいか（再試行）が書かれていない。ログイン切れ（401）や入力誤りでも同じ文言になり、再読み込み・再ログインが必要なケースを区別できない。また、連続して変更したときに前の要求の結果が後から返って状態を上書きする（レースで、失敗時に「前の値」へ戻すと最新の選択を消す）。\n- 直し方: メッセージに行動を足す（例:「ステータスを変更できませんでした。もう一度お試しください。」、401 のときは「ログインし直してください」）。保存中は `select` を `disabled` にして二重操作を防ぐ。次の変更を始めたときに該当行のエラーを消す。\n\n## 中\n\n### 5. 入力欄・セレクト・ボタンがスマートフォンで小さく、タッチしにくい／iOS でズームされる\n- 場所: `MyTasks.tsx:90`（`select`）、`:108,111`（`input`）、`:113`（ボタン）。いずれもサイズ指定なしでブラウザ標準のまま\n- 問題: 標準のコントロールは高さがおおむね 20〜30px で、推奨のタッチ領域（44px）に届かない。フォントも 16px 未満になりやすく、iOS Safari ではフォーカス時に画面が自動拡大される。行の `padding` も 8px で詰まっており、`select` と行全体クリック（指摘 2）の境目を押し間違えやすい。\n- 直し方: コントロールの `min-height: 44px`、`font-size: 16px` 以上、行の `padding` を 12〜16px 程度にする。追加ボタンはフォーム幅いっぱいにする。\n\n### 6. ラベルが入力欄と同じ行に流れ込み、タイトル欄の見え方が崩れる\n- 場所: `MyTasks.tsx:107-112`\n- 問題: ラベル文字（「タイトル」）と `input`（`width: 100%`）が同じ `label` の中でインラインに並ぶため、幅 100% の入力欄が次の行に落ち、ラベルと欄の間隔・揃いが不安定。必須か任意かも書かれていない（タイトル・期限とも必須だが表示なし）。期限の `input type=\"date\"` はラベルの横に不揃いに置かれる。\n- 直し方: `label` を `display: grid; gap: 4px` にしてラベルを欄の上に置く。「（必須）」を明記し、`required` を付ける。\n\n### 7. 追加直後のハイライトが色だけ・モーション設定を無視する\n- 場所: `MyTasks.tsx:70-73`（`@keyframes my-task-added`）\n- 問題: 黄色背景（`#fff3b0`）＋ 12px の横スライドが、`prefers-reduced-motion` を考慮せずに再生される。前庭障害などで動きを減らす設定の人にも動く。また、追加の成否を伝えるテキストが無く、スクリーンリーダー利用者には「追加できた」ことが伝わらない（行が増えるだけで、`role=\"status\"` もフォーカス移動も無い）。一覧が長いと、追加した行が画面外のまま気付かれない。\n- 直し方: `@media (prefers-reduced-motion: reduce)` で `transform` を無効にし、背景のみの短いフェードにする。追加後に「『○○』を追加しました。」を `role=\"status\"` で表示し、追加行へスクロール／フォーカスする。`<style>` の埋め込みはグローバル CSS（`globals.css` 相当）に移すのが望ましい。\n\n### 7b. ステータス選択の名前が全行で同じ「ステータス」になる／成功の通知が無い\n- 場所: `MyTasks.tsx:88-97`\n- 問題: スクリーンリーダーでフォーム項目一覧を開くと、どの `select` も「ステータス」としか読まれず、どのタスクの項目か区別できない。変更に成功しても通知が無い。\n- 直し方: `select` に `aria-label={`${task.title}のステータス`}` を付ける。常設の `role=\"status\"`（`aria-live=\"polite\"`）の領域に「ステータスを「進行中」に変更しました。」を出す。\n\n### 8. ヘッダーで現在のページが分からず、ナビが小さい\n- 場所: `src/app/layout.tsx`（`<a href=\"/my-tasks\">`）\n- 問題: 「タスク一覧」「マイタスク」とも現在地の表示（`aria-current=\"page\"` や見た目の差）が無く、どちらを開いているか分かりにくい。リンクは文字だけで、タップ領域が小さく、`flex-wrap` で折り返したときに「ログアウト」ボタンとの間隔も詰まる。`<nav>` ランドマークも無い。\n- 直し方: リンク群を `<nav aria-label=\"メインメニュー\">` に入れ、現在のページに `aria-current=\"page\"` と下線／太字などの見た目を付ける。リンクの縦パディングを増やしてタップ領域を 44px 近くにする。\n\n### 9. 空の状態に次の行動への案内が無い\n- 場所: `MyTasks.tsx:74-75`（「担当しているタスクはありません。」）\n- 問題: 文言は要件どおりだが、画面の下にある追加フォームへの導線が無い。タスクが 0 件のとき、利用者はフォームが同じ画面にあることに気付きにくい。\n- 補足: 見出しが `h1` → `h3`（`MyTasks.tsx:105`）で `h2` を飛ばしている。`h2` にする。\n- 直し方: 文言の後ろに「下のフォームから追加できます。」を足す、またはフォーム見出しへのリンク／フォーカスを用意する（要件の文言は保ったまま追記する）。\n\n## 低\n\n### 10. 見た目が既存画面と揃っておらず、色が直書き\n- 場所: `MyTasks.tsx:70-73,84`（`#fff3b0`, `#ccc`）、`layout.tsx`（`margin: 24 → 16` の全画面への変更）\n- 問題: 枠線 `#ccc` は白背景に対するコントラストが約 1.6:1 で、カードの境界が見分けにくい（非テキスト要素は 3:1 が目安）。ダークモードを入れると破綻する色の直書き。`layout.tsx` の余白変更は `/tasks`・`/login` など他画面の見た目にも影響する（依頼範囲を超える）。\n- 直し方: 枠線を `#767676` 程度以上の濃さにするか、色をトークン（CSS 変数）にまとめる。余白変更は、マイタスク画面側だけで調整するか、意図を PR に明記する。\n\n### 11. ステータス表示が重複して定義され、ラベルは入力欄と期限の並びが分かりにくい\n- 場所: `MyTasks.tsx:5-6`（`TASK_STATUSES` / `STATUS_LABELS` の再定義）、`:98`（`期限 2026-11-14`）\n- 問題: `src/lib/tasks.ts` に同じ定義があり、片方だけ変更すると画面間で表記がずれる。期限は ISO 形式のまま、期限切れ・近い日付の強調が無く、「期限の近い順」という画面の目的が見た目に出ていない。\n- 直し方: `@/lib/tasks` の `STATUS_LABELS` / `TASK_STATUSES` を import する（クライアントコンポーネントで `db` を読み込まないよう、必要なら定数だけを別モジュールに分ける）。期限が過ぎたタスクには文言（「期限切れ」）で示す（色だけにしない）。\n\n## 良かった点（参考）\n- 空状態・追加エラー・ステータス失敗の各文言が日本語で用意され、`role=\"alert\"` で通知される。\n- 失敗時にステータスの選択を元に戻している。\n- 長いタイトルが `overflowWrap: anywhere` で折り返され、ヘッダーは `flexWrap` で狭い幅でも崩れない。\n",
+  "observations": {
+    "hook_outputs": {
+      "PostToolUse:Write": 1
+    },
+    "hook_samples": [
+      {
+        "hook": "PostToolUse:Write",
+        "output": "{\"systemMessage\": \"security-guidance: the AI security review of your changes is not running. No Anthropic credentials were passed to the plugin's hooks, so only the pattern warnings on edits are active. See \\\"Credentials\\\" in the plugin README. Set ENABLE_CODE_SECURITY_REVIEW=0 to turn the review off and hide this notice, which is shown at most once a week.\"}"
+      }
+    ],
+    "design_docs": [],
+    "fonts": [
+      "system-ui, sans-serif\", margin: 16"
+    ],
+    "overused_fonts": [],
+    "files_changed": [
+      "REVIEW.md",
+      "src/app/layout.tsx",
+      "src/app/my-tasks/MyTasks.tsx",
+      "src/app/my-tasks/page.tsx",
+      "src/lib/tasks.ts",
+      "tests/tasks.test.ts"
+    ]
+  }
+}
