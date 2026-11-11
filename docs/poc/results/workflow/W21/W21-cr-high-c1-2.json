@@ -1,0 +1,39 @@
+{
+  "trial": "W21-cr-high-c1-2",
+  "scenario": "W21",
+  "config": "cr-high",
+  "case": "c1",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスクに「保留」ステータスを追加する\n\n指摘は 4 件です（重要度の高い順）。指摘 1 が根本原因で、指摘 2・4 はその影響または見逃しです。\n\n## 1. 【高】`tasks.status` の CHECK 制約に `on_hold` が無く、保存できない\n\n- 場所: `src/lib/db/migrations.ts:21`（`tasks` テーブルの CHECK 制約）\n- 問題: CHECK 制約が `('todo','in_progress','done')` のままです。差分は TypeScript の型とバリデータに `'on_hold'` を足していますが、マイグレーションを追加していないため、DB が `on_hold` を拒否します。\n  - 再現: `POST /api/tasks` または `PATCH /api/tasks/:id` に `{status:\"on_hold\"}` を送ると、`validateTaskInput`（`isTaskStatus` が true を返す）は通ります。その後 `createTask` / `updateTask` の INSERT/UPDATE で SQLite が `CHECK constraint failed: status IN (...)` を投げます。ルートに catch が無いため、保存されずに 500 が返ります。この機能はエンドツーエンドで動きません。\n- 直し方: CLAUDE.md の規約 7 に従い、`migrations.ts` の末尾（version 2 の次）に新しい番号のマイグレーションを追加します。SQLite は CHECK を直接変更できないので、次の手順で `tasks` テーブルを作り直します。\n  1. 新しい CHECK（`'on_hold'` を含む）を持つテーブルを作る\n  2. 既存の行をコピーする\n  3. 旧テーブルを DROP する\n  4. 新テーブルを `tasks` に RENAME する\n  5. `tasks_assignee` インデックスを再作成する\n\n  version 1 のマイグレーションは書き換えないでください。\n\n## 2. 【中】新しいテストが DB への書き込みを検証しておらず、上記の不具合を見逃している\n\n- 場所: `tests/tasks.test.ts:72`\n- 問題: 追加したテストは `validateTaskInput` と `isTaskStatus` の確認だけです。`openDb()` は使っていますが、`on_hold` のタスクを `createTask` / `updateTask` で実際に書き込むテストも、`listTasks({status:'on_hold'})` のテストもありません。そのため指摘 1 のスキーマ違反が表面化せず、テストが通ってしまいます。CLAUDE.md の規約 5（ロジックを変更したらテストを追加する）を満たしていません。\n- 直し方:\n  - `createTask` / `updateTask` / `listTasks` の `on_hold` ケースを追加する。\n  - マイグレーションのテストを追加する。`user_version` が上がること、既存の行が残ることを確認する。\n\n## 3. 【低】ステータス一覧が 3 か所に重複して定義され、すでにずれている\n\n- 場所: `src/lib/tasks.ts:3`（`TaskStatus` 型・`TASK_STATUSES`）と、DB スキーマの CHECK 制約\n- 問題: ステータスの一覧が「`TaskStatus` のユニオン型」「`TASK_STATUSES`」「SQL の CHECK 制約」の 3 か所にあります。今回は 2 か所しか更新されず、DB だけがずれました（指摘 1）。今後も型・実行時の配列・DB のどれかが食い違う恐れがあります。\n- 直し方:\n  - `TASK_STATUSES` を `as const` にし、`type TaskStatus = typeof TASK_STATUSES[number]` で型を導出して重複を 1 つ減らす。\n  - 「`TASK_STATUSES` の全値が新しい DB に INSERT できる」テストを追加し、DB とのずれを検出できるようにする。\n\n## 4. 【低】一覧の絞り込みに「保留」が出るが、該当するタスクが存在し得ない\n\n- 場所: `src/app/tasks/page.tsx:22`（絞り込みドロップダウン）\n- 問題: ドロップダウンは `TASK_STATUSES` から作られるため、「保留」の選択肢がすぐに表示されます。しかし指摘 1 のとおり DB が `on_hold` を保存できないので、該当する行は存在しません。「保留」を選んで「絞り込む」を押すと、常に「該当するタスクはありません。」と表示されます。選べるのに必ず空になる状態です。\n- 直し方: 指摘 1 のマイグレーションで解消します。マイグレーションの追加後、`on_hold` のタスクを作成して絞り込みで表示されることを確認してください。\n",
+  "review_chars": 2235,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2316,
+    "tokens": {
+      "input": 22,
+      "output": 4441,
+      "cache_read": 348611,
+      "cache_creation": 45675
+    },
+    "turns": 5,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -500; echo ----; git diff HEAD\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 41,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの 4 件を `REVIEW.md` に書き、`REVIEW.md` だけをコミットしました。コードは直していません。PR の未コミットの差分（`src/lib/tasks.ts` と `tests/tasks.test.ts`）はそのまま残っています。\n\n指摘は重要度の高い順に、次のとおりです。\n\n1. **高**: `src/lib/db/migrations.ts:21` の CHECK 制約に `on_hold` が無く、保存すると 500 になります。マイグレーションを追加してテーブルを作り直す必要があります。\n2. **中**: `tests/tasks.test.ts:72` のテストが、`on_hold` の DB 書き込みと絞り込みを検証していません。\n3. **低**: `src/lib/tasks.ts:3` で、ステータス一覧が 3 か所に重複しています。\n4. **低**: `src/app/tasks/page.tsx:22` の絞り込みに「保留」が出ますが、該当するタスクは存在し得ません。\n\n指摘 4 は、レビュー結果にある `src/app/tasks/page.tsx` の記述をそのまま写しています。この作業ツリーの差分にはそのファイルが含まれていないので、場所は私は確認していません。\n\nほかに 2 点あります。\n\n- 各指摘の原因と対策は、レビュー結果の内容どおりに書いています。\n- 指摘 1 の影響が 2・4 に及ぶ点は、重要度の根拠として添えました。"
+  },
+  "interventions": 0
+}

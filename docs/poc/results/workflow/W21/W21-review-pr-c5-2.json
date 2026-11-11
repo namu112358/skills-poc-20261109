@@ -1,0 +1,39 @@
+{
+  "trial": "W21-review-pr-c5-2",
+  "scenario": "W21",
+  "config": "review-pr",
+  "case": "c5",
+  "rep": 2,
+  "review_md": "# レビュー結果: 担当者の項目名を `assigneeId` / `assignee_id` に変更\n\n結論: **マージ不可**。バグ 1 件（高）と、PR の前提「API の入出力は変えない」に反する互換性の問題 1 件（高）があります。\n\n## 1. [高] 一覧取得 `listTasks` が `assigneeId` を返さない（バグ）\n\n- 場所: `src/lib/tasks.ts` `listTasks`（SELECT 文、37 行目付近）と `toTask`（32 行目）\n- 問題: SELECT が `assignee_id AS assignee` と別名を付けているのに、`toTask` は `row.assignee_id` を読みます。結果は常に `undefined` になります。\n  - `/tasks` 一覧の「担当者」列が全行で空欄になります（変更前は `sato` などが表示されていました）。\n  - `GET /api/tasks` の各タスクは `assigneeId` が `undefined` になり、JSON.stringify で項目ごと消えます。\n  - 詳細（`getTask`）と作成は正しいので、一覧だけが壊れます。\n- なぜ検出されなかったか: `listTasks` のテストは件数・ステータス絞り込みしか見ておらず、担当者を検証していません。typecheck も、`as TaskRow[]` のキャストで素通りします。\n- 直し方: `assignee_id AS assignee` の別名を外し、`SELECT id, title, status, assignee_id, due_date ...` にします。あわせて `listTasks` のテストで先頭のタスクの `assigneeId` が `\"sato\"` であることを検証してください。\n\n## 2. [高] API の入出力が変わっている（PR の説明と不一致）\n\n- 場所: `src/lib/tasks.ts` `validateTaskInput`（`need(\"assigneeId\")`、`b.assigneeId`）、`Task` 型。`src/app/api/tasks/route.ts` と `src/app/api/tasks/[id]/route.ts` は `Task` をそのまま JSON にして返し、本文は `validateTaskInput` に渡しています。\n- 問題: PR は「画面の表示と API の入出力は変えない」としていますが、実際は次のとおり変わります。\n  - リクエスト: `POST /api/tasks` と `PATCH /api/tasks/:id` の本文キーが `assignee` から `assigneeId` になります。既存クライアントが `{\"assignee\":\"sato\", ...}` を送ると、POST は 400「担当者が存在しません」になります。PATCH は、`assignee` だけを送った場合に変更が黙って無視されます（`assigneeId` が無いためです）。\n  - レスポンス: `GET/POST/PATCH` のタスク JSON のキーが `assignee` から `assigneeId` になります。\n- 直し方: どちらかに揃えてください。\n  - (A) 説明どおり API を維持する場合は、JSON のキー `assignee` は保ちます。`validateTaskInput` は `b.assignee` を読み、API 層（または `toApi()` のような変換関数）で `assigneeId` と `assignee` を相互に変換します。\n  - (B) API も変えるなら、PR の説明を直し、破壊的変更として扱ってください。API の利用者への周知と、`assignee` を併せて受け付ける移行期間を設けるかも判断してください。\n- テスト: API の入出力が不変であることを確認するテスト（本文キー `assignee` で作成でき、レスポンスにも `assignee` が含まれる）を追加してください。現状、バリデーションのテストが新しいキーに書き換えられており、互換性の破壊が見えなくなっています（CLAUDE.md 規約 5・9 の観点）。\n\n## 3. [中] 検証の記述が不十分\n\n- 場所: PR の「検証結果」の記述、`tests/tasks.test.ts`・`tests/db.test.ts`（項目名を書き換えたテスト）\n- 問題: 「typecheck と test が通った」だけでは上の 1・2 を検出できていません。テストの項目名を実装に合わせて書き換えたため、互換性の確認になっていません。\n- 直し方: 画面と API の実動作（一覧の担当者列、API の JSON）を確認し、指摘 1・2 のテストを追加してください。\n\n## 4. [低] マイグレーション 3 に関する補足\n\n- 場所: `src/lib/db/migrations.ts` version 3\n- `ALTER TABLE ... RENAME COLUMN` は SQLite 3.25 以降で使え、インデックスと外部キーも付け替えられます。既存のマイグレーションを書き換えていない点も規約どおりです。\n- ただし、インデックス名 `tasks_assignee` が列名と食い違ったままです。必要なら同じマイグレーション内で `DROP INDEX` と `CREATE INDEX tasks_assignee_id ON tasks(assignee_id)` を行ってください（任意）。\n- ロールバック手段が無いため、既存データを持つ DB でマイグレーションを適用する手順を PR に書くとよいです。\n",
+  "review_chars": 2514,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2613,
+    "tokens": {
+      "input": 24,
+      "output": 4942,
+      "cache_read": 476861,
+      "cache_creation": 41048
+    },
+    "turns": 11,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='REVIEW.md'\\ns=open(p,encoding='utf-8').read()\\ns=s.replace(\\\"## 3. [中] 検証の記述が不十分\\\\n\\\\n\\\",\\\"## 3. [中] 検証の記述が不十分\\\\n\\\\n- 場所: PR の「検証結果」の記述、`tests/tasks.test.ts`・`tests/"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Edit": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 59,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を更新し、そのファイルだけをコミットしました。コードは変更していません。\n\n先ほどの指摘4件は、すでに同じ形式で `REVIEW.md` に入っていました。今回は、[中] の「検証の記述が不十分」に抜けていた「場所」と「直し方」を足しただけです。新しい指摘は足しておらず、削った指摘もありません。\n\n内訳は次のとおりです。\n\n- **[高] 1**: `listTasks` が `assigneeId` を返さない。\n- **[高] 2**: API の入出力が変わっていて、PR の説明と合わない。\n- **[中] 3**: 検証が不十分。\n- **[低] 4**: マイグレーション 3 の補足。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,39 @@
+{
+  "trial": "W21-cr-high-c4-1",
+  "scenario": "W21",
+  "config": "cr-high",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# コードレビュー: 期限が近いタスクを一覧で目立たせる\n\n指摘は 5 件です（重要度の高い順）。\n\n## 1. 【高】`daysUntilDue` の日付境界が誤っている（サーバーのタイムゾーン依存）\n\n- 場所: `src/lib/due.ts:12`（`daysUntilDue`。呼び出し側は `isDueSoon`）\n- 問題: 日付だけの文字列（YYYY-MM-DD）を `Date.parse` すると UTC の 0 時になります。この値を「現在の時刻」と比べて floor しているため、日付の境界がずれ、サーバーのタイムゾーンにも左右されます。\n  - 例: UTC サーバーで 2026-11-11T10:00Z のとき、期限 2026-11-11 のタスクは `Date.parse` が 00:00Z になり、差は -10 時間、floor は -1 になります。関数の説明では「今日期限」は 0 のはずですが、`isDueSoon` は false を返します。\n  - その結果、今日が期限のタスクがその日の大半で「期限間近」にならず、3 日の窓も時刻によってずれます。\n  - JST では、今日が期限のタスクが付くのは現地時間の 9:00 までです。米国のタイムゾーンでは、また別の結果になります。\n  - 新しいテストは `now` を JST の 00:00 ちょうど（前日 15:00Z）に固定しているため、たまたま通っています。\n- 直し方: 1 つのタイムゾーン（`Asia/Tokyo`）を明示して、暦の日付どうしを比べます。たとえば `now` を JST の YYYY-MM-DD に変換し、期限日との日付だけの値の差を日数にします。\n\n## 2. 【中】テストが日付境界とタイムゾーンの不具合を隠している\n\n- 場所: `tests/due.test.ts:5`\n- 問題: `now` を JST の 00:00 ちょうど（2026-11-12T00:00:00+09:00 = 2026-11-11T15:00Z）の 1 通りしか使っていません。このとき `Date.parse('2026-11-12')` はちょうど 9 時間先なので、floor は 0 になってテストが通ります。\n  - `now` が 2026-11-12T12:00+09:00 のような昼の時刻、または UTC の昼の時刻だと、`daysUntilDue('2026-11-12')` は -1 を返し、`isDueSoon` は false になります。\n  - これを検証するケースが無いため、実運用では壊れているのにテストは緑のままです。\n- 直し方: 昼と深夜の `now` のケースを追加します。あわせて、日数が `DUE_SOON_DAYS` に等しい境界のケースも追加します。\n\n## 3. 【低】`due-soon` クラスに対応する CSS が無い\n\n- 場所: `src/app/tasks/page.tsx:44`\n- 問題: ページで `due-soon` の className を付けていますが、`src` に `.due-soon` の CSS ルールがありません。grep で `due-soon` が見つかるのはこの使用箇所だけです。クラスは効果がなく、見える目印は「（期限間近）」の文字だけです。使われないコードか、意図した行のハイライトが抜けているかのどちらかです。\n- 直し方: `.due-soon` のスタイルを追加します。ハイライトが不要なら、className を削除します。\n\n## 4. 【低】`isDueSoon` を行ごとに 2 回計算している。判定をページ側で行っている\n\n- 場所: `src/app/tasks/page.tsx:53`\n- 問題: `isDueSoon(task, now)` を行ごとに 2 回呼んでいます（className 用とラベル用）。同じ日付計算が 2 回走り、片方だけ後から修正されると結果がずれるおそれがあります。\n  - 「期限間近」の判定をページコンポーネントで行っており、CLAUDE.md の規約 1（データの取得・絞り込みは `src/lib/` の関数に置き、ページには表示の処理だけを書く）に反します。\n- 直し方: 判定はタスクごとに 1 回だけ行います。たとえば map の段階で計算するか、`dueSoon` フラグ付きのタスクを返す `src/lib/` の関数を作り、ページはそのフラグを表示するだけにします。\n\n## 5. 【低】`isDueSoon` が不正な期限日を黙って無視する\n\n- 場所: `src/lib/due.ts:17`（`isDueSoon`）\n- 問題: `task.dueDate` が常に正しい値だと仮定しています。解釈できない日付だと NaN になり、エラーも記録も無く false を返します。\n  - DB の行には制約が無く、API は `dueDate` の形式と `Date.parse` しか検証していません。\n  - 例: '2026-02-31' は正規表現を通ります。`Date.parse` は処理系によって NaN になるか日付が繰り上がります。NaN なら `daysUntilDue` が NaN を返し、`days >= 0 && days < 3` はどちらも false になります。そのタスクは何の通知も無く、永遠に「期限間近」になりません。\n- 直し方: 日付を厳密に検証します（暦として存在する日付かを確認する）。不正な値は「判定なし」として扱うことを明示するか、検証エラーにします。\n",
+  "review_chars": 2405,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2362,
+    "tokens": {
+      "input": 20,
+      "output": 5294,
+      "cache_read": 312097,
+      "cache_creation": 45222
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -50; echo ----; git diff HEAD\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 59,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` に指摘 5 件を書き写し、`REVIEW.md` だけをコミットしました（コミット `2db4bd3`）。\n\n| 重要度 | 内容 | 場所 |\n|---|---|---|\n| 高 | 日付の境界がずれる（UTC の 0 時と現在時刻を比べているため、タイムゾーンに依存する） | `src/lib/due.ts:12` |\n| 中 | テストが `now` を JST の 00:00 ちょうどにしか固定しておらず、上の不具合を隠している | `tests/due.test.ts:5` |\n| 低 | `due-soon` クラスに対応する CSS が無い | `src/app/tasks/page.tsx:44` |\n| 低 | `isDueSoon` を行ごとに 2 回呼んでいる。判定をページ側で行っていて、規約 1 に反する | `src/app/tasks/page.tsx:53` |\n| 低 | 不正な期限日を黙って無視する | `src/lib/due.ts:17` |\n\n- **重要度:** レビュー結果には重要度が付いていなかったため、私の判断で付けました。\n- **コード修正:** 行っていません。PR の変更は未コミットのままです。\n- **指摘の確認:** 新しい指摘は足していません。指摘の内容もコードと照らして確認していません。"
+  },
+  "interventions": 0
+}

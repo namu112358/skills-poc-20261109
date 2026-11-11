@@ -1,0 +1,33 @@
+{
+  "trial": "W21-principles-c2-2",
+  "scenario": "W21",
+  "config": "principles",
+  "case": "c2",
+  "rep": 2,
+  "review_md": "# レビュー: タスク一覧を期限の近い順に並べ替える\n\nマージをブロックする不具合は見つからなかった。以下の 4 件を直すことを勧める。\n\n## 指摘 1: 不正な `sort` を「指定なし」として扱う動作のテストが無い\n\n- 重要度: 中\n- 場所: `src/app/api/tasks/route.ts` の `GET`、`src/app/tasks/page.tsx` の `sort` の判定、`tests/tasks.test.ts`\n- 何が問題か: PR は「`sort` の値の検証の単体テストを追加した」「不正値は登録順」としている。しかし、テストしているのは型ガード `isTaskSort` だけである。`?sort=foo` や `?sort=due_date` で、実際に登録順の一覧が返ることは、どのテストも確かめていない。`isTaskSort(sort) ? sort : undefined` の行が消えたり変わったりしても、テストは落ちない。\n- 直し方: 検証と既定値の決定を `src/lib/` の関数（例: `parseTaskSort(value): TaskSort | undefined`）にまとめて単体テストする。または `GET` ハンドラを呼んで、不正な `sort` で登録順になることを確かめるテストを足す。\n\n## 指摘 2: 並べ替えの列を連結して SQL に入れており、型を外れた呼び出しで壊れる\n\n- 重要度: 低\n- 場所: `src/lib/tasks.ts` の `listTasks`（`ORDER BY ${SORT_COLUMNS[filter.sort ?? \"id\"]}, id`）\n- 何が問題か: 規約 8 は SQL の文字列連結を禁じている。今回は許可リスト経由なので安全だが、`filter.sort` を守っているのは型だけで、実行時の検査が無い。型を外れた値（JS からの呼び出しや `as` のキャスト）が来ると `ORDER BY undefined, id` になり、SQL エラー（500）になる。また、今後 `SORT_COLUMNS` に式や別名を足す人が、連結してよいと誤解しやすい。\n- 直し方: 連結をやめ、並べ替えごとに固定の SQL 断片を持つ。例: `const ORDER_BY: Record<TaskSort, string> = { id: \"ORDER BY id\", due: \"ORDER BY due_date, id\" }`。少なくとも、固定文字列だけが入ることをコメントで明記する。\n\n## 指摘 3: 「期限の近い順」で、完了済みや期限切れのタスクが先頭に並ぶ\n\n- 重要度: 低\n- 場所: `src/lib/tasks.ts` の `listTasks`（`due` の並び）、`SORT_LABELS.due`\n- 何が問題か: 実装は期限の昇順なので、初期データでも完了済み（2026-11-02、11-05）が先頭に来る。PR の動機は「締め切りの近いものから片付けたい」であり、完了済みや期限切れが上にあると目的に合いにくい。「近い順」という名前と「日付の昇順」という実装が、期限切れ・完了済みの扱いで食い違う。\n- 直し方: 仕様を決めて、PR の説明とテストに書く。(a) 「期限の早い順」に改名して昇順であることを明確にする。または (b) 未完了を先にする（例: `ORDER BY status = 'done', due_date, id`）。ステータスで絞り込めば回避できるので、対応は任意。\n\n## 指摘 4: 期限順のテストの書き方\n\n- 重要度: 低\n- 場所: `tests/tasks.test.ts` の「sorts by due date, then by id」\n- 何が問題か: 期限順の確認が `[...keys].sort()` との比較で、期待値が実装と同じ考え方で作られている。また 1 つのテストが「期限順」と「同じ期限は登録順」の 2 つの振る舞いを確かめている。\n- 直し方: 期限順は期待する id の並びを直接書く（初期データなら `[1, 7, 2, 3, 4, 5, 6]`）。同じ期限の登録順は別のテストに分ける。\n\n## 良い点\n\n- 並べ替えの列を許可リスト（`SORT_COLUMNS`）から引き、ユーザー入力を SQL に直接入れていない。`isTaskSort` のテストに SQL 注入風の値も入っている。\n- 取得・並べ替えを `src/lib/tasks.ts` に置き、ページには表示だけが残っている（規約 1）。\n- 期限が同じタスクを `id` で決まった順にしている。テストもある。\n",
+  "review_chars": 2013,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2373,
+    "tokens": {
+      "input": 18,
+      "output": 5440,
+      "cache_read": 311091,
+      "cache_creation": 37931
+    },
+    "turns": 7,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 49,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの 4 件を、場所・何が問題か・直し方・重要度の項目に分けて `REVIEW.md` に書き直し、`REVIEW.md` だけをコミットしました。指摘の追加や削除はしておらず、コードも直していません。\n\n| 指摘 | 重要度 |\n|---|---|\n| 不正な `sort` を「指定なし」として扱う動作のテストが無い | 中 |\n| 並べ替えの列を連結して SQL に入れており、型を外れた呼び出しで壊れる | 低 |\n| 「期限の近い順」で、完了済みや期限切れのタスクが先頭に並ぶ | 低 |\n| 期限順のテストの書き方 | 低 |\n\n良い点の節も残してあります。元の 4 ファイルの差分は、未コミットのままです。"
+  },
+  "interventions": 0
+}

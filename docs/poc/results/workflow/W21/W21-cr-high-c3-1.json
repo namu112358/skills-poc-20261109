@@ -1,0 +1,47 @@
+{
+  "trial": "W21-cr-high-c3-1",
+  "scenario": "W21",
+  "config": "cr-high",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の CSV ダウンロード API\n\n対象: `GET /api/tasks/export`（`src/lib/export.ts`、`src/app/api/tasks/export/route.ts`、`tests/export.test.ts`）。指摘は 8 件（高 3・中 2・低 3）。\n\n## 高\n\n### 1. ダブルクォートをエスケープしていない（CSV が壊れる）\n- 場所: `src/lib/export.ts` の `field()`（11 行目）\n- 問題: 値を `\"${value}\"` で囲むだけで、値に含まれる `\"` を `\"\"` に二重化していない（RFC 4180 違反）。タイトルは `POST /api/tasks` でユーザーが自由に入れられる。たとえば `5\" display` や `「レビュー」 \"v2\" 対応` は `\"5\" display\"` と出力され、Excel や CSV パーサーが列を分割・結合して以降の列がずれ、後続の行まで壊れる。PR の「タイトルの記号で列がずれない」という説明とも合わない。\n- 直し方: `String(value).replace(/\"/g, '\"\"')` を通してから囲む。改行・カンマは囲むことで保持される。\n\n### 2. CSV / 数式インジェクション対策がない\n- 場所: `src/lib/export.ts` の `field()`（11 行目）。タイトルと担当者が対象\n- 問題: `=`・`+`・`-`・`@`・タブ・CR で始まる値をそのまま出力している。ログイン済みの任意のユーザーが `=HYPERLINK(\"http://evil\",\"click\")` や `=cmd|' /C calc'!A0` というタイトルのタスクを作ると、別のユーザーが Excel で開いたときに数式として評価される。引用符で囲んでも防げない。出力先が Excel なので現実的な危険がある。\n- 直し方: 先頭が `= + - @ \\t \\r` の文字列値の前に `'` を付ける（または先頭に空白を入れる）。数値の ID には適用しない。\n\n### 3. `status` クエリを型ガードで検証していない（CLAUDE.md 規約 2 違反）\n- 場所: `src/app/api/tasks/export/route.ts`（28〜29 行目）\n- 問題: `searchParams.get(\"status\") as TaskStatus | null` と強制キャストし、`isTaskStatus` を通していない。`?status=bogus` のような不正値がそのまま `listTasks` に渡り、該当 0 件になって見出しだけの CSV が黙ってダウンロードされる。規約と PR の説明は「不正な値は指定なしとして扱う」で、`GET /api/tasks` は `isTaskStatus(status) ? status : undefined` で正しく処理している。\n- 直し方: `isTaskStatus(raw) ? raw : undefined` にして `listTasks` へ渡す。キャストは外す。\n\n## 中\n\n### 4. テスト名と内容が一致せず、エスケープの不具合を検出できない\n- 場所: `tests/export.test.ts` の「escapes quotes and commas in titles」（15〜18 行目）\n- 問題: 使っているタイトル `週次 定例の準備` には引用符もカンマも無く、空白があるだけ。指摘 1 のバグがあってもテストが通る。`\"`・`,`・改行・数式の先頭文字のケースが無く、エスケープの退行を検出できない。\n- 直し方: `\"`・`,`・改行（`\\n`）・`=` 始まりを含むタイトルのテストを追加し、期待値を RFC 4180 の形で書く。\n\n### 5. テストが seed データに依存し、ルートがテストされていない\n- 場所: `tests/export.test.ts` の「writes a header and one line per task」（9〜12 行目）。ルート全体\n- 問題: `openDb()` の seed に依存して行数 9 や 1 行目の内容を固定しており、seed の増減や変更で CSV ロジックが正しくても失敗する。ルート側の `?status=` による絞り込み、不正値の扱い、未ログイン時の 401 のテストが無い（CLAUDE.md 規約 5）。\n- 直し方: テスト内でタスクを組み立てて `toCsv` に渡す。絞り込みと不正値の扱いは `src/lib/` 側の関数に切り出して単体テストを書く。ルートは 401 を含めて可能な範囲で検証する。\n\n## 低\n\n### 6. `Cache-Control: no-store` が無い\n- 場所: `src/app/api/tasks/export/route.ts`（30〜35 行目のレスポンスヘッダー）\n- 問題: ログイン中のユーザー向けの全タスクのダンプなのにキャッシュ禁止のヘッダーが無い。共有プロキシやブラウザのキャッシュに残り、ログアウト後や同じ端末の別ユーザーに再利用されるおそれがある。\n- 直し方: ヘッダーに `\"Cache-Control\": \"no-store\"` を追加する。\n\n### 7. BOM の付与が lib とルートに分かれている\n- 場所: `src/lib/export.ts`（`CSV_BOM` の export と `toCsv`）、`src/app/api/tasks/export/route.ts`（30 行目）\n- 問題: `CSV_BOM` は lib から export されているが、ルートが手で先頭に連結している。`toCsv` の出力だけでは Excel 向けとして完結せず、将来ほかの呼び出し元が BOM を付け忘れると Excel で文字化けする。\n- 直し方: `toCsv` に BOM を含めるか、`toCsvDownload` のような 1 つの関数にまとめる。\n\n### 8. BOM が不可視の U+FEFF リテラルでソースに書かれている\n- 場所: `src/lib/export.ts` 5 行目の `CSV_BOM`\n- 問題: 見えない文字をそのままソースに書いている。エディタ・フォーマッタ・リンターが黙って削除または警告することがあり、削除されると空文字列になる。差分に現れないまま Excel で日本語が再び文字化けする。\n- 直し方: `\"﻿\"` のエスケープで書く。\n",
+  "review_chars": 2856,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2983,
+    "tokens": {
+      "input": 26,
+      "output": 8345,
+      "cache_read": 440014,
+      "cache_creation": 49993
+    },
+    "turns": 7,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; echo ---; git diff HEAD\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat src/lib/db/index.ts | head -40; grep -n \\\"INSERT\\\\|title\\\" src/lib/db/seed.ts | head -20; sed -n 1,40p src/app/api/tasks/route.ts; grep -n \\\"CSV_BOM\\\" -r src | head -2; grep -c $'\\\\xe"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > REVIEW.md <<'EOF'\\n# コードレビュー: タスク一覧の CSV ダウンロード API\\n\\n対象: `GET /api/tasks/export`（`src/lib/export.ts`、`src/app/api/tasks/export/route.ts`、`tests/export.test.ts`）。指摘は 8 件（高 3・中 2・低 "
+      }
+    ],
+    "tool_calls": {
+      "Bash": 9,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 78,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` にレビューの 8 件を書き、`REVIEW.md` だけをコミットしました。コードは直していません。PR の変更ファイル 3 つはステージされたままで、コミットには含めていません。\n\n指摘ごとに、場所・何が問題か・直し方を書き、重要度を付けています。\n\n| 重要度 | 件数 | 内容 |\n|---|---|---|\n| 高 | 3 | ダブルクォートを二重化していない／数式インジェクション対策がない／`status` を `isTaskStatus` で検証していない |\n| 中 | 2 | テストがエスケープ不具合を検出できない／テストが seed データに依存し、ルートが未テスト |\n| 低 | 3 | `Cache-Control: no-store` が無い／BOM の付与が lib とルートに分かれている／BOM が不可視文字のリテラルで書かれている |\n\n行番号は、`/code-review` の出力ではなく現在のファイルを見直して付け直しました。新しい指摘の追加も、既存の指摘の削除もしていません。"
+  },
+  "interventions": 0
+}

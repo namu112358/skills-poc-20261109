@@ -1,0 +1,38 @@
+{
+  "trial": "W21-principles-c2-1",
+  "scenario": "W21",
+  "config": "principles",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: タスク一覧の「期限の近い順」並べ替え\n\n## 要約\n\nマージ前に直すべき不具合は見つからなかった。\n`sort` は `isTaskSort` で検証され、不正な値は「指定なし」（登録順）になる。\nSQL に入る列名は固定の表（`SORT_COLUMNS`）から引くだけで、入力値は入らない。\n`due_date` は `NOT NULL` かつ `YYYY-MM-DD` 形式なので、文字列の並べ替えで日付順になる。\n同じ期限は `, id` で登録順になる。\n以下の 3 件は、いずれも規約との関係で直した方がよい点（重要度: 低）。\n\n## 指摘\n\n### 1. ORDER BY を文字列連結で組み立てている\n\n- 重要度: 低\n- 場所: `src/lib/tasks.ts` の `listTasks`（テンプレート文字列内の `${SORT_COLUMNS[filter.sort ?? \"id\"]}`）\n- 何が問題か: 規約 8 は「SQL に値を埋め込むときは必ずプレースホルダを使い、文字列連結で組み立てない」と定めている。\n  列名はプレースホルダにできないので、ホワイトリストを経由した連結にしたのは理由のある判断である。\n  ただし、現在の安全性は次の 2 点に依存している。\n  - `SORT_COLUMNS` の値が固定であること。\n  - `filter.sort` が呼び出し側で `isTaskSort` を通っていること。\n  TypeScript の型は実行時には守られない。\n  `listTasks` を別の場所から未検証の値で呼ぶと、`SORT_COLUMNS[x]` が `undefined` になる。\n  その場合、`ORDER BY undefined, id` という壊れた SQL になる。\n  `__proto__` のような値だと、プロトタイプのオブジェクトが文字列に展開される。\n- 直し方: 連結をやめ、並べ替えごとに完成した SQL を持たせる。\n  ```ts\n  const SORT_ORDER_SQL: Record<TaskSort, string> = {\n    id: \"ORDER BY id\",\n    due: \"ORDER BY due_date, id\",\n  };\n  ```\n  あるいは `ORDER BY` の中身を `CASE :sort WHEN 'due' THEN due_date END, id` のようにプレースホルダだけで書く。\n  どちらでも、`listTasks` の入口で `isTaskSort` を再確認し、不正なら `\"id\"` に倒すと、直接呼ばれても安全になる。\n\n### 2. API の並べ替えの結果を確かめるテストがない\n\n- 重要度: 低\n- 場所: `tests/tasks.test.ts`（対象は `src/app/api/tasks/route.ts` の `GET`）\n- 何が問題か: 規約 5 は、ロジックを追加・変更したら `tests/` にテストを足すことを求めている。\n  追加されたテストは `listTasks` と `isTaskSort` だけを対象にしている。\n  PR の説明にある `GET /api/tasks?sort=due` で並び替わることと、`sort=bogus` で登録順になることは、確かめられていない。\n  route.ts は `status` と `sort` を別々に検証して渡しているので、この対応が崩れてもテストでは気付けない。\n- 直し方: クエリ文字列から `TaskFilter` を作る処理を `src/lib/` の関数に切り出し、その関数をテストする。\n  既存のテストで API Route を直接呼ぶ方法があるなら、それに合わせて追加してもよい。\n\n### 3. `status` / `sort` のクエリ検証が画面と API で重複している\n\n- 重要度: 低\n- 場所: `src/app/tasks/page.tsx`（`TasksPage`）と `src/app/api/tasks/route.ts`（`GET`）\n- 何が問題か: 「検証して、不正なら `undefined`」という同じ処理が、2 つの入口に 2 回ずつ（`status` と `sort`）書かれている。\n  絞り込みの項目を足すと、その分だけ両方に書き足す必要があり、片方だけ直し忘れて食い違うおそれがある。\n  現時点では 2 回なので、この PR で必須ではない。\n- 直し方: `parseTaskFilter(params)` のような関数を `src/lib/tasks.ts` に 1 つ作り、画面と API の両方から使う。\n  項目 2 の切り出しと一緒に行うと効率がよい。\n\n## 確認したが問題ないと判断した点（参考）\n\n- 期限順は過去の期限と完了済みのタスクも含めて昇順に並べる。\n  PR の説明は「期限の近い順」としか書いておらず、この挙動はその範囲内と判断した。\n- 画面の `defaultValue={sort ?? \"id\"}` と、不正な値を指定なしとして扱う動作は、規約 2 に沿っている。\n",
+  "review_chars": 2231,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2433,
+    "tokens": {
+      "input": 20,
+      "output": 5500,
+      "cache_read": 357819,
+      "cache_creation": 38108
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 52,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を、各指摘に「重要度・場所・何が問題か・直し方」の項目を立てた形に書き直し、`REVIEW.md` だけをコミットしました。指摘は前回と同じ 3 件で、足したものも削ったものもありません。コードは直していません。未コミットの差分はそのまま残っています。\n\n3 件とも重要度は「低」です。\n\n1. `src/lib/tasks.ts` の `listTasks` が ORDER BY を文字列連結で組み立てている（規約 8 との関係）。\n2. `tests/tasks.test.ts` に、`GET /api/tasks?sort=...` の並べ替えを確かめるテストがない。\n3. `status` と `sort` のクエリ検証が、`page.tsx` と `route.ts` で重複している。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,39 @@
+{
+  "trial": "W21-principles-c3-1",
+  "scenario": "W21",
+  "config": "principles",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: タスク一覧の CSV ダウンロード API\n\n## 要約\n\n`GET /api/tasks/export` を追加し、タスク一覧を BOM 付き UTF-8 の CSV で返す変更。ログイン確認、`listTasks` の再利用、CSV 生成を `src/lib/export.ts` に分けた構成はよい。ただし、PR の説明にある 2 つの約束（引用符のエスケープ、不正な `status` を「指定なし」にする）が実装されておらず、テストもそれを検出できていない。**修正を求める。**\n\n## 良い点\n\n- CSV の組み立てを `src/lib/export.ts` に置き、Route は認証・取得・応答だけにしている（規約 1）。\n- 一覧と同じ `listTasks` を使っており、絞り込みの SQL を重複させていない。プレースホルダも維持されている。\n- `/api/tasks/export` は静的ルートなので `[id]` より優先され、衝突しない。\n\n## 指摘\n\n### 1. 不正な `status` が「指定なし」にならない\n\n- 重要度: **高**\n- 場所: `src/app/api/tasks/export/route.ts:10`（`GET`）\n- 何が問題か: `searchParams.get(\"status\") as TaskStatus | null` は型を偽るキャストで、検証していない。`?status=foo` や `?status=`（空文字）では `listTasks({status: \"foo\"})` が `WHERE status = 'foo'` になり、**0 件（見出しだけの CSV）** が返る。PR の説明（「不正な値は、一覧と同じく指定なし」）と食い違い、規約 2（型ガードで検証）にも反する。\n- 直し方: `GET /api/tasks` と同じく `isTaskStatus(status) ? status : undefined` にする。キャストは削除する。\n\n### 2. 引用符をエスケープしておらず、CSV が壊れる\n\n- 重要度: **高**\n- 場所: `src/lib/export.ts:11`（`field`）\n- 何が問題か: `\"${value}\"` は値に含まれる `\"` を `\"\"` にしない。タイトルが `彼は\"急ぎ\"と言った` の場合、`\"彼は\"急ぎ\"と言った\"` になり列がずれる。PR の「引用符が含まれても列がずれない」を満たさない。関数のコメントも実装と食い違っている。\n- 直し方: `` `\"${String(value).replaceAll('\"', '\"\"')}\"` `` とする。\n\n### 3. CSV（数式）インジェクション\n\n- 重要度: **高**\n- 場所: `src/lib/export.ts:11`（`field`）\n- 何が問題か: タイトルは任意のログインユーザーが作成できる（`POST /api/tasks`）。`=HYPERLINK(...)`、`+`、`-`、`@` などで始まるタイトルは、引用符で囲んでいても Excel に貼る・開くと数式として評価される。週次報告で他人の作ったタスクを Excel に取り込む用途なので、現実的な攻撃経路になる。\n- 直し方: 先頭が `= + - @` やタブ・CR の文字列は、先頭に `'` を付ける（またはタブを付ける）。数値の ID と期限は対象外にする。`field` の中で行い、テストを追加する。\n\n### 4. テストが PR の約束を検証していない\n\n- 重要度: **中**\n- 場所: `tests/export.test.ts:14-17`（\"escapes quotes and commas in titles\"）\n- 何が問題か: 名前は引用符とカンマのエスケープだが、使っているタイトル `週次 定例の準備` に引用符もカンマも改行も無く、指摘 2 の不具合を検出できない（通ってしまう）。そのほか次が未テスト。\n  - `status` による絞り込みと不正な値の扱い（指摘 1）\n  - BOM\n  - 改行を含むタイトル\n  - 数式インジェクションの対策（指摘 3）\n  - Route 自体の 401、`Content-Type`、`Content-Disposition`\n- 直し方: 引用符・カンマ・改行を含むタイトルでテストを書き直し、先に失敗することを確認してから指摘 2 を直す。絞り込みの判断（不正な値は指定なし）を `src/lib/` の関数に置けば、Route を通さず単体でテストできる。Route の振る舞いも可能な範囲で確認する。\n\n### 5. BOM が見えない文字のリテラル\n\n- 重要度: **低**\n- 場所: `src/lib/export.ts:5`（`CSV_BOM`）\n- 何が問題か: 文字列の中身が不可視で、エディタや整形ツールで消えても気づきにくい。\n- 直し方: `\"﻿\"` と書く。\n\n### 6. 全項目を無条件に引用符で囲んでいる\n\n- 重要度: **低**\n- 場所: `src/lib/export.ts:11`（`field`）\n- 何が問題か: ID や期限のような数値・日付も文字列として引用されるため、Excel では数値として扱われない可能性がある。要件上は許容範囲。\n- 直し方: 必要なら、引用が要る値（カンマ・引用符・改行を含むもの）だけ囲む。\n",
+  "review_chars": 2351,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2516,
+    "tokens": {
+      "input": 20,
+      "output": 5960,
+      "cache_read": 357906,
+      "cache_creation": 39053
+    },
+    "turns": 10,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat -n $f; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 53,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` の指摘 6 件を、指摘ごとに「重要度・場所・何が問題か・直し方」の項目に分けた形に整理し、`REVIEW.md` だけをコミットしました。指摘の追加も削除もしていません。コードも直していません。\n\n- **高 3 件:** `status` の検証漏れ、引用符のエスケープ漏れ、数式インジェクション。\n- **中 1 件:** テストが PR の約束を検証していない。\n- **低 2 件:** BOM が不可視文字のリテラルになっている。全項目を無条件に引用符で囲んでいる。\n\nPR の変更（`route.ts`、`export.ts`、`export.test.ts`）は、これまでどおり未コミットのままです。"
+  },
+  "interventions": 0
+}

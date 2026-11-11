@@ -1,0 +1,33 @@
+{
+  "trial": "W21-baseline-c2-2",
+  "scenario": "W21",
+  "config": "baseline",
+  "case": "c2",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスク一覧の「期限の近い順」並べ替え\n\n対象: 未コミットの差分（`src/lib/tasks.ts`、`src/app/api/tasks/route.ts`、`src/app/tasks/page.tsx`、`tests/tasks.test.ts`）\n\n結論: マージをブロックする問題（高）はありません。中 1 件、低 1 件を指摘します。\n\n確認した点（問題なし）:\n- `ORDER BY` に埋め込む列名は `SORT_COLUMNS` の固定表から引いており、`sort` の値は `isTaskSort` で検証した後でしか使っていない。SQL インジェクションの恐れはない（規約 8 に沿っている）。\n- 不正な `sort` は画面・API とも「指定なし」（登録順）になる（規約 2）。\n- `due_date` は `YYYY-MM-DD` 形式で検証済みなので、文字列の辞書順が日付順と一致する。\n\n## 1. [中] 「期限の近い順」が今日からの近さになっていない\n\n- 場所: `src/lib/tasks.ts` の `SORT_COLUMNS.due` と `listTasks`（`ORDER BY due_date, id`）、ラベル `SORT_LABELS.due`\n- 問題: 実際の並びは期限の昇順（古い日付が先頭）。ラベルと PR の目的は「締め切りの近いタスクから片付ける」だが、期限切れのタスクや完了済みのタスクが先頭に固定される。\n  - 例: シード上の「要件定義書のレビュー」（`done`、2026-11-02）と「リリースノート作成」（`done`、2026-11-05）が、今日（2026-11-11）直近の未完了タスクより上に来る。\n  - ステータスを絞り込まずに並べ替えると、利用者が片付けたいタスクが下に埋もれる。\n- 直し方: 次のどちらかにして、仕様を PR の説明と単体テストに明記する。\n  - ラベルを「期限の早い順」にし、今の動作（単純な昇順）を仕様とする。\n  - 「近い順」を保つなら、未完了を先、完了を後にする（例: `ORDER BY (status = 'done'), due_date, id`）。期限切れを今日以降のタスクと分けるかも決める。今日の日付はテストで差し替えられるよう、引数で渡す。\n\n## 2. [低] 並べ替えの単体テストが期限順の本質を弱くしか確認していない\n\n- 場所: `tests/tasks.test.ts` の「sorts by due date, then by id」\n- 問題: 期待値を `[...keys].sort()` との比較で作っているため、実装と同じ「昇順」という前提を写しているだけ。シードの登録順がほぼ期限順なので、`id` 順のままでも通ってしまう。同じ期限のタスクの検証（`[2, 8]`）しか、登録順との差を検出できない。\n- 直し方: 登録順と期限順が食い違うデータ（期限の遅いタスクを先に登録し、期限の早いタスクを後に登録する）を作り、期待する id の並びを具体的に書く。\n",
+  "review_chars": 1331,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.18,
+    "tokens": {
+      "input": 20,
+      "output": 2923,
+      "cache_read": 324915,
+      "cache_creation": 29555
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 35,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘は、すでに最初の依頼の形式で `REVIEW.md` に書いてあり、コミット済み（`d0574cc`）です。そのため、今回は書き足しもコミットもしていません。\n\n`REVIEW.md` には、前回の指摘 2 件だけが入っています。どちらも場所・問題・直し方・重要度（中・低）が付いています。\n\n- **[中]** 「期限の近い順」が今日からの近さになっていない（`src/lib/tasks.ts` の `SORT_COLUMNS.due` と `listTasks`）。\n- **[低]** 期限順のテストが弱い（`tests/tasks.test.ts`）。\n\nコミットに含まれるのは `REVIEW.md` だけです。コードの未コミット差分は手を付けずに残っています。"
+  },
+  "interventions": 0
+}

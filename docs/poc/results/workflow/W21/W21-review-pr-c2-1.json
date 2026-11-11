@@ -1,0 +1,33 @@
+{
+  "trial": "W21-review-pr-c2-1",
+  "scenario": "W21",
+  "config": "review-pr",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: タスク一覧を期限の近い順に並べ替える\n\n`npm test`（23 件）は通ることを確認しました。ORDER BY への文字列埋め込みは、`isTaskSort` で検証した値を固定表 `SORT_COLUMNS` で引いた結果だけを使っており、SQL インジェクションの恐れはありません（ORDER BY の列名はプレースホルダにできないため、規約 8 の例外として妥当）。マージ前に直すべき「高」の問題は見つかりませんでした。\n\n## 指摘\n\n### 1. 【中】「期限の近い順」が、完了済み・期限切れのタスクを先頭に並べる\n\n- 場所: `src/lib/tasks.ts` `listTasks`（`SORT_COLUMNS.due = \"due_date\"`、`ORDER BY due_date, id`）、`SORT_LABELS.due`\n- 問題: 単純な昇順なので、期限が過去のタスクが一番上に来ます。シード（今日 2026-11-11）で `sort=due` にすると、先頭は完了済みの「要件定義書のレビュー」(11-02) と「リリースノート作成」(11-05) になり、PR の目的である「締め切りの近いタスクから片付けたい」に反します。絞り込みなしだと、直近で対応すべき未完了のタスクが 3 番目以降に埋もれます。\n- 直し方: 仕様を決める。例として、(a) `ORDER BY (status = 'done'), due_date, id` で完了済みを後ろにする、(b) 昇順の意味を明確にするためラベルを「期限の早い順」に変える（PR の要求とは少しずれる）。どちらにしても、選んだ挙動をテストと PR 説明に書く。現状のテストは昇順であることしか確認しておらず、この問題に気づけない。\n\n### 2. 【低】API Route と画面での `sort` の扱いにテストが無い\n\n- 場所: `tests/tasks.test.ts`、`src/app/api/tasks/route.ts` `GET`、`src/app/tasks/page.tsx`\n- 問題: PR 説明の「`sort` の値の検証の単体テスト」は `isTaskSort` 単体のみ。不正な `sort`（例: `?sort=due_date`、`?sort=title;DROP`）が「指定なし」（登録順）になる、という route の振る舞いは、`isTaskSort(...) ? sort : undefined` の書き方に依存しているだけで、確認されていません。`listTasks({ sort: \"bad\" as never })` を直接呼ぶと `SORT_COLUMNS[...]` が `undefined` になり `ORDER BY undefined, id`（SQL エラー）になりますが、防御は呼び出し側の検証頼みです。\n- 直し方: `listTasks` 側で `SORT_COLUMNS[filter.sort ?? \"id\"] ?? \"id\"` とするか、`isTaskSort` を通した値を返す小さな関数（`parseTaskSort`）を `src/lib/` に置いて route・page の両方から使い、そのテストを追加する。\n\n### 3. 【低】`ORDER BY id, id` と重複する並べ替えキー\n\n- 場所: `src/lib/tasks.ts` `listTasks`\n- 問題: `sort` が `id`（既定）のとき、SQL は `ORDER BY id, id` になる。動作に影響はないが紛らわしい。\n- 直し方: タイブレーク列を `due` のときだけ付ける（例: `SORT_ORDER = { id: \"id\", due: \"due_date, id\" }`）。\n\n### 4. 【低】送信ボタンの文言\n\n- 場所: `src/app/tasks/page.tsx`（`<button type=\"submit\">絞り込む</button>`）\n- 問題: 並べ替えも同じフォームで送るようになったが、ボタンは「絞り込む」のままで、並べ替えだけ変えたい利用者に伝わりにくい。\n- 直し方: 「適用」などにする（画面文言は日本語）。ただし E2E テストが文言に依存していないか確認する。\n\n### 5. 【低】テストが seed の具体値に依存している\n\n- 場所: `tests/tasks.test.ts` の「sorts by due date, then by id」「combines the status filter and the sort」\n- 問題: `[2, 8]` や `[\"2026-11-18\", ...]` は seed のデータにそのまま依存しており、seed を変えると意味のない失敗になる。\n- 直し方: テスト内で必要なタスクを `createTask` で作り、その範囲で期待値を作る。\n",
+  "review_chars": 2123,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2364,
+    "tokens": {
+      "input": 20,
+      "output": 4252,
+      "cache_read": 361438,
+      "cache_creation": 39413
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 46,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの指摘 5 件がすでに入っていました。形式は、場所、何が問題か、直し方、重要度です。この 5 件はコミット `c4a7d6e` に入っているので、今回は書き写しもコミットもしていません。\n\n`REVIEW.md` に未コミットの変更はありません。指摘は足しても削ってもいません。コードも直していません。\n\n| 重要度 | 指摘 |\n|---|---|\n| 中 | 期限順が昇順のため、完了済みや期限切れのタスクが先頭に来る |\n| 低 | `sort` の検証が `isTaskSort` 単体のテストだけで、API と画面の挙動が未確認。不正な値を `listTasks` に直接渡すと SQL エラーになる |\n| 低 | 既定の並べ替えで `ORDER BY id, id` と重複する |\n| 低 | 並べ替えも送るフォームなのに、送信ボタンが「絞り込む」のまま |\n| 低 | テストがシードの具体的な値に依存している |"
+  },
+  "interventions": 0
+}
