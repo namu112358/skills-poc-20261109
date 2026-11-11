@@ -6,7 +6,7 @@
     - 同じ課題の全試行（繰り返し 0 の動作確認は除く）のスクリーンショット（results/workflow/W21/shots/）を、記号 S01〜 の名前で
       作業場所（リポジトリの外）に写し、判定役（claude-opus-5-5）に 5 項目 × 0〜4 点を付けさせる。並べる順番を変えて 2 回行う。
       W21b は変更前の画面（before）を参考として並べる。結果は results/workflow/W21/judge/visual-<課題>.json。
-  python3 scripts/poc/judge_w21.py review <作業場所>
+  python3 scripts/poc/judge_w21.py review <作業場所> [W21c|W21g]
     - W21c の各試行の REVIEW.md を、正解（answer-key/W21/truth-c.md）と突き合わせさせる（W20 の judge_w20.py と同じ形）。
       約 25% は 2 回判定して一致を見る。結果は results/workflow/W21/judge/review.json。
   python3 scripts/poc/judge_w21.py pair <作業場所>
@@ -187,9 +187,10 @@ def pair(work):
     (JUDGE / "pairs.json").write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n")
 
 
-def review(work):
-    ids = trials("W21c")
-    truth = TRUTH.read_text()
+def review(work, task="W21c"):
+    """task: W21c（簡単な問題 9 件）か W21g（W24。見つけにくい問題 8 件）。結果は judge/review.json・review-W21g.json。"""
+    ids = trials(task)
+    truth = (TRUTH if task == "W21c" else TRUTH.with_name("truth-g.md")).read_text()
     rnd = random.Random(20261112)
     twice = set(rnd.sample(ids, max(1, round(len(ids) * 0.25))))
     out = {"twice": sorted(twice), "trials": {}, "cost_usd": 0}
@@ -205,16 +206,16 @@ def review(work):
         out["trials"][t] = runs
         print(f"review {t}: {len(runs[0])} findings")
     JUDGE.mkdir(parents=True, exist_ok=True)
-    (JUDGE / "review.json").write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n")
+    (JUDGE / ("review.json" if task == "W21c" else f"review-{task}.json")).write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n")
 
 
-def review_score(findings):
+def review_score(findings, n_bugs=9):
     found = sorted({f["match"] for f in findings if re.fullmatch(r"B\d", f.get("match", ""))})
     decoys = sorted({f["match"] for f in findings if re.fullmatch(r"D\d", f.get("match", ""))})
     wrong = sum(1 for f in findings if f.get("match") == "none" and f.get("kind") == "wrong")
     real = sum(1 for f in findings if f.get("match") == "none" and f.get("kind") == "real")
     nit = sum(1 for f in findings if f.get("match") == "none" and f.get("kind") == "nit")
-    q = len(found) / 9 * 80 + max(0, 20 - 5 * (len(decoys) + wrong))
+    q = len(found) / n_bugs * 80 + max(0, 20 - 5 * (len(decoys) + wrong))
     return {"found": found, "decoys": decoys, "wrong": wrong, "extra_real": real, "nits": nit,
             "findings": len(findings), "quality": round(q, 1)}
 
@@ -232,13 +233,15 @@ def score():
                          "visual_round_diff": v.get("round_diff"), "quality": round(r["score"]["subtotal_50"] + visual_50, 2),
                          "cost_usd": r["transcript"]["cost_usd"], "seconds": r["elapsed_seconds"], "interventions": r["interventions"],
                          "skills": r["transcript"]["skills_used"], "obs": {k: r["observations"][k] for k in ("hook_outputs", "design_docs", "fonts", "overused_fonts")}}
-    rf = JUDGE / "review.json"
-    if rf.exists():
+    for name, task, n_bugs in (("review.json", "W21c", 9), ("review-W21g.json", "W21g", 8)):
+        rf = JUDGE / name
+        if not rf.exists():
+            continue
         rv = json.loads(rf.read_text())
         for t, runs in rv["trials"].items():
             r = json.loads((RESULTS / f"{t}.json").read_text())
-            s = [review_score(f) for f in runs]
-            scores[t] = {"task": "W21c", "config": r["config"], "rep": r["rep"], **s[0],
+            s = [review_score(f, n_bugs) for f in runs]
+            scores[t] = {"task": task, "config": r["config"], "rep": r["rep"], **s[0],
                          "rejudge": s[1] if len(s) > 1 else None, "cost_usd": r["transcript"]["cost_usd"],
                          "seconds": r["elapsed_seconds"], "interventions": r["interventions"], "skills": r["transcript"]["skills_used"]}
     (RESULTS / "scores.json").write_text(json.dumps(scores, ensure_ascii=False, indent=2) + "\n")
@@ -252,7 +255,7 @@ if __name__ == "__main__":
     elif cmd == "pair":
         pair(sys.argv[2])
     elif cmd == "review":
-        review(sys.argv[2])
+        review(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "W21c")
     elif cmd == "score":
         score()
     else:

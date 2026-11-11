@@ -3,7 +3,7 @@
 # 使い方: scripts/poc/run-trial.sh <シナリオ> <候補> <回>
 #   候補: baseline | superpowers | feature-dev | compound-engineering | gstack
 #         | baseline-conventions（W12 で追加。候補なしで、作業用コピーの CLAUDE.md の末尾に開発規約だけを足す）
-#         | ui-none | ui-all | ui-a | ui-fd | ui-pm | ui-fd-md | ui-a-md | ui-all-md | ui-fd-md-wdg | ui-fd-md-imp（W21 の課題だけ。*-md は W22、*-md-* は W23。UI/UX 系ツールの組み合わせ。docs/poc/tasks/wf-W21-design.md）
+#         | ui-none | ui-all | ui-a | ui-fd | ui-pm | ui-fd-md | ui-a-md | ui-all-md | ui-fd-md-wdg | ui-fd-md-imp | ui-wdg-rv | ui-a-rv（W21 の課題だけ。*-rv は W24。*-md は W22、*-md-* は W23。UI/UX 系ツールの組み合わせ。docs/poc/tasks/wf-W21-design.md）
 #   （gstack の setup 実行は 2026-11-09 にユーザーの許可を得た。専用 HOME の中だけで実行する）
 # 作業用コピー（既定は /tmp/poc-trials/<ID>。POC_TRIAL_ROOT で変更可）で、専用の HOME を使って Claude Code をヘッドレスで起動する。
 # 作業用コピーをリポジトリの外に置くのは、正解データ（docs/poc/answer-key/）や他の試行の結果へ相対パスで辿れないようにするため。
@@ -90,7 +90,7 @@ done
 # ui-none は両方、ui-a・ui-pm は Frontend Design を除く（Web Design Guidelines は ui-none 以外のすべてに入れる）
 case "$CAND" in
   ui-none) rm -rf "$APP/.claude/skills/frontend-design" "$APP/.claude/skills/web-design-guidelines" ;;
-  ui-a|ui-pm|ui-a-md) rm -rf "$APP/.claude/skills/frontend-design" ;;
+  ui-a|ui-pm|ui-a-md|ui-a-rv) rm -rf "$APP/.claude/skills/frontend-design" ;;
 esac
 cat > "$APP/.mcp.json" <<'JSON'
 {"mcpServers":{
@@ -151,6 +151,11 @@ if [[ "$CAND" == baseline-conventions ]]; then
 fi
 # W22（docs/poc/tasks/wf-W22-design.md）: *-md の構成は、使う Skill の指示（wf-W22-<構成>.md。固定の文言）を CLAUDE.md の末尾に足す。
 # 初期状態の一部なので、候補からは差分に見えない
+# W24 の *-rv は、作る・レビューの両方の指示（wf-W24-<構成>.md）を足す
+if [[ "$CAND" == *-rv ]]; then
+  cat "$ROOT/docs/poc/tasks/wf-W24-$CAND.md" >> "$APP/CLAUDE.md"
+  sha256sum "$ROOT/docs/poc/tasks/wf-W24-$CAND.md" | sed "s#$ROOT/##" > "$OUT/w24-instruction"
+fi
 # W23 の ui-fd-md-* も、作る段階は ui-fd-md と同じ指示を足す（docs/poc/tasks/wf-W23-design.md）
 if [[ "$CAND" == *-md || "$CAND" == *-md-* ]]; then
   INSTR="$ROOT/docs/poc/tasks/wf-W22-${CAND%%-md*}-md.md"
@@ -194,11 +199,13 @@ if [[ "$SCENARIO" == W9 ]]; then
   rm -f "$WORK/review-commit-msg"
   git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
 fi
-# W21c: W20 と同じく、レビュー対象の差分（answer-key/W21/review.patch）を未コミットの変更として置く
-if [[ "$SCENARIO" == W21c ]]; then
-  git -C "$APP" apply "$ROOT/docs/poc/answer-key/W21/review.patch"
+# W21c・W21g（W24）: W20 と同じく、レビュー対象の差分（answer-key/W21/review.patch・review-g.patch）を未コミットの変更として置く
+if [[ "$SCENARIO" == W21c || "$SCENARIO" == W21g ]]; then
+  RPATCH="$ROOT/docs/poc/answer-key/W21/review.patch"
+  [[ "$SCENARIO" == W21g ]] && RPATCH="$ROOT/docs/poc/answer-key/W21/review-g.patch"
+  git -C "$APP" apply "$RPATCH"
   git -C "$APP" add -N .
-  sha256sum "$ROOT/docs/poc/answer-key/W21/review.patch" | sed "s#$ROOT/##" > "$OUT/review-patch"
+  sha256sum "$RPATCH" | sed "s#$ROOT/##" > "$OUT/review-patch"
 fi
 # W20: レビュー対象の差分を、作業ブランチの未コミットの変更として置く（/code-review の「今の差分」と、PR Review Toolkit の
 # git diff の両方に出るよう、新しいファイルも intent-to-add で登録する）。パッチ自体は作業用コピーに置かない
@@ -224,14 +231,14 @@ copy_plugin "$CPO/security-guidance" security-guidance
 copy_plugin "$CPO/typescript-lsp" typescript-lsp
 # W21 の構成（ui-*）では、Impeccable と UI/UX Pro Max を構成に入るときだけ読み込む。ほかの候補は従来どおり両方
 case "$CAND" in
-  ui-none|ui-fd|ui-fd-md|ui-fd-md-wdg) ;;
-  ui-a|ui-a-md|ui-fd-md-imp) copy_plugin "$CACHE/impeccable/plugin" impeccable ;;
+  ui-none|ui-fd|ui-fd-md|ui-fd-md-wdg|ui-wdg-rv) ;;
+  ui-a|ui-a-md|ui-fd-md-imp|ui-a-rv) copy_plugin "$CACHE/impeccable/plugin" impeccable ;;
   ui-pm) copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max ;;
   *) copy_plugin "$CACHE/impeccable/plugin" impeccable; copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max ;;
 esac
 case "$CAND" in
   baseline|baseline-conventions) ;;
-  ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md|ui-fd-md-wdg|ui-fd-md-imp) [[ "$SCENARIO" == W21? ]] || { echo "ui-* は W21 の構成: $SCENARIO" >&2; exit 1; } ;;
+  ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md|ui-fd-md-wdg|ui-fd-md-imp|ui-wdg-rv|ui-a-rv) [[ "$SCENARIO" == W21? ]] || { echo "ui-* は W21 の構成: $SCENARIO" >&2; exit 1; } ;;
   superpowers) copy_plugin "$CACHE/superpowers" superpowers ;;
   feature-dev) copy_plugin "$CPO/feature-dev" feature-dev ;;
   # W20 のレビューの設定: cr-low・cr-high は組み込みの /code-review、review-pr・combo は PR Review Toolkit、sp-review は Superpowers
@@ -407,7 +414,7 @@ else
   case "$CAND" in
     baseline|baseline-conventions|superpowers) STEPS=("$TASK") ;;
     # W21: どの構成も課題文を渡すだけ（Skill の自動発火）
-    ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md|ui-fd-md-wdg|ui-fd-md-imp) STEPS=("$TASK") ;;
+    ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md|ui-fd-md-wdg|ui-fd-md-imp|ui-wdg-rv|ui-a-rv) STEPS=("$TASK") ;;
     feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
     compound-engineering) STEPS=("/ce-plan $TASK" "/ce-work" "/ce-code-review") ;;
     gstack) STEPS=("$TASK" "/review") ;;
@@ -521,7 +528,7 @@ if [[ "${POC_DISABLE_AUTO_MEMORY:-}" == 1 ]] || [[ -z "${POC_DISABLE_AUTO_MEMORY
   echo 1 > "$OUT/auto-memory-disabled"
 fi
 [[ "$SCENARIO" == W6 ]] && NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、PR.md を含めて変更を git にコミットしてください。"
-[[ "$SCENARIO" == W9 || "$SCENARIO" == W20 || "$SCENARIO" == W21c ]] && NUDGE="お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。"
+[[ "$SCENARIO" == W9 || "$SCENARIO" == W20 || "$SCENARIO" == W21c || "$SCENARIO" == W21g ]] && NUDGE="お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。"
 # W19 の代理人ありの試行は「お任せ」と言わない（代理人の判断 D7。代理人なしの対照は従来の文）
 [[ "$SCENARIO" == W19 && "${POC_PROXY:-1}" != 0 ]] && NUDGE="ここまでの回答のとおりに進めてください。課題を最後まで実装し、変更を git にコミットしてください。"
 
@@ -714,13 +721,13 @@ for _ in $(seq 1 "$MAX_NUDGES"); do
   # W6 以降の Playwright MCP が自動で書き出すページの記録（.playwright-mcp/）も数えない（W5 までは出ない）
   dirty="$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' ':!.playwright-mcp' | head -1)"
   # W20 はレビュー対象の差分を未コミットで置くので、未コミットの変更は見ない（REVIEW.md のコミットだけで判定する）
-  [[ "$SCENARIO" == W20 || "$SCENARIO" == W21c ]] && dirty=""
+  [[ "$SCENARIO" == W20 || "$SCENARIO" == W21c || "$SCENARIO" == W21g ]] && dirty=""
   # W3 は要件文書（REQUIREMENTS.md）がコミットされていることも完了の条件にする
   if [[ "$SCENARIO" == W3 ]] && ! git -C "$APP" cat-file -e HEAD:REQUIREMENTS.md 2>/dev/null; then commits=0; fi
   # W6 は PR の本文（PR.md）がコミットされていることも完了の条件にする
   if [[ "$SCENARIO" == W6 ]] && ! git -C "$APP" cat-file -e HEAD:PR.md 2>/dev/null; then commits=0; fi
   # W9 はレビューの指摘（REVIEW.md）がコミットされていることも完了の条件にする
-  if [[ ( "$SCENARIO" == W9 || "$SCENARIO" == W20 || "$SCENARIO" == W21c ) ]] && ! git -C "$APP" cat-file -e HEAD:REVIEW.md 2>/dev/null; then commits=0; fi
+  if [[ ( "$SCENARIO" == W9 || "$SCENARIO" == W20 || "$SCENARIO" == W21c || "$SCENARIO" == W21g ) ]] && ! git -C "$APP" cat-file -e HEAD:REVIEW.md 2>/dev/null; then commits=0; fi
   [[ "$commits" -gt 0 && -z "$dirty" ]] && break
   if over_budget; then echo "nudge skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
   i=$((i+1))

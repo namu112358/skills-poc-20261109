@@ -12,8 +12,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 R = ROOT / "docs" / "poc" / "results" / "workflow" / "W21"
 LABEL = {"ui-none": "ツールなし", "ui-all": "4 つすべて", "ui-a": "Impeccable（整理案 A）", "ui-fd": "Frontend Design",
-         "ui-pm": "UI/UX Pro Max", "ui-fd-md": "Frontend Design + 指示", "ui-a-md": "Impeccable + 指示", "ui-all-md": "4 つすべて + 役割の指示"}
-TASKS = {"W21a": "紹介ページ", "W21b": "タスク一覧の改善", "W21c": "UI レビュー", "W21d": "SaaS の LP", "W21e": "ダッシュボード", "W21f": "登録フォーム"}
+         "ui-pm": "UI/UX Pro Max", "ui-fd-md": "Frontend Design + 指示", "ui-a-md": "Impeccable + 指示", "ui-all-md": "4 つすべて + 役割の指示",
+         "ui-fd-md-wdg": "Frontend Design + 指示 → WDG で仕上げ", "ui-fd-md-imp": "Frontend Design + 指示 → Impeccable で仕上げ",
+         "ui-wdg-rv": "FD + WDG + レビューの指示", "ui-a-rv": "Impeccable + WDG + レビューの指示"}
+TASKS = {"W21a": "紹介ページ", "W21b": "タスク一覧の改善", "W21c": "UI レビュー", "W21d": "SaaS の LP", "W21e": "ダッシュボード", "W21f": "登録フォーム", "W21g": "見つけにくい問題の UI レビュー（W24）"}
 DESIGN_SKILLS = ("frontend-design", "web-design-guidelines", "impeccable", "ui-ux-pro-max")
 
 
@@ -48,14 +50,14 @@ def main():
     rows, vis = load(), visual()
     review = {}
     if (R / "scores.json").exists():
-        review = {t: s for t, s in json.loads((R / "scores.json").read_text()).items() if s["task"] == "W21c"}
+        review = {t: s for t, s in json.loads((R / "scores.json").read_text()).items() if s["task"] in ("W21c", "W21g")}
     for task, name in TASKS.items():
         cfgs = [c for c in LABEL if (task, c) in rows]
         if not cfgs:
             continue
         print(f"### {task} {name}\n")
-        if task == "W21c":
-            print("| 構成 | 回数 | 品質 / 100 | 見つけた問題 / 9 | おとり・誤りへの指摘 | 費用（平均） | Skill が呼ばれた回数 |")
+        if task in ("W21c", "W21g"):
+            print(f"| 構成 | 回数 | 品質 / 100 | 見つけた問題 / {9 if task == 'W21c' else 8} | おとり・誤りへの指摘 | 費用（平均） | Skill が呼ばれた回数 |")
             print("|---|---:|---:|---:|---:|---:|---|")
         else:
             print("| 構成 | 回数 | AI の見た目の判定 / 20 | 機械の検査 / 50 | 費用（平均） | 時間（平均・分） | デザインの Skill が呼ばれた回数 | 呼ばれた Skill |")
@@ -65,7 +67,7 @@ def main():
             used = [[s for s in d["transcript"]["skills_used"] if s.split(":")[0] in DESIGN_SKILLS or s.split(":")[-1] in DESIGN_SKILLS] for d in ds]
             names = sorted({s for u in used for s in u})
             cost = mean([d["transcript"]["cost_usd"] for d in ds])
-            if task == "W21c":
+            if task in ("W21c", "W21g"):
                 sc = [review.get(d["trial"]) for d in ds]
                 sc = [s for s in sc if s]
                 print(f"| {LABEL[c]} | {len(ds)} | {fmt(mean([s['quality'] for s in sc]))} | {fmt(mean([len(s['found']) for s in sc]))} | "

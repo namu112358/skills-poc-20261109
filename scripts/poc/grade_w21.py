@@ -20,7 +20,7 @@ from pathlib import Path
 
 TRIAL = sys.argv[1]
 FLAGS = set(sys.argv[2:])
-m = re.fullmatch(r"(W21[a-f])-(ui-(?:none|all|a|fd|pm)(?:-md(?:-wdg|-imp)?)?)-(\d+)", TRIAL)
+m = re.fullmatch(r"(W21[a-g])-(ui-(?:none|all|a|fd|pm|wdg-rv|a-rv)(?:-md(?:-wdg|-imp)?)?)-(\d+)", TRIAL)
 if not m:
     sys.exit(f"W21 の試行 ID ではない: {TRIAL}")
 TASK, CONFIG, REP = m.group(1), m.group(2), int(m.group(3))
@@ -179,7 +179,7 @@ def main():
     result = {"trial": TRIAL, "scenario": "W21", "task": TASK, "config": CONFIG, "rep": REP, "transcript": stats,
               "elapsed_seconds": int((RAW / "elapsed-seconds").read_text()) if (RAW / "elapsed-seconds").exists() else None,
               "interventions": len((RAW / "interventions.log").read_text().splitlines()) if (RAW / "interventions.log").exists() else 0}
-    if TASK == "W21c":
+    if TASK in ("W21c", "W21g"):  # レビューの課題（W21g は W24）
         body = git("show", "HEAD:REVIEW.md")
         result["review_md"] = body.stdout if body.returncode == 0 else ""
         (RAW / "diff.patch").write_text(git("diff", base, "HEAD", "--", "REVIEW.md").stdout)
