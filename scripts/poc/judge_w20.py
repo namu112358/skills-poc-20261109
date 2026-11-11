@@ -29,7 +29,7 @@ RESULTS = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO
 # W22 は W21 の題材と正解を使う
 CASES = ROOT / "docs" / "poc" / "answer-key" / ("W21" if SCENARIO == "W22" else SCENARIO) / "cases"
 JUDGE = RESULTS / "judge"
-SEED = {"W20": 20261120, "W21": 20261121, "W22": 20261122}.get(SCENARIO, 20261123)
+SEED = {"W20": 20261120, "W21": 20261121, "W22": 20261122, "W23": 20261123}.get(SCENARIO, 20261124)
 NAMES = re.compile(r"superpowers|feature[-_ ]?dev|pr-review-toolkit|review-pr|code-review|compound|gstack|claude|"
                    r"design-principles-review|\bce-[a-z-]+|silent-failure-hunter|pr-test-analyzer|type-design-analyzer|"
                    r"comment-analyzer|code-simplifier", re.I)
