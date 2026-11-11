@@ -140,8 +140,11 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 - 設計の観点のレビューには、このリポジトリで作った `design-principles-review` を使います。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
   - 3 つの評価ケースで試したところ、Skill がなくても設計の問題はほぼ見つけられました。差が出たのは、指摘に重さ（必須・推奨・細かい点）を付けるかどうかと、指摘の書き方がそろうことです。
   - そのかわり、Skill を使うと時間が約 1.5 倍かかりました。
-- PR レビュー用のツール（Code Review と PR Review Toolkit）の比較と、セキュリティ監査のツール（Claude Security と Cloudflare Security Audit）の比較は、**まだ実施していません**。
-- セキュリティ監査を定期的に回す形（毎日は CodeQL などの検査、週 1 回は差分、月 1 回は全体を監査）の案は [docs/tool-candidates/security-audit-schedule.md](docs/tool-candidates/security-audit-schedule.md) にあります。頻度と費用の上限は、1 回あたりの費用を測ってから決めます。
+- PR レビュー用のツール（Code Review と PR Review Toolkit）の比較は、**まだ実施していません**。
+- セキュリティ監査のツールは、`poc-app` に脆弱性を仕込んで比べました（[docs/poc/results/security/README.md](docs/poc/results/security/README.md)）。
+  - 全体の監査では、Claude Security と Cloudflare Security Audit のどちらも、仕込んだ 12 件をすべて見つけました。Cloudflare は費用が約 4 倍かかり、クラウドのセッションでは指摘を確かめきれず、すべて「要確認」のままでした。
+  - PR ごとの差分の監査では、組み込みの `/security-review` が 1 回 $1 前後で、仕込んだ脆弱性をすべて見つけました。
+- セキュリティ監査を定期的に回す形の案は [docs/tool-candidates/security-audit-schedule.md](docs/tool-candidates/security-audit-schedule.md) にあります。PR ごとは `/security-review`、週 1 回の差分と月 1 回の全体は Claude Security（medium）、毎日は CodeQL などの検査です。まだ決定ではありません。
 - Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施します。
 - 失敗を検査に反映するときの方針（案）は [docs/standards/testing-and-ci-policy.md](docs/standards/testing-and-ci-policy.md) にあります。要点は次の 3 つです。
   - 再発防止は、検出できる一番手前の段（型 → Lint → 単体テスト → 結合 → E2E）に置く。
