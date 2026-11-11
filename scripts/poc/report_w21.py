@@ -20,6 +20,7 @@ CONFIGS = {
     "W22": ["hk-baseline", "hk-cr-high", "hk-review-pr", "hk-principles", "hk-ce-review", "review-pr-full", "ce-full"],
     "W23": ["baseline", "hk-baseline", "cr-high", "review-pr", "ce-review"],
     "W24": ["baseline", "baseline-run", "hk-baseline", "hk-baseline-run"],
+    "W25": ["baseline-run", "hk-baseline-run"],
 }[SCENARIO]
 CASES = {"W23": ["d1", "d2", "d3"], "W24": ["c4", "d1", "d3"]}.get(SCENARIO, ["c1", "c2", "c3", "c4", "c5", "c6", "c7"])
 LABEL = {"baseline": "baseline（道具なし）", "cr-high": "内蔵 `/code-review high`", "review-pr": "PR Review Toolkit `/review-pr`",
