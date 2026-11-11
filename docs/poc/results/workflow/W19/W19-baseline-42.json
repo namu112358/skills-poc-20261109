@@ -1,0 +1,908 @@
+{
+  "scenario": "W19",
+  "trial": "W19-baseline-42",
+  "candidate": "baseline",
+  "run": 42,
+  "elapsed_seconds": 274,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "nstrument / returnLoan\n  ---\n  duration_ms: 101.13528\n  type: 'suite'\n  ...\n# Subtest: validateLoanInput\n    # Subtest: requires an active borrower and a real date\n    ok 1 - requires an active borrower and a real date\n      ---\n      duration_ms: 36.37257\n      type: 'test'\n      ...\n    1..1\nok 24 - validateLoanInput\n  ---\n  duration_ms: 36.492007\n  type: 'suite'\n  ...\n# Subtest: listOverdueLoans\n    # Subtest: lists unreturned loans whose due date is before today\n    ok 1 - lists unreturned loans whose due date is before today\n      ---\n      duration_ms: 30.894793\n      type: 'test'\n      ...\n    1..1\nok 25 - listOverdueLoans\n  ---\n  duration_ms: 31.013051\n  type: 'suite'\n  ...\n1..25\n# tests 48\n# suites 25\n# pass 48\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1245.434558\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "ents/[id]/calibrations\n├ ƒ /api/instruments/[id]/inspections\n├ ƒ /api/instruments/[id]/loans\n├ ƒ /api/instruments/[id]/loans/[loanId]/return\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:26200) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:26201) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:26203) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [],
+  "diff": {
+    "files": [
+      {
+        "path": "CLAUDE.md",
+        "added": 2,
+        "deleted": 1,
+        "kind": "doc"
+      },
+      {
+        "path": "src/app/api/instruments/[id]/inspections/route.ts",
+        "added": 31,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/api/instruments/[id]/route.ts",
+        "added": 1,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/instruments/[id]/page.tsx",
+        "added": 51,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/instruments/page.tsx",
+        "added": 21,
+        "deleted": 4,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/db/index.ts",
+        "added": 12,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/db/migrations.ts",
+        "added": 30,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/db/seed.ts",
+        "added": 6,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/inspections.ts",
+        "added": 161,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/instruments.ts",
+        "added": 40,
+        "deleted": 6,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/legacy-inspection.ts",
+        "added": 90,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "tests/inspections.test.ts",
+        "added": 234,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/instruments/[id]/inspections/route.ts",
+      "src/lib/inspections.ts",
+      "src/lib/legacy-inspection.ts",
+      "tests/inspections.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "46e7652 計測器ごとの定期点検の担当者と点検記録を追加"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.862,
+    "tokens": {
+      "input": 44,
+      "output": 35929,
+      "cache_read": 1648867,
+      "cache_creation": 84424
+    },
+    "turns": 50,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\nimport re\\np='src/lib/db/migrations.ts'\\ns=open(p).read()\\ns=s.replace('''export type Migration = {\\n  version: number;\\n  name: string;\\n  sql: string;\\n};\\n''','''imp"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat >> src/lib/db/seed.ts <<'EOF'\\n\\n/** 初期の点検記録（旧来の extra から移行される分とは別の、新しい形式の記録）。 */\\nexport const SEED_INSPECTIONS = [\\n  { managementNo: \\\"MI-0001\\\", inspectedOn: \\\"2026-11-04\\\", inspe"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node - <<'EOF'\\nconst fs=require('fs');\\nconst p='src/lib/instruments.ts';\\nlet s=fs.readFileSync(p,'utf8');\\nconst rep=(a,b)=>{ if(!s.includes(a)) throw new Error('missing '+a); s=s.repl"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node /tmp/claude-0/-tmp-poc-trials-W19-baseline-42-app/ce314cd4-0062-4515-8430-a5c8138521de/scratchpad/edit1.cjs && git diff --stat\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Edit": 31,
+      "Write": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 247,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "了解しました。登録フォームは今回の範囲に含めず、API のみで進めます。追加の変更は不要で、コミット済みの内容（`46e7652`）がそのまま最終状態です。\n\n登録フォームは別の作業として切り出すことになるので、その際は次の点を踏まえてください。\n- 登録する API はすでにあります。点検記録は `POST /api/instruments/:id/inspections`、担当者と周期は `PATCH /api/instruments/:id` です。\n- フォームでは、担当者・点検した人の選択肢を在籍中の利用者に絞る必要があります。API 側でも、無効な利用者はエラー（400）になります。\n- 退職・休職になった担当者の付け替えは、各部署が順に行う予定です。フォームを作るときは、現在の担当者が無効でも、その人を選択肢に残して表示する必要があります。API は、現在の担当者と同じ値の再送信を許可しています。",
+    "turns_last_result_only": 50,
+    "active_seconds_last_result_only": 247
+  },
+  "w19": {
+    "checks": {
+      "typecheck": true,
+      "test": true,
+      "build": true
+    },
+    "static": {
+      "migrations": {
+        "readable": true,
+        "rewritten": [],
+        "added": [
+          6
+        ],
+        "drops_location": false,
+        "rebuilds_instruments": false,
+        "updates_in_sql": false
+      },
+      "logger_used": true,
+      "console_lines": [],
+      "doc_files": [
+        "CLAUDE.md"
+      ],
+      "doc_rollback": false,
+      "doc_steps": false,
+      "new_deps": false,
+      "changed_src_files": [
+        "src/app/api/instruments/[id]/inspections/route.ts",
+        "src/app/api/instruments/[id]/route.ts",
+        "src/app/instruments/[id]/page.tsx",
+        "src/app/instruments/page.tsx",
+        "src/lib/db/index.ts",
+        "src/lib/db/migrations.ts",
+        "src/lib/db/seed.ts",
+        "src/lib/inspections.ts",
+        "src/lib/instruments.ts",
+        "src/lib/legacy-inspection.ts"
+      ]
+    },
+    "routes": [
+      {
+        "path": "/api/instruments/[id]/inspections",
+        "methods": [
+          "GET",
+          "POST"
+        ]
+      },
+      {
+        "path": "/api/instruments/[id]",
+        "methods": [
+          "GET",
+          "PATCH"
+        ]
+      }
+    ],
+    "public": [
+      {
+        "id": "P1",
+        "name": "計測器に点検の担当者を付けられる",
+        "pass": true,
+        "detail": "PATCH /api/instruments/[id] {inspectorId}"
+      },
+      {
+        "id": "P2",
+        "name": "点検の記録（点検日・点検した人・結果・メモ）を足せる",
+        "pass": true,
+        "detail": "/api/instruments/[id]/inspections ('inspectedOn', 'inspectorId', 'result') good=good"
+      },
+      {
+        "id": "P3",
+        "name": "点検の記録を見られる",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "hidden": [
+      {
+        "id": "H01",
+        "name": "在籍していない人は担当者に選べない",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H02",
+        "name": "点検した人も在籍している人に限る",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H03",
+        "name": "1 台に何回分も記録が残る（履歴）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H04",
+        "name": "点検の記録は消せない",
+        "pass": true,
+        "detail": "record id 9"
+      },
+      {
+        "id": "H05",
+        "name": "次の点検予定日は「最後の点検日 + 周期（既定 3 か月）」",
+        "pass": false,
+        "detail": "次の点検予定日（最後の点検日 + 3 か月）が見えない"
+      },
+      {
+        "id": "H06",
+        "name": "点検の記録が無い計測器は「未点検」と分かる",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H07",
+        "name": "担当者で絞り込める",
+        "pass": false,
+        "detail": "担当者で絞り込めない"
+      },
+      {
+        "id": "H08",
+        "name": "担当者ごとに、点検が遅れている台数が分かる",
+        "pass": false,
+        "detail": "担当者ごとの、点検が遅れている台数が分からない"
+      },
+      {
+        "id": "H09",
+        "name": "要修理なら計測器を使用停止にする",
+        "pass": false,
+        "detail": "要修理でも使用停止にならない"
+      },
+      {
+        "id": "H10",
+        "name": "担当部署・その他の項目の API は今までどおり（互換）",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "discovery": {
+      "routes": [
+        {
+          "path": "/api/instruments/[id]/inspections",
+          "methods": [
+            "GET",
+            "POST"
+          ]
+        },
+        {
+          "path": "/api/instruments/[id]",
+          "methods": [
+            "GET",
+            "PATCH"
+          ]
+        }
+      ],
+      "assign": [
+        "PATCH",
+        "/api/instruments/[id]",
+        "inspectorId",
+        false
+      ],
+      "record": [
+        "POST",
+        "/api/instruments/[id]/inspections",
+        "inspectedOn",
+        "inspectorId",
+        "result",
+        null
+      ],
+      "filter_key": null,
+      "db": "/tmp/w19-grade-W19-baseline-42-jh_kix4q/api.db"
+    },
+    "structure": {
+      "checks": {
+        "S1": true,
+        "S2": true,
+        "S3": true,
+        "S4": false,
+        "S5": true
+      },
+      "detail": {
+        "new_tables": [
+          "inspection_records"
+        ],
+        "instrument_new_columns": [
+          "inspector_id",
+          "inspection_interval_months"
+        ],
+        "record_tables": [
+          "inspection_records"
+        ],
+        "assign_outside": [
+          "inspector_id"
+        ],
+        "assign_in_extra": false,
+        "records_in_extra": [],
+        "new_extra_refs": [
+          "src/app/instruments/page.tsx: const legacyInspector = extraText(i, \"inspector\");",
+          "src/lib/legacy-inspection.ts: const inspectorId = matchInspector(extra.inspector, users);",
+          "src/lib/legacy-inspection.ts: const inspectedOn = parseLegacyDate(extra.last_inspected);",
+          "src/lib/legacy-inspection.ts: const note = `移行前の記載: 点検者「${String(extra.inspector ?? \"\")}」 最終点検日「${String(extra.last_inspected)}」（結"
+        ],
+        "index_assign": true,
+        "index_records": true
+      }
+    },
+    "migration": {
+      "checks": {
+        "M7": true,
+        "M1": true,
+        "M2": true,
+        "M4": true,
+        "M5": true,
+        "M6": true,
+        "M3": true,
+        "M8": true
+      },
+      "detail": {
+        "first_request_seconds": 1.02,
+        "lost_rows": 0,
+        "changed_rows": 0,
+        "dept_changed": 0,
+        "linked_ratio": 1.0,
+        "unresolved_kept_ratio": 1.0,
+        "rollback": {
+          "list": 200,
+          "get": 200,
+          "patch": 200,
+          "page": 200
+        }
+      }
+    },
+    "scope": {
+      "checks": {
+        "R1": true,
+        "R2": true
+      }
+    },
+    "mutation": {
+      "baseline_tests_pass": true,
+      "baseline_fails": 0,
+      "baseline_log": "",
+      "mutants": 60,
+      "killed": 49,
+      "kill_rate": 0.817,
+      "files": [
+        "src/lib/db/migrations.ts",
+        "src/lib/inspections.ts",
+        "src/lib/instruments.ts",
+        "src/lib/legacy-inspection.ts"
+      ],
+      "survivors": [
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 73,
+          "old": "0",
+          "new": "1",
+          "snippet": "return `${String(year).padStart(4, \"0\")}-${String(month).padStart(2, \"0\")}-${String(Math.min(d, lastDay)).padStart(2, \"0\")}`;"
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 73,
+          "old": "0",
+          "new": "1",
+          "snippet": "return `${String(year).padStart(4, \"0\")}-${String(month).padStart(2, \"0\")}-${String(Math.min(d, lastDay)).padStart(2, \"0\")}`;"
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 109,
+          "old": "||",
+          "new": "&&",
+          "snippet": "if (typeof body !== \"object\" || body === null || Array.isArray(body)) {"
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 123,
+          "old": " > ",
+          "new": " >= ",
+          "snippet": "if (typeof note !== \"string\" || note.length > 1000) errors.push(\"メモは 1000 文字以内で入力してください\");"
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 153,
+          "old": "===",
+          "new": "!==",
+          "snippet": "if (record.result === \"needs_repair\") {"
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 24,
+          "old": ".trim()",
+          "new": "",
+          "snippet": ".trim()"
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 27,
+          "old": "2",
+          "new": "3",
+          "snippet": "let m = /^(\\d{4})-(\\d{1,2})-(\\d{1,2})$/.exec(t);"
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 27,
+          "old": "2",
+          "new": "3",
+          "snippet": "let m = /^(\\d{4})-(\\d{1,2})-(\\d{1,2})$/.exec(t);"
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 29,
+          "old": "2",
+          "new": "3",
+          "snippet": "m = /^(R|令和|H|平成)\\s*(\\d{1,2})-(\\d{1,2})-(\\d{1,2})$/i.exec(t);"
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 29,
+          "old": "2",
+          "new": "3",
+          "snippet": "m = /^(R|令和|H|平成)\\s*(\\d{1,2})-(\\d{1,2})-(\\d{1,2})$/i.exec(t);"
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 77,
+          "old": "||",
+          "new": "&&",
+          "snippet": "if (!v || typeof v !== \"object\" || Array.isArray(v)) continue;"
+        }
+      ],
+      "details": [
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 103,
+          "old": "6",
+          "new": "7",
+          "killed": true
+        },
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 108,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 69,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 70,
+          "old": "12",
+          "new": "13",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 71,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 72,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 73,
+          "old": "0",
+          "new": "1",
+          "killed": false
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 73,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 73,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 73,
+          "old": "0",
+          "new": "1",
+          "killed": false
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 93,
+          "old": " < ",
+          "new": " <= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 109,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 109,
+          "old": "||",
+          "new": "&&",
+          "killed": false
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 109,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 114,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 116,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 116,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 119,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 119,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 123,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 123,
+          "old": " > ",
+          "new": " >= ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 123,
+          "old": "1000",
+          "new": "1001",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 124,
+          "old": " > ",
+          "new": " >= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 124,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 126,
+          "old": "true",
+          "new": "false",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 145,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/inspections.ts",
+          "line": 153,
+          "old": "===",
+          "new": "!==",
+          "killed": false
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 199,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 201,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 202,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 209,
+          "old": " < ",
+          "new": " <= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 209,
+          "old": " > ",
+          "new": " >= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 209,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 209,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/instruments.ts",
+          "line": 209,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 6,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 14,
+          "old": "2018",
+          "new": "2019",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 14,
+          "old": "1988",
+          "new": "1989",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 21,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 24,
+          "old": ".trim()",
+          "new": "",
+          "killed": false
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 27,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 27,
+          "old": "2",
+          "new": "3",
+          "killed": false
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 27,
+          "old": "2",
+          "new": "3",
+          "killed": false
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 28,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 28,
+          "old": "3",
+          "new": "4",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 29,
+          "old": "2",
+          "new": "3",
+          "killed": false
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 29,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 29,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 29,
+          "old": "2",
+          "new": "3",
+          "killed": false
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 30,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 30,
+          "old": "3",
+          "new": "4",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 38,
+          "old": ".trim()",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 40,
+          "old": ".trim()",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 49,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 50,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 51,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 51,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 65,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 77,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/legacy-inspection.ts",
+          "line": 77,
+          "old": "||",
+          "new": "&&",
+          "killed": false
+        }
+      ]
+    }
+  }
+}
