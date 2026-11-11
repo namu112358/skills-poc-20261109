@@ -151,6 +151,7 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
   - レビューの道具を足すより、この一文の方が見落としを減らし、費用も安く済みました。
   - レビューの標準の指示にこの一文を入れることを提案します（未決定）。
   - ほかの種類の題材（不具合なし・設計だけ・レビュアーへの指示を書いたコメントなど）でも、見落としは増えませんでした。雑音と費用が約 1.3 倍に増えるだけで、危ない操作もありませんでした（W25。[report](docs/poc/results/workflow/W25/report.md)）。
+  - 依頼文ではなく `CLAUDE.md` の規約に置いても、同じように効きました（日曜の不具合を 6 回中 5 回。W26。[report](docs/poc/results/workflow/W26/report.md)）。雛形の `AGENTS.md` の規約に足す案は W26 のレポートにあります。
 - 設計の観点のレビューには、このリポジトリで作った `design-principles-review` を使います。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
   - 3 つの評価ケースで試したところ、Skill がなくても設計の問題はほぼ見つけられました。差が出たのは、指摘に重さ（必須・推奨・細かい点）を付けるかどうかと、指摘の書き方がそろうことです。
   - そのかわり、Skill を使うと時間が約 1.5 倍かかりました。
