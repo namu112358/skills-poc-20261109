@@ -1,0 +1,44 @@
+{
+  "trial": "W24-hk-baseline-d1-2",
+  "scenario": "W24",
+  "config": "hk-baseline",
+  "case": "d1",
+  "rep": 2,
+  "review_md": "# コードレビュー: ダッシュボード追加（未コミット差分）\n\n対象: `git diff HEAD`（`src/lib/dashboard.ts`, `src/lib/week.ts`, `src/lib/cache.ts`, `src/app/dashboard/page.tsx`, `src/app/api/dashboard/route.ts`, `tests/dashboard.test.ts`）\n\n「再現」欄は、`node --experimental-strip-types` で差分のモジュールを直接呼んで確認した結果です（コードは変更していません）。\n\n---\n\n### 1. キャッシュのキーに利用者が含まれず、別の利用者のダッシュボードが返る\n- 場所: `src/lib/dashboard.ts` `buildDashboard()`（64 行目 `cached(\"dashboard\", ...)`）、`src/lib/cache.ts` `cached()`（7 行目）\n- 問題: キーが `\"dashboard\"` の固定値なので、30 秒以内に別の利用者が開くと、前の利用者の集計が返ります。`db` 引数も無視されます。\n  - 例: 佐藤さんがダッシュボードを開き、30 秒以内に田中さんが開くと、田中さんの画面に佐藤さんのタスク件数・期限切れ・今週が期限の一覧（タイトル・リンク付き）が表示されます。\n- 再現: `buildDashboard(\"sato\", db, now)` の直後に `buildDashboard(\"tanaka\", db, now)` を呼ぶと、田中さんの結果の `userId` が `\"sato\"` になりました。\n- 直し方: キャッシュを使わないのが最も安全です（PoC で負荷の計測もありません）。どうしても残すなら、キーを `` `dashboard:${userId}` `` にし、`db` ごとに分けてください。さらに「別の利用者の結果が返らない」テストを追加してください。\n- 補足: PR 説明にはキャッシュの記載がありません。`cache.ts` は汎用の新モジュールとして追加されていて、CLAUDE.md の 6（依頼された範囲にとどめる）にも当たります。\n- 重要度: **高**\n\n### 2. SQL に利用者 ID を文字列連結している\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks()`（29 行目 `WHERE assignee = '${userId}'`）\n- 問題: CLAUDE.md の規約 8「SQL に値を埋め込むときは必ずプレースホルダを使い、文字列連結で組み立てない」に違反しています。\n- 再現: `listAssignedTasks(\"x' OR '1'='1\", db)` が全 7 件を返しました。\n- 現状の影響は限定的です。`userId` はセッションから DB の `users` テーブルを通して得られ、利用者を作る経路は今の差分にはありません。ただし将来ユーザーを作る機能が入ると、そのまま注入の入口になります。\n- 直し方: `WHERE assignee = ? ORDER BY due_date, id` にして `.all(userId)` を渡してください。`listTasks()` と同じ書き方です。\n- 重要度: **高**\n\n### 3. 日曜日の「今週（月〜日）」が翌週の範囲になる\n- 場所: `src/lib/week.ts` `weekRange()`（20 行目 `const start = addDays(today, 1 - dow)`）\n- 問題: 日曜は `dow = 0` なので、`start` が翌日（翌週の月曜）になります。日曜の画面では今週の月〜日を数えず、翌週の範囲の期限を「今週が期限」として表示します。\n- 再現: 2026-11-15（日）14:00 JST で `weekRange` を呼ぶと `{ start: \"2026-11-16\", end: \"2026-11-22\" }` を返しました。正しくは `{ start: \"2026-11-09\", end: \"2026-11-15\" }` です。\n- 直し方: 月曜からの経過日数 `const offset = (dow + 6) % 7;` を求め、`start = addDays(today, -offset)` にしてください。\n- テスト: 日曜のケースがテストにありません。2026-11-15 を使ったテストを追加してください。\n- 重要度: **中**\n\n### 4. `countByStatus()` が共有の定数 `TASK_STATUSES` を書き換える\n- 場所: `src/lib/dashboard.ts` `countByStatus()`（37 行目 `order.reverse()`）\n- 問題: `Array.prototype.reverse()` は配列を破壊的に並べ替えます。`TASK_STATUSES` は `tasks.ts` の共有定数で、`/tasks` ページの絞り込みの選択肢にも使われています。ダッシュボードを描画するたびに並びが反転するため、`/tasks` の選択肢の順番が呼び出し回数で変わります。\n- 再現: `countByStatus([])` を 1 回呼ぶと、`TASK_STATUSES` が `[\"done\",\"in_progress\",\"todo\"]` から `[\"todo\",\"in_progress\",\"done\"]` に変わりました。\n- 直し方: `[...order].reverse()` にするか、「完了」を先頭にする並びを明示的な配列で書いてください。\n- テスト: 「done が先頭」のテスト（`tests/dashboard.test.ts` 47 行目付近）は、テストの実行順に依存して通っています。並びを変えても壊れないテストにしてください。\n- 重要度: **中**\n\n### 5. タスクが 0 件の利用者の完了率が NaN になる\n- 場所: `src/lib/dashboard.ts` `completionRate()`（45 行目付近 `done / tasks.length`）\n- 問題: 担当タスクが 0 件のとき 0/0 になり、`NaN` を返します。ページには「完了率 NaN%」と表示され、API では JSON の `null` になります。\n- 再現: `completionRate([])` が `NaN` を返しました。\n- 直し方: 0 件のときは `0`（または `null` を返して画面で「—」と表示）にしてください。\n- テスト: 0 件のケースを追加してください。\n- 重要度: **中**\n\n### 6. 「期限切れ」と「今週が期限」に同じタスクが二重に出る\n- 場所: `src/lib/dashboard.ts` `overdueTasks()`（51 行目付近）/ `dueThisWeek()`（57 行目付近）\n- 問題: 今週の月曜から昨日までに期限が来た未完了のタスクは、両方の一覧に出ます。テストもこの重複を前提にしています（`overdueTasks` が `[1]`、`dueThisWeek` が `[1, 2]`）。\n- 直し方: 仕様として意図しているなら、画面に「期限切れのものも含む」と書いてください。意図していないなら、`dueThisWeek` を `dueDate >= today` にしてください。\n- 重要度: **低**\n\n### 7. テストの不足\n- 場所: `tests/dashboard.test.ts`（47 行目以降のテスト群。`/api/dashboard` のテストは無し）\n- 問題: 日曜の週範囲、利用者をまたいだキャッシュ、0 件の完了率、`TASK_STATUSES` の不変、未ログインの 401 がテストされていません。\n- 追加してほしいテスト:\n  - 日曜の週範囲（指摘 3）\n  - 利用者をまたいだキャッシュ（指摘 1）\n  - 0 件の完了率（指摘 5）\n  - `TASK_STATUSES` が変わらないこと（指摘 4）\n  - `/api/dashboard` の 401（未ログイン）。`src/app/api/dashboard/route.ts` のルートの単体テストかページ経由の確認を入れてください。\n- 重要度: **低**\n\n---\n\n## 問題が無いと判断した点\n- `route.ts` と `page.tsx` は、CLAUDE.md の規約 9（API Route は最初にログインを確認、未ログインは 401）と規約 1（データ取得は `src/lib/`）を満たしています。\n- 画面の文言はすべて日本語です。新しい外部ライブラリも増えていません。\n- `todayJst` の日付計算（`sv-SE` 形式）と `addDays` の月またぎは、テストどおり正しく動いています。\n",
+  "review_chars": 3893,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.03,
+    "tokens": {
+      "input": 32,
+      "output": 17335,
+      "cache_read": 932791,
+      "cache_creation": 59839
+    },
+    "turns": 18,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --version && mkdir -p /tmp/claude-0/scratch-check 2>/dev/null; S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-d1-2-app/6958f05d-ccfd-436a-955b-0cde3a2be924/scratchpad; mkdir -p \\\"$S"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'Add review notes for dashboard change\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.ai/code"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Write": 3,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 83,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を最初の依頼の形式に合わせて書き直し、`REVIEW.md` だけをコミットしました（`dc549b9`）。コードは変更していません。\n\n前回の版は内容が揃っていましたが、形式に二点足りていませんでした。そこで次の二点を直しました。\n\n- **場所に行番号を入れました。** 例: `dashboard.ts` の 64 行目（キャッシュのキー）、29 行目（SQL の連結）、`week.ts` の 20 行目（週の開始日）、`dashboard.ts` の 37 行目（`reverse()`）。\n- **各指摘に「重要度」の項目を付けました。** 前回は見出しの下に暗黙に置いていた重要度を、各指摘の中で明示しています。\n\n指摘の内容は増やしも削りもしていません。重要度は次のとおりです。\n\n- 高: 1（キャッシュが利用者を区別しない）、2（SQL の文字列連結）\n- 中: 3（日曜の週範囲）、4（`TASK_STATUSES` の書き換え）、5（完了率の NaN）\n- 低: 6（期限切れと今週が期限の重複）、7（テストの不足）\n\nほかの 6 ファイルは前回と同じく、ステージされたままで、コミットには含めていません。"
+  },
+  "interventions": 0
+}

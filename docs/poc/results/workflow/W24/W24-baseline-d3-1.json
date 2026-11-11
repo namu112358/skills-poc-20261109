@@ -1,0 +1,44 @@
+{
+  "trial": "W24-baseline-d3-1",
+  "scenario": "W24",
+  "config": "baseline",
+  "case": "d3",
+  "rep": 1,
+  "review_md": "# レビュー: ダッシュボードとタスクのコメント\n\nマージ前に直すべき問題を重要度順に並べる。\n\n## 高\n\n### 1. キャッシュキーにユーザーが含まれず、他人のダッシュボードが返る\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）\n- 問題: キーが固定文字列 `\"dashboard\"` のため、30 秒以内は最初に計算した人の結果が全員に返る。sato が開いた直後に suzuki が `/dashboard` や `GET /api/dashboard` を開くと、suzuki に sato のタスク名・件数が表示される（情報漏えい）。`now` を変えて呼んでも同様。ユーザー別の取り違えをテストが検出できていない。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。キャッシュ自体が必要か再検討する（SQLite のインメモリ読み取りは軽く、30 秒の古さのほうが害が大きい）。タスク更新（PATCH）後も最大 30 秒古い値が出る点も含め、不要なら削除する。残すなら、タスク更新時に無効化する。\n\n### 2. SQL インジェクション（規約 8 違反）\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`\n- 問題: `WHERE assignee = '${userId}'` と文字列連結している。現状 `userId` はセッション由来だが、この関数は `userId: string` を受ける公開関数で、呼び出し元が変わると即座に脆弱になる。\n- 直し方: `WHERE assignee = ?` にして `.all(userId)` で渡す。\n\n### 3. コメント本文のリンクによる XSS（`javascript:` URL）\n- 場所: `src/lib/comments.ts` `renderBody`、`src/app/tasks/[id]/page.tsx` の `dangerouslySetInnerHTML`\n- 問題: HTML エスケープ後に `[文字](URL)` を `<a href=\"$2\">` に置換しているが、URL のスキームを検証していない。`[クリック](javascript:alert(document.cookie))` のコメントを投稿すると、閲覧者がクリックしたときに任意の JS が実行される。（`\"` は `&quot;` に変換済みなので属性から抜け出す攻撃は成立しないが、スキームの制限が無いのが問題。）\n- 直し方: URL を `^https?://` のみ許可し、それ以外はリンク化しない。可能なら `dangerouslySetInnerHTML` をやめ、React 要素（`<a>` と `<br />`）として組み立てる。テストに `javascript:` のケースを追加する。\n\n### 4. コメントの編集・投稿の認可と存在確認の不備\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`、`src/app/api/tasks/[id]/comments/route.ts` `POST`\n- 問題:\n  - `PATCH` は作者の確認がなく、ログインしていれば他人のコメントを書き換えられる（`DELETE` は確認している。不整合）。\n  - `POST` はタスクの存在を確認しない。存在しない `id`（例: 9999）に投稿すると、外部キー制約違反（`PRAGMA foreign_keys` が有効なら）で例外 → 500、無効なら孤立コメントが作られる。規約 9 は「対象が無いときは 404」。\n- 直し方: `PATCH` に `comment.authorId !== user.id` → 403 を追加。`POST` で `getTask(id)` が無ければ 404 を返す。両方にテスト（ルートが重ければ、判定を `src/lib/` に切り出して単体テスト）を追加する。\n\n## 中\n\n### 5. `countByStatus` が共有定数 `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` `countByStatus`\n- 問題: `TASK_STATUSES as TaskStatus[]` は同じ配列への参照で、`.reverse()` は元の配列を in-place で反転する。呼ぶたびに `TASK_STATUSES` の並びが反転し、タスク一覧のフィルタや他の表示でも順序が変わる。ダッシュボードの表示順も、呼ぶたびに「完了先頭」と「未着手先頭」が入れ替わる（ページを開くたびに順序が変わる）。テストは 1 回しか呼ばないので通る。\n- 直し方: `[...TASK_STATUSES].reverse()`（または `toReversed()`）にする。2 回連続で呼んでも同じ順になるテストを追加する。\n\n### 6. タスクが 0 件のとき完了率が `NaN`\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 問題: `0 / 0` が `NaN` になり、画面に「完了率 NaN%」と出る。API の JSON では `null` になる。担当タスクのいない人（新規ユーザー）で発生する。\n- 直し方: `tasks.length === 0` なら 0 を返す。テストを追加する。\n\n### 7. `overdueTasks` / `dueThisWeek` の範囲と順序、重複\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`\n- 問題: 期限切れ（今日より前）のタスクが、今週の月曜以降なら「今週が期限」にも入る（テストでも id 1 が両方に入ると確認している）。同じタスクが 2 つのリストに出る。仕様として意図したものか不明。意図でないなら `t.dueDate >= today` とするか、重複を除く。\n- 補足: 関数コメントは「期限の古い順」とあるが、並び順は `listAssignedTasks` の `ORDER BY` に依存している点に注意（現状は合っている）。\n\n### 8. コメントのマイグレーションと DB の整合（カスケード・日時の並び順）\n- 場所: `src/lib/db/migrations.ts` version 3、`src/lib/comments.ts` `formatCreatedAt` / `listComments`\n- 問題: `created_at` に `toLocaleString(\"ja-JP\")`（例 `2026/11/11 10:00:00`）という表示用の文字列を保存し、それで `ORDER BY created_at` している。`2026/11/9 9:00:00` と `2026/11/11 ...` のようにゼロ埋めされない形式のため、文字列比較では時系列順にならない（`2026/11/9` > `2026/11/11`）。月をまたぐと順序が崩れる。\n- 直し方: 保存は ISO 8601（`now.toISOString()`）にし、表示時に日本時間へ整形する。並びは `ORDER BY id` でもよい。すでにマイグレーションを適用済みの環境がある場合は、既存の v3 を書き換えず v4 で対応する（未リリースなら v3 を直してよいか確認する）。\n\n## 低\n\n### 9. コメント ID の検証に `parseTaskId` を流用\n- 場所: `src/app/api/comments/[commentId]/route.ts`\n- 問題: 動作は正しいが名前が誤解を招く。`parseId` 等に改名するか、コメント用の関数を用意する。\n\n### 10. テストが不足している\n- ユーザー別キャッシュ（2 人が続けて呼ぶ）、`completionRate` の 0 件、`countByStatus` の連続呼び出し、`javascript:` リンク、他人のコメントの PATCH/DELETE、存在しないタスクへの投稿は、いずれも未テスト。上記の欠陥がテストをすり抜けた原因になっている。ダッシュボードの `Dashboard` に `generatedAt` があるが画面で使われていない（キャッシュ時は古い値になる）。\n",
+  "review_chars": 3658,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2924,
+    "tokens": {
+      "input": 30,
+      "output": 6895,
+      "cache_read": 627218,
+      "cache_creation": 40156
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD --stat && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat \\\"$f\\\"; done\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='REVIEW.md'\\ns=open(p,encoding='utf-8').read()\\na=s.index('また `\\\"` は')\\nb=s.index('\\\\n',a)\\ns=s[:a]+'（`\\\"` は `&quot;` に変換済みなので属性から抜け出す攻撃は成立しないが、スキームの制限が無いのが問題。）'+s[b:"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 9,
+      "Write": 1,
+      "Edit": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 69,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューで出した指摘がすべて入っています。形式も依頼どおりで、新たに足す内容も削る内容もなかったため、今回はファイルを書き換えていません。作業ツリーに `REVIEW.md` の未コミットの変更はなく、コミットし直すものもありません。\n\n指摘は 10 件あります。高が 4 件（#1〜#4）、中が 4 件（#5〜#8）、低が 2 件（#9〜#10）です。それぞれに場所、何が問題か、直し方、重要度を書いてあります。\n\n`REVIEW.md` は、前回のコミット `b3516bb` と `300646b` ですでに git に入っています。コードは直していません。"
+  },
+  "interventions": 0
+}
