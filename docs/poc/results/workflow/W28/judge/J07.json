@@ -1,0 +1,85 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "validateLocation の locationId 分岐で locationOriginal が未設定のまま createInstrument が location 列に bind し、SQLite の bind 例外で場所を選ぶ登録が 500 になる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "マイグレーション 5（linkInstrumentsToLocations）が location_id だけを設定し、location 列は表記ゆれのある元の文字列のまま残る。",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 3,
+   "summary": "location-master.ts の updateLocation で場所を改名しても instruments.location が更新されず、古い名前のまま残る。",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "updateInstrument で locationId を選び直しても location 列が変更前の文字列のままで、経理と前の版が古い場所を見る。",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "前の版で location 列だけを編集すると location_id が古いまま残り、新しい版に戻すと location_name が優先されて変更が無視される。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "recordInventory で、場所が確定済みの計測器に照合できない文字が来るとログだけを出して捨て、確認中に戻さない（要件 6 とのずれ）。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 7,
+   "summary": "マイグレーション 5 の移行結果はログにしか残らず、0 件のときはログも出ない。linked も今回寄せた件数ではないため、後で確かめにくい。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "約 5 万件の移行を行ごとの正規化と UPDATE で行っており、実データ規模での所要時間を測っていない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 9,
+   "summary": "場所の追加・改名・使用終了の API が操作ログを出さない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 10,
+   "summary": "場所の重複検査と登録が別操作のため、同時に登録すると UNIQUE 制約違反で 500 になる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 11,
+   "summary": "検証が typecheck・test・build だけで、locationId での登録や改名後の location 列などのテストが足りない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0723318
+ }
+}

@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "isNishinihonCsv が BOM 付きなら false を返すため、BOM 付きの西日本 CSV が東日本の取込に回り「管理番号の列がありません」の 400 になる（要件 3 違反）。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "importNishinihonCsv のファイル内の重複キーに成績書番号を含めているため、同じ機器・同じ校正日で成績書番号だけ違う行が 2 件とも取り込まれる（要件 7・A 社の管理番号＋校正日の決まりに反する）。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "importNishinihonCsv が要件に無い未来日の拒否（date > today）を足しており、A 社の取込と挙動が違う。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "成績書番号の 51 文字以上を拒否する判定も要件に無く、依頼の範囲を超えている。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "END の件数の不一致などで全体を止めて 400 を返すときにログが出ず、運用で追えない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.052087800000000004
+ }
+}
