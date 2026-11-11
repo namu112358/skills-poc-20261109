@@ -1,0 +1,71 @@
+{
+  "trial": "W31-baseline-2pass-c2-2",
+  "scenario": "W31",
+  "config": "baseline-2pass",
+  "case": "c2",
+  "rep": 2,
+  "review_md": "# レビュー: 計測器ごとの定期点検（担当者・周期・点検記録）\n\n`git diff HEAD` の未コミット差分を、2 通りの見方でレビューした。\n\n1. コードを読み、PR の「合意した要件」1 つずつについて実装と突き合わせた。\n2. `npm run build` → `npm run start`（空きポート 3927。DB は既定のインメモリ・初期データ）で起動し、`sato` でログインして、画面（Playwright）と API（curl）を実際に操作した。確認後はサーバーを止めた。`npm run build` は成功する。\n\n指摘は重要度順に番号を付けた。各指摘の末尾に、どの見方で確認したか（「確認」）を書いた。\n\n## 要件ごとの確認結果\n\n| # | 要件 | 該当箇所 | 判定 |\n|---|---|---|---|\n| 1 | 担当者は在籍中の利用者 1 人。退職・休職は新規に選べない。既存の担当は表示してよい | `inspections.ts` `validatePlanInput` / `page.tsx` `planChoices` | API は満たす。画面は詳細画面が開けない（指摘 1）。移行外の入力は指摘 5 |\n| 2 | 点検記録（点検日・点検した人（在籍中）・結果・メモ）を何回分も残す | `recordInspection` / `validateInspectionInput` / `inspection_records` | API は満たす。画面は指摘 1・10 |\n| 3 | 記録は消さない。間違えたら訂正の記録を足す | 削除 API は無い | **訂正が効かない（指摘 4）** |\n| 4 | 周期は計測器ごと、既定 3 か月。次回予定日 = 最後の点検日 + 周期。記録無しは「未点検」で目立たせる | `migrations.ts` 6 / `judgeDue` / `addMonths` | 満たす（月末の丸めも妥当）。廃棄・使用停止の扱いは指摘 11 |\n| 5 | 担当者で絞り込み・並べ替え | `instruments/page.tsx`・`GET /api/instruments`・`listInstruments` | **満たさない（指摘 2）** |\n| 6 | 担当者ごとに、遅れている台数を毎朝知りたい | `src/app/api/jobs/` に追加なし | **満たさない（指摘 2）** |\n| 7 | 要修理で使用停止 | `recordInspection` | 満たす（画面・API とも同じ関数）。貸出中の扱いは指摘 9 |\n| 8 | 旧 extra の点検者・最終点検日を引き継ぐ。名前が分かれば担当者に、分からない名前・読めない日付は元の書き方を残す。黙って捨てない | `inspections-legacy.ts` / migration 6 `apply` | 初期データの移行は期待どおり。ただし**移行の外から入る値（指摘 5）と、画面・API の操作で消える値（指摘 6）がある**。移行の取りこぼしは指摘 8 |\n| 9 | 約 5 万件でも一覧が遅くない | `listInspectionPlans` / `instruments/page.tsx` | **懸念あり（指摘 3）**。実測はしていない |\n| 10 | extra の dept の持ち方を変えない | `dept` は extra のまま。`listInstruments` も変更なし | 満たす |\n| 11 | 前の版に戻しても DB はそのまま使える | migration 6 は列・テーブルの追加のみ | 概ね満たす（指摘 7 の注意あり） |\n\n---\n\n## 指摘\n\n### 【高】1. 計測器の詳細画面が、すべての計測器で 500 エラーになる\n\n- 場所: `src/lib/users.ts` `listActiveUsers`（`node:sqlite` の行をそのまま返す）、`src/app/instruments/[id]/page.tsx`（`planChoices` 経由で `InspectionForms` の `users` に渡す）、`src/app/instruments/[id]/inspection-forms.tsx`。\n- 問題: `node:sqlite` の行はプロトタイプなしのオブジェクトで、サーバーコンポーネントからクライアントコンポーネントには渡せない。ログインして `/instruments/1`〜`/instruments/7`・`/instruments/9` のどれを開いても HTTP 500 になる（一覧 `/instruments` は 200）。サーバーのログ:\n  `Error: Only plain objects, and a few built-ins, can be passed to Client Components from Server Components. Classes or null prototypes are not supported. [{id: \"hayashi\", name: \"林\"}, ...]`\n  - 点検の担当者・周期の保存と点検記録の登録（この変更の主機能）が、画面からは一切使えない。\n  - 校正記録・貸出の確認も、詳細画面ごと見られなくなる（回帰）。\n  - `typecheck`・`test`・`build` は通るので、PR の検証では見つからない。\n- 直し方: `listActiveUsers` が `{ id, name }` の普通のオブジェクトに詰め替えて返す（`rows.map(({ id, name }) => ({ id, name }))`）。または `page.tsx` で詰め替えてから渡す。画面を実際に開く確認（ページが 200 になり、フォームが表示される）を、PR の検証手順に入れる。\n- 確認: 本番モードで再現した（500 とサーバーログ）。\n\n### 【高】2. 「担当者での絞り込み・並べ替え」と「担当者ごとの遅れ台数を毎朝知る」が未実装（要件 5・6）\n\n- 場所: `src/app/instruments/page.tsx`（絞り込みは status / dept のみ）、`src/lib/instruments.ts` `listInstruments` と `GET /api/instruments`（`manager` は管理者であって点検の担当者ではない）、`src/app/api/jobs/`（点検用のジョブが無い）、`docs/operations.md`。\n- 問題: 担当者でも点検の状況でも絞り込めず、並べ替えもできない。担当者ごとの遅れ台数を出す処理もない。`inspector_id` の索引（`instruments_inspector`）だけが作られていて、使う処理がない。PR の説明にも、やらない理由が書かれていない。\n- 直し方:\n  - `src/lib/inspections.ts` に、担当者・状況での絞り込みと並べ替えの関数を置く。URL のクエリは型ガードで検証し、不正な値は「指定なし」にする（規約 2）。\n  - 担当者ごとの期限切れ・未点検の台数を数える関数を作り、`POST /api/jobs/inspection-overdue` を `requireJobAuth()` つきで足す。`overdue-loans` に合わせて、担当者ごと・対象ごとにログを出し、集計のログも出す。\n  - 毎日 8:00 の cron 登録を運用チームに依頼する旨を `docs/operations.md` に書く。何度呼んでも同じ結果になる作りにする（規約 13）。\n  - 遅れの台数に使用停止・廃棄を入れるかを決める（指摘 11）。\n  - テストを足す。\n- 確認: コードで確認し、本番モードでも確認した。`GET /api/instruments?inspector=sato` は 10 件すべてを返し、絞り込まれない。一覧画面にも絞り込み・並べ替えが無く、点検用のジョブ API も無い。\n\n### 【中】3. 5 万件での一覧の性能\n\n- 場所: `src/lib/inspections.ts` `PLAN_SELECT` / `listInspectionPlans`、`src/app/instruments/page.tsx`。\n- 問題:\n  - 一覧を開くたびに、計測器 5 万件ぶんの相関サブクエリ（`MAX(inspected_on)`）を実行し、5 万件の `Map` を作る。\n  - 同じページで `listInstruments`（5 万件）と `listUsers` も全件読んでいて、ページング・件数の上限がない。表示する行も 5 万行になる。\n  - 絞り込みや並べ替えを足すと、毎回 JS 側で全件を舐めることになる。\n  - 5 万件での実測も、`EXPLAIN QUERY PLAN` の確認もない。テストは数件だけ。\n- 直し方:\n  - 最後の点検日は、`inspection_records` を計測器ごとに 1 回だけ集計して結合する（`LEFT JOIN (SELECT instrument_id, MAX(inspected_on) ...GROUP BY instrument_id)`）か、`instruments.last_inspected_on` として持つ。\n  - 絞り込み・並べ替え・ページングは SQL 側で行い、一覧は必要な件数だけ取る。\n  - 5 万件のデータで実測し、結果を PR に書く。\n- 確認: コードで確認した。本番モードでは 10 件の初期データだけで、5 万件での速さは実測していない。\n\n### 【中】4. 「訂正の記録を足す」運用が成り立たない\n\n- 場所: `src/lib/inspections.ts` `PLAN_SELECT`（`MAX(r.inspected_on)`）、`validateInspectionInput`、`listInspections`。\n- 問題:\n  - 最後の点検日は、記録の中の**最大の点検日**で決まる。点検日を `2026-11-10` と間違えて登録した場合、`2026-10-10` の訂正記録を足しても最後の点検日は `2026-11-10` のままで、次回予定日も直らない。\n  - 「訂正」を表す項目（どの記録を訂正するか）が無く、訂正された記録も一覧で区別できない。\n  - 要修理で使用停止にした記録を訂正しても、使用停止は戻らない。\n- 直し方: 記録に `corrects_id`（訂正対象の記録、NULL 可）を持たせ、訂正された記録は日付の集計から外すか、訂正の記録で置き換えて数える。画面・API で訂正を登録できるようにして、履歴には両方残す。使用停止の解除の手順も決めて PR に書く。\n- 確認: コードで確認し、本番モードでも確認した。MI-0001 に `2026-11-10` を誤って登録し、`2026-10-10` の記録を足しても、最後の点検日は `2026-11-10`・次回予定日は `2027-02-10` のままだった。\n\n### 【中】5. 画面を通らない経路（`PATCH /api/instruments/:id` の `extra`、新規登録 `POST`）で入る点検者・最終点検日が、黙って無視される（要件 8 の「送信元の違い」）\n\n- 場所: `src/lib/instruments.ts` `validateInstrumentInput` / `createInstrument` / `updateInstrument`（`extra` を素通しで保存）、`src/app/instruments/[id]/page.tsx`（extra の `inspector` / `last_inspected` を表示から除外）、`src/app/instruments/page.tsx`。\n- 問題:\n  - 移行は migration 6（とシード）で 1 回だけ。そのあとに `extra` へ `inspector` / `last_inspected` を入れる呼び出し（他システム・古い画面・旧版アプリ）があっても、担当者・点検記録には反映されない。\n  - 詳細画面は `extra` のこの 2 項目を**除外して表示する**ので、その値が画面のどこにも出なくなる。一覧の「点検」列も廃止された。\n  - 利用者には「保存したのに表示されない」ように見える。点検日は次回予定日の計算にも入らない。\n- 直し方:\n  - API でこの 2 項目を受け取ったときの扱いを決める。点検の API へ誘導する 400 にする、または同じ移行処理を通す。後者なら `importLegacyInspections` を共通部品にして呼ぶ。\n  - 表示は、移行されなかった `extra` の値を除外せずに出す。\n  - 経路ごとのテストを足す。\n- 確認: コードで確認し、本番モードでも確認した。`PATCH /api/instruments/4` で `extra` に `inspector: 佐藤`・`last_inspected: 2020-01-01` を送ると 200 で受け付けるが、点検の担当者は `inoue`・最後の点検日は `2026-07-15` のままだった。\n\n### 【中】6. 担当者・周期の保存で、移行時に残した「元の書き方」が消える\n\n- 場所: `src/app/instruments/[id]/inspection-forms.tsx` `submitPlan`（常に `inspectorId` を送る）、`src/lib/inspections.ts` `updateInspectionPlan`（`inspectorId` が来れば無条件に `legacy_inspector = NULL`）。\n- 問題:\n  - 担当者が「外部委託」のような名前で、`legacy_inspector` に元の書き方を残している計測器がある（担当者は未設定）。この計測器で**周期だけ**を変えて保存すると、フォームは `inspectorId: null`（未設定のまま）を送る。`updateInspectionPlan` はそれを「担当者の決め直し」とみなして `legacy_inspector` を消す。\n  - 点検日が無かった計測器は `inspection_records` に写しが残らないため、元の書き方が `extra` 以外から完全に消える。要件 8 の「黙って捨てない」に反する。\n- 直し方: 担当者が実際に変わったとき（現在の値と違うとき）だけ `legacy_inspector` を消す。フォームは変えた項目だけを送る。「周期だけ変えても legacy が残る」「担当者を変えたときだけ消える」のテストを足す。\n- 確認: コードで確認し、本番モードでも確認した（API 経由。フォームは指摘 1 のため画面から確認できていない）。MI-0009 は担当者が「外部委託」で `legacyInspector` に元の書き方が残っていた。`PATCH /api/instruments/9/inspection` に `{\"inspectorId\":null,\"intervalMonths\":6}` を送ると 200 で、`legacyInspector` が `null` になり、一覧の担当者の欄は「外部委託」から「未設定」に変わった。\n\n### 【低〜中】7. 前の版に戻したあとの整合（要件 11）\n\n- 場所: `src/lib/db/migrations.ts` 6、`docs/operations.md`（記載なし）。\n- 問題:\n  - 列とテーブルの追加だけで、旧版のコードは新しい列を見ないので、DB はそのまま使える。この点は良い。\n  - ただし、戻っている間の点検は、旧版の `extra`（`inspector` / `last_inspected`）にしか書かれない。再度新しい版に上げても、`user_version` が 6 のままなので移行は走らず、その点検が担当者・点検記録に入らない（指摘 5 と同じ問題）。\n  - 新しい版が `extra` の 2 項目を表示から外しているので、データはあるのに見えない。\n- 直し方: 戻す手順と、戻している間に入った点検の取り込み方（再実行できる移行を管理用の手順にする等）を `docs/operations.md` に書く。指摘 5 の対応と合わせる。\n- 確認: コードで確認した。旧版への切り戻しそのものは実行していない。\n\n### 【低】8. 移行の取りこぼしの余地\n\n- 場所: `src/lib/inspections-legacy.ts` `importLegacyInspections`・`normalizeInspectorName`・`parseLegacyDate`。\n- 問題:\n  - `extra` が壊れた JSON のとき `continue` で飛ばしている。ログも出さず、移行の対象外になる。\n  - `inspector` が文字列以外（数値など）、`last_inspected` が文字列以外のときも、黙って扱われない。\n  - 敬称を外してから名前を探すので、「氏」「様」で終わる本名の利用者は一致しない。先に元の文字列で一致を試すほうが安全。\n  - 同姓の利用者が複数いるときは `legacy_inspector` に残る。これは正しいが、件数を移行のログに出していない。\n  - 「令和元年」など元号の「元」は読めないので、元の書き方が残る。仕様どおりだが、テストに入れておくとよい。\n- 直し方: 飛ばした件・一致せず残した件・日付が読めず残した件を、対象の計測器 ID つきでログに出す（規約 15）。文字列以外の値は元の書き方（JSON 文字列）として残す。\n- 確認: コードで確認した。初期データの移行（「鈴木さん」→ `suzuki`、`2026/8/20` → `2026-08-20`、`R8.9.10` → `2026-09-10`、「外部委託」→ `legacyInspector` に残す）は、本番モードでも期待どおりだった。\n\n### 【低】9. 要修理で貸出中・校正中の計測器を使用停止にする影響\n\n- 場所: `src/lib/inspections.ts` `recordInspection`（`status <> 'disposed'` のときだけ更新）、`src/lib/loans.ts`（返却は `status = 'on_loan'` のときだけ `in_use` に戻す）。\n- 問題: 貸出中の計測器に要修理を記録すると、状態は `suspended` になるが貸出は開いたまま。返却すると貸出は閉じるが状態は `suspended` のまま。貸出中の変更は貸出・返却の操作でだけ、という台帳の決まりに触れる。仕様として許すなら PR に書いて、テストで明示するほうがよい。\n- 直し方: 貸出中のときの扱い（開いている貸出を残して使用停止にする等）を決め、PR とテストに書く。\n- 確認: コードで確認し、本番モードでも確認した。貸出中の MI-0002 に要修理を登録すると 201。状態は `suspended` になるが、貸出（`returnedAt: null`）は開いたままだった。\n\n### 【低】10. 点検記録の画面で、退職・休職の担当者が「点検した人」に選べる\n\n- 場所: `src/app/instruments/[id]/page.tsx` `planChoices` → `inspection-forms.tsx` の「点検した人」の `<select>`。\n- 問題: 担当者用の選択肢（退職・休職の現担当を含む）を「点検した人」にも使っている。選ぶと API が 400 を返し、画面では「在籍中の利用者から選んでください」と出る。選べるのに必ず失敗する選択肢になっている。\n- 直し方: 「点検した人」には `listActiveUsers()` だけを渡す。\n- 確認: コードで確認した。詳細画面が 500（指摘 1）のため、画面では確認できていない。\n\n### 【低】11. 廃棄・使用停止の計測器が「未点検」として強調される\n\n- 場所: `src/lib/inspections.ts` `judgeDue`（計測器の状態を見ない）、`src/app/instruments/page.tsx` の「点検の状況」の列。\n- 問題: 一覧で、廃棄済みの MI-0008・使用停止の MI-0007 が、点検の状況に太字の「未点検」と出る。担当者ごとの遅れ台数（指摘 2）を作るときも、同じ判定を使うと数に入ってしまう。\n- 直し方: 廃棄は点検の対象外にする。使用停止は含めるか、扱いを決めて PR に書く。\n- 確認: 本番モードの一覧画面で確認した。\n\n### 【低】12. テストと検証が足りない部分\n\n- 場所: `tests/inspections.test.ts`、PR の「検証結果」。\n- 問題: テストは関数単位が中心で、次が無い。いずれも上の指摘の修正と一緒に足す。\n  - API Route（未ログイン 401・存在しない ID の 404・不正入力の 400）。\n  - 画面（詳細画面が 200 で開き、フォームが表示される。指摘 1 の再発防止）。\n  - 5 万件規模の実行時間。\n  - 指摘 5・6 の経路。\n  - 担当者の絞り込み・集計（未実装のため）。\n- 「typecheck・test・build が通った」だけでは、上の要件の充足も、画面が開くことも確認できない。\n- 直し方: 上の項目のテストを足し、PR の検証手順に本番モードで画面を開く確認を入れる。\n\n---\n\n## 問題が無いと判断した点（確認のみ）\n\n- 認可: 新しい API は、すべて最初に `requireApiUser()` を呼んでいる。本番モードでも、未ログインは 401、存在しない計測器は 404 だった。\n- 入力検証: 未来の点検日・存在しない利用者・不正な結果は 400（理由を日本語で返す）。周期 0 も 400。\n- SQL は、すべてプレースホルダで組み立てている。\n- 日付は、保存は ISO 8601（UTC）、判定は日本時間（`todayJst`）に揃っている。\n- migration 6 は既存のマイグレーションを書き換えておらず、`extra` を消さない。`dept` の持ち方も変えていない。一覧の点検の列（担当者・最後の点検日・次回予定日・状況）は表示され、`dept` の列も変わらない。\n\n## 確認できなかった点\n\n- 詳細画面が 500（指摘 1）のため、画面のフォーム操作（担当者・周期の保存、点検記録の登録、退職した担当者の選択肢）は、画面からは確認できていない。指摘 1 を直したうえで、もう一度画面を通して確認すること。\n- 5 万件での一覧の速さ（指摘 3）は、実測していない。\n- 旧版アプリへの切り戻し（指摘 7）は、実行していない。\n",
+  "review_chars": 9920,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 1.0396,
+    "tokens": {
+      "input": 88,
+      "output": 30136,
+      "cache_read": 3200785,
+      "cache_creation": 104495
+    },
+    "turns": 45,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run build 2>&1 | tail -15); cat package.json | grep -n '\\\"start\\\"'\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c2-2-app/f2de8b63-29c9-411b-88d0-f9b4841f5800/scratchpad && rm -f $S/t.db && DATABASE_PATH=$S/t.db JOBS_TOKEN=tok PORT=3917 nohup npm ru"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"DATABASE_PATH=/tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c2-2-app/f2de8b63-29c9-411b-88d0-f9b4841f5800/scratchpad/t.db JOBS_TOKEN=tok npm run start -- -p 3917\", \"run_in_background\":"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"JOBS_TOKEN=tok npm run start -- -p 3917\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c2-2-app/f2de8b63-29c9-411b-88d0-f9b4841f5800/scratchpad && sleep 4; cat ../tasks/bj36bhp4s.output | tail -5; curl -s -c cj -o /dev/nul"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c2-2-app/f2de8b63-29c9-411b-88d0-f9b4841f5800/scratchpad && B=localhost:3927; H='content-type: application/json'\\ncurl -s -c cj -X POST"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c2-2-app/f2de8b63-29c9-411b-88d0-f9b4841f5800/scratchpad && J='content-type: application/json'\\necho \\\"#5 interval-only save on legacy "
+      }
+    ],
+    "tool_calls": {
+      "Bash": 26,
+      "Write": 2,
+      "Read": 3,
+      "ToolSearch": 2,
+      "mcp__playwright__browser_navigate": 2,
+      "mcp__playwright__browser_snapshot": 2,
+      "mcp__playwright__browser_fill_form": 1,
+      "mcp__playwright__browser_click": 1,
+      "TaskStop": 1,
+      "mcp__playwright__browser_close": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 252,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "2 回のレビューの指摘を、`REVIEW.md` の 1 本の番号つき一覧（12 件）にまとめ直し、`REVIEW.md` だけをコミットしました。コードは直していません。\n\n各指摘は、場所・何が問題か・直し方・重要度の形式にそろえました。それぞれに「確認」の行を付け、コードを読んで分かったのか、本番モードで実際に動かして確認したのかを書いてあります。\n\n| 重要度 | 指摘 |\n|---|---|\n| 高 | 1. 詳細画面がすべて 500 になる<br>2. 担当者での絞り込み・並べ替えと、担当者ごとの遅れ台数が未実装 |\n| 中 | 3. 5 万件での一覧の性能<br>4. 訂正の記録を足しても最後の点検日が直らない<br>5. `extra` 経由の点検者・最終点検日が黙って無視される<br>6. 担当者・周期の保存で、移行時に残した元の書き方が消える |\n| 低〜中 | 7. 旧版へ戻したあとの整合 |\n| 低 | 8. 移行の取りこぼし<br>9. 貸出中の計測器への要修理<br>10. 点検記録の「点検した人」に退職・休職の担当者が選べる<br>11. 廃棄・使用停止が「未点検」と強調される<br>12. テストと検証の不足 |\n\n- 1 回目の 10 件と 2 回目の 2 件（詳細画面の 500 と、廃棄・使用停止の強調）を合わせて 12 件で、削った指摘も足した指摘もありません。\n- 同じ内容は 1 件にまとめ、実際に動かした結果は該当する指摘の「確認」に入れました。\n- 要件の表と、問題なしと判断した点、確認できなかった点（画面のフォーム操作・5 万件の実測・旧版への切り戻し）も残してあります。\n- 指摘 12 には、画面を開くテストを足し、本番モードで画面を開く確認を PR の検証手順に入れる、という項目が含まれます。これは 2 回目に「直し方」として書いたことの再掲で、新しい指摘ではありません。"
+  },
+  "interventions": 0
+}
