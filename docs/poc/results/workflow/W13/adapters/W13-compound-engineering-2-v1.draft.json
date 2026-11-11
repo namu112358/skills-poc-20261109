@@ -1,0 +1,54 @@
+{
+  "phase": "v1",
+  "commit": "af9211c4e2fff935824c85a18a038c668ac4dee6",
+  "files": [
+    "src/app/api/instruments/[id]/calibrations/route.ts",
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/calibrations.ts",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservation-overlap.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations?cancelled=1",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "fields": {
+      "id": "id",
+      "status": "cancelledAt",
+      "start": "startOn",
+      "end": "endOn",
+      "user": "reserverId"
+    },
+    "status": {
+      "active": [
+        "null"
+      ],
+      "cancelled": [
+        "@notnull"
+      ]
+    },
+    "jobs": [],
+    "notes": "v1 には承認・却下・期限切れの仕組みは無い。状態は専用の項目ではなく cancelledAt（null なら有効、日時なら取消済み）で表される。list は既定で有効な予約だけなので、取り消し済みも見るため ?cancelled=1 を付けた。一覧は終了日が今日以降の予約だけを返す（過去の予約は出ない）。予約者はログイン中の本人。取消は予約した本人か計測器の管理者のみ。"
+  },
+  "cost_usd": 0.0703972
+}

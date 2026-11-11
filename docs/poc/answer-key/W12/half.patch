@@ -1,0 +1,667 @@
+diff --git a/docs/operations.md b/docs/operations.md
+index cc74024..6f2fe01 100644
+--- a/docs/operations.md
++++ b/docs/operations.md
+@@ -26,6 +26,7 @@ curl -fsS -X POST -H "Authorization: Bearer $JOBS_TOKEN" https://calib.internal.
+ | ジョブ | API | 実行時刻 |
+ |---|---|---|
+ | 返却予定日を過ぎた貸出の集計 | `POST /api/jobs/overdue-loans` | 毎日 8:00（日本時間） |
++| 校正期限のお知らせ（重要度 A） | `POST /api/jobs/calibration-reminders` | 毎日 7:30（日本時間） |
+ 
+ 新しいジョブを足すときは、`src/app/api/jobs/<ジョブ名>/route.ts` に置き、`requireJobAuth()`（`src/lib/api.ts`）で認証する。
+ cron の設定は運用チームに依頼する（実行時刻とジョブ名を伝える）。
+diff --git a/src/app/api/instruments/route.ts b/src/app/api/instruments/route.ts
+index 970f8c3..7a2ab13 100644
+--- a/src/app/api/instruments/route.ts
++++ b/src/app/api/instruments/route.ts
+@@ -1,8 +1,9 @@
+-// GET /api/instruments?status=… — 計測器の一覧 / POST /api/instruments — 計測器を台帳に登録する。いずれもログインが必要。
++// GET /api/instruments?status=…&importance=… — 計測器の一覧 / POST /api/instruments — 計測器を台帳に登録する。いずれもログインが必要。
+ import { NextResponse } from "next/server";
+ import { jsonError, readJson, requireApiUser } from "@/lib/api";
+ import {
+   createInstrument,
++  isImportance,
+   isInstrumentStatus,
+   listInstruments,
+   managementNoExists,
+@@ -16,10 +17,12 @@ export async function GET(request: Request) {
+   const params = new URL(request.url).searchParams;
+   const status = params.get("status");
+   const manager = params.get("manager");
++  const importance = params.get("importance");
+   return NextResponse.json({
+     instruments: listInstruments({
+       status: isInstrumentStatus(status) ? status : undefined,
+       managerId: manager || undefined,
++      importance: isImportance(importance) ? importance : undefined,
+     }),
+   });
+ }
+diff --git a/src/app/api/jobs/calibration-reminders/route.ts b/src/app/api/jobs/calibration-reminders/route.ts
+new file mode 100644
+index 0000000..f557c64
+--- /dev/null
++++ b/src/app/api/jobs/calibration-reminders/route.ts
+@@ -0,0 +1,21 @@
++// POST /api/jobs/calibration-reminders — 重要度 A の計測器の校正期限が近い・過ぎたことを管理者に知らせる
++//（運用の cron が毎朝 7:30 JST に呼ぶ。docs/operations.md）。
++import { NextResponse } from "next/server";
++import { jsonError, requireJobAuth } from "@/lib/api";
++import { runCalibrationReminders } from "@/lib/calibration-reminders";
++import { logger } from "@/lib/logger";
++import { notifyClientFromEnv } from "@/lib/notify-client";
++
++export async function POST(request: Request) {
++  const denied = requireJobAuth(request, "calibration-reminders");
++  if (denied) return denied;
++  const client = notifyClientFromEnv();
++  if (!client) {
++    logger.error("job.misconfigured", { job: "calibration-reminders", missing: "NOTIFY_API_URL / NOTIFY_API_TOKEN" });
++    return jsonError(500, "通知サービスの設定がありません");
++  }
++  const started = Date.now();
++  const summary = await runCalibrationReminders(client);
++  logger.info("job.completed", { job: "calibration-reminders", ...summary, durationMs: Date.now() - started });
++  return NextResponse.json(summary);
++}
+diff --git a/src/app/instruments/[id]/page.tsx b/src/app/instruments/[id]/page.tsx
+index 11452a9..0cb7ecb 100644
+--- a/src/app/instruments/[id]/page.tsx
++++ b/src/app/instruments/[id]/page.tsx
+@@ -1,6 +1,7 @@
+ import { notFound } from "next/navigation";
+ import { RESULT_LABELS, listCalibrations } from "@/lib/calibrations";
+-import { STATUS_LABELS, getInstrument, parseId } from "@/lib/instruments";
++import { calibrationDueOn } from "@/lib/calibration-due";
++import { IMPORTANCE_LABELS, STATUS_LABELS, getInstrument, parseId } from "@/lib/instruments";
+ import { listLoans } from "@/lib/loans";
+ import { requireUser } from "@/lib/session";
+ import { getUser } from "@/lib/users";
+@@ -38,6 +39,10 @@ export default async function InstrumentDetailPage({ params }: Props) {
+         <dd>{instrument.intervalMonths} か月</dd>
+         <dt>前回校正日</dt>
+         <dd data-testid="instrument-last-calibrated">{instrument.lastCalibratedOn}</dd>
++        <dt>重要度</dt>
++        <dd data-testid="instrument-importance">{IMPORTANCE_LABELS[instrument.importance]}</dd>
++        <dt>校正期限</dt>
++        <dd data-testid="instrument-due">{calibrationDueOn(instrument.lastCalibratedOn, instrument.intervalMonths)}</dd>
+         <dt>状態</dt>
+         <dd data-testid="instrument-status">{STATUS_LABELS[instrument.status]}</dd>
+         {instrument.note && (
+diff --git a/src/app/instruments/page.tsx b/src/app/instruments/page.tsx
+index 198d3a7..f7c23a1 100644
+--- a/src/app/instruments/page.tsx
++++ b/src/app/instruments/page.tsx
+@@ -1,16 +1,25 @@
+ import { requireUser } from "@/lib/session";
+-import { INSTRUMENT_STATUSES, STATUS_LABELS, isInstrumentStatus, listInstruments } from "@/lib/instruments";
++import {
++  IMPORTANCES,
++  IMPORTANCE_LABELS,
++  INSTRUMENT_STATUSES,
++  STATUS_LABELS,
++  isImportance,
++  isInstrumentStatus,
++  listInstruments,
++} from "@/lib/instruments";
+ import { listUsers } from "@/lib/users";
+ 
+ type Props = {
+-  searchParams: Promise<{ status?: string }>;
++  searchParams: Promise<{ status?: string; importance?: string }>;
+ };
+ 
+ export default async function InstrumentsPage({ searchParams }: Props) {
+   await requireUser();
+   const params = await searchParams;
+   const status = isInstrumentStatus(params.status) ? params.status : undefined;
+-  const instruments = listInstruments({ status });
++  const importance = isImportance(params.importance) ? params.importance : undefined;
++  const instruments = listInstruments({ status, importance });
+   const names = new Map(listUsers().map((u) => [u.id, u.name]));
+ 
+   return (
+@@ -28,12 +37,24 @@ export default async function InstrumentsPage({ searchParams }: Props) {
+             ))}
+           </select>
+         </label>{" "}
++        <label>
++          重要度{" "}
++          <select name="importance" defaultValue={importance ?? ""}>
++            <option value="">すべて</option>
++            {IMPORTANCES.map((v) => (
++              <option key={v} value={v}>
++                {IMPORTANCE_LABELS[v]}
++              </option>
++            ))}
++          </select>
++        </label>{" "}
+         <button type="submit">絞り込む</button>
+       </form>
+       <table>
+         <thead>
+           <tr>
+             <th>管理番号</th>
++            <th>重要度</th>
+             <th>名称</th>
+             <th>型式</th>
+             <th>設置場所</th>
+@@ -49,6 +70,7 @@ export default async function InstrumentsPage({ searchParams }: Props) {
+               <td>
+                 <a href={`/instruments/${i.id}`}>{i.managementNo}</a>
+               </td>
++              <td>{i.importance}</td>
+               <td>{i.name}</td>
+               <td>{i.model}</td>
+               <td>{i.location}</td>
+diff --git a/src/lib/calibration-due.ts b/src/lib/calibration-due.ts
+new file mode 100644
+index 0000000..d7803ea
+--- /dev/null
++++ b/src/lib/calibration-due.ts
+@@ -0,0 +1,28 @@
++// 校正期限の計算。期限 = 前回校正日に校正周期（月）を足した月の末日（日本時間の暦日）。
++// 例: 前回 2026-02-10、周期 12 か月 → 2027-02-28。
++
++/** 校正期限（YYYY-MM-DD）。 */
++export function calibrationDueOn(lastCalibratedOn: string, intervalMonths: number): string {
++  const [y, m] = lastCalibratedOn.split("-").map(Number);
++  const monthIndex = m - 1 + intervalMonths; // 0 始まりの月
++  // Date.UTC(年, 翌月, 0) はその月の末日
++  return new Date(Date.UTC(y, monthIndex + 1, 0)).toISOString().slice(0, 10);
++}
++
++/** YYYY-MM-DD に日数を足す（負の数なら引く）。 */
++export function addDays(date: string, days: number): string {
++  const [y, m, d] = date.split("-").map(Number);
++  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
++}
++
++/** 期限が近いお知らせを出し始める日数（期限の何日前から）。外部の校正機関への手配に時間がかかるため 30 日。 */
++export const NOTICE_DAYS_BEFORE = 30;
++
++export type DueState = "ok" | "due_soon" | "overdue";
++
++/** 今日（日本時間の日付）から見た期限の状態。期限当日までは due_soon、翌日から overdue。 */
++export function dueState(dueOn: string, today: string, daysBefore = NOTICE_DAYS_BEFORE): DueState {
++  if (today > dueOn) return "overdue";
++  if (today >= addDays(dueOn, -daysBefore)) return "due_soon";
++  return "ok";
++}
+diff --git a/src/lib/calibration-reminders.ts b/src/lib/calibration-reminders.ts
+new file mode 100644
+index 0000000..7a2ce7d
+--- /dev/null
++++ b/src/lib/calibration-reminders.ts
+@@ -0,0 +1,112 @@
++// 校正期限のお知らせ（運用の cron が POST /api/jobs/calibration-reminders で毎朝呼ぶ）。
++// - 対象: 重要度 A で、使用中・貸出中の計測器（校正中・使用停止・廃棄は対象外）。
++// - 期限の 30 日前から期限当日までに「期限が近い」、期限を過ぎたら「期限切れ」を、それぞれ 1 つの期限につき 1 回送る。
++//   校正記録の登録で期限が変わったら、新しい期限について改めて送る。
++// - 送り先: 管理者（無効なら管理者の部署の代表者）。貸出中なら借りている人にも送る。
++// - 送ったかどうかは calibration_notifications に記録し、同じ期限・種類・送り先には二度送らない。
++//   1 件の失敗で残りを止めず、失敗したものは次の実行で送り直す（Idempotency-Key は同じものを使う）。
++import { calibrationDueOn, dueState } from "./calibration-due.ts";
++import { getDb, type Db } from "./db/index.ts";
++import { todayJst } from "./dates.ts";
++import { listInstruments, type Instrument } from "./instruments.ts";
++import { currentLoan } from "./loans.ts";
++import { logger } from "./logger.ts";
++import type { NotifyClient } from "./notify-client.ts";
++import { getUserDetail } from "./users.ts";
++
++export type ReminderKind = "due_soon" | "overdue";
++
++/** 処理中のまま残った記録（途中でプロセスが止まったなど）を送り直してよいとみなすまでの時間 */
++const STALE_CLAIM_MS = 10 * 60 * 1000;
++
++export type ReminderSummary = { today: string; candidates: number; sent: number; skipped: number; failed: number };
++
++/** 管理者の代わりの送り先。管理者が無効なら、管理者の部署の代表者（有効な人）。見つからなければ undefined。 */
++export function managerRecipient(managerId: string, db: Db = getDb()): string | undefined {
++  return getUserDetail(managerId, db)?.id;
++}
++
++/** お知らせの送り先（重複なし）。 */
++export function recipientsFor(instrument: Instrument, db: Db = getDb()): string[] {
++  const out: string[] = [];
++  const manager = managerRecipient(instrument.managerId, db);
++  if (manager) out.push(manager);
++  else logger.warn("calibration_reminder.no_manager", { instrumentId: instrument.id, managerId: instrument.managerId });
++  if (false as boolean) {
++    const borrower = currentLoan(instrument.id, db)?.borrowerId;
++    if (borrower && getUserDetail(borrower, db)?.active && !out.includes(borrower)) out.push(borrower);
++  }
++  return out;
++}
++
++export function idempotencyKey(kind: ReminderKind, instrumentId: number, dueOn: string, recipient: string): string {
++  return `calibration-${kind}-${instrumentId}-${dueOn}-${recipient}`;
++}
++
++export function message(instrument: Instrument, kind: ReminderKind, dueOn: string) {
++  const what = `${instrument.managementNo} ${instrument.name}${instrument.model ? `（${instrument.model}）` : ""}`;
++  const title =
++    kind === "overdue" ? `【校正期限切れ】${instrument.managementNo} の校正期限（${dueOn}）を過ぎています` : `【校正期限】${instrument.managementNo} の校正期限は ${dueOn} です`;
++  const body = [
++    kind === "overdue"
++      ? `重要度 A の計測器 ${what} の校正期限（${dueOn}）を過ぎています。使用を止め、校正の手配を確認してください。`
++      : `重要度 A の計測器 ${what} の校正期限が ${dueOn} に迫っています。校正機関への手配をお願いします。`,
++    `設置場所: ${instrument.location || "—"}`,
++    `前回校正日: ${instrument.lastCalibratedOn}（校正周期 ${instrument.intervalMonths} か月）`,
++  ].join("\n");
++  return { title, body };
++}
++
++/** 送ってよければ記録を「送信中」にして true を返す（送信済み・別の実行が送信中なら false）。 */
++function claim(db: Db, key: string, row: { instrumentId: number; kind: ReminderKind; dueOn: string; recipient: string }, now: Date): boolean {
++  const staleBefore = new Date(now.getTime() - STALE_CLAIM_MS).toISOString();
++  const { changes } = db
++    .prepare(
++      `INSERT INTO calibration_notifications (instrument_id, kind, due_on, recipient_id, idempotency_key, status, claimed_at)
++       VALUES (?, ?, ?, ?, ?, 'sending', ?)
++       ON CONFLICT (idempotency_key) DO UPDATE SET status = 'sending', claimed_at = excluded.claimed_at
++       WHERE status = 'failed' OR (status = 'sending' AND claimed_at < ?)`,
++    )
++    .run(row.instrumentId, row.kind, row.dueOn, row.recipient, key, now.toISOString(), staleBefore);
++  return changes > 0;
++}
++
++export async function runCalibrationReminders(
++  client: NotifyClient,
++  db: Db = getDb(),
++  now: Date = new Date(),
++): Promise<ReminderSummary> {
++  const today = todayJst(now);
++  const summary: ReminderSummary = { today, candidates: 0, sent: 0, skipped: 0, failed: 0 };
++  const targets = listInstruments({ importance: "A" }, db).filter((i) => i.status !== "disposed");
++  for (const instrument of targets) {
++    const dueOn = calibrationDueOn(instrument.lastCalibratedOn, instrument.intervalMonths);
++    const state = dueState(dueOn, today);
++    if (state !== "due_soon") continue;
++    const kind: ReminderKind = state;
++    for (const recipient of recipientsFor(instrument, db)) {
++      summary.candidates++;
++      const key = idempotencyKey(kind, instrument.id, dueOn, recipient);
++      if (!claim(db, key, { instrumentId: instrument.id, kind, dueOn, recipient }, now)) {
++        summary.skipped++;
++        continue;
++      }
++      const result = await client.send({ recipient, ...message(instrument, kind, dueOn) }, key);
++      const fields = { instrumentId: instrument.id, managementNo: instrument.managementNo, kind, dueOn, recipient, attempts: result.attempts };
++      if (result.ok) {
++        db.prepare(
++          "UPDATE calibration_notifications SET status = 'sent', attempts = attempts + ?, sent_at = ?, last_error = NULL WHERE idempotency_key = ?",
++        ).run(result.attempts, new Date().toISOString(), key);
++        summary.sent++;
++        logger.info("calibration_reminder.sent", { ...fields, notificationId: result.id });
++      } else {
++        db.prepare(
++          "UPDATE calibration_notifications SET status = 'failed', attempts = attempts + ?, last_error = ? WHERE idempotency_key = ?",
++        ).run(result.attempts, `${result.status ?? ""} ${result.error}`.trim(), key);
++        summary.failed++;
++        logger.error("calibration_reminder.failed", { ...fields, status: result.status, retryable: result.retryable, error: result.error });
++      }
++    }
++  }
++  return summary;
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 3178071..1c6bf32 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -85,4 +85,27 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX calibration_records_instrument ON calibration_records(instrument_id);
+     `,
+   },
++  {
++    version: 5,
++    name: "importance_and_calibration_notifications",
++    sql: `
++      ALTER TABLE instruments ADD COLUMN importance TEXT NOT NULL DEFAULT 'B' CHECK (importance IN ('A', 'B', 'C'));
++      CREATE INDEX instruments_importance ON instruments(importance);
++      -- 校正期限のお知らせ。1 つの期限・種類・送り先につき 1 行（同じお知らせを二度送らないため）
++      CREATE TABLE calibration_notifications (
++        id              INTEGER PRIMARY KEY AUTOINCREMENT,
++        instrument_id   INTEGER NOT NULL REFERENCES instruments(id),
++        kind            TEXT NOT NULL CHECK (kind IN ('due_soon', 'overdue')),
++        due_on          TEXT NOT NULL, -- 対象の校正期限 YYYY-MM-DD
++        recipient_id    TEXT NOT NULL REFERENCES users(id),
++        idempotency_key TEXT NOT NULL UNIQUE,
++        status          TEXT NOT NULL CHECK (status IN ('sending', 'sent', 'failed')),
++        attempts        INTEGER NOT NULL DEFAULT 0,
++        last_error      TEXT,
++        claimed_at      TEXT NOT NULL, -- ISO 8601（UTC）
++        sent_at         TEXT,          -- ISO 8601（UTC）
++        UNIQUE (instrument_id, kind, due_on, recipient_id)
++      );
++    `,
++  },
+ ];
+diff --git a/src/lib/instruments.ts b/src/lib/instruments.ts
+index 97538e9..c1e1d61 100644
+--- a/src/lib/instruments.ts
++++ b/src/lib/instruments.ts
+@@ -4,6 +4,9 @@ import { isValidDate } from "./dates.ts";
+ 
+ export type InstrumentStatus = "in_use" | "on_loan" | "calibrating" | "suspended" | "disposed";
+ 
++/** 重要度。A = 品質記録に使う計測器。既存の計測器は B。 */
++export type Importance = "A" | "B" | "C";
++
+ export type Instrument = {
+   id: number;
+   managementNo: string; // 管理番号（例: MI-0001）
+@@ -14,9 +17,18 @@ export type Instrument = {
+   intervalMonths: number; // 校正周期（月）
+   lastCalibratedOn: string; // 前回校正日 YYYY-MM-DD
+   status: InstrumentStatus;
++  importance: Importance;
+   note: string;
+ };
+ 
++export const IMPORTANCES: readonly Importance[] = ["A", "B", "C"];
++
++export const IMPORTANCE_LABELS: Record<Importance, string> = { A: "A（品質記録に使用）", B: "B", C: "C" };
++
++export function isImportance(value: unknown): value is Importance {
++  return typeof value === "string" && (IMPORTANCES as readonly string[]).includes(value);
++}
++
+ export const INSTRUMENT_STATUSES: readonly InstrumentStatus[] = ["in_use", "on_loan", "calibrating", "suspended", "disposed"];
+ 
+ export const STATUS_LABELS: Record<InstrumentStatus, string> = {
+@@ -37,6 +49,7 @@ export function isInstrumentStatus(value: unknown): value is InstrumentStatus {
+ export type InstrumentFilter = {
+   status?: InstrumentStatus;
+   managerId?: string;
++  importance?: Importance;
+ };
+ 
+ type InstrumentRow = {
+@@ -49,11 +62,12 @@ type InstrumentRow = {
+   interval_months: number;
+   last_calibrated_on: string;
+   status: InstrumentStatus;
++  importance: Importance;
+   note: string;
+ };
+ 
+ const COLUMNS =
+-  "id, management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note";
++  "id, management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, importance, note";
+ 
+ function toInstrument(row: InstrumentRow): Instrument {
+   return {
+@@ -66,6 +80,7 @@ function toInstrument(row: InstrumentRow): Instrument {
+     intervalMonths: row.interval_months,
+     lastCalibratedOn: row.last_calibrated_on,
+     status: row.status,
++    importance: row.importance,
+     note: row.note,
+   };
+ }
+@@ -75,9 +90,10 @@ export function listInstruments(filter: InstrumentFilter = {}, db: Db = getDb())
+     .prepare(
+       `SELECT ${COLUMNS} FROM instruments
+        WHERE (:status IS NULL OR status = :status) AND (:manager IS NULL OR manager_id = :manager)
++         AND (:importance IS NULL OR importance = :importance)
+        ORDER BY management_no`,
+     )
+-    .all({ status: filter.status ?? null, manager: filter.managerId ?? null }) as InstrumentRow[];
++    .all({ status: filter.status ?? null, manager: filter.managerId ?? null, importance: filter.importance ?? null }) as InstrumentRow[];
+   return rows.map(toInstrument);
+ }
+ 
+@@ -163,6 +179,11 @@ export function validateInstrumentInput(
+     if (!isInstrumentStatus(s) || !EDITABLE_STATUSES.includes(s)) errors.push("状態が正しくありません");
+     else value.status = s;
+   }
++  if ("importance" in b || !options.partial) {
++    const v = "importance" in b ? b.importance : "B";
++    if (!isImportance(v)) errors.push("重要度は A・B・C のいずれかで指定してください");
++    else value.importance = v;
++  }
+   return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
+ }
+ 
+@@ -173,8 +194,8 @@ export function managementNoExists(managementNo: string, db: Db = getDb()): bool
+ export function createInstrument(input: InstrumentInput, db: Db = getDb()): Instrument {
+   const { lastInsertRowid } = db
+     .prepare(
+-      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note)
+-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, importance, note)
++       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     )
+     .run(
+       input.managementNo,
+@@ -185,6 +206,7 @@ export function createInstrument(input: InstrumentInput, db: Db = getDb()): Inst
+       input.intervalMonths,
+       input.lastCalibratedOn,
+       input.status,
++      input.importance,
+       input.note,
+     );
+   return getInstrument(Number(lastInsertRowid), db)!;
+@@ -197,7 +219,7 @@ export function updateInstrument(id: number, changes: Partial<InstrumentInput>,
+   const next = { ...current, ...changes };
+   db.prepare(
+     `UPDATE instruments SET management_no = ?, name = ?, model = ?, location = ?, manager_id = ?, interval_months = ?,
+-       last_calibrated_on = ?, status = ?, note = ? WHERE id = ?`,
++       last_calibrated_on = ?, status = ?, importance = ?, note = ? WHERE id = ?`,
+   ).run(
+     next.managementNo,
+     next.name,
+@@ -207,6 +229,7 @@ export function updateInstrument(id: number, changes: Partial<InstrumentInput>,
+     next.intervalMonths,
+     next.lastCalibratedOn,
+     next.status,
++    next.importance,
+     next.note,
+     id,
+   );
+diff --git a/src/lib/notify-client.ts b/src/lib/notify-client.ts
+new file mode 100644
+index 0000000..e8f30af
+--- /dev/null
++++ b/src/lib/notify-client.ts
+@@ -0,0 +1,37 @@
++// 社内通知サービスのクライアント（失敗したら 1 秒おきに 3 回まで送り直す）。
++export type Notification = { recipient: string; title: string; body: string; category?: string };
++export type SendResult =
++  | { ok: true; id: string; attempts: number }
++  | { ok: false; retryable: boolean; status?: number; error: string; attempts: number };
++export type NotifyClient = { send(n: Notification, idempotencyKey: string): Promise<SendResult> };
++
++export function createNotifyClient(options: { url: string; token: string; fetch?: typeof fetch; sleep?: (ms: number) => Promise<void> }): NotifyClient {
++  const doFetch = options.fetch ?? fetch;
++  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
++  return {
++    async send(n) {
++      let last: SendResult = { ok: false, retryable: true, error: "", attempts: 0 };
++      for (let attempt = 1; attempt <= 3; attempt++) {
++        try {
++          const res = await doFetch(new URL("/v1/notifications", options.url), {
++            method: "POST",
++            headers: { authorization: `Bearer ${options.token}`, "content-type": "application/json" },
++            body: JSON.stringify(n),
++          });
++          if (res.ok) return { ok: true, id: "", attempts: attempt };
++          last = { ok: false, retryable: true, status: res.status, error: `HTTP ${res.status}`, attempts: attempt };
++        } catch (e) {
++          console.error("notify error", e);
++          last = { ok: false, retryable: true, error: String(e), attempts: attempt };
++        }
++        await sleep(1000);
++      }
++      return last;
++    },
++  };
++}
++
++export function notifyClientFromEnv(env: NodeJS.ProcessEnv = process.env): NotifyClient | undefined {
++  if (!env.NOTIFY_API_URL || !env.NOTIFY_API_TOKEN) return undefined;
++  return createNotifyClient({ url: env.NOTIFY_API_URL, token: env.NOTIFY_API_TOKEN });
++}
+diff --git a/tests/calibration-due.test.ts b/tests/calibration-due.test.ts
+new file mode 100644
+index 0000000..8b276da
+--- /dev/null
++++ b/tests/calibration-due.test.ts
+@@ -0,0 +1,22 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { addDays, calibrationDueOn, dueState } from "../src/lib/calibration-due.ts";
++
++describe("calibrationDueOn", () => {
++  it("is the last day of the month after adding the interval", () => {
++    assert.equal(calibrationDueOn("2026-02-10", 12), "2027-02-28");
++    assert.equal(calibrationDueOn("2026-01-31", 1), "2026-02-28");
++    assert.equal(calibrationDueOn("2027-08-01", 6), "2028-02-29");
++    assert.equal(calibrationDueOn("2026-11-30", 2), "2027-01-31");
++  });
++});
++
++describe("dueState", () => {
++  it("is due_soon from 30 days before the due date through the due date, then overdue", () => {
++    assert.equal(addDays("2027-01-31", -30), "2027-01-01");
++    assert.equal(dueState("2027-01-31", "2026-12-31"), "ok");
++    assert.equal(dueState("2027-01-31", "2027-01-01"), "due_soon");
++    assert.equal(dueState("2027-01-31", "2027-01-31"), "due_soon");
++    assert.equal(dueState("2027-01-31", "2027-02-01"), "overdue");
++  });
++});
+diff --git a/tests/calibration-reminders.test.ts b/tests/calibration-reminders.test.ts
+new file mode 100644
+index 0000000..05e13ef
+--- /dev/null
++++ b/tests/calibration-reminders.test.ts
+@@ -0,0 +1,84 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { runCalibrationReminders } from "../src/lib/calibration-reminders.ts";
++import { openDb, type Db } from "../src/lib/db/index.ts";
++import { createInstrument, updateInstrument, type InstrumentInput } from "../src/lib/instruments.ts";
++import type { Notification, NotifyClient, SendResult } from "../src/lib/notify-client.ts";
++
++function recorder(result: (n: Notification) => SendResult = () => ({ ok: true, id: "ntf", attempts: 1 })) {
++  const sent: { n: Notification; key: string }[] = [];
++  const client: NotifyClient = {
++    async send(n, key) {
++      sent.push({ n, key });
++      return result(n);
++    },
++  };
++  return { client, sent };
++}
++
++let seq = 0;
++function add(db: Db, over: Partial<InstrumentInput> = {}) {
++  seq++;
++  return createInstrument(
++    {
++      managementNo: `TS-${String(seq).padStart(4, "0")}`,
++      name: "抵抗計",
++      model: "",
++      location: "",
++      note: "",
++      managerId: "sato",
++      intervalMonths: 12,
++      lastCalibratedOn: "2026-01-31", // 期限 2027-01-31、お知らせは 2027-01-01 から
++      status: "in_use",
++      importance: "A",
++      ...over,
++    },
++    db,
++  );
++}
++
++const at = (jstDate: string) => new Date(`${jstDate}T07:30:00+09:00`);
++function fresh() {
++  const db = openDb();
++  db.exec("UPDATE instruments SET status = 'disposed'"); // 初期データの計測器は対象にしない
++  return db;
++}
++
++describe("runCalibrationReminders", () => {
++  it("notifies once from 30 days before the due date, in Japan time", async () => {
++    const db = fresh();
++    const inst = add(db);
++    const r = recorder();
++    await runCalibrationReminders(r.client, db, at("2026-12-31"));
++    assert.equal(r.sent.length, 0);
++    await runCalibrationReminders(r.client, db, new Date("2026-12-31T15:30:00Z")); // 日本時間 2027-01-01 00:30
++    assert.equal(r.sent.length, 1);
++    assert.equal(r.sent[0].n.recipient, "sato");
++    assert.match(r.sent[0].n.title, new RegExp(inst.managementNo));
++    await runCalibrationReminders(r.client, db, at("2027-01-02"));
++    assert.equal(r.sent.length, 1);
++  });
++
++  it("retries failed sends on the next run with the same key and keeps going after a failure", async () => {
++    const db = fresh();
++    const a = add(db, { managerId: "kato" });
++    const b = add(db, { managerId: "ito" });
++    let fail = true;
++    const r = recorder((n) => (n.recipient === "kato" && fail ? { ok: false, retryable: true, status: 503, error: "x", attempts: 3 } : { ok: true, id: "n", attempts: 1 }));
++    const s1 = await runCalibrationReminders(r.client, db, at("2027-01-10"));
++    assert.deepEqual([s1.sent, s1.failed], [1, 1]);
++    fail = false;
++    const s2 = await runCalibrationReminders(r.client, db, at("2027-01-11"));
++    assert.deepEqual([s2.sent, s2.skipped], [1, 1]);
++    const keys = r.sent.filter((x) => x.key.includes(`-${a.id}-`)).map((x) => x.key);
++    assert.equal(keys.length, 2);
++    assert.equal(keys[0], keys[1]);
++    assert.ok(r.sent.some((x) => x.key.includes(`-${b.id}-`)));
++  });
++
++  it("keeps the importance when other fields are updated", () => {
++    const db = fresh();
++    const inst = add(db);
++    assert.equal(updateInstrument(inst.id, { location: "倉庫" }, db)?.importance, "A");
++  });
++});
+diff --git a/tests/instruments.test.ts b/tests/instruments.test.ts
+index a3e24c1..f599ed5 100644
+--- a/tests/instruments.test.ts
++++ b/tests/instruments.test.ts
+@@ -50,7 +50,7 @@ describe("validateInstrumentInput", () => {
+     const db = openDb();
+     const r = validateInstrumentInput(VALID, {}, db);
+     assert.equal(r.ok, true);
+-    if (r.ok) assert.deepEqual(r.value, { ...VALID, model: "", location: "", note: "", status: "in_use" });
++    if (r.ok) assert.deepEqual(r.value, { ...VALID, model: "", location: "", note: "", status: "in_use", importance: "B" });
+   });
+ 
+   it("rejects invalid values", () => {
+@@ -76,7 +76,7 @@ describe("createInstrument / updateInstrument", () => {
+   it("creates and updates only the given fields", () => {
+     const db = openDb();
+     const created = createInstrument(
+-      { ...VALID, model: "", location: "", note: "", status: "in_use" },
++      { ...VALID, model: "", location: "", note: "", status: "in_use", importance: "A" },
+       db,
+     );
+     assert.equal(getInstrument(created.id, db)?.managementNo, "MI-0100");
+@@ -86,3 +86,19 @@ describe("createInstrument / updateInstrument", () => {
+     assert.equal(updateInstrument(9999, { status: "in_use" }, db), undefined);
+   });
+ });
++
++describe("importance", () => {
++  it("defaults existing instruments to B and filters by importance", () => {
++    const db = openDb();
++    assert.ok(listInstruments({}, db).every((i) => i.importance === "B"));
++    const first = listInstruments({}, db)[0];
++    updateInstrument(first.id, { importance: "A" }, db);
++    assert.deepEqual(listInstruments({ importance: "A" }, db).map((i) => i.id), [first.id]);
++  });
++
++  it("accepts only A, B and C", () => {
++    const db = openDb();
++    assert.deepEqual(validateInstrumentInput({ importance: "A" }, { partial: true }, db), { ok: true, value: { importance: "A" } });
++    for (const v of ["D", "a", 1, null]) assert.equal(validateInstrumentInput({ importance: v }, { partial: true }, db).ok, false);
++  });
++});

@@ -1,0 +1,51 @@
+{
+  "phase": "v1",
+  "commit": "ad33c1f82a56fe305335d370b46b72a5cba47d9f",
+  "files": [
+    "src/app/api/instruments/[id]/loans/route.ts",
+    "src/app/api/instruments/[id]/reservations/[reservationId]/cancel/route.ts",
+    "src/app/api/instruments/[id]/reservations/route.ts",
+    "src/app/instruments/[id]/page.tsx",
+    "src/lib/db/migrations.ts",
+    "src/lib/loans.ts",
+    "src/lib/reservations.ts"
+  ],
+  "adapter": {
+    "create": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "body": {
+        "startOn": "{start}",
+        "endOn": "{end}"
+      },
+      "id": "reservation.id"
+    },
+    "list": {
+      "method": "GET",
+      "path": "/api/instruments/{instrumentId}/reservations",
+      "items": "reservations"
+    },
+    "cancel": {
+      "method": "POST",
+      "path": "/api/instruments/{instrumentId}/reservations/{reservationId}/cancel"
+    },
+    "fields": {
+      "id": "id",
+      "status": "status",
+      "start": "startOn",
+      "end": "endOn",
+      "user": "reserverId"
+    },
+    "status": {
+      "active": [
+        "active"
+      ],
+      "cancelled": [
+        "cancelled"
+      ]
+    },
+    "jobs": [],
+    "notes": "v1 段階。承認・却下の API は無い。予約者は本人（ログイン中のユーザー）。status に fulfilled（貸出済み）があるが共通の状態名に対応が無いため省略。終了日を過ぎた active は画面表示のみ「期限切れ」で、API の status は active のまま。取消は予約した本人か計測器の管理者のみ。"
+  },
+  "cost_usd": 0.0550592
+}

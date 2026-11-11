@@ -1,18 +1,21 @@
 # skills-poc-20261109
 
-新規開発プロジェクト向けの Claude Code 標準構成（Skills / Plugins / MCP）と、比較検討中ツールの PoC 計画をまとめたリポジトリです。
+AI エージェント（主に Claude Code）を使って新規開発を進めるときの標準を決め、各プロジェクトに配るためのリポジトリです。次の 4 つの問いに、PoC と調査の結果を根拠にして答えます。
 
-## 標準ツール
+| 問い | 今の答え（要約） | 状態 |
+|---|---|---|
+| [1. どの Skills・プラグイン・MCP を入れるか](#1-どの-skillsプラグインmcp-を入れるか) | 必須の 11 件と、採用技術ごとの追加分を固定のバージョンで入れる | 決定。追加候補は調査のみ |
+| [2. どのような開発ワークフローを組むか](#2-どのような開発ワークフローを組むか実装レビュー自己改善) | 実装は既定でワークフロー用のプラグインを使わず、難しい作業だけ Compound Engineering を使う。品質を上げる手段は、Issue に運用の事情を書くこと | 暫定（PoC の途中） |
+| [3. どのような GitHub の設定が必要か](#3-どのような-github-の設定が必要か) | Rulesets・Advanced Security・Actions の標準設定と、Issue・PR のテンプレートを入れる | 決定 |
+| [4. AI への指示と管理をどうするか](#4-ai-への指示と管理をどうするか) | 指示ファイルと設定は雛形から始め、プロジェクト固有の罠を理由つきで書く。権限は最小にし、Skills と指示を CI で機械的に検査する | 決定 |
 
-ツールは次の 3 つに分けて管理しています。
+全体の設計原則は [開発標準](docs/standards/ai-software-factory-engineering-standard.md)（v1.1 Draft、レビュー記録は [docs/standards/REVIEW.md](docs/standards/REVIEW.md)）にまとめています。
 
-1. [全てのプロジェクトに共通するツール](#全てのプロジェクトに共通するツール): どのプロジェクトにも最初から入れる必須ツール
-2. [採用技術に応じて追加するもの](#採用技術に応じて追加するもの): TypeScript や React / Next.js など、使う言語・フレームワークに合わせて追加するもの
-3. [利用サービスに応じて追加するもの](#利用サービスに応じて追加するもの): Supabase や Vercel など、使うクラウドサービスに合わせて追加するもの
+## 1. どの Skills・プラグイン・MCP を入れるか
 
 ### 全てのプロジェクトに共通するツール
 
-このリポジトリに導入済みです。用途ごとに分類しています。
+どのプロジェクトにも最初から入れる必須のツールです。用途ごとに分けています。
 
 #### UI/UX・デザイン
 
@@ -62,7 +65,7 @@ Issue・PR の操作や、stacked PR（小さな PR を積み重ねる開発）�
 
 ### 採用技術に応じて追加するもの
 
-`scripts/add-stack.sh <stack>...` で、該当するプロジェクトにだけ追加します（`.mcp.json`・`.claude/skills/`・`.claude/settings.json` を更新）。
+`scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...` で、該当するプロジェクトにだけ追加します（`.mcp.json`・`.claude/skills/`・`.claude/settings.json` を更新）。`--dest` を省略すると、このリポジトリ自身に追加します。
 
 | stack | 対象 | 種別 | ツール | 提供元 | リポジトリ | 認証 |
 |---|---|---|---|---|---|---|
@@ -72,13 +75,11 @@ Issue・PR の操作や、stacked PR（小さな PR を積み重ねる開発）�
 | `react-nextjs` | 〃 | Skill | React View Transitions | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/react-view-transitions) | 不要 |
 | `react-nextjs` | 〃 | MCP | Next.js DevTools MCP（`next-devtools-mcp@0.4.0`。Next.js 16 以上の `next dev` 起動中に使う） | Vercel | [vercel/next-devtools-mcp](https://github.com/vercel/next-devtools-mcp) | 不要 |
 
-**このリポジトリでは `typescript` と `react-nextjs` を適用済み**です（PoC 用アプリが TypeScript + Next.js のため）。
-
 - TypeScript LSP を使うには、`npm install -g typescript-language-server typescript` で言語サーバーを入れておく必要があります。
 
 ### 利用サービスに応じて追加するもの
 
-採用技術と同じく `scripts/add-stack.sh <stack>...` で追加します。認証が必要なものは OAuth で認証し、トークンをファイルに書きません。
+採用技術と同じく `scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...` で追加します。認証が必要なものは OAuth で認証し、トークンをファイルに書きません。
 
 | stack | 対象 | 種別 | ツール | 提供元 | リポジトリ | 認証 |
 |---|---|---|---|---|---|---|
@@ -89,57 +90,61 @@ Issue・PR の操作や、stacked PR（小さな PR を積み重ねる開発）�
 | `cloudflare` | 〃 | MCP | Cloudflare Docs MCP（`https://docs.mcp.cloudflare.com/mcp`） | Cloudflare | [cloudflare/mcp-server-cloudflare](https://github.com/cloudflare/mcp-server-cloudflare) | 不要 |
 
 ```bash
-scripts/add-stack.sh typescript react-nextjs supabase vercel
+scripts/add-stack.sh --dest ../my-project typescript react-nextjs supabase vercel
 ```
 
 - Supabase MCP を使う場合は、開発用プロジェクトの project ref を環境変数 `SUPABASE_PROJECT_REF` に設定します（`.env.example` 参照）。
-- 各サービスの MCP の権限の絞り方は「[運用上の注意](#運用上の注意)」を参照してください。
+- 各サービスの MCP の権限の絞り方は「[権限と認証情報](#権限と認証情報)」を参照してください。
 
 Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.claude/skills/SOURCES.md) を参照してください。
 
-### 初回セットアップ
+### 追加の候補と、重なりの整理（調査のみ）
 
-1. GitHub MCP 用に、対象リポジトリだけに絞った Fine-grained PAT を発行し、シェルの環境変数に設定します（`.env.example` に推奨権限を記載。実値はコミットしない）。
-
-   ```bash
-   export GITHUB_PERSONAL_ACCESS_TOKEN=<your-token>
-   ```
-
-2. このディレクトリで Claude Code を起動し、プロジェクトの marketplace・プラグイン・MCP サーバーの信頼確認を承認します。
-3. `/plugin` で `security-guidance` と `impeccable` が有効、`/mcp` で `github` と `playwright` が接続済みであることを確認します。
-4. security-guidance の LLM レビューには Python 3.8 以上と Claude Code のサインイン（または API キー）が必要です。
-5. stacked PR を使う場合は、`gh extension install github/gh-stack` で gh stack を入れ、`git config rerere.enabled true` を設定します（Git 2.36 以上が必要。リポジトリ側で Stacked PRs が有効になっている必要があります）。
-6. Impeccable の設計フックやエンジンを使う場合は、必要に応じて `npx impeccable install --providers=claude --scope=project` を実行します。
+- 共通ツールの候補は Context7 と Chrome DevTools MCP、採用技術別の候補は Supabase の Postgres の Skill と Python・Go などの LSP です。どれも実際には動かしていません（[docs/tool-candidates/README.md](docs/tool-candidates/README.md)）。
+- UI/UX のツールは、4 つを同時に有効にすると「画面を作る」役割が 3 つ重なり、勧めが互いに逆になる箇所があります。Impeccable を作る担当、Web Design Guidelines をレビュー担当にし、UI/UX Pro Max を既定で無効にする整理案があります。まだ決定ではありません（[docs/tool-candidates/ui-ux-overlap.md](docs/tool-candidates/ui-ux-overlap.md)）。
 
 ### 更新
 
-- Skills: `scripts/sync-skills.sh <anthropics/skills のコミット> <vercel-labs/agent-skills のコミット> <github/gh-stack のコミット> <cli/cli のコミット>` を実行し、差分をレビューしてからコミット
-- Playwright MCP: `.mcp.json` のバージョンを上げて PR でレビュー
-- Plugins: `/plugin` から更新し、動作確認後にチームへ周知
+- Skills: `scripts/sync-skills.sh <anthropics/skills のコミット> <vercel-labs/agent-skills のコミット> <github/gh-stack のコミット> <cli/cli のコミット>` を実行し、差分をレビューしてからコミットします。指紋（`scripts/skills.lock.json`）も作り直されます。
+- Playwright MCP: `.mcp.json` のバージョンを上げて、PR でレビューします。
+- Plugins: `/plugin` から更新し、動作を確かめてからチームに周知します。
 
-## 開発標準
+## 2. どのような開発ワークフローを組むか（実装・レビュー・自己改善）
 
-AI 駆動開発の標準基盤・設計原則: [docs/standards/ai-software-factory-engineering-standard.md](docs/standards/ai-software-factory-engineering-standard.md)（v1.1 Draft、レビュー記録は [docs/standards/REVIEW.md](docs/standards/REVIEW.md)）
+ワークフロー用のプラグインの候補を、評価用のアプリ（`poc-app/`）を題材にしたシナリオで比べています。結果の一覧は [docs/poc/results/workflow/summary.md](docs/poc/results/workflow/summary.md)、計画と評価基準は [docs/poc/PLAN.md](docs/poc/PLAN.md) にあります。**ここに書く答えは暫定です。** 試行は多くが候補ごとに 2 回で、差の多くは試行のばらつきと同じくらいの大きさです。
 
-## GitHub リポジトリの初期設定
+### 実装
 
-新規リポジトリを作るときの GitHub 側の標準設定（Rulesets、Advanced Security、Actions、Environments、標準ファイル）と、AI エージェントが品質ゲートを迂回できないようにする権限設計は [docs/github-setup/README.md](docs/github-setup/README.md) にまとめています。
+- **既定では、ワークフロー用のプラグインを使わない。**
+  - 小さな変更、バグ修正、UI の検証、続けて行う作業、無人での実行（W1・W5〜W9）では、プラグインなしが品質で同点以上、費用は最も安かった。
+  - 実在する OSS の課題（W11）でも品質の差はなく、プラグインを使うと費用が 1.8〜3.8 倍になった。
+- **既存コードを横断する変更、DB の移行、テストのない古いコードの改修だけ、Compound Engineering を使う。** 人の承認つきで使う。
+  - W4・W14・W15・W19 では品質が 1 位だった。
+  - 一方、費用は 4〜15 倍かかった。
+- **品質を上げる一番の手段は、Issue に運用の事情を書くこと。** プラグインを増やすことではない。
+  - W12〜W14 で差が出た項目の多くは、聞けば分かる運用の事情（他システムが古い列を読む、など）だった。
+  - 質問の数と品質は結びつかなかった。
+  - Issue 駆動の流れの案は [docs/poc/notes/issue-driven-flow.md](docs/poc/notes/issue-driven-flow.md)（未決定のメモ）にあります。
 
-## Issue・PR テンプレート
+### レビュー
 
-各プロジェクト共通の Issue Forms（機能要望 / 不具合報告 / 技術的負債）・PR テンプレートと、AI エージェント向けの Issue・PR 記述ルールを `templates/github/` に置いています。決めたこと・導入手順（ラベル作成を含む）・記入済みサンプルは [docs/github-templates/README.md](docs/github-templates/README.md)、調査結果と出典は [docs/github-templates/research.md](docs/github-templates/research.md) を参照してください。
+- 不具合を見つけるレビュー（W9）では、プラグインなしを含む全試行が満点でした。
+- PR レビュー用のツール（Code Review と PR Review Toolkit）の比較と、セキュリティ監査のツール（Claude Security と Cloudflare Security Audit）の比較は、**まだ実施していません**。
+- Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施します。
+- 失敗を検査に反映するときの方針（案）は [docs/standards/testing-and-ci-policy.md](docs/standards/testing-and-ci-policy.md) にあります。要点は次の 3 つです。
+  - 再発防止は、検出できる一番手前の段（型 → Lint → 単体テスト → 結合 → E2E）に置く。
+  - 画面全体の文字やスナップショットをまとめて比べる検査は足さない。
+  - PR では変更に関係する検査だけを回し、全件は main で回す。
 
-```bash
-scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
-```
+### 自己改善
 
-既存のファイルは上書きしません。`--with-check` を付けると、PR 本文の必須見出しを検証する GitHub Actions も配置します。
+- **学習のための記憶用プラグインは入れない。**
+  - 続けて作業したとき（W7）、記憶を引き継がない場合でも、決まりに沿ったコードが 1 か所あれば、同じ間違いを避けられた。
+  - 記憶を引き継ぐと、かえって費用が増えた（Compound Engineering）。
+- **失敗から学んだことは、指示ファイルの「罠」として、理由ときっかけになった事象の記録とセットで書き残す**（4 を参照）。
+- **Skills を変えたら、機械的な検査を通す**（4 を参照）。
 
-**このリポジトリにも `--with-check` 付きで適用済み**です（`.github/`、`docs/github-writing.md`）。
-
-## 比較検討中ツールの PoC
-
-計画書: [docs/poc/PLAN.md](docs/poc/PLAN.md)
+### 比較している候補
 
 | カテゴリ | 位置づけ | ツール | 提供元 | リポジトリ |
 |---|---|---|---|---|
@@ -153,16 +158,95 @@ scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
 | PR レビュー | 第一候補 | Code Review | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-review) |
 | PR レビュー | 対抗候補 | PR Review Toolkit | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit) |
 
-開発ワークフローは 4 候補の得意範囲を比べるため、8 つのシナリオ（小さな変更、要件定義、大きな変更、バグ修正、UI の検証と PR 作成、学習効果、自律実行など）で全候補を試します（計画書 §5.1）。勝者を決めた後、Ponytail を併用した場合の効果も検証します（§5.5）。
+候補の切り替えは `scripts/poc-profile.sh <profile>` で行います。`.claude/settings.local.json` に書き込むため、チームで共有する設定は変わりません。
 
-候補の切り替えは `scripts/poc-profile.sh <profile>` で行います（`.claude/settings.local.json` に書き込むため、チーム共有の設定は変わりません）。
+## 3. どのような GitHub の設定が必要か
 
-## 運用上の注意
+- **リポジトリの設定**: 新規リポジトリの標準設定（Rulesets、Advanced Security、Actions、Environments、標準ファイル）と、AI エージェントが品質ゲートを迂回できないようにする権限設計は、[docs/github-setup/README.md](docs/github-setup/README.md) にまとめています。
+- **Issue・PR のテンプレート**: 各プロジェクト共通の Issue Forms（機能要望 / 不具合報告 / 技術的負債）と PR テンプレート、AI エージェント向けの Issue・PR 記述ルールを、`templates/github/` に置いています。
+  - 決めたこと・導入手順（ラベル作成を含む）・記入済みサンプル: [docs/github-templates/README.md](docs/github-templates/README.md)
+  - 調査結果と出典: [docs/github-templates/research.md](docs/github-templates/research.md)
+
+```bash
+scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
+```
+
+既存のファイルは上書きしません。`--with-check` を付けると、PR 本文の必須見出しを検証する GitHub Actions も配置します。
+
+## 4. AI への指示と管理をどうするか
+
+### 指示ファイルと設定
+
+各プロジェクトに置く標準構成を、`templates/agents/` に置いています。
+
+- 指示ファイル: `AGENTS.md`・`CLAUDE.md`
+- 設定: `.claude/settings.json`（標準のプラグイン・MCP・権限）・`.mcp.json`
+- Skills の検査スクリプトと、それを CI で回すワークフロー
+
+標準の Skills は雛形に複製せず、配るときに固定コミットから取得します。
+
+- `AGENTS.md` の「規約」の節は、どのプロジェクトにも共通の規約です。各プロジェクトが書くのは「このリポジトリについて」と「このプロジェクトの罠」の節だけです。
+- 規約は言い切りの形で書き、罠は理由と、きっかけになった事象の記録とセットで書きます。書き方と根拠は [開発標準 §2.1](docs/standards/ai-software-factory-engineering-standard.md) の「規約の書き方」にあります。
+
+```bash
+scripts/add-agent-templates.sh <対象リポジトリのパス> --with-check
+scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...
+```
+
+- `--with-check` を付けると、Skills の検査を CI で回すワークフロー（`.github/workflows/skills-check.yml`）も置きます。`--no-skills` を付けると、標準の Skills を置きません。
+- 既存のファイルは上書きしません。設定ファイルは、雛形の中身をすべて含んでいれば（`add-stack.sh` で足しただけなら）そのままにし、雛形から外れていれば知らせます。
+- ただし `AGENTS.md` に共通規約の印（`<!-- 共通規約ここから -->` 〜 `<!-- 共通規約ここまで -->`）があれば、その間だけを最新の共通規約に置き換えます。共通規約を更新したあとに再実行すると、各プロジェクトに反映できます。
+
+### 機械的な検査
+
+- `python3 scripts/check-skills.py` で、Skills をモデルを呼ばずに検査します（PyYAML が必要）。
+  - vendored Skills: 指紋（`scripts/skills.lock.json`）と内容が一致するか（手で編集されていないか）と、`SOURCES.md` に載っているかを検査します。上流の形式の問題は警告だけにします。
+  - 自作の Skills: 次の点を検査します。
+    - frontmatter の形式（skill-creator の `quick_validate.py`）
+    - `name` とディレクトリ名の一致
+    - `SKILL.md` が 500 行以内か
+    - 参照先のファイルがあるか
+    - 評価ケース（`evals/evals.json`）と発火の評価（`evals/trigger.json`）の定義が正しいか
+  - 評価ケースを実際のモデルで動かして採点するのは、費用がかかり結果も毎回ぶれるため、この検査には含めません。必要なときに skill-creator の手順で行います。
+- このリポジトリでは、関係するファイルを変えた PR で、`agent-config-check` が上の検査と雛形の一致の検査（`scripts/check-templates.py`）を回します。失敗してもマージは止まりません。止めたい場合は Ruleset の必須チェックに加えます。
+
+### 権限と認証情報
 
 - MCP の認証情報やトークンを Git にコミットしない（`.env*` と `.claude/settings.local.json` は `.gitignore` 済み）。
-- GitHub MCP には業務上必要な最小限の権限だけを付与する。マージ・ファイル削除・リポジトリ作成は `.claude/settings.json` で毎回確認する設定にしている。
-- `.claude/settings.json` の `permissions.allow` で、確認なしで実行してよい操作を決めている（git の読み取り（`git diff --stat` などよく使う決まった形だけ。引数を自由に付けられる形は、`--output` や `--no-index` などでファイルの書き込みや `.env` の読み取りができるため許可しない）・コミット、`agent/*` ブランチへの push、`npm ci` / `npm test` / `npm run typecheck` / `npm run build`、PoC のスクリプト、GitHub の読み取りと PR の作成・更新）。force push・`main` を含む push・削除やまとめて送る push（`--delete` / `-d` / `--mirror` / `--all` / `--tags` / `--prune`）は `ask` で毎回確認する（`ask` は `allow` より優先される）。`cat` や `grep` などファイルを読むコマンドは、`.env` を読めてしまうため許可していない。`git push origin agent/x :other` のような「空の送り元」による削除は書式上確認に回せないため、`main` の削除・force push は GitHub の Ruleset（`docs/github-setup/rulesets/`）で防ぐ。
-- Sentry MCP / Cloudflare MCP はトークンをファイルに書かず OAuth で認証する。Cloudflare API MCP は Cloudflare の API をほぼすべて操作できるため、開発用アカウントで、必要な権限だけを許可する。
-- Supabase MCP は開発用プロジェクトにだけ接続する。やむを得ず本番プロジェクトにつなぐ場合は、URL に `&read_only=true` を付けて読み取り専用にする。
+- GitHub MCP には、業務上必要な最小限の権限だけを付与する。マージ・ファイル削除・リポジトリ作成は、`.claude/settings.json` で毎回確認する設定にしている。
+- `.claude/settings.json` の `permissions.allow` で、確認なしで実行してよい操作を決めている。
+  - 許可している操作:
+    - git の読み取り。`git diff --stat` などよく使う決まった形だけで、引数を自由に付けられる形は許可しない（`--output` や `--no-index` などで、ファイルの書き込みや `.env` の読み取りができるため）
+    - コミットと、`agent/*` ブランチへの push
+    - `npm ci` / `npm test` / `npm run typecheck` / `npm run build`（このリポジトリだけ）
+    - Skills の検査と雛形の一致の検査（`python3 scripts/check-skills.py`・`python3 scripts/check-templates.py`。このリポジトリだけ）。配る雛形では許可しない。エージェントが検査スクリプトを書き換えてから実行すると、任意のコードが確認なしで動くため。配布先では CI（`skills-check`）で必ず検査する。
+    - PoC のスクリプト（このリポジトリだけ）
+    - GitHub の読み取りと、PR の作成・更新
+  - `cat` や `grep` などファイルを読むコマンドは、`.env` を読めてしまうため許可していない。
+- 次の push は `ask` で毎回確認する（`ask` は `allow` より優先される）: force push、`main` を含む push、削除やまとめて送る push（`--delete` / `-d` / `--mirror` / `--all` / `--tags` / `--prune`）。
+- `git push origin agent/x :other` のような「空の送り元」による削除は、書式の上で確認に回せない。そのため、`main` の削除と force push は GitHub の Ruleset（`docs/github-setup/rulesets/`）で防ぐ。
+- Sentry MCP と Cloudflare MCP は、トークンをファイルに書かず OAuth で認証する。Cloudflare API MCP は Cloudflare の API をほぼすべて操作できるため、開発用アカウントで、必要な権限だけを許可する。
+- Supabase MCP は、開発用プロジェクトにだけ接続する。やむを得ず本番プロジェクトにつなぐ場合は、URL に `&read_only=true` を付けて読み取り専用にする。
 - Vercel MCP は OAuth で認証し、必要に応じて `https://mcp.vercel.com/<team-slug>/<project-slug>` で対象プロジェクトを限定する。
-- Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施する。
+
+## このリポジトリ自身について
+
+このリポジトリも、標準を使う側の 1 つです。
+
+- **適用している設定**: `typescript` と `react-nextjs` を適用済みです（PoC 用アプリが TypeScript + Next.js のため）。Issue・PR のテンプレートも `--with-check` 付きで適用済みです（`.github/`、`docs/github-writing.md`）。
+- **雛形との一致**: ルートの `AGENTS.md` の規約の節、`docs/github-writing.md`、`scripts/check-skills.py` は、雛形と同じ内容に保ちます。ルートの `.claude/settings.json`・`.mcp.json` は、雛形にこのリポジトリだけの設定を足したものにします。この 2 つは、`typescript`・`react-nextjs` の分、`poc-app` 用のフック、PoC と npm のコマンドの許可を足しています。一致しているかは `python3 scripts/check-templates.py` で確かめます。
+- **クラウドのセッション**: Claude Code on the web では、開始時に `poc-app` の依存関係が自動で入ります（`.claude/hooks/session-start.sh`）。
+
+### 初回セットアップ
+
+1. GitHub MCP 用に、対象リポジトリだけに絞った Fine-grained PAT を発行し、シェルの環境変数に設定します（`.env.example` に推奨権限を記載。実値はコミットしない）。
+
+   ```bash
+   export GITHUB_PERSONAL_ACCESS_TOKEN=<your-token>
+   ```
+
+2. このディレクトリで Claude Code を起動し、プロジェクトの marketplace・プラグイン・MCP サーバーの信頼確認を承認します。
+3. `/plugin` で `security-guidance` と `impeccable` が有効、`/mcp` で `github` と `playwright` が接続済みであることを確認します。
+4. security-guidance の LLM レビューには、Python 3.8 以上と Claude Code のサインイン（または API キー）が必要です。
+5. stacked PR を使う場合は、`gh extension install github/gh-stack` で gh stack を入れ、`git config rerere.enabled true` を設定します（Git 2.36 以上が必要。リポジトリ側で Stacked PRs が有効になっている必要があります）。
+6. Impeccable の設計フックやエンジンを使う場合は、必要に応じて `npx impeccable install --providers=claude --scope=project` を実行します。
