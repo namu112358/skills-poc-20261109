@@ -143,7 +143,8 @@ def score_build(checks, deps_same, b):
 
 def main():
     stats = grade.transcript_stats()
-    base = (RAW / "baseline-commit").read_text().strip()
+    # 作り直した作業用コピーで採点し直すとき（regrade_w21.py）は、作り直した初期状態のコミットを使う
+    base = os.environ.get("POC_REGRADE_BASE") or (RAW / "baseline-commit").read_text().strip()
     result = {"trial": TRIAL, "scenario": "W21", "task": TASK, "config": CONFIG, "rep": REP, "transcript": stats,
               "elapsed_seconds": int((RAW / "elapsed-seconds").read_text()) if (RAW / "elapsed-seconds").exists() else None,
               "interventions": len((RAW / "interventions.log").read_text().splitlines()) if (RAW / "interventions.log").exists() else 0}

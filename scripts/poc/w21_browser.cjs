@@ -74,8 +74,9 @@ async function axe(page) {
       out.checks.link_to_login = path === "/" && loginLinks > 0;
       // ログイン画面へのリンクをたどれる
       if (loginLinks > 0) {
+        // Next.js の Link は画面内で移動するので、読み込みの完了ではなく URL の変化を待つ（2026-11-11 採点の誤りを直した）
         await page.locator('a[href*="/login"]').first().click();
-        await page.waitForLoadState("networkidle");
+        await page.waitForURL((u) => u.pathname === "/login", { timeout: 10000 }).catch(() => {});
         out.checks.link_to_login = out.checks.link_to_login && new URL(page.url()).pathname === "/login";
       }
     } catch (e) {
@@ -113,7 +114,7 @@ async function axe(page) {
       out.checks.cta_to_login = n > 0;
       if (n > 0) {
         await page.locator('a[href*="/login"]').first().click();
-        await page.waitForLoadState("networkidle");
+        await page.waitForURL((u) => u.pathname === "/login", { timeout: 10000 }).catch(() => {});
         out.checks.cta_to_login = new URL(page.url()).pathname === "/login";
       }
     } catch (e) {
