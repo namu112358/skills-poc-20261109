@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で利用者を含まず、30 秒以内に別の利用者が開くと他人の担当タスクや件数が見える。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "renderBody が [文字](URL) の URL のスキームを確かめないため、javascript: のリンクが作られ、dangerouslySetInnerHTML 経由で保存型 XSS になる。",
+   "severity": "高",
+   "match": "B6",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "コメント API の PATCH に投稿者の確認が無く、ログインした誰でも他人のコメントを書き換えられる。",
+   "severity": "高",
+   "match": "B7",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "countByStatus が型の断定で readonly を外した共有定数 TASK_STATUSES に reverse() を呼び、配列をその場で逆順にするため、呼ぶたびに並びが入れ替わる。",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり、プレースホルダを使う規約 8 に違反している。",
+   "severity": "中",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "completionRate は担当タスクが 0 件だと 0/0 で NaN になり、画面に「完了率 NaN%」と出て、API では null になる。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "weekRange は日曜に getUTCDay() が 0 になるため 1-dow が翌週の月曜を指し、日曜には翌週の範囲を返す。",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "コメント追加の POST がタスクの存在を確かめないため、存在しない ID では外部キーの制約で 500 になる（GET は 404 を返す）。",
+   "severity": "中",
+   "match": "B8",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "formatCreatedAt がゼロ埋めの無い表示用の文字列で日時を保存し、listComments がその文字列で ORDER BY するため、桁が変わる境目で古い順にならない。",
+   "severity": "中",
+   "match": "B9",
+   "kind": ""
+  },
+  {
+   "n": 10,
+   "summary": "API とページのテストが無く、401・403・404 の動作やキャッシュの利用者の切り替えを確かめていない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "ダッシュボードのキャッシュはタスクを更新しても消えず、最大 30 秒古い件数が出る。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 12,
+   "summary": "cache.ts が期限切れのエントリを削除しないため、Map が無制限に大きくなる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0796998
+ }
+}

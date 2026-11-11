@@ -67,7 +67,8 @@ def main():
             row.append("・".join(parts) or "—")
         summary[c] = {"b": (b_hit, b_all), "p": (p_hit, p_all), "i": (i_hit, i_all)}
         out.append(f"| {LABEL[c]} | " + " | ".join(row) + f" | {b_hit}/{b_all} | {p_hit}/{p_all} | {i_hit}/{i_all} |")
-    out.append("\n- c2 は不具合の無い差分なので、指摘の件数を書いた（少ないほど良い。中身は下の「誤った指摘・雑音」）。\n")
+    if "c2" in CASES:
+        out.append("\n- c2 は不具合の無い差分なので、指摘の件数を書いた（少ないほど良い。中身は下の「誤った指摘・雑音」）。\n")
 
     # 不具合ごとの見つけた回数
     out.append("## 正解ごとの見つけた回数（2 回中）\n")
@@ -103,7 +104,7 @@ def main():
         sec = sum(t["transcript"].get("active_seconds") or 0 for _, t in rows) / n
         sub = sum(t["transcript"].get("subagents") or 0 for _, t in rows)
         out.append(f"| {LABEL[c]} | {false} | {decoys} | {real} | {nit} | {hn} | {c2} | ${cost:.2f} | {sec:.0f} | 計 {sub} |")
-    out.append("\n- 誤った指摘・おとり・正解外・nit は 14 本（7 題材 × 2 回）の合計。費用・時間は 1 本の平均。\n")
+    out.append(f"\n- 誤った指摘・おとり・正解外・nit は、設定ごとの全試行（{len(CASES)} 題材 × 回数）の合計。費用・時間は 1 本の平均。\n")
     (RES / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1) + "\n")
     print("\n".join(out))
 
