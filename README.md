@@ -176,7 +176,7 @@ scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...
     - git の読み取り。`git diff --stat` などよく使う決まった形だけで、引数を自由に付けられる形は許可しない（`--output` や `--no-index` などで、ファイルの書き込みや `.env` の読み取りができるため）
     - コミットと、`agent/*` ブランチへの push
     - `npm ci` / `npm test` / `npm run typecheck` / `npm run build`（このリポジトリだけ）
-    - Skills の検査（`python3 scripts/check-skills.py`。このリポジトリでは雛形の一致の検査 `python3 scripts/check-templates.py` も）
+    - Skills の検査と雛形の一致の検査（`python3 scripts/check-skills.py`・`python3 scripts/check-templates.py`。このリポジトリだけ）。配る雛形では許可しない。エージェントが検査スクリプトを書き換えてから実行すると、任意のコードが確認なしで動くため。配布先では CI（`skills-check`）で必ず検査する。
     - PoC のスクリプト（このリポジトリだけ）
     - GitHub の読み取りと、PR の作成・更新
   - `cat` や `grep` などファイルを読むコマンドは、`.env` を読めてしまうため許可していない。
