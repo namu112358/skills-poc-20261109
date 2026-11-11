@@ -1,0 +1,43 @@
+{
+  "trial": "W27-baseline-run-c2-1",
+  "scenario": "W27",
+  "config": "baseline-run",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: 計測器ごとの定期点検の追加\n\n`git diff HEAD` を読み、疑わしい箇所は node で関数を呼んで確かめた（再現スクリプトは作業コピーの外）。\n`DB` は `migrate()` → `seed()` で作ったインメモリ DB と、マイグレーション 5 までの DB に旧データを入れてから 6 を適用した DB を使った。\n\n## 高\n\n### 1. 「担当者で絞り込み・並べ替え」「担当者ごとの遅れ台数」が実装されていない\n- 場所: `src/app/instruments/page.tsx`（`InstrumentsPage`）、`src/lib/instruments.ts`（`listInstruments` / `InstrumentFilter`）、`src/lib/inspections.ts`\n- 問題: 合意した要件のうち、担当者での絞り込み・並べ替えと、担当者ごとの点検遅れ台数を毎朝知る手段が、どこにも無い。一覧は担当者の列を足しただけで、クエリパラメータ（`inspector` など）も、集計の関数・ジョブ（`docs/operations.md` の定期ジョブ）も無い。\n- 直し方: `src/lib/` に、担当者での絞り込み・並べ替えと、担当者別の遅れ台数の集計関数を足す。クエリは型ガードで検証し、不正値は「指定なし」にする（規約 2）。毎朝の通知が必要なら `src/app/api/jobs/<名前>/route.ts` にジョブを足し、`docs/operations.md` に書く。テストも足す。\n\n### 2. 「担当者と周期を保存」で、周期だけ変えても旧データの点検者の書き方が消える\n- 場所: `src/lib/inspections.ts` の `updateInspectionPlan`、`src/app/instruments/[id]/inspection-forms.tsx` の `submitPlan`\n- 問題: フォームは常に `inspectorId` と `intervalMonths` を両方送る。担当者が未設定（移行で `legacy_inspector` に残った「外部委託」など）の計測器で周期だけ変えると、`inspectorId: null` が送られ、`updateInspectionPlan` が `legacy_inspector = NULL` にする。再現で、`inspector_id = NULL, legacy_inspector = '外部委託'` の計測器に `{ inspectorId: null, intervalMonths: 6 }` を渡すと、両方 NULL になった。点検日の無い旧データ（記録が作られないもの）は、元の書き方が `extra` にしか残らない。さらに、詳細画面は `extra` の `inspector` / `last_inspected` を非表示にしているので、画面からは見えなくなる。要件の「黙って捨てない」に反する。\n- 直し方: 担当者が実際に変わるとき（値が現在と違うとき）だけ `legacy_inspector` を消す。フォームは、担当者が変わっていなければ `inspectorId` を送らない。\n\n## 中\n\n### 3. 点検の期限切れが、廃棄・使用停止の計測器も数える\n- 場所: `src/lib/inspections.ts` の `judgeDue` / `listInspectionPlans`、`src/app/instruments/page.tsx`\n- 問題: 状態を見ずに判定している。5 万件（1 割が廃棄）で最後の点検日が古いデータを作って確かめると、廃棄を含めた 5 万 1 件が「期限切れ」になった。廃棄済みの計測器まで遅れとして数えると、毎朝の台数が実態より多くなる。「要修理」で使用停止にした計測器も、修理が終わるまで「期限切れ」と出続ける。\n- 直し方: 廃棄（`disposed`）は点検の対象外にする（状況を出さない・集計に含めない）。使用停止を数えるかは依頼者に確認する（置いた仮定は PR に書く）。\n\n### 4. 要修理の記録が、貸出中・校正中の状態を壊す\n- 場所: `src/lib/inspections.ts` の `recordInspection`（`UPDATE instruments SET status = 'suspended' WHERE id = ? AND status <> 'disposed'`）\n- 問題: `CLAUDE.md` に「貸出中は貸出・返却の操作でだけ変わる」とある。貸出中（`on_loan`）の計測器に要修理を記録すると、状態が `suspended` になった（再現済み）。貸出の記録は未返却のまま残り、`returnLoan` は `status = 'on_loan'` のときしか使用中に戻さないので、状態と貸出の記録が食い違う。校正中（`calibrating`）も同様に上書きされる。\n- 直し方: 貸出中の扱いを決める（たとえば貸出中は状態を変えず、記録に「返却後に使用停止」と残す、または貸出中の要修理を拒否して返却を促す）。決められなければ依頼者に確認し、仮定を PR に書く。テストを足す。\n\n### 5. 訂正の記録で「最後の点検日」を戻せない\n- 場所: `src/lib/inspections.ts` の `PLAN_SELECT`（`MAX(r.inspected_on)`）\n- 問題: 点検の記録は消さず、間違えたら訂正の記録を足す、という合意になっている。しかし最後の点検日は日付の最大値なので、日付を誤って遅く入れた記録（例: 実際は 10/01 なのに 11/01）は、10/01 の訂正を足しても `lastInspectedOn` は 2026-11-01 のままだった（再現済み）。次の点検予定日が実際より後ろにずれ、遅れが見えなくなる。訂正の記録を表す項目も無い。同様に、要修理の記録を訂正（良好）しても、使用停止の状態は戻らない（再現済み。修理後の復帰は計測器の状態を別に直す必要がある）。\n- 直し方: 訂正の記録（例: `corrects_id`）を持たせ、訂正された記録は最後の点検日の計算から除く。「訂正」の画面操作も用意する。要修理の訂正でも状態を戻すかは仕様を決めて書く。\n\n### 6. 旧データで文字列以外の値・壊れた JSON は黙って捨てられ、画面からも消える\n- 場所: `src/lib/inspections-legacy.ts` の `importLegacyInspections`、`src/app/instruments/[id]/page.tsx`（`extra` の `inspector` / `last_inspected` を非表示にしている）\n- 問題: `extra` が `{\"inspector\": 123, \"last_inspected\": 20260501}` のように文字列でないと、`typeof ... === \"string\"` を満たさず空扱いで飛ばされ、担当者にも `legacy_*` にも残らない（再現済み）。`extra` が壊れた JSON のときも `continue` で黙って飛ばす（ログも無い）。それでいて詳細画面は `extra` の同じキーを非表示にするため、利用者はその値を見られなくなる。要件の「黙って捨てない」と、規約 14（握りつぶさない）に反する。\n- 直し方: 文字列以外は `String(value)` で `legacy_*` に残す。壊れた JSON は件数と対象をログに出す。画面は、移行できずに残ったものだけ旧データとして見せる。\n\n## 低\n\n### 7. 日付が読めない記録は「未点検」と表示される\n- 場所: `src/lib/inspections.ts` の `judgeDue`、`src/app/instruments/page.tsx`\n- 問題: 日付が読めない旧データ（例: `2026-09-31`、`R元.9.10`、`2026年9月1日`。再現済み）は `inspected_on = NULL` で入るので、記録はあるのに「未点検」と目立たせる。確認が必要なことは正しいが、理由が分からない。\n- 直し方: 日付が読めない記録だけがあるときは別の表示（例: 「日付要確認」）にする。`parseLegacyDate` が `2026年9月1日`・`元年` を読めるようにするのもよい。\n\n### 8. 一覧が全件の点検の状況を毎回読む\n- 場所: `src/app/instruments/page.tsx`、`src/lib/inspections.ts` の `listInspectionPlans`\n- 問題: 絞り込みをしても 5 万件分を計算する。5 万件・各 4 記録で 220 ms 程度なので今は許容できるが、一覧自体も全件を描画している（もとからの作りで、今回の変更で悪化したわけではない）。担当者での絞り込み（指摘 1）を足すときに、SQL で絞り、ページングを検討する。\n\n### 9. 前の版に戻したあとの点検者の書き換えが失われる\n- 場所: `src/lib/db/migrations.ts` マイグレーション 6（`apply`）\n- 問題: `extra` を消さないので、DB はそのまま使える。ただし、戻している間に旧版の画面で `extra` の `inspector` などを直しても、再び新しい版に上げたとき（`user_version` は 6 のまま）に移行が再実行されないので反映されない。\n- 直し方: ロールバック手順に「戻している間は `extra` の点検者を直さない／戻した後は移行を手で再実行する」と書く。PR の「残っている課題」に書く。\n\n### 10. テストの不足\n- 場所: `tests/inspections.test.ts`\n- 問題: 指摘 1〜6 の振る舞い（担当者の絞り込み・集計、旧データの書き方が周期の変更で消えないこと、貸出中の要修理、訂正、文字列以外の旧データ）を確かめるテストが無い。\n- 直し方: 直したものから順にテストを足す。\n\n## 確認して問題が無かった点（参考）\n- 「その他の項目」の `dept` は変更していない。\n- マイグレーション 6 は既存のマイグレーションを書き換えず、`apply` を同じトランザクションで動かしている。移行は何度動かしても同じ結果になる。\n- 敬称つきの名前（`鈴木さん` など）は担当者になる。同姓が複数いる名前は決められないので `legacy_inspector` に残る。\n- 日付の足し算は月末に寄せる（1/31 + 1 か月 = 2/28）。予定日当日は期限内、翌日から期限切れ。\n- 点検日の「今日」は日本時間。退職・休職の担当者は新しく選べず、すでに担当の人はそのまま通る。\n",
+  "review_chars": 4674,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.5155,
+    "tokens": {
+      "input": 32,
+      "output": 15955,
+      "cache_read": 884470,
+      "cache_creation": 66856
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/s && cat > /tmp/claude-0/s/r.ts <<'EOF'\\nimport { DatabaseSync } from \\\"node:sqlite\\\";\\nconst A=\\\"/tmp/poc-trials/W27-baseline-run-c2-1/app/src/lib/\\\";\\nconst { mig"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --experimental-strip-types --no-warnings /tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c2-1-app/b317ca4c-87ec-4d56-8056-3a73fb072738/scratchpad/r.ts 2>&1 | sed -n '/^3 {/,$p' | grep"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 146,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "追加で書き写す作業はありませんでした。直前のレビューの指摘 10 件は、すでに `REVIEW.md` に指定の形式で入っていて、コミット済みです（コミット `6726344`）。`REVIEW.md` に未コミットの変更もありません。\n\n各指摘には、場所（ファイルと関数）、何が問題か（再現した入力と結果）、直し方、重要度（高・中・低）を書いてあります。件数は高 2、中 4、低 4 です。新しい指摘は足しておらず、削った指摘もありません。このため、再度のコミットはしていません。コードも直していません。"
+  },
+  "interventions": 0
+}
