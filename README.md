@@ -175,8 +175,9 @@ scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...
   - 許可している操作:
     - git の読み取り。`git diff --stat` などよく使う決まった形だけで、引数を自由に付けられる形は許可しない（`--output` や `--no-index` などで、ファイルの書き込みや `.env` の読み取りができるため）
     - コミットと、`agent/*` ブランチへの push
-    - `npm ci` / `npm test` / `npm run typecheck` / `npm run build`
-    - PoC のスクリプト
+    - `npm ci` / `npm test` / `npm run typecheck` / `npm run build`（このリポジトリだけ）
+    - Skills の検査（`python3 scripts/check-skills.py`。このリポジトリでは雛形の一致の検査 `python3 scripts/check-templates.py` も）
+    - PoC のスクリプト（このリポジトリだけ）
     - GitHub の読み取りと、PR の作成・更新
   - `cat` や `grep` などファイルを読むコマンドは、`.env` を読めてしまうため許可していない。
 - 次の push は `ask` で毎回確認する（`ask` は `allow` より優先される）: force push、`main` を含む push、削除やまとめて送る push（`--delete` / `-d` / `--mirror` / `--all` / `--tags` / `--prune`）。
@@ -184,10 +185,6 @@ scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...
 - Sentry MCP と Cloudflare MCP は、トークンをファイルに書かず OAuth で認証する。Cloudflare API MCP は Cloudflare の API をほぼすべて操作できるため、開発用アカウントで、必要な権限だけを許可する。
 - Supabase MCP は、開発用プロジェクトにだけ接続する。やむを得ず本番プロジェクトにつなぐ場合は、URL に `&read_only=true` を付けて読み取り専用にする。
 - Vercel MCP は OAuth で認証し、必要に応じて `https://mcp.vercel.com/<team-slug>/<project-slug>` で対象プロジェクトを限定する。
-
-### 標準の権限に入っていないもの
-
-- 標準の `permissions.allow` には、規約で実行を求めている `python3 scripts/check-skills.py` がまだ入っていません。そのため、実行のたびに確認が出ます。権限の変更にあたるので、承認を得てから足します。
 
 ## このリポジトリ自身について
 
