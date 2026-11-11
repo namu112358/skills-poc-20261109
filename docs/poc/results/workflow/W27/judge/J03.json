@@ -1,0 +1,64 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "移行（マイグレーション 5 の after／linkInstrumentsToLocations）で location_id を設定するだけで、表記ゆれの行の location 列が正式名に書き換わらず旧表記のまま残る",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 2,
+   "summary": "location-master.ts の updateLocation で場所の名称を変えても、その場所の計測器の location 列は旧名称のまま残る",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "instruments.ts の validateLocation・updateInstrument で locationId を送って編集しても、location 列は旧値のまま更新されない",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "recordInventory でハンディ端末の文字が正式な場所に一致しても、location 列にマスタ名ではなく端末が送った生の文字が入る",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 5,
+   "summary": "validateLocation の locationId の分岐で locationOriginal が未設定のまま createInstrument が undefined を bind し、SQLite の例外で 500 になり、locationId での登録がすべて失敗する",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "前の版に戻している間に旧アプリで編集した location が、新しい版では location_id が優先されて無視されるのに、そのことが運用メモに書かれていない",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 7,
+   "summary": "recordInventory で確定済みの計測器に一致しない文字が来ると、確認中にせずログだけ出して文字を捨てており、要件 6 と差がある",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 8,
+   "summary": "locations.ts の ALIASES で末尾が切れた表記（大阪営・名古屋営）を営業所に寄せているのは、根拠のない推測による寄せである",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0739118
+ }
+}
