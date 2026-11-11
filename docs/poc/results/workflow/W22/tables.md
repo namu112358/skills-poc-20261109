@@ -14,7 +14,7 @@
 
 - c2 は不具合の無い差分なので、指摘の件数を書いた（少ないほど良い。中身は下の「誤った指摘・雑音」）。
 
-## 正解ごとの見つけた回数（2 回中）
+## 正解ごとの見つけた回数（見つけた回数 / 回数）
 
 | 正解 | Haiku: baseline（道具なし） | Haiku: 内蔵 `/code-review high` | Haiku: PR Review Toolkit `/review-pr` | Haiku: 自作 `design-principles-review` | Haiku: CE `ce-code-review` | `/review-pr`（専門エージェントの起動を明示） | CE `ce-code-review depth:full` |
 |---|---|---|---|---|---|---|---|

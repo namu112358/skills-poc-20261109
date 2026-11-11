@@ -72,7 +72,7 @@ def main():
         out.append("\n- c2 は不具合の無い差分なので、指摘の件数を書いた（少ないほど良い。中身は下の「誤った指摘・雑音」）。\n")
 
     # 不具合ごとの見つけた回数
-    out.append("## 正解ごとの見つけた回数（2 回中）\n")
+    out.append("## 正解ごとの見つけた回数（見つけた回数 / 回数）\n")
     keys = []
     for case in CASES:
         any_s = next(iter(cell[(CONFIGS[0], case)]))[0]

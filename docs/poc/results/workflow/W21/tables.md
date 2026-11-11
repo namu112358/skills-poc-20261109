@@ -12,7 +12,7 @@
 
 - c2 は不具合の無い差分なので、指摘の件数を書いた（少ないほど良い。中身は下の「誤った指摘・雑音」）。
 
-## 正解ごとの見つけた回数（2 回中）
+## 正解ごとの見つけた回数（見つけた回数 / 回数）
 
 | 正解 | baseline（道具なし） | 内蔵 `/code-review high` | PR Review Toolkit `/review-pr` | 自作 `design-principles-review` | CE `ce-code-review` |
 |---|---|---|---|---|---|

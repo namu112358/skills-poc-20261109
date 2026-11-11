@@ -9,7 +9,7 @@
 | 内蔵 `/code-review high` | 5/5・4/5 | 4/4・4/4 | 8/9・8/9 | 33/36 | 0/0 | 0/0 |
 | PR Review Toolkit `/review-pr` | 4/5・4/5 | 4/4・4/4 | 9/9・8/9 | 33/36 | 0/0 | 0/0 |
 | CE `ce-code-review` | 4/5・5/5 | 4/4・4/4 | 9/9・8/9 | 34/36 | 0/0 | 0/0 |
-## 正解ごとの見つけた回数（2 回中）
+## 正解ごとの見つけた回数（見つけた回数 / 回数）
 
 | 正解 | baseline（道具なし） | Haiku: baseline（道具なし） | 内蔵 `/code-review high` | PR Review Toolkit `/review-pr` | CE `ce-code-review` |
 |---|---|---|---|---|---|
