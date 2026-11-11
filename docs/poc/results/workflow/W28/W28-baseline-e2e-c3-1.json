@@ -1,0 +1,63 @@
+{
+  "trial": "W28-baseline-e2e-c3-1",
+  "scenario": "W28",
+  "config": "baseline-e2e",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: 設置場所を場所マスタから選べるようにする\n\n## 確認方法と限界\n\n- `npm run build` は成功した。\n- `npm run start` でのサーバー起動は、この環境で承認されず**実行できなかった**。画面（`/locations`、`/instruments`、詳細画面）の表示と HTTP の API 呼び出しは**確かめていない**。\n- 代わりに、`src/lib/` の関数を `openDb(\":memory:\")`（シード付き）に対して Node から直接呼んで再現した。「再現」はその結果。\n\n## 指摘一覧\n\n### 1. 【重要度: 高】場所を一覧から選んで登録すると API が 500 になる\n- **場所**: `src/lib/instruments.ts` の `validateLocation`（`locationId` 分岐）と `createInstrument`\n- **何が問題か**: `POST /api/instruments` に `locationId: 2` を送ると、`value.locationId` だけが設定され `locationOriginal` が undefined のまま。`createInstrument` が `location` 列にそれを bind して失敗する。要件 3（一覧から選ぶ）の主経路が動かない。\n  - 再現: `validateInstrumentInput` は ok になるが、`createInstrument` が `Provided value cannot be bound to SQLite parameter 4.` で例外になる。\n- **直し方**: 選んだ場所の名称を取得して `location` 列に入れる（指摘 2 と同じ修正）。`locationId` での登録のテストを追加する。\n\n### 2. 【重要度: 高】`instruments.location` 列に「場所の名前」が入った状態が保たれない（要件 7・8 違反）\n- **場所**: `src/lib/instruments.ts` の `updateInstrument`・`validateLocation`、`src/lib/location-master.ts` の `updateLocation`、`src/lib/locations.ts` の `linkInstrumentsToLocations`、`src/lib/db/migrations.ts` のマイグレーション 5\n- **何が問題か**:\n  - 移行は `location_id` だけを設定し、`location` 列は `品証 測定室`・`工事部　倉庫` などの元の書き方のまま。\n  - 場所の改名（`updateLocation`）は `instruments.location` を更新しない。\n  - `locationId` で場所を選び直しても `location` は変わらない。再現では `id=1` を `locationId: 2`（校正待ち棚）にしても `location` は `品質保証部 測定室` のままだった。\n  - 影響: 経理部が月末に読む列が表記ゆれ・旧名になる（要件 7）。前の版は `location` 列だけを見るため、表記ゆれや旧名が表示される。前の版で編集しても `location_id` が古いまま残り、新しい版へ戻すと `location_name` が優先されて前の版での変更が無視される（要件 8）。\n- **直し方**: 確定済みの計測器では `location` 列を常にマスタの名称で保つ。\n  - 移行の `after` で `location` を正式名称に更新する。元の文字列は別の列（例 `location_original`）に退避する（要件 2 と 7 は同じ列では両立しない）。出荷済みのマイグレーション 1〜4 は触らない。\n  - `updateLocation` で名称が変わるときは、同じトランザクションで `UPDATE instruments SET location = ? WHERE location_id = ?` を行う。\n  - `locationId` を受けたら `location` に名称を入れる。\n  - 前の版の書き込みで `location_id` が古くならない読み方（`location` を正とし、起動時に再照合するなど）を決める。\n\n### 3. 【重要度: 中】ハンディ端末の「分からない文字」を、確定済みの計測器では捨てる（要件 6 とのずれ）\n- **場所**: `src/lib/instruments.ts` の `recordInventory`（`unmatched_kept`）、`docs/handheld-api.md`\n- **何が問題か**: 要件は「分からなければ確認中として送られた文字を残す」。実装は、場所が確定済みの計測器では何も変えず、ログ `handheld.inventory.unmatched` だけを出す。応答は 200 で端末は「送信済み」と表示する。棚卸しで違う場所にあった計測器も、台帳は古い場所のままで、確認中の一覧にも出ない。\n- **直し方**: 依頼者に確認する。要件どおりなら確認中に戻す（`location_id = NULL` と送られた文字を保持）。手修正を守る意図なら、その仮定を PR に書き、取りこぼしの調べ方（ログ集計や専用の一覧）を用意する。\n\n### 4. 【重要度: 中】移行の結果がログだけで、「何件寄せたか」を後で確かめにくい\n- **場所**: `src/lib/db/migrations.ts` のマイグレーション 5 の `after`、`src/lib/locations.ts` の `linkInstrumentsToLocations`\n- **何が問題か**: `if (result.total > 0)` のときだけログを出す。`linked` は移行後の全件の集計で、今回の移行で寄せた件数ではない。ログ以外に残らないため、取りこぼすと後で確かめられない（要件 9）。\n- **直し方**: 移行結果を DB（移行結果のテーブルなど）にも残す。0 件でもログを出す。\n\n### 5. 【重要度: 中】5 万件の移行が行ごとの UPDATE と JS の正規化で、所要時間が未測定\n- **場所**: `src/lib/locations.ts` の `linkInstrumentsToLocations`、`tests/locations-real-data.test.ts`\n- **何が問題か**: 約 5 万件を 1 件ずつ `normalizeLocationKey` して UPDATE する。トランザクションは 1 つなので壊れはしないが、実データ規模での所要時間を測っていない（要件 9「何分も止めない」）。テストは件数つきの値一覧での照合で、5 万行の移行時間は測っていない。\n- **直し方**: 異なる値ごとに 1 回だけ照合し、`UPDATE ... WHERE location = ?` にまとめる。5 万件規模の所要時間を計測して PR に書く。\n\n### 6. 【重要度: 低】場所の追加・改名・使用終了がログに残らない\n- **場所**: `src/app/api/locations/route.ts`、`src/app/api/locations/[id]/route.ts`\n- **何が問題か**: 誰でもできる操作なのに、誰が・どの場所を・どう変えたかのログが無い（開発標準 15）。改名は全計測器の表示と経理の読み取り値に影響する。\n- **直し方**: `logger.info(\"locations.updated\", { id, userId, changes })` のようなログを出す。\n\n### 7. 【重要度: 低】場所の重複検査と登録が別操作で、同時実行に弱い\n- **場所**: `src/lib/location-master.ts` の `validateLocationInput`／`createLocation`／`updateLocation`\n- **何が問題か**: 同時に同じ名前を登録すると、検査をすり抜けた側が UNIQUE 制約違反で 500 になる。正規化後に一致する別表記は DB の UNIQUE では防げない。\n- **直し方**: 例外を捕まえて 409 にする。\n\n### 8. 【重要度: 低】検証とテストの不足\n- **場所**: PR の「検証結果」、`tests/`\n- **何が問題か**: typecheck・test・build だけで、画面と API を実際に動かした確認が無い。指摘 1 は登録 API を実際に呼べば見つかる種類の不具合。\n- **直し方**: 次のテストを追加する。`locationId` での登録、改名後の `location` 列、移行後の `location` 列の値、前の版（`location` 列だけを読み書き）との行き来。\n",
+  "review_chars": 3914,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4595,
+    "tokens": {
+      "input": 44,
+      "output": 12133,
+      "cache_read": 1137837,
+      "cache_creation": 56084
+    },
+    "turns": 24,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git diff HEAD -- src/lib/db > /tmp/x1; cat /tmp/x1; cat src/lib/location-master.ts src/lib/locations.ts\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run build 2>&1 | tail -8); mkdir -p /tmp/claude-0/s && rm -f /tmp/claude-0/s/t.db; (DATABASE_PATH=/tmp/claude-0/s/t.db PORT=3917 nohup npm run start >/tmp/claude-0/s/srv.log 2>&1 &);"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c3-1-app/66cdc9c8-7f25-4b45-9755-846e38c49503/scratchpad; mkdir -p $S; echo $S; DATABASE_PATH=$S/t.db PORT=3917 npm run start >$S/srv.log "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"DATABASE_PATH=/tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c3-1-app/66cdc9c8-7f25-4b45-9755-846e38c49503/scratchpad/t.db PORT=3917 npm run start > /tmp/claude-0/-tmp-poc-trials-W28-base"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c3-1-app/66cdc9c8-7f25-4b45-9755-846e38c49503/scratchpad && printf '#!/bin/bash\\\\ncd /tmp/poc-trials/W28-baseline-e2e-c3-1/app\\\\nexport DA"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c3-1-app/66cdc9c8-7f25-4b45-9755-846e38c49503/scratchpad/start.sh\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"DATABASE_PATH=:memory: PORT=3917 HANDHELD_TOKEN=tok npm --prefix /tmp/poc-trials/W28-baseline-e2e-c3-1/app run start\", \"run_in_background\": true}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 18,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 111,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回の指摘8件を、「場所・何が問題か・直し方・重要度」の形式で `REVIEW.md` に書き直し、`REVIEW.md` だけをコミットしました（`cac3466`）。新しい指摘は足しておらず、削ってもいません。コードは直していません。\n\n- **高（2件）:**\n  - 場所を選んで登録すると API が 500 になる。\n  - `location` 列に場所の名前が入った状態が保たれない（要件 7・8 違反）。\n- **中（3件）:**\n  - ハンディ端末の「分からない文字」を、確定済みの計測器では捨てる。\n  - 移行結果がログだけで、後から確かめにくい。\n  - 5 万件の移行の所要時間が未測定。\n- **低（3件）:**\n  - 場所の追加・変更がログに残らない。\n  - 場所の同時登録の競合で 500 になる。\n  - 画面と API の実機確認、およびテストが足りない。\n\n冒頭の「確認方法と限界」は残してあります。`npm run start` を承認されず起動できなかったため、画面表示と HTTP の API 呼び出しは確かめておらず、再現は `src/lib/` の関数を Node から直接呼んだ結果です。"
+  },
+  "interventions": 0
+}
