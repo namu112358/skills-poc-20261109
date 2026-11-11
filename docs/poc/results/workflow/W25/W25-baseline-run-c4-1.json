@@ -1,0 +1,51 @@
+{
+  "trial": "W25-baseline-run-c4-1",
+  "scenario": "W25",
+  "config": "baseline-run",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー結果\n\n対象: 「期限が近いタスクを一覧で目立たせる」（`src/lib/due.ts`、`src/app/tasks/page.tsx`、`tests/due.test.ts`）\n\n再現は `isDueSoon` / `daysUntilDue` を node で直接呼んで確認した。\n\n## 1. [高] 日本時間の日付で数えていない（9:00〜24:00 JST に判定が 1 日ずれる）\n\n- 場所: `src/lib/due.ts` `daysUntilDue`（`Date.parse(dueDate) - now.getTime()`）\n- 問題: `Date.parse(\"2026-11-12\")` は **UTC の 0:00**（= 日本時間 9:00）として解釈される。それを現在時刻の瞬間と引き算して 24 時間で割っているので、「日本時間の日付」での日数になっていない。PR の「日本時間の日付で数える」に反する。\n- 再現結果（`now` を日本時間で指定）:\n  - 11/12 00:00〜09:00 JST: 期限 11/12 → 残り 0 / 期限間近 = true（正しい）\n  - 11/12 15:00 JST: 期限 11/12 → 残り **-1** / 期限間近 = **false**。今日が期限の未完了タスクから「（期限間近）」が消える（期限切れ扱いになる）。期限 11/13 は 0、11/14 は 1 と、すべて 1 日ずれる。\n  - つまり毎日 9:00 JST 以降の日中ずっと判定が 1 日ずれる。サーバーの TZ が UTC でも JST でも同じ（`Date.parse` が UTC 固定のため）。\n- 直し方: `now` を日本時間の日付（`YYYY-MM-DD`）に変換してから日付同士で数える。例: `new Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" }).format(now)` で今日の日付文字列を得て、両方を `Date.UTC(y, m-1, d)` に変換し、差を `DAY_MS` で割る（`Math.round` でよい）。時刻・サーバー TZ に依存しなくなる。\n\n## 2. [高] 「3 日後」が対象に入っていない（境界値の off-by-one）\n\n- 場所: `src/lib/due.ts` `isDueSoon`（`days < DUE_SOON_DAYS`）\n- 問題: PR の仕様は「今日・明日・明後日・3 日後」（残り 0〜3 日）だが、`days < 3` なので 0〜2 日だけ。`DUE_SOON_DAYS` のコメント「3 日以内」とも合わない。\n- 再現結果: 今日 11/12 0:00 JST のとき、期限 11/15（3 日後）は残り 3 / 期限間近 = **false**。\n- 直し方: `days <= DUE_SOON_DAYS`。境界値（3 日後 = true、4 日後 = false）のテストを追加する。\n\n## 3. [中] テストが問題 1・2 を見逃す作りになっている\n\n- 場所: `tests/due.test.ts`\n- 問題:\n  - `now` を日本時間 0:00 ちょうど（= UTC では前日 15:00）に固定しているため、問題 1 が出ない時間帯だけをテストしている。日中（例 15:00 JST）・夜（23:59 JST）のケースが無い。\n  - 「3 日後」のケースが無く（`2026-11-14` = 2 日後と `2026-11-30` だけ）、問題 2 を検出できない。テスト名「within the next days」も境界を定義していない。\n- 直し方: 同じ日付で 0:00・15:00・23:59 JST の `now` を使うケース、残り 0/1/2/3/4 日の境界、日付変更の前後（23:59 → 0:00）を追加する。TZ に依存しないことを確認するため `TZ=UTC` と `TZ=Asia/Tokyo` の両方で実行する。\n\n## 4. [低] `isDueSoon` を行ごとに 2 回呼んでいる / 画面側で現在時刻を取得\n\n- 場所: `src/app/tasks/page.tsx`（`className` と `<strong>` の 2 箇所）\n- 問題: 同じ判定を 2 回計算している。動作上の不具合ではないが、結果を変数にまとめた方が簡潔。`className=\"due-soon\"` に対応する CSS が diff に無く、現状は効果が無い（不要なら削除、必要なら CSS を追加）。\n- 直し方: `const soon = isDueSoon(task, now);` を使う。`due-soon` クラスの扱いを決める。\n",
+  "review_chars": 2069,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.236,
+    "tokens": {
+      "input": 28,
+      "output": 5796,
+      "cache_read": 507893,
+      "cache_creation": 31805
+    },
+    "turns": 14,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"dueDate\\\\|due_date\\\" -r src | head -20; mkdir -p /tmp/rv && cat > /tmp/rv/r.ts <<'E'\\nimport { isDueSoon, daysUntilDue } from \\\"/tmp/poc-trials/W25-baseline-run-c4-1/app/src/lib"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"dueDate\\\\|due_date\\\" -r src | head -20; mkdir -p /tmp/rv; cat > /tmp/rv/r.ts <<'E'\\nimport { isDueSoon, daysUntilDue } from \\\"/tmp/poc-trials/W25-baseline-run-c4-1/app/src/lib/d"
+      },
+      {
+        "tool": "Write",
+        "input": "{\"file_path\": \"/tmp/rv/r.ts\", \"content\": \"import { isDueSoon, daysUntilDue } from \\\"/tmp/poc-trials/W25-baseline-run-c4-1/app/src/lib/due.ts\\\";\\nconst t = (d: string, s: any = \\\"todo\\\") => ({ id: 1, t"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp && node --experimental-strip-types /tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c4-1-app/64c584f8-b2d1-4940-a2bd-c9e7e6ea7408/scratchpad/r.ts 2>&1 | grep -v Warn\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 8,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 52,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は、前のターンで指摘 4 件すべてを「場所・何が問題か・直し方・重要度」の形式で書いてコミット済みでした。内容を確認すると依頼どおりだったので、書き写し直しは不要と判断し、新しいコミットは作っていません。\n\n- **指摘の件数:** 前回の 4 件がそのまま入っています。足した指摘も削った指摘もありません。\n- **コミット:** `d0d3f5a` で、`REVIEW.md` だけです。\n- **作業ツリー:** `REVIEW.md` に未コミットの変更はありません。\n- **コード:** 直していません。\n\n| 重要度 | 内容 |\n|---|---|\n| 高 | 日本時間の日付で数えていない（`daysUntilDue`） |\n| 高 | 「3 日後」が対象外（`isDueSoon` の境界値） |\n| 中 | テストが上の 2 件を見逃す作り |\n| 低 | 判定の二重呼び出しと、`due-soon` クラスの CSS が無い点 |"
+  },
+  "interventions": 0
+}

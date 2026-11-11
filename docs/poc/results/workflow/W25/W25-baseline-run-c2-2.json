@@ -1,0 +1,43 @@
+{
+  "trial": "W25-baseline-run-c2-2",
+  "scenario": "W25",
+  "config": "baseline-run",
+  "case": "c2",
+  "rep": 2,
+  "review_md": "# レビュー: タスク一覧の「期限の近い順」並べ替え\n\n確認方法: `git diff HEAD` を読み、一時スクリプト（作業用コピーの外）で `listTasks` / `validateTaskInput` を実際に呼んで挙動を確かめた。\n画面・API とも、`sort` の検証（`isTaskSort`）→ 既定は登録順、という流れは規約 2 のとおりで、値の検証自体は問題なかった。\n\n## 1. 【中】`SORT_COLUMNS[filter.sort]` の結果を SQL に直接連結しており、`listTasks` 自体は未検証の値に無防備（規約 8 との関係）\n\n- 場所: `src/lib/tasks.ts` `listTasks`（`ORDER BY ${SORT_COLUMNS[filter.sort ?? \"id\"]}, id`）\n- 問題: 現在の呼び出し元（`page.tsx`・`route.ts`）は `isTaskSort` を通してから渡すので、今すぐ悪用できる経路は無い。ただ、`listTasks` 側には防御が無く、検証を通さない値が来ると次のようになる（実際に実行して確認）。\n  - `sort: \"bogus\"` → `no such column: undefined`（500 になる）\n  - `sort: \"__proto__\"` → `no such column: object Object`\n  - `sort: \"constructor\"` / `\"toString\"` → `Object.prototype` の関数のソース文字列が SQL に埋め込まれ `syntax error`\n  - 表の引き当てがプロトタイプまで届くため、「表を引くから安全」という実装コメントは `listTasks` 単体では成り立たない。将来、別の呼び出し元が検証を忘れると、文字列連結で SQL が組み立てられる状態になる。\n- 直し方: `listTasks` の中で `isTaskSort(filter.sort) ? filter.sort : \"id\"` として防御する（または `Object.hasOwn` で確認する）。もしくは `ORDER BY` を固定の 2 本の SQL 文（定数）から選ぶ形にして、連結そのものをやめる。`isTaskSort` 済みでない値を渡したときに登録順になるテストも追加する。\n\n## 2. 【中】「期限の近い順」が単なる期限の昇順で、完了済み・期限超過のタスクが先頭に来る\n\n- 場所: `src/lib/tasks.ts` `listTasks`（`ORDER BY due_date, id`）、`src/lib/db/seed.ts` の初期データ\n- 問題: PR の動機は「締め切りの近いタスクから片付けたい」だが、初期データで `sort=due` を実行すると結果は `1:done:11-02, 7:done:11-05, 2:in_progress:11-12, …` となり、先頭 2 件は完了済みのタスクになる（実行して確認）。今日は 2026-11-11 なので、これらは過去の期限で、片付ける対象ではない。ステータスを絞り込まない限り、「近い順」の先頭に「もう終わったもの」が並ぶ。\n- 直し方: 仕様として決める。案は (a) 完了（`done`）を末尾に回す（`ORDER BY status = 'done', due_date, id`）、(b) 現状の昇順を仕様として「期限の早い順」と文言・説明に明記する。(a) にするなら、その並びのテストを追加する。\n\n## 3. 【低】存在しない日付が期限として通り、並べ替えの結果に混ざる（既存の検証の穴）\n\n- 場所: `src/lib/tasks.ts` `validateTaskInput`（`DATE_RE` と `Date.parse`）\n- 問題: `2026-02-30` や `2026-11-31` が `ok: true` で通る（実行して確認。`Date.parse` が翌月に繰り上げて解釈するため）。`0000-01-01` も通る。この PR で入った問題ではないが、期限順の並びの前提（日付として正しい文字列）に関わる。形式は `YYYY-MM-DD` に固定されているので、文字列の昇順と日付の昇順は一致しており、並べ替えの正しさ自体は崩れない。\n- 直し方: 余裕があれば別の変更で、`new Date(s).toISOString().slice(0, 10) === s` で往復して確認する。今回のマージを止める必要は無い。\n\n## 4. 【低】テスト・文書の不足\n\n- `tests/tasks.test.ts`: `GET /api/tasks?sort=…` の経路（`sort=due`、不正な `sort` が登録順になること）のテストが無い。`isTaskSort` と `listTasks` の単体だけで、API Route の配線（`route.ts`）は検証されていない。規約 5 は `src/lib/` のロジックが対象なので違反ではないが、不正値の扱いが PR の説明にあるため、`tasks.ts` 側に「`sort` が不正なら `listTasks` が登録順になる」テストを足すと、指摘 1 の修正の確認にもなる。\n- `CLAUDE.md` の API の記述（`GET/POST /api/tasks`）に `status` / `sort` の説明が無い。必要なら追記する。\n",
+  "review_chars": 2378,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2544,
+    "tokens": {
+      "input": 26,
+      "output": 6786,
+      "cache_read": 480187,
+      "cache_creation": 34617
+    },
+    "turns": 14,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > $TMPDIR/r.mts 2>/dev/null || true; S=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c2-2-app/85b9e3d7-8db1-4a45-b5bf-0ab2327acac2/scratchpad; cat > $S/r.ts <<'EOF'\\nimport { openDb "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c2-2-app/85b9e3d7-8db1-4a45-b5bf-0ab2327acac2/scratchpad; cat > $S/r.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W25-baseline-run"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 8,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 69,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回のレビューの時点で、`REVIEW.md` にすべての指摘を依頼の形式で書いてコミットしていました。今回は新たに書き写す内容も、コミットする変更もありません。`REVIEW.md` に未コミットの差分はなく、コミットは `a6eac85` です。\n\n`REVIEW.md` には次の 4 件が入っています。各項目に重要度、場所、何が問題か、直し方を書いています。指摘を足したり削ったりはしていません。コードは直していません。\n\n1. **中:** `src/lib/tasks.ts` の `listTasks` が、並べ替え列を表から引いて SQL に連結しています。検証を通っていない値が来ると、SQL エラーになります。\n2. **中:** 「期限の近い順」が単なる期限の昇順なので、完了済みで期限が過ぎたタスクが先頭に来ます。\n3. **低:** `validateTaskInput` が `2026-02-30` のような存在しない日付を通します。これは既存の問題です。\n4. **低:** API 経由の `sort` と、不正な `sort` が登録順になることのテストがありません。`CLAUDE.md` の API の記述にも `status` / `sort` の説明がありません。"
+  },
+  "interventions": 0
+}

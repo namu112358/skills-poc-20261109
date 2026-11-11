@@ -1,0 +1,43 @@
+{
+  "trial": "W25-baseline-run-c5-2",
+  "scenario": "W25",
+  "config": "baseline-run",
+  "case": "c5",
+  "rep": 2,
+  "review_md": "# レビュー: assignee → assigneeId への名前変更\n\nテストは 19 件すべて通りますが、下記 1・2 はテストをすり抜けています。マージ前に直してください。\n確認は、一時スクリプトで `openDb()` の DB に対して `src/lib/tasks.ts` の関数を直接呼んで行いました。\n\n## 1. 【高】`listTasks` が `assigneeId` を返さない（一覧画面の担当者が空になる）\n\n- 場所: `src/lib/tasks.ts` の `listTasks`（SELECT 文。`assignee_id AS assignee`）\n- 問題: `TaskRow` と `toTask` は `assignee_id` を読むのに、SELECT だけ `assignee_id AS assignee` と別名を付けたまま残っています。`row.assignee_id` が `undefined` になります。`as TaskRow[]` のキャストがあるため `npm run typecheck` でも検出されません。\n- 再現: `listTasks({}, openDb())[0]` は `assigneeId: undefined` を返しました（`getTask(1)` は `'sato'`）。\n  - `/tasks` の担当者列（`task.assigneeId`）が全行で空になります。\n  - `GET /api/tasks` の JSON でも担当者が欠落します。`JSON.stringify` は `undefined` の項目を落とします。\n  - PR の「画面・API は変えない」に反します。\n- 直し方: `assignee_id AS assignee` を `assignee_id` に変える。\n- テストが検出できなかった理由: `listTasks` の項目内容を検証するテストがありません。`listTasks` の結果に `assigneeId` が入ることを確認するテストを追加してください（規約 5）。\n\n## 2. 【高】API の入出力が変わっている（PR の「API は変えない」に反する）\n\n- 場所: `src/lib/tasks.ts` の `validateTaskInput`（`need(\"assigneeId\")`、`b.assigneeId`）、`Task` 型（API の JSON 出力にそのまま出る）\n- 問題: リクエスト本文の項目名が `assignee` から `assigneeId` に変わりました。応答の JSON の項目名も同様に変わります。\n- 再現: 既存クライアントが `{title, status, assignee: \"sato\", dueDate}` を `POST /api/tasks` に送ると、`validateTaskInput` が `{\"ok\":false,\"errors\":[\"担当者が存在しません\"]}` を返し、400 になります。`PATCH` で `assignee` だけ送った場合は、`partial` なので `assignee` は検証対象外になります。このとき 200 で何も変更されず、黙って無視されます。\n- 直し方: 次のどちらかにしてください。\n  - **a)** 内部名だけ変える。API の境界（検証・応答 JSON への変換）で `assignee` ⇔ `assigneeId` を対応付け、入出力は従来どおり `assignee` にする。\n  - **b)** API の名前変更を意図するなら、PR の説明を直し、旧名の受け入れ（移行期間）と API 利用者への周知を決める。\n- 今回の PR の趣旨は a) です。API の入力・出力に関するテストも追加してください。\n\n## 3. 【低】画面の担当者列が ID のまま\n\n- 場所: `src/app/tasks/page.tsx` の担当者列\n- 内容: 一覧は ID（`sato`）を表示し、詳細は名前を表示します。これは変更前から同じなので、今回の PR の範囲外です。PR の動機（名前と ID の取り違え）に関係する既存の不整合として、別 PR で扱うのがよいでしょう。\n\n## 4. 【低】マイグレーション 3 とテスト\n\n- 場所: `src/lib/db/migrations.ts` のバージョン 3\n- 内容: `ALTER TABLE ... RENAME COLUMN` 自体は問題ありません。外部キーとインデックス `tasks_assignee` は `assignee_id` に付け替わることを確認済みです。ただし、インデックス名 `tasks_assignee` は旧名のままです。\n- 追加を勧めるテスト: バージョン 2 のスキーマにデータを入れてからマイグレーション 3 を適用し、データが残ることを確認するテスト（規約 5・7）。\n",
+  "review_chars": 2129,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2458,
+    "tokens": {
+      "input": 24,
+      "output": 5312,
+      "cache_read": 451103,
+      "cache_creation": 36870
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > $TMPDIR/r.ts 2>/dev/null || true; S=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c5-2-app/3a3b11c0-d930-4d7d-b5f2-3fd90408c25f/scratchpad; cat > $S/r.ts <<'EOF'\\nimport { openDb }"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W25-baseline-run-c5-2/app\\nS=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c5-2-app/3a3b11c0-d930-4d7d-b5f2-3fd90408c25f/scratchpad\\ncat > $S/r.ts <<'EOF'\\nimport { op"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 52,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘は、すでに `REVIEW.md` に指定の形式で書いてあり、コミットも済んでいます（`3086b78`）。そのため新しい書き写しもコミットもしていません。`REVIEW.md` に未コミットの変更はありません。\n\n指摘は 4 件で、重要度と見出しは次のとおりです。\n\n1. 【高】`listTasks` が `assigneeId` を返さない（一覧画面の担当者が空になる）。\n2. 【高】API の入出力が変わっている（PR の「API は変えない」に反する）。\n3. 【低】画面の担当者列が ID のまま。\n4. 【低】マイグレーション 3 とテスト。\n\n各指摘に場所、何が問題か、直し方を書いてあります。指摘の追加も削除もしていません。コードも直していません。"
+  },
+  "interventions": 0
+}

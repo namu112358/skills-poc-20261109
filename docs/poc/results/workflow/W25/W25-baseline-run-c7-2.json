@@ -1,0 +1,51 @@
+{
+  "trial": "W25-baseline-run-c7-2",
+  "scenario": "W25",
+  "config": "baseline-run",
+  "case": "c7",
+  "rep": 2,
+  "review_md": "# レビュー: 担当者変更の監査ログ\n\n`updateTask` が担当者の変更を検知して `[audit] ...` を出す本筋の動作は、再現スクリプトで確認できました（変更あり → 1 行出力、変更なし → 出力なし）。以下はマージ前に直すべき点です。\n\n## 1. 【高】通知先が未実装の値に設定されると、タスク更新が例外になる（DB は更新済みなのに失敗する）\n\n- 場所: `src/lib/tasks.ts` `updateTask`（`eventBus.emit` の呼び出し）、`src/lib/notify/notifier.ts` の `SlackNotifier.send` / `EmailNotifier.send`、`src/lib/notify/events.ts` `EventBus.emit`\n- 問題: `NOTIFIER_KIND=slack`（または `email`）で起動すると、`send` が常に `throw` する。`emit` は購読者の例外を捕まえないため、`UPDATE` 実行後に `updateTask` が例外で終わる。再現: `NOTIFIER_KIND=slack` で担当者を `sato`→`suzuki` に更新すると `Error: Slack への通知は未実装です` が投げられ、その後の DB を読むと担当者はすでに `suzuki` になっていた。`PATCH /api/tasks/:id` は 500 を返すが、変更は保存済みで、利用者には失敗に見える。\n- 直し方: 未実装の送り先は削除する（#2）。残す場合でも、ログ出力が更新処理を壊さないよう `emit` か購読者側で try/catch する。\n\n## 2. 【中】依頼範囲を大きく超えた設計（未使用の仕組み・将来用の実装）\n\n- 場所: `src/lib/notify/` 全体（`events.ts`, `notifier.ts`, `index.ts`）、`tests/notify.test.ts`\n- 問題: 依頼は「担当者が変わったらサーバーのログに 1 行出す。記録先は当面ログだけで、ほかの記録先の予定はない」。しかし、イベントバス、`task.status_changed` / `task.created`（誰も発行しない）、Slack / メールの Notifier（未実装で throw するだけ）、Factory、環境変数 `NOTIFIER_KIND` / `SLACK_WEBHOOK_URL` が追加されている。CLAUDE.md 規約 6（変更は依頼された範囲にとどめる）に反し、#1 や #3 の不具合の原因にもなっている。\n- 直し方: `updateTask` 内で `console.log` を 1 行出す小さな関数（例: `src/lib/audit.ts` の `logAssigneeChange`）に置き換え、`src/lib/notify/` を削除する。\n\n## 3. 【中】Notifier の選択が、ログの記録先として危うい（プロトタイプ上のキーで壊れる）\n\n- 場所: `src/lib/notify/notifier.ts` `NotifierFactory.create`（`registry[kind] ?? registry.console`）\n- 問題: `registry` は通常のオブジェクトなので、`NOTIFIER_KIND=toString` では文字列を返し（`kind` は `undefined`、`send` も無い）、`constructor` ではオブジェクトを返す。`__proto__` では `make is not a function` で例外になり、`index.ts` の読み込み時に落ちる。`tasks.ts` から import されるため、`tasks.ts` を使うすべての画面・API が起動時に壊れる。実行して確認済み。コメントの「知らない値なら console」と実際の動作が一致しない。\n- 直し方: #2 で Factory ごと削除する。残すなら `Object.hasOwn(registry, kind)` で確認するか `Map` を使う。\n\n## 4. 【中】モジュール読み込み時の副作用と、グローバルな共有状態\n\n- 場所: `src/lib/notify/index.ts`（import 時に購読者を登録）、`src/lib/notify/events.ts`（`eventBus` はモジュール単位の 1 インスタンス）\n- 問題: `tasks.ts` を import しただけで購読が登録され、環境変数も import 時に 1 度だけ読まれる。テストが `eventBus.clear()` を呼ぶと監査ログの購読者も消え、テスト間で結果が変わる。Next.js の開発モードではモジュールが再評価される場合があり、その際に購読者が二重登録されて 1 回の変更で複数行出る恐れもある（今回は未確認）。\n- 直し方: 購読の仕組みをやめ、`updateTask` から直接ログ関数を呼ぶ。\n\n## 5. 【中】依頼した振る舞いを検証するテストが無い\n\n- 場所: `tests/notify.test.ts`\n- 問題: テストは、バスの購読と解除、Factory の分岐だけを見ている。肝心の「担当者が変わったら 1 行出る」「変わらない更新（タイトルだけ、同じ担当者への更新）では出ない」「存在しない ID では出ない」を確かめるテストが無い。そのため #1 や #3 も検出されない。CLAUDE.md 規約 5 は、`tasks.ts` のロジック変更に対するテストを求めている。PR の「通知の仕組みのテスト」は、変更の要点を検証したことにならない。\n- 直し方: `tests/tasks.test.ts` に、`openDb()` の DB を使って `console.log` をスタブ化し、出力文字列（ID、前、後、ISO 日時）を検証するテストを追加する。\n\n## 6. 【低】ログに「誰が変更したか」が残らない\n\n- 場所: `src/lib/tasks.ts` `updateTask` のイベント内容、`src/app/api/tasks/[id]/route.ts` の呼び出し側\n- 問題: 監査の依頼は「いつ誰から誰に変わったか」。これは前後の担当者と日時で満たせる。ただし、変更操作をしたログインユーザーは残らない。必要かどうかを監査担当に確認しておくとよい（今回の依頼文の範囲外かもしれない）。\n- 直し方: 必要なら `updateTask` に操作者を渡す。不要なら対応なし。\n\n## 7. 【低】日時が UTC の ISO 文字列である点と、更新の原子性\n\n- 場所: `src/lib/tasks.ts` `updateTask`（`new Date()`）\n- 問題: 日時は `toISOString()` の UTC（例: `2026-11-11T12:41:17.371Z`）で出る。国内の運用なら JST の方が読みやすい場合があるが、仕様として問題はない。また、ログは `UPDATE` の直後、`getTask` の前に出るので、`UPDATE` は成功しログは出たのに後続の処理が失敗する、というずれは理論上起こりうる（実害は小さい）。\n- 直し方: 仕様として UTC で合意できていれば対応なし。\n",
+  "review_chars": 3181,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3011,
+    "tokens": {
+      "input": 32,
+      "output": 8973,
+      "cache_read": 638602,
+      "cache_creation": 36871
+    },
+    "turns": 18,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c7-2-app/db7d1843-bd8e-4f56-bfed-040b45c4d9d8/scratchpad && cat > $S/r.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W25-baseline-r"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c7-2-app/db7d1843-bd8e-4f56-bfed-040b45c4d9d8/scratchpad; R=\\\"node --experimental-strip-types --no-warnings $S/r.ts\\\"; $R; echo ---slack; "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --experimental-strip-types --no-warnings /tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c7-2-app/db7d1843-bd8e-4f56-bfed-040b45c4d9d8/scratchpad/r.ts; echo ---slack; NOTIFIER_KIND=sl"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"NOTIFIER_KIND=slack node --experimental-strip-types --no-warnings /tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c7-2-app/db7d1843-bd8e-4f56-bfed-040b45c4d9d8/scratchpad/r.ts\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 79,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しくコミットするものはありません。直前のレビューの指摘 7 件は、依頼された形式で `REVIEW.md` にすでに書いてあり、8317fe2 でコミット済みです。確認したところ、`REVIEW.md` に未コミットの変更はなく、見出しは 7 件でした。\n\n各指摘には、場所（ファイルと関数）、何が問題か（入力や状況と、そのとき起きること）、直し方、重要度（高・中・低）が入っています。内訳は次のとおりです。\n\n| # | 重要度 | 内容 |\n|---|---|---|\n| 1 | 高 | `NOTIFIER_KIND=slack` か `email` のとき、DB 更新後に例外が出て更新が失敗扱いになる |\n| 2 | 中 | 依頼範囲を超えた設計 |\n| 3 | 中 | `NOTIFIER_KIND` に `toString` や `__proto__` を渡すと壊れる |\n| 4 | 中 | 読み込み時の副作用とグローバルな共有状態 |\n| 5 | 中 | 肝心の振る舞いを検証するテストが無い |\n| 6 | 低 | 操作したユーザーが記録されない |\n| 7 | 低 | 日時が UTC である点と、更新の原子性 |\n\n新しい指摘は足しておらず、削った指摘もありません。コードにも手を入れていません。"
+  },
+  "interventions": 0
+}

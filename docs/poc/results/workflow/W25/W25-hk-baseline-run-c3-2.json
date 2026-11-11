@@ -1,0 +1,61 @@
+{
+  "trial": "W25-hk-baseline-run-c3-2",
+  "scenario": "W25",
+  "config": "hk-baseline-run",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# レビュー: タスク一覧の CSV ダウンロード（`GET /api/tasks/export`）\n\n対象: 未コミットの差分（`src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`）\n\n確認方法: 差分と既存コード（`src/lib/tasks.ts`、`src/app/api/tasks/route.ts`、`src/lib/api.ts`）を読み、`node --experimental-strip-types` で `toCsv` と `listTasks` を呼ぶ再現スクリプト（`/tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c3-2-app/bd012850-db40-4b96-acda-ecc08ff20d9f/scratchpad/repro/repro.ts`、作業ツリーの外）を動かして結果を確かめた。`npm run typecheck` は成功、`npm test` は 22 件すべて成功。\n\n---\n\n## 1. 値の中の二重引用符がエスケープされず、CSV が壊れる（重要度: 高）\n\n- **場所**: `src/lib/export.ts` の `field()`（10〜12 行目。`return \\`\"${value}\"\\`;` は 11 行目）\n- **問題**: 項目を `\"…\"` で囲むだけで、値の中の `\"` を `\"\"` に置き換えていない。タイトルは `\"` を含んでも検証を通るため（`validateTaskInput` は長さと空白しか見ていない）、そのタスクの行が壊れる。\n- **再現（実際に実行して確認）**: タイトルを `\"要件\" の確認` にすると、出力の行は `\"10\",\"\"\"要件\" の確認\"` になる。値の中の `\"` は `\"\"` にならず、囲みの `\"` が 1 つ付いただけなので、`要件` の前後の引用符が正しく扱われない。RFC 4180 に沿って読み直すと `要件 の確認` となり、引用符が消えて値が変わる。Excel で開いても同じく壊れる。\n- **直し方**: `field()` で `\"` を `\"\"` に置き換えてから囲む。\n  ```ts\n  function field(value: string | number): string {\n    return `\"${String(value).replace(/\"/g, '\"\"')}\"`;\n  }\n  ```\n- **テスト**: 下記 4 のテストに、引用符を含むタイトルのケースを入れる。\n\n## 2. `?status=` の不正な値が「指定なし」にならず、0 件になる（重要度: 中）\n\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`（10 行目 `... as TaskStatus | null`、11 行目で `listTasks` に渡す）\n- **問題**: PR は「不正な値は、一覧と同じく『指定なし』」としている。しかし `as TaskStatus | null` のキャストだけで、`isTaskStatus` を通していない。そのため不正な値はそのまま `listTasks` に渡り、SQL の `status = ?` に一致せず 0 件になる。一覧 API（`src/app/api/tasks/route.ts`）は `isTaskStatus(status) ? status : undefined` としている。\n- **再現（実際に実行して確認）**: 指定なしは 7 件。`status=\"bogus\"`、`status=\"\"`、`status=\"DONE\"` は、いずれも route の経路と同じ呼び方で 0 件になった。報告用にダウンロードしたファイルが空になり、誤字に気づきにくい。\n- **直し方**: 一覧 API と同じ書き方にする。\n  ```ts\n  const status = new URL(request.url).searchParams.get(\"status\");\n  const csv = toCsv(listTasks({ status: isTaskStatus(status) ? status : undefined }));\n  ```\n  `isTaskStatus` を `@/lib/tasks` から import する。route 側の判定は `src/lib/` の関数に寄せたほうが規約（CLAUDE.md の 1・2）に沿う。\n\n## 3. 先頭が `= + - @` のタイトルが、表計算ソフトで数式として評価されうる（重要度: 中）\n\n- **場所**: `src/lib/export.ts` の `toCsv`（15〜18 行目）と `field()`（10〜12 行目）\n- **問題**: タイトルは利用者が自由に入力できる。`=HYPERLINK(...)` のような値は、そのまま出力されると Excel などで開いたときに数式として評価される（CSV の数式インジェクション）。再現スクリプトでは、出力が `\"=HYPERLINK(\"\"http://x\"\",\"\"go\"\")\"` の形になり、値はそのまま残ることを確認した。ただし Excel 側の評価は今回実行して確かめていない。\n- **直し方**: 先頭が `=`、`+`、`-`、`@`、タブ、改行のどれかの値は、先頭に `'` を付けて数式にならないようにする。その場合、データの値が変わるので、利用者に説明するか、元の値を残す方針を決めてから直す。\n- **注意**: 現在の PR の範囲では、対処するかどうかは判断が要る。少なくとも既知の制限として PR の説明に書くのが望ましい。\n\n## 4. テストの名前と中身が合っていない（重要度: 低）\n\n- **場所**: `tests/export.test.ts` の `\"escapes quotes and commas in titles\"`（15〜18 行目）\n- **問題**: テスト名は引用符とカンマのエスケープを確かめるとしているが、タイトル `週次 定例の準備` には引用符もカンマも無い。そのため上の 1 の不具合を検出できず、テストは通ってしまう。改行を含むケースも無い。\n- **直し方**: `\"`、`,`、改行を含むタイトルのテストを追加し、読み直したときに元の値と一致することを確認する（簡単な CSV パーサを使うか、期待する文字列を直接書く）。\n- **テスト名**: 1 の対応と合わせて直す。\n\n## 5. BOM を不可視文字のまま書いている（重要度: 低）\n\n- **場所**: `src/lib/export.ts` の `CSV_BOM`（5 行目）\n- **問題**: 定数の中に U+FEFF をそのまま書いている（コードポイントは `feff` と確認済み）。見た目では分からず、エディタや整形ツールで消えても気づけない。\n- **直し方**: `export const CSV_BOM = \"﻿\";` と書く。\n",
+  "review_chars": 3099,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0345,
+    "tokens": {
+      "input": 42,
+      "output": 20918,
+      "cache_read": 1193514,
+      "cache_creation": 60373
+    },
+    "turns": 30,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --version && cat package.json && echo ---- && cat src/lib/db/seed.ts | head -60 && echo ---- && git log --oneline | head -5 && ls -la && cat REVIEW.md 2>/dev/null | head -5; echo \\\"e"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c3-2-app/bd012850-db40-4b96-acda-ecc08ff20d9f/scratchpad/repro && cat > /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c3-2-a"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c3-2-app/bd012850-db40-4b96-acda-ecc08ff20d9f/scratchpad/repro && cat > repro.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W25"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c3-2-app/bd012850-db40-4b96-acda-ecc08ff20d9f/scratchpad/repro && head -3 repro.ts > a.ts && cd /tmp/poc-trials/W25-hk-baseline-run-c3"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run typecheck 2>&1 | tail -5; echo \\\"typecheck exit=${PIPESTATUS[0]}\\\"; npm test 2>&1 | grep -E \\\"^# (tests|pass|fail)\\\"; grep -n -i \\\"CREATE TABLE\\\" -A 8 src/lib/db/migrations.ts | h"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'docs: CSV ダウンロードのレビュー結果を追加\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.ai/code/session_01"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 16,
+      "Write": 4,
+      "Read": 1,
+      "Edit": 6
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 107,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "REVIEW.md の指摘は既に最初の形式（場所・問題・直し方・重要度）で書かれていたので、内容は変えていません。行番号を補い、指摘 1 の再現の一文を読みやすく直しました。コミットは `b50ca2f` で、REVIEW.md だけが入っています。\n\n- **指摘は 5 件のまま**: 1（高）引用符がエスケープされない、2（中）不正な `?status=` が 0 件になる、3（中）数式インジェクション、4（低）テストが引用符を検査していない、5（低）BOM が不可視文字のまま。\n- **変更は場所の欄の行番号と、指摘 1 の再現の一文だけ**です。新しい指摘は足していません。\n- **コードは直していません**。作業ツリーの未コミット 3 ファイル（`git add -N` 済みの intent-to-add）も残したままです。"
+  },
+  "interventions": 0
+}
