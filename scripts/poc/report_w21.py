@@ -21,11 +21,12 @@ CONFIGS = {
     "W23": ["baseline", "hk-baseline", "cr-high", "review-pr", "ce-review"],
     "W24": ["baseline", "baseline-run", "hk-baseline", "hk-baseline-run"],
     "W25": ["baseline-run", "hk-baseline-run"],
+    "W26": ["baseline-std"],
 }[SCENARIO]
-CASES = {"W23": ["d1", "d2", "d3"], "W24": ["c4", "d1", "d3"]}.get(SCENARIO, ["c1", "c2", "c3", "c4", "c5", "c6", "c7"])
+CASES = {"W23": ["d1", "d2", "d3"], "W24": ["c4", "d1", "d3"], "W26": ["c4", "d1", "d3"]}.get(SCENARIO, ["c1", "c2", "c3", "c4", "c5", "c6", "c7"])
 LABEL = {"baseline": "baseline（道具なし）", "cr-high": "内蔵 `/code-review high`", "review-pr": "PR Review Toolkit `/review-pr`",
          "principles": "自作 `design-principles-review`", "ce-review": "CE `ce-code-review`",
-         "review-pr-full": "`/review-pr`（専門エージェントの起動を明示）", "baseline-run": "道具なし + 動かして確かめる指示", "ce-full": "CE `ce-code-review depth:full`"}
+         "review-pr-full": "`/review-pr`（専門エージェントの起動を明示）", "baseline-run": "道具なし + 動かして確かめる指示", "baseline-std": "道具なし + CLAUDE.md の規約に動かして確かめる", "ce-full": "CE `ce-code-review depth:full`"}
 for _k in ["baseline", "cr-high", "review-pr", "principles", "ce-review", "baseline-run"]:
     LABEL["hk-" + _k] = "Haiku: " + LABEL[_k]
 
