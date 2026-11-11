@@ -1,0 +1,39 @@
+{
+  "trial": "W33-baseline-req-e1-1",
+  "scenario": "W33",
+  "config": "baseline-req",
+  "case": "e1",
+  "rep": 1,
+  "review_md": "# レビュー: 計測器ごとの点検担当者・点検周期・点検記録\n\n## 要件ごとの照合\n\n| # | 要件 | 実装の場所 | 判定 |\n|---|---|---|---|\n| 1 | 担当者は在籍中の利用者から 1 台 1 人。退職・休職者は新規に選べないが、既存の担当は表示・維持 | `validateInstrumentInput`（`src/lib/instruments.ts`）の `inspectorId`、`PATCH /api/instruments/:id`、`page.tsx` の `nameOf` | 満たす |\n| 2 | 旧台帳の点検者・最終点検日を引き継ぐ。利用者と分かる名前は担当者に、分からないものは担当者未設定で元の書き方を残す。日付が読めなくても捨てない | `migrateLegacyInspection` / `matchInspector`（`src/lib/db/migrations.ts`）、`parseLegacyDate`（`src/lib/dates.ts`） | 満たす（`extra` は書き換えない。同名が複数の場合は未設定。「外部委託」は未設定、「鈴木さん」は鈴木、「R8.9.10」は 2026-09-10） |\n| 3 | 点検記録は点検日・点検した人（在籍中）・結果・メモ。履歴を残す。担当者以外でもよい | `validateInspectionInput` / `recordInspection`（`src/lib/inspections.ts`） | 概ね満たす（指摘 3 を参照） |\n| 4 | 要修理なら使用停止にする（校正の不合格と同じ扱い） | `recordInspection` | **反する点あり**（指摘 1 を参照） |\n| 5 | 周期は月単位で既定 3。次回点検日 = 最後の点検日 + 周期。記録が無ければ「未点検」と目立たせる | マイグレーション 6、`toInstrument`、`addMonths`、一覧・詳細画面 | 満たす（指摘 2 を参照） |\n| 6 | 台帳の利用者のうち在籍している人なら誰でも担当者に選べる | `validateInstrumentInput` | 満たす（部署や役割で絞っていない） |\n\n## 指摘\n\n### 1. 貸出中の計測器に「要修理」を登録すると、貸出の操作を通さずに状態が使用停止に変わる\n\n- **重要度**: 高\n- **場所**: `src/lib/inspections.ts` の `recordInspection`（`UPDATE instruments SET status = 'suspended' WHERE id = ? AND status != 'disposed'`）\n- **問題**: プロジェクトの業務ルールでは「貸出中（`on_loan`）は貸出・返却の操作でだけ変わる」。`PATCH /api/instruments/:id` は `on_loan` の計測器の状態変更を拒否しているが、点検記録の API にはこの確認が無い。`on_loan` の計測器（例: MI-0002）に `POST /api/instruments/:id/inspections` で `result: \"needs_repair\"` を送ると、`on_loan` から `suspended` になる。\n  - 未返却の貸出が残ったまま、状態だけが使用停止になる（画面は「使用停止」なのに貸出中の記録がある矛盾した状態）。\n  - 返却時の `UPDATE ... AND status = 'on_loan'` は何も更新しないので、返却後も使用停止のままになる。\n  - 返却予定日を過ぎた貸出の集計は、状態に関係なく未返却の貸出を拾う。\n- **直し方**:\n  - `on_loan` のときは状態を変えない（点検記録と「要修理」の結果は残す）。または 409 で拒否する。どちらにするかは依頼者に確認する。\n  - 「校正の不合格と同じ扱い」の要件を優先する場合も、`recordCalibration` が同じ問題を持っている。今回の範囲では、点検の側で `status NOT IN ('disposed', 'on_loan')` とし、PR に判断を書く。\n  - テストを足す。`on_loan` の計測器に要修理を登録しても状態が `on_loan` のまま、または拒否されること。\n\n### 2. 旧台帳の日付が読めない計測器が、一覧で「未点検」と表示され、元の書き方が一覧から見えない\n\n- **重要度**: 中\n- **場所**: `src/app/instruments/page.tsx`（点検の列）、`src/lib/instruments.ts` の `lastInspectedOn` / `nextInspectionOn`\n- **問題**: 旧台帳の `last_inspected` が読めない書き方だった場合、`legacy_inspected_on` は NULL になり、点検記録も無いので、一覧は「未点検」（`<strong>`）と表示する。実際は点検済みで元の日付が `extra` に残っているのに、現場には「一度も点検していない」ように見える。要件は「元の書き方を残し、黙って捨てない」で、DB 上は残っているが一覧では見えない（詳細画面では「最終点検日（旧記録）」として表示される）。\n- **直し方**: 点検記録が無く、`extra.last_inspected` が読めない文字列として残っている場合は、「未点検（旧記録: 〇〇）」のように元の書き方を併記する。または「旧記録の日付が読めません」など別の表示にして、本当の未点検と区別する。\n\n### 3. 「点検した人」を省略したときに、登録した人を点検した人にする判断が仕様に無い\n\n- **重要度**: 低\n- **場所**: `src/lib/inspections.ts` の `validateInspectionInput`（`inspectedBy` を省略可）と `recordInspection`（`input.inspectedBy ?? recordedBy`）\n- **問題**: 要件は「点検した人（在籍している利用者）」を点検記録の項目とする。省略時に登録者を補う動きは要件に無く、入れ忘れると登録者が点検者として黙って記録される。登録者はセッション側で在籍が確認されているので在籍の要件は破れない。\n- **直し方**: `inspectedBy` を必須にする。補う動きを残すなら、仮定として PR に書く。\n\n### 4. テストの不足\n\n- **重要度**: 低\n- **場所**: `tests/inspections.test.ts`、`src/app/api/instruments/[id]/inspections/route.ts`\n- **問題**:\n  - 要修理にしたときに、貸出中・校正中の計測器がどうなるかのテストが無い（指摘 1 に関連）。\n  - API Route を通したテスト（未ログイン 401、不正な入力 400、存在しない計測器 404）が無い。ロジックは `src/lib/` の検証関数にあるので影響は小さい。\n- **直し方**: 上の 2 点のテストを足す。\n\n## 問題が無いと判断した点\n\n- マイグレーション 6 は、既存のマイグレーションを書き換えずに末尾へ追加している。`extra` は書き換えない。\n- SQL はすべてプレースホルダーを使っている。\n- 日付は日本時間（`todayJst`）で扱い、未来の点検日を拒否している。\n- 一覧の最終点検日は、点検記録と旧台帳の日付の新しい方を相関サブクエリで出している。`inspections(instrument_id, inspected_on)` にインデックスがあるので、約 5 万件でも問題ない。\n",
+  "review_chars": 3382,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4411,
+    "tokens": {
+      "input": 26,
+      "output": 12607,
+      "cache_read": 616741,
+      "cache_creation": 63316
+    },
+    "turns": 14,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='REVIEW.md'\\ns=open(p,encoding='utf-8').read()\\nhead,rest=s.split('## 指摘\\\\n',1)\\ntail='## 問題が無いと判断した点'+rest.split('## 問題が無いと判断した点',1)[1]\\nnew='''## 指摘\\n\\n### 1. 貸出中の計"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 9,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 97,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューで出た指摘 4 件を、各指摘を「重要度・場所・問題・直し方」の項目に揃えて REVIEW.md に書き、REVIEW.md だけをコミットしました。新しい指摘は足していません。出た指摘も削っていません。コードは直していません。\n\n| # | 指摘 | 重要度 |\n|---|---|---|\n| 1 | 貸出中の計測器に「要修理」を登録すると、貸出の操作を通さずに使用停止になる（`recordInspection`） | 高 |\n| 2 | 旧台帳の日付が読めない計測器が、一覧で「未点検」と表示され、元の書き方が一覧から見えない | 中 |\n| 3 | 「点検した人」を省略すると、登録した人が点検者として黙って補われる | 低 |\n| 4 | テストの不足（貸出中・校正中での要修理、API Route の 401・400・404） | 低 |\n\n要件ごとの照合表と、問題が無いと判断した点も、そのまま残しています。"
+  },
+  "interventions": 0
+}

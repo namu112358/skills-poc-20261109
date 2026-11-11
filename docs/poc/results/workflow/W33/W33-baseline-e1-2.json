@@ -1,0 +1,33 @@
+{
+  "trial": "W33-baseline-e1-2",
+  "scenario": "W33",
+  "config": "baseline",
+  "case": "e1",
+  "rep": 2,
+  "review_md": "# レビュー: 点検担当者・点検周期・点検記録の追加\n\n要件（在籍者のみ新規選択・退職者の既存担当の維持、`extra` を残す引き継ぎ、月末丸め、JST の今日判定）はおおむね実装されている。\nマージ前に直すべき点は次の 6 件（高 0・中 3・低 3）。コードは変更していない。\n\n## 1. 貸出中の計測器に「要修理」を登録すると、貸出が開いたまま使用停止になる\n- 重要度: 中\n- 場所: `src/lib/inspections.ts` `recordInspection`（`UPDATE instruments SET status = 'suspended' WHERE id = ? AND status != 'disposed'`）\n- 問題: 状態が `on_loan` の計測器に要修理の点検を登録すると、状態が `suspended` に変わる。CLAUDE.md は「貸出中は貸出・返却の操作でだけ変わる」としている。\n  `src/lib/loans.ts` の返却処理は `status = 'on_loan'` のときだけ `in_use` に戻すので、返却しても使用停止のままになる。貸出の記録は返却前のまま残る。\n  PATCH は `on_loan` の状態変更を拒否しているため、ここだけ規則の例外になっている。\n- 直し方: 点検記録は残し、状態は返却時に停止へ移す。または 409 で「貸出中のため先に返却してください」と返す。どちらにするかを PR に書き、貸出中 + 要修理、返却後の状態のテストを足す。\n  校正の不合格（`calibrations.ts`）にも同じ問題と、廃棄済みを `suspended` に戻す問題が既存コードにある。一緒に直すかは別途判断する。\n\n## 2. 日付が読めない旧データは、一覧で「未点検」と表示され、元の記録が見えない\n- 重要度: 中\n- 場所: `src/app/instruments/page.tsx` の点検列、`src/app/instruments/[id]/page.tsx` の最終点検日、`src/lib/instruments.ts` の `nextInspectionOn`\n- 問題: `last_inspected` が「9月上旬」のように読めない計測器は `legacy_inspected_on` が NULL になり、一覧では太字の「未点検」と出る。旧台帳には点検の記録があるので誤った警告になる。\n  要件の「読めないものも元の書き方を残し、黙って捨てない」は DB 上では満たすが、一覧からは見えない。詳細でも「最終点検日」は「未点検」で、旧記録は下の `extra` 一覧に離れて出るだけである。\n- 直し方: `extra.last_inspected` があって日付が読めないときは、「旧記録: 〇〇（日付を読めませんでした）」と出し、「未点検」と区別する。テストも足す。\n\n## 3. 一覧のクエリが、計測器ごとの副問い合わせで最終点検日を計算している（約 5 万件）\n- 重要度: 中\n- 場所: `src/lib/instruments.ts` の `COLUMNS`（`SELECT MAX(d) FROM (... UNION ALL ...)`）\n- 問題: `getInstrument` と `listInstruments` の全行に副問い合わせが走る。`(instrument_id, inspected_on)` のインデックスは効くが、`UNION ALL` の派生テーブルが行ごとに作られる。\n  毎朝全部署が開く一覧（docs/operations.md）で、5 万行ぶんの負荷が増える。`dept` の絞り込みは全件を読んでから JS で行うため、全件ぶんがそのまま効く。実行時間は測っていない。\n- 直し方: 5 万件・点検記録が数十万件の規模で実行時間を測る。遅ければ `LEFT JOIN (SELECT instrument_id, MAX(inspected_on) ... GROUP BY instrument_id)` か、`MAX(legacy_inspected_on, (SELECT MAX(inspected_on) ...))` の形にする。測った値を PR に書く。\n\n## 4. 点検日が最新でなくても、要修理の登録で停止になる\n- 重要度: 低\n- 場所: `src/lib/inspections.ts` `recordInspection`\n- 問題: 過去の日付の「要修理」を後から登録すると、より新しい「良好」の点検があっても使用停止になる。校正の合格側が「古い日付で戻さない」としているのと対になっていない。\n- 直し方: 仕様として許すなら PR に書く。許さないなら、最新の点検日より古い要修理では状態を変えない。\n\n## 5. 旧台帳の点検者の名前マッチが完全一致だけで、一致しなかった件数が出ない\n- 重要度: 低\n- 場所: `src/lib/db/migrations.ts` `matchInspector` / `migrateLegacyInspection`\n- 問題: 「鈴木 太郎さん」「鈴木さん（外注）」のような書き方は一致しない。同姓が複数いるときに未設定にするのは安全側で良い。ただし、引き継げた件数・残した件数がどこにも出ない。\n- 直し方: 引き継いだ件数と `extra` に残した件数をマイグレーションのログに出す（開発標準 15）。リリース前に本番データで件数を確認する。\n\n## 6. テストの抜け\n- 重要度: 低\n- 場所: `tests/inspections.test.ts`\n- 問題: 指摘 1・2 の状況（貸出中 + 要修理、読めない日付の表示）のテストが無い。API Route の 401・404・400 を通すテストも無い。\n- 直し方: 規約 5・16 に沿って追加する。\n",
+  "review_chars": 2525,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3533,
+    "tokens": {
+      "input": 24,
+      "output": 8699,
+      "cache_read": 527181,
+      "cache_creation": 53383
+    },
+    "turns": 10,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 7
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 78,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューで出た6件を、重要度・場所・問題・直し方の形式に整えて `REVIEW.md` に書き直し、`REVIEW.md` だけをコミットしました（08ea65b）。新しい指摘は足しておらず、削った指摘もありません。コードは直していません。\n\n重要度の内訳は次のとおりです。\n\n- **中（3件）**:\n  - 貸出中に「要修理」を登録すると、貸出が開いたまま使用停止になる。\n  - 日付が読めない旧データが、一覧で「未点検」と表示される。\n  - 一覧の最終点検日の計算が、約 5 万件で重くならないか未確認。\n- **低（3件）**:\n  - 過去の日付の「要修理」でも使用停止になる。\n  - 旧台帳の点検者の名前マッチが完全一致だけで、一致しなかった件数が出ない。\n  - 貸出中・日付が読めない場合と API Route のテストが無い。\n\n同じ指摘が重なる箇所は無く、まとめたものもありません。"
+  },
+  "interventions": 0
+}
