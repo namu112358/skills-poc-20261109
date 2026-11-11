@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import grade  # noqa: E402
 
 APP, RAW, OUT = grade.APP, grade.RAW, grade.OUT
-CONFIGS = ("cr-low", "cr-high", "review-pr", "combo", "sp-review", "baseline", "principles", "ce-review", "baseline-run", "hk-baseline-run", "baseline-std", "baseline-e2e", "baseline-req", "baseline-both", "baseline-2pass",
+CONFIGS = ("cr-low", "cr-high", "review-pr", "combo", "sp-review", "baseline", "principles", "ce-review", "baseline-run", "hk-baseline-run", "baseline-std", "baseline-e2e", "baseline-req", "baseline-both", "baseline-2pass", "baseline-e2e-report",
            "review-pr-full", "ce-full", "hk-baseline", "hk-cr-high", "hk-review-pr", "hk-principles", "hk-ce-review")
 
 
@@ -33,9 +33,9 @@ def git(*args):
 
 
 def parse_id(trial):
-    m = re.fullmatch(r"W(?:2[0-9]|3[01])-(" + "|".join(map(re.escape, sorted(CONFIGS, key=len, reverse=True))) + r")-([cd]\d+)-(\d+)", trial)
+    m = re.fullmatch(r"W(?:2[0-9]|3[0-2])-(" + "|".join(map(re.escape, sorted(CONFIGS, key=len, reverse=True))) + r")-([cd]\d+)-(\d+)", trial)
     if not m:
-        sys.exit(f"W20〜W31 の試行 ID ではない: {trial}")
+        sys.exit(f"W20〜W32 の試行 ID ではない: {trial}")
     return m.group(1), m.group(2), int(m.group(3))
 
 

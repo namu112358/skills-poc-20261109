@@ -27,11 +27,12 @@ CONFIGS = {
     "W29": ["baseline-req"],
     "W30": ["baseline-both"],
     "W31": ["baseline-2pass"],
+    "W32": ["baseline-e2e-report"],
 }[SCENARIO]
-CASES = {"W23": ["d1", "d2", "d3"], "W24": ["c4", "d1", "d3"], "W26": ["c4", "d1", "d3"], "W27": ["c2", "c3", "c4"], "W28": ["c2", "c3", "c4"], "W29": ["c2", "c3", "c4"], "W30": ["c2", "c3", "c4"], "W31": ["c2", "c3", "c4"]}.get(SCENARIO, ["c1", "c2", "c3", "c4", "c5", "c6", "c7"])
+CASES = {"W23": ["d1", "d2", "d3"], "W24": ["c4", "d1", "d3"], "W26": ["c4", "d1", "d3"], "W27": ["c2", "c3", "c4"], "W28": ["c2", "c3", "c4"], "W29": ["c2", "c3", "c4"], "W30": ["c2", "c3", "c4"], "W31": ["c2", "c3", "c4"], "W32": ["c2", "c3", "c4"]}.get(SCENARIO, ["c1", "c2", "c3", "c4", "c5", "c6", "c7"])
 LABEL = {"baseline": "baseline（道具なし）", "cr-high": "内蔵 `/code-review high`", "review-pr": "PR Review Toolkit `/review-pr`",
          "principles": "自作 `design-principles-review`", "ce-review": "CE `ce-code-review`",
-         "review-pr-full": "`/review-pr`（専門エージェントの起動を明示）", "baseline-run": "道具なし + 動かして確かめる指示", "baseline-std": "道具なし + CLAUDE.md の規約に動かして確かめる", "baseline-e2e": "道具なし + 本番で起動して画面・API を確かめる", "baseline-req": "道具なし + 要件を 1 つずつ照らす", "baseline-both": "道具なし + 要件を照らす + 本番で起動して確かめる", "baseline-2pass": "要件を照らす段 → 本番で起動して確かめる段", "ce-full": "CE `ce-code-review depth:full`"}
+         "review-pr-full": "`/review-pr`（専門エージェントの起動を明示）", "baseline-run": "道具なし + 動かして確かめる指示", "baseline-std": "道具なし + CLAUDE.md の規約に動かして確かめる", "baseline-e2e": "道具なし + 本番で起動して画面・API を確かめる", "baseline-req": "道具なし + 要件を 1 つずつ照らす", "baseline-both": "道具なし + 要件を照らす + 本番で起動して確かめる", "baseline-2pass": "要件を照らす段 → 本番で起動して確かめる段", "baseline-e2e-report": "本番で起動して確かめ、結果とエラーを書く", "ce-full": "CE `ce-code-review depth:full`"}
 for _k in ["baseline", "cr-high", "review-pr", "principles", "ce-review", "baseline-run"]:
     LABEL["hk-" + _k] = "Haiku: " + LABEL[_k]
 
