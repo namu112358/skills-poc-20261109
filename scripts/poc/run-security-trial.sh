@@ -2,6 +2,7 @@
 # セキュリティ監査のツールを 1 回、ヘッドレスで実行し、費用・時間・エージェント数・指摘を記録する（PLAN §5.2）。
 # 使い方: scripts/poc/run-security-trial.sh <ツール> <題材> <深さ> <回>
 #   ツール: cloudflare（security-audit Skill） | claude-security（Claude Security プラグイン）
+#           | security-review（Claude Code 組み込みの /security-review。題材 diff だけ。深さは default）
 #   題材:   clean（poc-app のまま） | vulns（answer-key/SEC/vulns.patch を当てる） | diff（diff.patch を作業ブランチのコミットにする）
 #   深さ:   cloudflare は quick | standard | deep、claude-security は low | medium | high（どちらも各ツールの言葉）
 #   例: POC_MODEL=claude-opus-5-5 scripts/poc/run-security-trial.sh cloudflare vulns standard 1
@@ -19,10 +20,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TOOL="$1"; TARGET="$2"; LEVEL="$3"; RUN="$4"
 case "$TOOL:$LEVEL" in
-  cloudflare:quick|cloudflare:standard|cloudflare:deep|claude-security:low|claude-security:medium|claude-security:high) ;;
+  cloudflare:quick|cloudflare:standard|cloudflare:deep|claude-security:low|claude-security:medium|claude-security:high|security-review:default) ;;
   *) echo "ツールと深さの組み合わせが正しくない: $TOOL $LEVEL" >&2; exit 1 ;;
 esac
 case "$TARGET" in clean|vulns|diff) ;; *) echo "題材は clean・vulns・diff のいずれか: $TARGET" >&2; exit 1 ;; esac
+[[ "$TOOL" == security-review && "$TARGET" != diff ]] && { echo "security-review は題材 diff だけ" >&2; exit 1; }
 MODEL="${POC_MODEL:-claude-opus-5-5}"
 CACHE="${POC_CACHE:-$ROOT/.poc-cache}"
 KEY="$ROOT/docs/poc/answer-key/SEC"
@@ -104,6 +106,14 @@ $SCOPE
 - 前回の監査の記録はありません
 
 この作業は無人で実行しています。確認の質問には答えられないので、上に書いていないことの判断はお任せしますが、Skill の手順にある工程は省かずに、6 つの段階を最後まで進めてください。対象のソースは変更しないでください。"
+elif [[ "$TOOL" == security-review ]]; then
+  # /security-review は origin/HEAD との差分をレビューする。リモートは無いので、origin/main を機能追加の前のコミットに向ける
+  git -C "$APP" update-ref refs/remotes/origin/main "$BASE"
+  git -C "$APP" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  echo "claude-code-builtin:/security-review" > "$OUT/tool-ref"
+  # /security-review 自身が持つ許可と同じ形。書き込みは出力先だけで、インタープリタの実行も許さないので、これで任意のコードは動かせない
+  ALLOWED+=("Bash(git diff:*)" "Bash(git log:*)" "Bash(git show:*)" "Bash(git status:*)" "Bash(git merge-base:*)")
+  TASK="/security-review"
 else
   CPO_REF="$(grep -o 'claude-plugins-official anthropics/claude-plugins-official [0-9a-f]*' "$ROOT/scripts/poc/fetch-plugins.sh" | awk '{print $3}')"
   fetch claude-plugins-official anthropics/claude-plugins-official "$CPO_REF"
@@ -148,7 +158,7 @@ echo $(( $(date +%s) - START )) > "$OUT/wall-seconds"
 # 3) 監査の出力を記録に写し、集計する（Claude Security はリポジトリの中の CLAUDE-SECURITY-*/）
 cp -R "$AUDIT_OUT" "$OUT/audit-out"
 for d in "$APP"/CLAUDE-SECURITY-*/; do [[ -d "$d" ]] && cp -R "$d" "$OUT/audit-out/"; done
-git -C "$APP" status --porcelain -- . ':!CLAUDE-SECURITY-*' > "$OUT/source-changes"
+git -C "$APP" status --porcelain -- . ':!CLAUDE-SECURITY-*' ':!.claude/skills/security-audit' > "$OUT/source-changes"
 python3 "$ROOT/scripts/poc/security_summary.py" "$OUT" > "$OUT/summary.json"
 cat "$OUT/summary.json"
 exit
