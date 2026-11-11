@@ -72,7 +72,7 @@
 | ID | 種類 | 場所 | 深刻度 | 中身 |
 |---|---|---|---|---|
 | H1 | 認可のすり抜け（トークンと対象の取り違え） | `api/shared/[token]/route.ts` → `lib/share.ts` | high | トークンが有効かだけを確かめ、返すタスクはクエリの `task` で決める。1 本のリンクを受け取った社外の人が、`?task=` を変えて全タスクを読める |
-| H2 | 期限切れの判定の誤り | `lib/share.ts` の `createShareLink`・`isValidShareToken` | medium | 期限を `toLocaleString("ja-JP")`（`2026/11/18 9:00:00`）で保存し、`toISOString()`（`2026-11-…`）と文字列で比べる。`/` は `-` より大きいので、リンクがいつまでも期限切れにならない。テストは通る |
+| H2 | 期限切れの判定の誤り | `lib/share.ts` の `createShareLink`・`isValidShareToken` | medium | 期限を `toLocaleString("ja-JP")`（`2026/11/18 9:00:00`）で保存し、`toISOString()`（`2026-11-…`）と文字列で比べる。5 文字目の `/` は `-` より大きいので、年が変わるまで期限切れにならない（7 日では切れない）。テストは通る |
 | H3 | 機密の列の漏えい | `lib/share.ts` の `getSharedTask`（`api/shared/[token]/route.ts` が返す） | high | `SELECT t.*, u.*` で担当者の行をすべて返す。ログインしていない人に `password_hash` を渡す（`u.id` が `t.id` を上書きするので、id もずれる） |
 
 誤検知の罠（指摘したら誤検知）:
