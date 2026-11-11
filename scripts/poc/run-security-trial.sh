@@ -154,9 +154,11 @@ I accept the scan's time and token cost; do not ask me to confirm. This session 
 fi
 printf '%s\n' "$TASK" > "$OUT/prompt.txt"
 
+# 権限のモードは dontAsk（許可リストに無いものは確認せず断る）。acceptEdits は作業ディレクトリの中の編集をすべて許すので、
+# Write・Edit の許可を絞っても効かず、package.json などを書き換えてから許可したコマンドで動かせてしまうため（2026-11-11 に変更）
 START=$(date +%s)
 ( cd "$APP" && env HOME="$HOME_DIR" "${CHILD_ENV[@]}" timeout "${POC_STEP_TIMEOUT:-7200}" claude -p "$TASK" \
-    --model "$MODEL" --permission-mode acceptEdits --allowedTools "${ALLOWED[@]}" \
+    --model "$MODEL" --permission-mode dontAsk --allowedTools "${ALLOWED[@]}" \
     --disallowedTools AskUserQuestion --strict-mcp-config --add-dir "$AUDIT_OUT" "${PLUGINS[@]}" \
     --output-format stream-json --verbose < /dev/null ) > "$OUT/step1.jsonl" 2> "$OUT/step1.stderr" \
   || echo "exit=$?" >> "$OUT/errors.log"

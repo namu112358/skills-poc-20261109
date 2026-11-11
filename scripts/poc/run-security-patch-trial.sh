@@ -47,9 +47,11 @@ TASK="/claude-security:claude-security suggest patches for $IDS from the newest 
 This session is unattended, so nobody can answer questions: where the recipe would ask, take its \"I don't know\" default. Do not apply the patches to the checkout."
 printf '%s\n' "$TASK" > "$OUT/prompt.txt"
 
+# 権限のモードは dontAsk（許可リストに無いものは確認せず断る）。acceptEdits は作業ディレクトリの中の編集をすべて許すので、
+# Write・Edit の許可を絞っても効かず、package.json などを書き換えてから許可したコマンドで動かせてしまうため（2026-11-11 に変更）
 START=$(date +%s)
 ( cd "$APP" && env HOME="$HOME_DIR" DISABLE_TELEMETRY=1 CLAUDE_SECURITY_SCAN_TIP=off timeout "${POC_STEP_TIMEOUT:-5400}" claude -p "$TASK" \
-    --model "$MODEL" --permission-mode acceptEdits --allowedTools "${ALLOWED[@]}" \
+    --model "$MODEL" --permission-mode dontAsk --allowedTools "${ALLOWED[@]}" \
     --disallowedTools AskUserQuestion --strict-mcp-config --plugin-dir "$PLUG" --add-dir "$PLUG" \
     --output-format stream-json --verbose < /dev/null ) > "$OUT/step1.jsonl" 2> "$OUT/step1.stderr" \
   || echo "exit=$?" >> "$OUT/errors.log"
