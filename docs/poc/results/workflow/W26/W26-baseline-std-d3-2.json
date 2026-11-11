@@ -1,0 +1,43 @@
+{
+  "trial": "W26-baseline-std-d3-2",
+  "scenario": "W26",
+  "config": "baseline-std",
+  "case": "d3",
+  "rep": 2,
+  "review_md": "# レビュー: ダッシュボードとタスクのコメント\n\n疑わしい箇所は `node --experimental-strip-types` の再現スクリプトで実際に動かして確認した（結果は各項目に記載）。\n\n## 高\n\n### 1. ダッシュボードのキャッシュが全ユーザーで共有される（情報漏えい）\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）\n- 問題: キャッシュキーが固定文字列 `\"dashboard\"` で、`userId` を含まない。30 秒以内に別ユーザーがアクセスすると、先にアクセスした人のダッシュボード（タスク名・件数）が返る。`/dashboard` ページも `GET /api/dashboard` も同じ関数を使う。再現: `buildDashboard(\"sato\")` の直後に `buildDashboard(\"suzuki\")` を呼ぶと `userId` が `sato` のまま返った。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。そもそも DB 読み出しが軽いので、キャッシュを外すのが安全。残すなら、タスクの更新（`PATCH /api/tasks/:id` など）で無効化されることも確認する（現状は最大 30 秒古い値が出る）。また `cache.ts` のモジュール変数はテストと本番で状態を共有するので、`now` を引数に取るテストで期待どおりか確認する。\n\n### 2. SQL インジェクション\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`\n- 問題: `` WHERE assignee = '${userId}' `` と文字列連結で SQL を組み立てている（規約 8 違反）。現状 `userId` はセッション由来だが、関数は `userId` を任意の文字列で受け取る。再現: `listAssignedTasks(\"x' OR '1'='1\")` が全 7 件のタスクを返した。\n- 直し方: `WHERE assignee = ?` にして `.all(userId)` を渡す。\n\n### 3. コメント本文の保存型 XSS\n- 場所: `src/lib/comments.ts` `renderBody`、`src/app/tasks/[id]/page.tsx`（`dangerouslySetInnerHTML`）\n- 問題: `[文字](URL)` を `<a href=\"$2\">` に変換するが、URL のスキームを検証していない。`[x](javascript:...)` がそのままリンクになり、タスクを開いた他のユーザーがクリックすると、その人のセッションでスクリプトが実行される。再現: `renderBody(\"[x](javascript:alert(1))\")` → `<a href=\"javascript:alert(1\" ...>`。`javascript:alert\\`1\\`` のように `)` を含まない形でも成立する。\n- 直し方: `dangerouslySetInnerHTML` をやめ、React の要素として描画する（本文を行ごとに分けて `<br />`、リンクは `<a>` 要素で作る）。リンクにするのは `https?://` で始まる URL に限る。テストにも `javascript:` のケースを追加する。\n\n### 4. 他人のコメントを編集できる\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`\n- 問題: `DELETE` は `comment.authorId !== user.id` で 403 にしているが、`PATCH` には所有者の確認が無い。ログインさえしていれば誰でも他人のコメントを書き換えられる。\n- 直し方: `PATCH` にも `DELETE` と同じ所有者チェックを入れる。テストを追加する（API の認可は現在テストが無い）。\n\n## 中\n\n### 5. 日曜日に「今週」が翌週になる\n- 場所: `src/lib/week.ts` `weekRange`\n- 問題: `dow` が日曜で 0 のとき `addDays(today, 1 - dow)` は「明日」になり、週の範囲が翌月曜〜翌日曜になる。再現: 2026-11-15（日）の `weekRange` が `{ start: \"2026-11-16\", end: \"2026-11-22\" }` を返した（正しくは 11-09〜11-15）。日曜は「今週が期限」に当日・当週分が出ず、翌週分が出る。\n- 直し方: `const offset = (dow + 6) % 7; start = addDays(today, -offset)`。日曜のテストを追加する。\n\n### 6. `countByStatus` が共有配列を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` `countByStatus`（`order.reverse()`）\n- 問題: `TASK_STATUSES as TaskStatus[]` は同じ配列を指すので、`reverse()` が定数 `TASK_STATUSES` 自体を反転する。呼ぶたびに反転し、表示順が「完了が先頭」と「完了が末尾」で交互に変わる。さらに `TASK_STATUSES` を使う他の画面（一覧の絞り込み、`isTaskStatus` を使う側の並び）にも影響する。再現: 呼び出し 1 回で `['done','in_progress','todo']`、2 回で元に戻った。単体テストは 1 回しか呼ばないので通ってしまう。\n- 直し方: `[...TASK_STATUSES].reverse()`（または `toReversed()`）にする。2 回呼んで同じ結果になるテストを追加する。\n\n### 7. コメントの並び順が正しくない（日時の文字列でソートしている）\n- 場所: `src/lib/comments.ts` `formatCreatedAt` / `listComments`（`ORDER BY created_at, id`）、`migrations.ts` の `created_at TEXT`\n- 問題: 表示用の `toLocaleString(\"ja-JP\")` の結果（`2026/11/9 10:00:00`、ゼロ埋めなし）をそのまま保存し、文字列順で並べている。再現: 11/9 → 11/11 → 11/10 の順に追加した 3 件が、`2026/11/11 10:00:00`、`2026/11/11 5:00:00`、`2026/11/9 10:00:00` の順に並んだ（古い順になっていない。11/9 が最後、5:00 が 10:00 より後）。\n- 直し方: 保存は `now.toISOString()`（UTC の ISO 8601）にして、`ORDER BY created_at, id` はそのままにする。日本時間の整形は表示時（ページ側 or `src/lib/` の表示用関数）で行う。スキーマ変更は不要だが、既存データは無いので移行は不要。順序が入れ替わるデータでテストを追加する（現在のテストは時刻順に追加するだけなので検出できない）。\n\n### 8. 存在しないタスクへのコメント投稿が 500 になる\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` `POST`\n- 問題: `GET` は `getTask(id)` で 404 を返すが、`POST` は確認しない。存在しない ID だと外部キー違反（`FOREIGN KEY constraint failed`。再現済み）が例外になり 500 になる。規約 9（対象が無いときは 404）違反。\n- 直し方: `POST` でも `getTask(id)` を確認して 404 にする。\n\n### 9. 担当タスクが 0 件のとき完了率が `NaN`\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 問題: `tasks.length === 0` で `0 / 0` となり `NaN`。再現: `completionRate([])` → `NaN`。画面に「完了率 NaN%」と出て、API の JSON では `null` になる。\n- 直し方: 0 件のときは 0 を返す。テストを追加する。\n\n## 低\n\n### 10. 文字数の検証が trim 前の長さで行われる\n- 場所: `src/lib/comments.ts` `validateCommentBody`\n- 問題: 長さを `body.length`（trim 前）で比べるので、前後に空白がある本文（trim 後は 2000 文字）が拒否される（再現: 空白 2 + 本文 2000 + 空白 → `ok: false`）。また `length` は UTF-16 の単位で、絵文字などは 2 と数える。\n- 直し方: trim 後の値で長さを判定する。\n\n### 11. 規約・テストの不足\n- `GET /api/dashboard`、コメント API（認可・404・400）、`/dashboard` ページのテストが無い。上記 1・4・8 は API 単位のテストがあれば見つかる。\n- `PATCH /api/comments/:commentId` が `parseTaskId` を流用している。動作はするが、`parseCommentId` のように名前を分けたほうが読みやすい。\n- `PATCH/DELETE` は他人のコメント削除を 403 にしているが、コメント編集・削除の UI は無い（API のみ）。PR の説明にある「読み書き」の「書く」はタスク詳細画面に入力フォームが無く、API 経由でしか追加できない。意図した範囲か確認したい。\n- テストの `lists only the user's tasks` が初期データの件数 (3) に依存している。\n",
+  "review_chars": 4399,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3262,
+    "tokens": {
+      "input": 30,
+      "output": 9681,
+      "cache_read": 622018,
+      "cache_creation": 41789
+    },
+    "turns": 15,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for f in src/app/api/comments/*/route.ts src/app/api/dashboard/route.ts src/app/api/tasks/*/comments/route.ts src/app/dashboard/page.tsx src/lib/cache.ts src/lib/comments.ts src/lib/dashb"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W26-baseline-std-d3-2-app/1fb4ca2f-b865-4c2f-8d84-93c47b869be9/scratchpad && cat > $S/r.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W26-baseline-s"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 10,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 81,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "追加の書き写しは要りませんでした。直前のレビューの指摘は、すでに依頼の形式で `REVIEW.md` に書いてコミット済みだからです。\n\n- `REVIEW.md` は未コミットの変更がなく、`45e61cd` に入っています。\n- 11 件すべてに、重要度（高・中・低）、場所（ファイルと関数）、何が問題か（再現した入力と結果）、直し方があります。\n- 指摘の追加や削除はしていません。コードも直していません。\n\n新しいコミットは作っていません。"
+  },
+  "interventions": 0
+}
