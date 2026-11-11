@@ -33,9 +33,9 @@ def git(*args):
 
 
 def parse_id(trial):
-    m = re.fullmatch(r"W2[0-6]-(" + "|".join(map(re.escape, sorted(CONFIGS, key=len, reverse=True))) + r")-([cd]\d+)-(\d+)", trial)
+    m = re.fullmatch(r"W2[0-7]-(" + "|".join(map(re.escape, sorted(CONFIGS, key=len, reverse=True))) + r")-([cd]\d+)-(\d+)", trial)
     if not m:
-        sys.exit(f"W20〜W26 の試行 ID ではない: {trial}")
+        sys.exit(f"W20〜W27 の試行 ID ではない: {trial}")
     return m.group(1), m.group(2), int(m.group(3))
 
 
