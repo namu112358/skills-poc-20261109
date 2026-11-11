@@ -10,4 +10,6 @@ echo "stage a-c $(date -u +%H:%M)" >> "$LOG"
 bash "$ROOT/scripts/poc/run_w21_trials.sh" 3 >> /tmp/claude-0/w21-batch.log 2>&1
 echo "stage d-f $(date -u +%H:%M)" >> "$LOG"
 W21_TASKS="W21d W21e W21f" bash "$ROOT/scripts/poc/run_w21_trials.sh" 3 >> /tmp/claude-0/w21-batch.log 2>&1
+echo "stage W22 $(date -u +%H:%M)" >> "$LOG"
+W21_TASKS="W21d W21e W21f" W21_CONFIGS="ui-fd-md ui-a-md ui-all-md" W21_ROUNDS="1 2 3" bash "$ROOT/scripts/poc/run_w21_trials.sh" 3 >> /tmp/claude-0/w21-batch.log 2>&1
 echo "PIPELINE-DONE $(date -u +%H:%M)" >> "$LOG"

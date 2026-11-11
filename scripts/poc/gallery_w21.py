@@ -17,7 +17,8 @@ RESULTS = ROOT / "docs" / "poc" / "results" / "workflow" / "W21"
 SHOTS = RESULTS / "shots"
 TEMPLATE = Path(__file__).resolve().parent / "gallery_w21.html"
 CONFIG_LABEL = {"ui-none": "ツールなし", "ui-all": "4 つすべて", "ui-a": "Impeccable（整理案 A）",
-                "ui-fd": "Frontend Design", "ui-pm": "UI/UX Pro Max"}
+                "ui-fd": "Frontend Design", "ui-pm": "UI/UX Pro Max",
+                "ui-fd-md": "Frontend Design + 指示（W22）", "ui-a-md": "Impeccable + 指示（W22）", "ui-all-md": "4 つすべて + 役割の指示（W22）"}
 ALPHA = "ACDEFHJKLMNPRTUVWXY"
 
 

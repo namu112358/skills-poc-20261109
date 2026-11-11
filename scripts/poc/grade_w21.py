@@ -20,7 +20,7 @@ from pathlib import Path
 
 TRIAL = sys.argv[1]
 FLAGS = set(sys.argv[2:])
-m = re.fullmatch(r"(W21[a-f])-(ui-(?:none|all|a|fd|pm))-(\d+)", TRIAL)
+m = re.fullmatch(r"(W21[a-f])-(ui-(?:none|all|a|fd|pm)(?:-md)?)-(\d+)", TRIAL)
 if not m:
     sys.exit(f"W21 の試行 ID ではない: {TRIAL}")
 TASK, CONFIG, REP = m.group(1), m.group(2), int(m.group(3))
