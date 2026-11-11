@@ -1,0 +1,824 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 0e90b55..261cb09 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -20,13 +20,14 @@ Next.js（App Router）+ TypeScript + SQLite（Node 標準の `node:sqlite`）
+ - 計測器: 管理番号（例: `MI-0001`）・名称・型式・設置場所・管理者・校正周期（月）・前回校正日・状態を持つ。
+ - 状態: 使用中（`in_use`）・貸出中（`on_loan`）・校正中（`calibrating`）・使用停止（`suspended`）・廃棄（`disposed`）。貸出中は貸出・返却の操作でだけ変わる。
+ - 校正記録: 校正日・結果（合格 `pass` / 不合格 `fail`）・校正機関・証明書番号。合格なら前回校正日が更新され、不合格なら計測器は使用停止になる。
++- 点検: 計測器ごとに点検の担当者（在籍中の利用者 1 人。退職・休職しても既存の担当は表示を続ける）と点検周期（月・既定 3）を持つ。点検記録は点検日・点検した人・結果（良好 `good` / 要修理 `needs_repair`）・メモの履歴。要修理なら使用停止になる。次の点検予定日 = 最後の点検日 + 周期。記録が無い計測器は「未点検」。旧台帳の `extra.inspector` / `last_inspected` はマイグレーション 6 で読めるものだけ新しい列に引き継ぎ、`extra` はそのまま残す。
+ - 利用者は部署に所属する。退職・休職した利用者は無効（`active = 0`）になり、ログインできない。部署には代表者がいる。
+ 
+ ## ログインと API
+ 
+ - 初期ユーザーは `src/lib/db/seed.ts`（パスワードは共通で `password`。PoC の検証用）。`/login` からログインする。
+ - セッションは DB の `sessions` テーブルと Cookie `poc_session`（`src/lib/auth.ts`）。ページでは `requireUser()`、API Route では `requireApiUser()`（`src/lib/session.ts`・`src/lib/api.ts`）でログインを確認する。
+-- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/instruments`、`GET/PATCH /api/instruments/:id`、`GET/POST /api/instruments/:id/loans`、`POST /api/instruments/:id/loans/:loanId/return`、`GET/POST /api/instruments/:id/calibrations`。エラーは `{ error, details? }` の JSON で返す。
++- API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/instruments`、`GET/PATCH /api/instruments/:id`、`GET/POST /api/instruments/:id/loans`、`POST /api/instruments/:id/loans/:loanId/return`、`GET/POST /api/instruments/:id/calibrations`、`GET/POST /api/instruments/:id/inspections`（担当者・周期は `PATCH /api/instruments/:id` の `inspectorId` / `inspectionIntervalMonths`）。エラーは `{ error, details? }` の JSON で返す。
+ - 定期実行のジョブ: `POST /api/jobs/overdue-loans` など（`docs/operations.md`）。
+ 
+ ## コーディング規約
+diff --git a/src/app/api/instruments/[id]/inspections/route.ts b/src/app/api/instruments/[id]/inspections/route.ts
+new file mode 100644
+index 0000000..5f48d0c
+--- /dev/null
++++ b/src/app/api/instruments/[id]/inspections/route.ts
+@@ -0,0 +1,28 @@
++// GET /api/instruments/:id/inspections — 点検記録 / POST — 点検記録を登録する
++//（本文 { inspectedOn, result: "good" | "needs_repair", inspectedBy?, note? }）。要修理なら計測器は使用停止になる。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { getInstrument, parseId } from "@/lib/instruments";
++import { listInspections, recordInspection, validateInspectionInput } from "@/lib/inspections";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ inspections: listInspections(id) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  const input = validateInspectionInput(await readJson(request));
++  if (!input.ok) return jsonError(400, "入力内容に誤りがあります", input.errors);
++  const result = recordInspection(id, input.value, user.id);
++  if (!result) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ inspection: result.inspection, instrument: result.instrument }, { status: 201 });
++}
+diff --git a/src/app/api/instruments/[id]/route.ts b/src/app/api/instruments/[id]/route.ts
+index c31881b..0b7a3b7 100644
+--- a/src/app/api/instruments/[id]/route.ts
++++ b/src/app/api/instruments/[id]/route.ts
+@@ -21,7 +21,7 @@ export async function PATCH(request: Request, { params }: Context) {
+   const id = parseId((await params).id);
+   const current = id === undefined ? undefined : getInstrument(id);
+   if (!current) return jsonError(404, "計測器が見つかりません");
+-  const result = validateInstrumentInput(await readJson(request), { partial: true });
++  const result = validateInstrumentInput(await readJson(request), { partial: true, currentInspectorId: current.inspectorId });
+   if (!result.ok) return jsonError(400, "入力内容に誤りがあります", result.errors);
+   const changes = result.value;
+   if (changes.status !== undefined && current.status === "on_loan") {
+diff --git a/src/app/instruments/[id]/page.tsx b/src/app/instruments/[id]/page.tsx
+index eaf4736..e35edd7 100644
+--- a/src/app/instruments/[id]/page.tsx
++++ b/src/app/instruments/[id]/page.tsx
+@@ -1,5 +1,6 @@
+ import { notFound } from "next/navigation";
+ import { RESULT_LABELS, listCalibrations } from "@/lib/calibrations";
++import { INSPECTION_RESULT_LABELS, listInspections } from "@/lib/inspections";
+ import { STATUS_LABELS, getInstrument, parseId } from "@/lib/instruments";
+ import { listLoans } from "@/lib/loans";
+ import { requireUser } from "@/lib/session";
+@@ -17,6 +18,7 @@ export default async function InstrumentDetailPage({ params }: Props) {
+   const manager = getUser(instrument.managerId);
+   const loans = listLoans(instrument.id);
+   const calibrations = listCalibrations(instrument.id);
++  const inspections = listInspections(instrument.id);
+   const nameOf = (userId: string) => getUser(userId)?.name ?? userId;
+ 
+   return (
+@@ -40,6 +42,14 @@ export default async function InstrumentDetailPage({ params }: Props) {
+         <dd data-testid="instrument-last-calibrated">{instrument.lastCalibratedOn}</dd>
+         <dt>状態</dt>
+         <dd data-testid="instrument-status">{STATUS_LABELS[instrument.status]}</dd>
++        <dt>点検の担当者</dt>
++        <dd data-testid="instrument-inspector">{instrument.inspectorId ? nameOf(instrument.inspectorId) : "未設定"}</dd>
++        <dt>点検周期</dt>
++        <dd>{instrument.inspectionIntervalMonths} か月</dd>
++        <dt>最終点検日</dt>
++        <dd data-testid="instrument-last-inspected">{instrument.lastInspectedOn ?? "未点検"}</dd>
++        <dt>次の点検予定日</dt>
++        <dd data-testid="instrument-next-inspection">{instrument.nextInspectionOn ?? "未点検"}</dd>
+         {instrument.note && (
+           <>
+             <dt>備考</dt>
+@@ -50,8 +60,8 @@ export default async function InstrumentDetailPage({ params }: Props) {
+           // その他の項目。よく使うものだけ名前を付けて出す
+           let label = key;
+           if (key === "dept") label = "担当部署";
+-          else if (key === "inspector") label = "点検者";
+-          else if (key === "last_inspected") label = "最終点検日";
++          else if (key === "inspector") label = "点検者（旧記録）";
++          else if (key === "last_inspected") label = "最終点検日（旧記録）";
+           else if (key === "memo") label = "メモ";
+           return (
+             <span key={key}>
+@@ -90,6 +100,34 @@ export default async function InstrumentDetailPage({ params }: Props) {
+         </table>
+       )}
+ 
++      <h2>点検記録</h2>
++      {inspections.length === 0 ? (
++        <p>点検記録はありません。</p>
++      ) : (
++        <table>
++          <thead>
++            <tr>
++              <th>点検日</th>
++              <th>結果</th>
++              <th>点検した人</th>
++              <th>メモ</th>
++              <th>登録者</th>
++            </tr>
++          </thead>
++          <tbody>
++            {inspections.map((n) => (
++              <tr key={n.id}>
++                <td>{n.inspectedOn}</td>
++                <td>{INSPECTION_RESULT_LABELS[n.result]}</td>
++                <td>{nameOf(n.inspectedBy)}</td>
++                <td>{n.note || "—"}</td>
++                <td>{nameOf(n.recordedBy)}</td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++      )}
++
+       <h2>貸出の記録</h2>
+       {loans.length === 0 ? (
+         <p>貸出の記録はありません。</p>
+diff --git a/src/app/instruments/page.tsx b/src/app/instruments/page.tsx
+index 4ca3802..d64a89a 100644
+--- a/src/app/instruments/page.tsx
++++ b/src/app/instruments/page.tsx
+@@ -64,7 +64,17 @@ export default async function InstrumentsPage({ searchParams }: Props) {
+               <td>{STATUS_LABELS[i.status]}</td>
+               <td>{extraText(i, "dept") || "—"}</td>
+               <td>
+-                {extraText(i, "inspector") ? `${extraText(i, "inspector")}（${extraText(i, "last_inspected") || "日付なし"}）` : "—"}
++                {i.inspectorId
++                  ? (names.get(i.inspectorId) ?? i.inspectorId)
++                  : extraText(i, "inspector")
++                    ? `${extraText(i, "inspector")}（旧記録）`
++                    : "担当者未設定"}
++                {" / "}
++                {i.nextInspectionOn ? (
++                  `次回 ${i.nextInspectionOn}`
++                ) : (
++                  <strong>未点検</strong>
++                )}
+               </td>
+             </tr>
+           ))}
+diff --git a/src/lib/dates.ts b/src/lib/dates.ts
+index 9a73424..6bd8db4 100644
+--- a/src/lib/dates.ts
++++ b/src/lib/dates.ts
+@@ -10,6 +10,39 @@ export function isValidDate(value: unknown): value is string {
+   return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
+ }
+ 
++/** YYYY-MM-DD に月数を足す。翌月に同じ日がなければ月末に丸める（1/31 + 1 か月 = 2/28 または 2/29）。 */
++export function addMonths(date: string, months: number): string {
++  const [y, m, d] = date.split("-").map(Number);
++  const index = y * 12 + (m - 1) + months;
++  const year = Math.floor(index / 12);
++  const month = index % 12;
++  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
++  const pad = (n: number, w: number) => String(n).padStart(w, "0");
++  return `${pad(year, 4)}-${pad(month + 1, 2)}-${pad(Math.min(d, lastDay), 2)}`;
++}
++
++const ERA_BASE: Record<string, number> = { R: 2018, 令和: 2018, H: 1988, 平成: 1988, S: 1925, 昭和: 1925 };
++
++/**
++ * 旧台帳の自由記述の日付を YYYY-MM-DD にする。読める書き方は
++ * 「2026-09-01」「2026/8/20」「2026年8月20日」「R8.9.10」「令和8年9月10日」。読めなければ undefined。
++ */
++export function parseLegacyDate(text: unknown): string | undefined {
++  if (typeof text !== "string") return undefined;
++  const t = text.trim().replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
++  let y: number, m: number, d: number;
++  let match = /^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?$/.exec(t);
++  if (match) {
++    [y, m, d] = [Number(match[1]), Number(match[2]), Number(match[3])];
++  } else if ((match = /^(令和|平成|昭和|[RHS])(\d{1,2}|元)[-/.年](\d{1,2})[-/.月](\d{1,2})日?$/i.exec(t))) {
++    const era = ERA_BASE[match[1]] ?? ERA_BASE[match[1].toUpperCase()];
++    y = era + (match[2] === "元" ? 1 : Number(match[2]));
++    [m, d] = [Number(match[3]), Number(match[4])];
++  } else return undefined;
++  const iso = `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
++  return isValidDate(iso) ? iso : undefined;
++}
++
+ /** 日本時間での今日の日付（YYYY-MM-DD）。利用者は全員日本国内にいる。 */
+ export function todayJst(now: Date = new Date()): string {
+   return new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+diff --git a/src/lib/db/index.ts b/src/lib/db/index.ts
+index 92d91dd..934d4c3 100644
+--- a/src/lib/db/index.ts
++++ b/src/lib/db/index.ts
+@@ -3,7 +3,7 @@
+ //   プロセスを起動するたびに初期データから始まる）。
+ // - テストでは openDb(":memory:") で独立した DB を作り、各関数の引数 db に渡す。
+ import { DatabaseSync } from "node:sqlite";
+-import { MIGRATIONS, type Migration } from "./migrations.ts";
++import { MIGRATIONS, migrateLegacyInspection, type Migration } from "./migrations.ts";
+ import { hashPassword } from "../password.ts";
+ import {
+   SEED_CALIBRATIONS,
+@@ -22,6 +22,7 @@ export function migrate(db: Db, migrations: readonly Migration[] = MIGRATIONS):
+     if (m.version <= current) continue;
+     transaction(db, () => {
+       db.exec(m.sql);
++      m.run?.(db);
+       db.exec(`PRAGMA user_version = ${Number(m.version)}`);
+     });
+   }
+@@ -45,6 +46,8 @@ export function seed(db: Db): void {
+     for (const i of SEED_INSTRUMENTS) {
+       insertInstrument.run(i.managementNo, i.name, i.model, i.location, i.managerId, i.intervalMonths, i.lastCalibratedOn, i.status, i.extra);
+     }
++    // 初期データの extra にある旧台帳の点検者・最終点検日を、マイグレーションと同じやり方で新しい列に入れる
++    migrateLegacyInspection(db);
+     const idOf = (no: string) =>
+       (db.prepare("SELECT id FROM instruments WHERE management_no = ?").get(no) as { id: number }).id;
+     const insertLoan = db.prepare(
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index b4bb1e4..bf3c54e 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -1,12 +1,48 @@
+ // スキーマのマイグレーション。PRAGMA user_version で適用済みの番号を管理する。
+ // 本番の DB（DATABASE_PATH のファイル）には適用済みの番号が残っているため、
+ // 既存のマイグレーションは書き換えず、変更は末尾に新しい番号で追加する。
++import type { DatabaseSync } from "node:sqlite";
++import { parseLegacyDate } from "../dates.ts";
++
+ export type Migration = {
+   version: number;
+   name: string;
+   sql: string;
++  /** sql の後に同じトランザクションで実行する、データの移行（SQL だけでは書けないもの）。 */
++  run?: (db: DatabaseSync) => void;
+ };
+ 
++/** 旧台帳の点検者（自由記述）が利用者の名前と読めるなら、その利用者の ID。読めない・同名が複数なら undefined。 */
++export function matchInspector(db: DatabaseSync, text: unknown): string | undefined {
++  if (typeof text !== "string") return undefined;
++  const name = text.trim().replace(/(さん|様|氏|君|くん)$/, "").trim();
++  if (name === "") return undefined;
++  const rows = db.prepare("SELECT id FROM users WHERE name = ?").all(name) as { id: string }[];
++  return rows.length === 1 ? rows[0].id : undefined;
++}
++
++/**
++ * 旧台帳の extra.inspector / extra.last_inspected を新しい列に引き継ぐ。
++ * extra は書き換えない（読めなかった書き方は、そのまま extra に残る）。
++ */
++export function migrateLegacyInspection(db: DatabaseSync): void {
++  const rows = db.prepare("SELECT id, extra FROM instruments").all() as { id: number; extra: string }[];
++  const update = db.prepare("UPDATE instruments SET inspector_id = ?, legacy_inspected_on = ? WHERE id = ?");
++  for (const row of rows) {
++    let extra: Record<string, unknown>;
++    try {
++      const v = JSON.parse(row.extra);
++      if (!v || typeof v !== "object" || Array.isArray(v)) continue;
++      extra = v;
++    } catch {
++      continue; // 読めない extra はそのまま残す
++    }
++    const inspectorId = matchInspector(db, extra.inspector);
++    const inspectedOn = parseLegacyDate(extra.last_inspected);
++    if (inspectorId !== undefined || inspectedOn !== undefined) update.run(inspectorId ?? null, inspectedOn ?? null, row.id);
++  }
++}
++
+ export const MIGRATIONS: readonly Migration[] = [
+   {
+     version: 1,
+@@ -91,4 +127,28 @@ export const MIGRATIONS: readonly Migration[] = [
+     name: "instrument_extra",
+     sql: `ALTER TABLE instruments ADD COLUMN extra TEXT NOT NULL DEFAULT '{}';`,
+   },
++  {
++    // 点検の担当者・周期・記録。旧台帳の extra.inspector / last_inspected は extra に残したまま、読めるものを引き継ぐ。
++    version: 6,
++    name: "inspections",
++    sql: `
++      ALTER TABLE instruments ADD COLUMN inspector_id TEXT REFERENCES users(id); -- 点検の担当者。未設定は NULL
++      ALTER TABLE instruments ADD COLUMN inspection_interval_months INTEGER NOT NULL DEFAULT 3
++        CHECK (inspection_interval_months BETWEEN 1 AND 120);
++      ALTER TABLE instruments ADD COLUMN legacy_inspected_on TEXT; -- 旧台帳の最終点検日（YYYY-MM-DD）。読めなければ NULL
++      CREATE INDEX instruments_inspector ON instruments(inspector_id);
++      CREATE TABLE inspections (
++        id            INTEGER PRIMARY KEY AUTOINCREMENT,
++        instrument_id INTEGER NOT NULL REFERENCES instruments(id),
++        inspected_on  TEXT NOT NULL, -- YYYY-MM-DD
++        inspected_by  TEXT NOT NULL REFERENCES users(id),
++        result        TEXT NOT NULL CHECK (result IN ('good', 'needs_repair')),
++        note          TEXT NOT NULL DEFAULT '',
++        recorded_by   TEXT NOT NULL REFERENCES users(id),
++        recorded_at   TEXT NOT NULL  -- ISO 8601（UTC）
++      );
++      CREATE INDEX inspections_instrument ON inspections(instrument_id, inspected_on);
++    `,
++    run: migrateLegacyInspection,
++  },
+ ];
+diff --git a/src/lib/inspections.ts b/src/lib/inspections.ts
+new file mode 100644
+index 0000000..55c582e
+--- /dev/null
++++ b/src/lib/inspections.ts
+@@ -0,0 +1,127 @@
++// 定期点検の記録。計測器ごとに何回分も履歴として残す。
++// - 結果が「要修理」なら、計測器は使用停止になる（校正の不合格と同じ扱い。廃棄済みの計測器は変えない）。
++// - 次の点検予定日 = 最後の点検日 + 点検周期（計算は src/lib/instruments.ts の nextInspectionOn）。
++import { getDb, transaction, type Db } from "./db/index.ts";
++import { isValidDate, todayJst } from "./dates.ts";
++import { getInstrument, type Instrument, type ValidationResult } from "./instruments.ts";
++import { logger } from "./logger.ts";
++import { isActiveUser } from "./users.ts";
++
++export type InspectionResult = "good" | "needs_repair";
++
++export const INSPECTION_RESULT_LABELS: Record<InspectionResult, string> = { good: "良好", needs_repair: "要修理" };
++
++export type Inspection = {
++  id: number;
++  instrumentId: number;
++  inspectedOn: string; // YYYY-MM-DD
++  inspectedBy: string; // 点検した人（users.id）
++  result: InspectionResult;
++  note: string;
++  recordedBy: string; // 登録した人（users.id）
++  recordedAt: string; // ISO 8601（UTC）
++};
++
++type Row = {
++  id: number;
++  instrument_id: number;
++  inspected_on: string;
++  inspected_by: string;
++  result: InspectionResult;
++  note: string;
++  recorded_by: string;
++  recorded_at: string;
++};
++
++const COLUMNS = "id, instrument_id, inspected_on, inspected_by, result, note, recorded_by, recorded_at";
++
++function toInspection(r: Row): Inspection {
++  return {
++    id: r.id,
++    instrumentId: r.instrument_id,
++    inspectedOn: r.inspected_on,
++    inspectedBy: r.inspected_by,
++    result: r.result,
++    note: r.note,
++    recordedBy: r.recorded_by,
++    recordedAt: r.recorded_at,
++  };
++}
++
++/** 計測器の点検記録を、点検日の新しい順に返す。 */
++export function listInspections(instrumentId: number, db: Db = getDb()): Inspection[] {
++  const rows = db
++    .prepare(`SELECT ${COLUMNS} FROM inspections WHERE instrument_id = ? ORDER BY inspected_on DESC, id DESC`)
++    .all(instrumentId) as Row[];
++  return rows.map(toInspection);
++}
++
++export type InspectionInput = { inspectedOn: string; inspectedBy?: string; result: InspectionResult; note: string };
++
++/**
++ * 点検記録の入力を検証する。点検日は今日（日本時間）以前。点検した人は在籍中の利用者で、省略すると登録した人になる。
++ */
++export function validateInspectionInput(
++  body: unknown,
++  db: Db = getDb(),
++  now: Date = new Date(),
++): ValidationResult<InspectionInput> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  if (!isValidDate(b.inspectedOn)) errors.push("点検日は YYYY-MM-DD 形式で入力してください");
++  else if (b.inspectedOn > todayJst(now)) errors.push("点検日は今日以前の日付を入力してください");
++  if (b.result !== "good" && b.result !== "needs_repair") {
++    errors.push("結果は good（良好）か needs_repair（要修理）で指定してください");
++  }
++  if ("inspectedBy" in b && !(typeof b.inspectedBy === "string" && isActiveUser(b.inspectedBy, db))) {
++    errors.push("点検した人は、在籍中の利用者から選んでください");
++  }
++  const note = b.note ?? "";
++  if (typeof note !== "string" || note.length > 1000) errors.push("メモは 1000 文字以内で入力してください");
++  if (errors.length > 0) return { ok: false, errors };
++  return {
++    ok: true,
++    value: {
++      inspectedOn: b.inspectedOn as string,
++      ...("inspectedBy" in b ? { inspectedBy: b.inspectedBy as string } : {}),
++      result: b.result as InspectionResult,
++      note: (note as string).trim(),
++    },
++  };
++}
++
++/** 点検記録を登録する。要修理なら計測器を使用停止にする。計測器が無ければ undefined。 */
++export function recordInspection(
++  instrumentId: number,
++  input: InspectionInput,
++  recordedBy: string,
++  db: Db = getDb(),
++  now: Date = new Date(),
++): { inspection: Inspection; instrument: Instrument } | undefined {
++  const result = transaction(db, () => {
++    if (!getInstrument(instrumentId, db)) return undefined;
++    const { lastInsertRowid } = db
++      .prepare(
++        `INSERT INTO inspections (instrument_id, inspected_on, inspected_by, result, note, recorded_by, recorded_at)
++         VALUES (?, ?, ?, ?, ?, ?, ?)`,
++      )
++      .run(instrumentId, input.inspectedOn, input.inspectedBy ?? recordedBy, input.result, input.note, recordedBy, now.toISOString());
++    if (input.result === "needs_repair") {
++      db.prepare("UPDATE instruments SET status = 'suspended' WHERE id = ? AND status != 'disposed'").run(instrumentId);
++    }
++    const inspection = toInspection(db.prepare(`SELECT ${COLUMNS} FROM inspections WHERE id = ?`).get(Number(lastInsertRowid)) as Row);
++    return { inspection, instrument: getInstrument(instrumentId, db)! };
++  });
++  if (result?.inspection.result === "needs_repair") {
++    logger.warn("inspection.needs_repair", {
++      instrumentId,
++      managementNo: result.instrument.managementNo,
++      inspectionId: result.inspection.id,
++      status: result.instrument.status,
++    });
++  }
++  return result;
++}
+diff --git a/src/lib/instruments.ts b/src/lib/instruments.ts
+index 2cbb2b8..b39fb84 100644
+--- a/src/lib/instruments.ts
++++ b/src/lib/instruments.ts
+@@ -1,6 +1,7 @@
+ // 計測器の台帳。
+ import { getDb, type Db } from "./db/index.ts";
+-import { isValidDate } from "./dates.ts";
++import { addMonths, isValidDate } from "./dates.ts";
++import { getUser, isActiveUser } from "./users.ts";
+ 
+ export type InstrumentStatus = "in_use" | "on_loan" | "calibrating" | "suspended" | "disposed";
+ 
+@@ -15,6 +16,10 @@ export type Instrument = {
+   lastCalibratedOn: string; // 前回校正日 YYYY-MM-DD
+   status: InstrumentStatus;
+   note: string;
++  inspectorId: string | null; // 点検の担当者（users.id）。未設定は null
++  inspectionIntervalMonths: number; // 点検周期（月）。既定は 3
++  lastInspectedOn: string | null; // 最後の点検日（点検記録と旧台帳の最終点検日のうち新しい方）。無ければ null（未点検）
++  nextInspectionOn: string | null; // 次の点検予定日 = 最後の点検日 + 点検周期。未点検なら null
+   extra: Record<string, unknown>; // その他の項目（担当部署 dept・点検者 inspector・最終点検日 last_inspected・メモ memo など）
+ };
+ 
+@@ -35,6 +40,8 @@ export function isInstrumentStatus(value: unknown): value is InstrumentStatus {
+   return typeof value === "string" && (INSTRUMENT_STATUSES as readonly string[]).includes(value);
+ }
+ 
++export const DEFAULT_INSPECTION_INTERVAL_MONTHS = 3;
++
+ export type InstrumentFilter = {
+   status?: InstrumentStatus;
+   managerId?: string;
+@@ -53,10 +60,16 @@ type InstrumentRow = {
+   status: InstrumentStatus;
+   note: string;
+   extra: string;
++  inspector_id: string | null;
++  inspection_interval_months: number;
++  last_inspected_on: string | null;
+ };
+ 
+-const COLUMNS =
+-  "id, management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note, extra";
++// last_inspected_on は、点検記録と旧台帳の最終点検日（legacy_inspected_on）のうち新しい日付
++const COLUMNS = `id, management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note, extra,
++  inspector_id, inspection_interval_months,
++  (SELECT MAX(d) FROM (SELECT legacy_inspected_on AS d UNION ALL
++                       SELECT inspected_on FROM inspections WHERE instrument_id = instruments.id)) AS last_inspected_on`;
+ 
+ function parseExtra(text: string): Record<string, unknown> {
+   try {
+@@ -85,6 +98,10 @@ function toInstrument(row: InstrumentRow): Instrument {
+     lastCalibratedOn: row.last_calibrated_on,
+     status: row.status,
+     note: row.note,
++    inspectorId: row.inspector_id,
++    inspectionIntervalMonths: row.inspection_interval_months,
++    lastInspectedOn: row.last_inspected_on,
++    nextInspectionOn: row.last_inspected_on && addMonths(row.last_inspected_on, row.inspection_interval_months),
+     extra: parseExtra(row.extra),
+   };
+ }
+@@ -114,7 +131,14 @@ export function parseId(value: unknown): number | undefined {
+   return Number(value);
+ }
+ 
+-export type InstrumentInput = Omit<Instrument, "id" | "extra"> & { extra?: Record<string, unknown> };
++export type InstrumentInput = Omit<
++  Instrument,
++  "id" | "extra" | "inspectorId" | "inspectionIntervalMonths" | "lastInspectedOn" | "nextInspectionOn"
++> & {
++  inspectorId?: string | null;
++  inspectionIntervalMonths?: number;
++  extra?: Record<string, unknown>;
++};
+ 
+ export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
+ 
+@@ -128,11 +152,12 @@ function text(b: Record<string, unknown>, key: string, max: number, required: bo
+ 
+ /**
+  * API に送られた計測器の内容を検証する。partial = true（更新）のときは、送られた項目だけを検証する。
+- * 管理者が存在するかは DB で確認する。貸出中（on_loan）は貸出の操作でだけ設定できる。
++ * 管理者が存在するかは DB で確認する。点検の担当者は在籍中の利用者だけ選べる
++ * （すでに担当になっている人は、そのままなら退職・休職中でもよい。options.currentInspectorId で渡す）。貸出中（on_loan）は貸出の操作でだけ設定できる。
+  */
+ export function validateInstrumentInput(
+   body: unknown,
+-  options: { partial?: boolean } = {},
++  options: { partial?: boolean; currentInspectorId?: string | null } = {},
+   db: Db = getDb(),
+ ): ValidationResult<Partial<InstrumentInput>> {
+   if (typeof body !== "object" || body === null || Array.isArray(body)) {
+@@ -180,6 +205,18 @@ export function validateInstrumentInput(
+     if (!isValidDate(b.lastCalibratedOn)) errors.push("前回校正日は YYYY-MM-DD 形式で入力してください");
+     else value.lastCalibratedOn = b.lastCalibratedOn;
+   }
++  if ("inspectorId" in b) {
++    const id = b.inspectorId;
++    if (id === null) value.inspectorId = null;
++    else if (typeof id === "string" && (id === options.currentInspectorId ? getUser(id, db) !== undefined : isActiveUser(id, db))) {
++      value.inspectorId = id;
++    } else errors.push("点検の担当者は、在籍中の利用者から選んでください");
++  }
++  if ("inspectionIntervalMonths" in b) {
++    const n = b.inspectionIntervalMonths;
++    if (!Number.isInteger(n) || (n as number) < 1 || (n as number) > 120) errors.push("点検周期は 1〜120 か月の整数で入力してください");
++    else value.inspectionIntervalMonths = n as number;
++  }
+   if ("extra" in b) {
+     // その他の項目は、送られたものをそのまま既存の extra に重ねる（null を送るとその項目を消す）
+     if (typeof b.extra !== "object" || b.extra === null || Array.isArray(b.extra)) errors.push("その他の項目の形式が正しくありません");
+@@ -200,8 +237,9 @@ export function managementNoExists(managementNo: string, db: Db = getDb()): bool
+ export function createInstrument(input: InstrumentInput, db: Db = getDb()): Instrument {
+   const { lastInsertRowid } = db
+     .prepare(
+-      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note, extra)
+-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++      `INSERT INTO instruments (management_no, name, model, location, manager_id, interval_months, last_calibrated_on, status, note, extra,
++         inspector_id, inspection_interval_months)
++       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     )
+     .run(
+       input.managementNo,
+@@ -214,6 +252,8 @@ export function createInstrument(input: InstrumentInput, db: Db = getDb()): Inst
+       input.status,
+       input.note,
+       JSON.stringify(input.extra ?? {}),
++      input.inspectorId ?? null,
++      input.inspectionIntervalMonths ?? DEFAULT_INSPECTION_INTERVAL_MONTHS,
+     );
+   return getInstrument(Number(lastInsertRowid), db)!;
+ }
+@@ -230,7 +270,8 @@ export function updateInstrument(id: number, changes: Partial<InstrumentInput>,
+   const next = { ...current, ...changes, extra };
+   db.prepare(
+     `UPDATE instruments SET management_no = ?, name = ?, model = ?, location = ?, manager_id = ?, interval_months = ?,
+-       last_calibrated_on = ?, status = ?, note = ?, extra = ? WHERE id = ?`,
++       last_calibrated_on = ?, status = ?, note = ?, extra = ?,
++       inspector_id = ?, inspection_interval_months = ? WHERE id = ?`,
+   ).run(
+     next.managementNo,
+     next.name,
+@@ -242,6 +283,8 @@ export function updateInstrument(id: number, changes: Partial<InstrumentInput>,
+     next.status,
+     next.note,
+     JSON.stringify(next.extra),
++    next.inspectorId,
++    next.inspectionIntervalMonths,
+     id,
+   );
+   return getInstrument(id, db);
+diff --git a/tests/inspections.test.ts b/tests/inspections.test.ts
+new file mode 100644
+index 0000000..dfe6156
+--- /dev/null
++++ b/tests/inspections.test.ts
+@@ -0,0 +1,206 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { DatabaseSync } from "node:sqlite";
++import { addMonths, parseLegacyDate } from "../src/lib/dates.ts";
++import { migrate, openDb } from "../src/lib/db/index.ts";
++import { MIGRATIONS } from "../src/lib/db/migrations.ts";
++import { listInspections, recordInspection, validateInspectionInput } from "../src/lib/inspections.ts";
++import { createInstrument, getInstrument, listInstruments, updateInstrument, validateInstrumentInput } from "../src/lib/instruments.ts";
++
++const byNo = (db: ReturnType<typeof openDb>, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!;
++const GOOD = { inspectedOn: "2026-11-05", result: "good", note: "" } as const;
++
++describe("addMonths", () => {
++  it("adds months and clamps to the end of the month", () => {
++    assert.equal(addMonths("2026-09-01", 3), "2026-12-01");
++    assert.equal(addMonths("2026-11-30", 3), "2027-02-28");
++    assert.equal(addMonths("2027-11-30", 3), "2028-02-29");
++    assert.equal(addMonths("2026-01-31", 1), "2026-02-28");
++    assert.equal(addMonths("2026-12-15", 1), "2027-01-15");
++  });
++});
++
++describe("parseLegacyDate", () => {
++  it("reads the common ways of writing a date", () => {
++    assert.equal(parseLegacyDate("2026-09-01"), "2026-09-01");
++    assert.equal(parseLegacyDate("2026/8/20"), "2026-08-20");
++    assert.equal(parseLegacyDate("2026年8月20日"), "2026-08-20");
++    assert.equal(parseLegacyDate("R8.9.10"), "2026-09-10");
++    assert.equal(parseLegacyDate("令和元年5月1日"), "2019-05-01");
++    assert.equal(parseLegacyDate("H30.4.1"), "2018-04-01");
++  });
++  it("returns undefined for what cannot be read", () => {
++    for (const v of ["先月", "2026/13/1", "2027/2/29", "", "R8.9", undefined, 20260901]) {
++      assert.equal(parseLegacyDate(v), undefined, String(v));
++    }
++  });
++});
++
++describe("migration 6 (legacy inspector / last inspected date)", () => {
++  function legacyDb(rows: [string, string][]) {
++    const db = new DatabaseSync(":memory:");
++    db.exec("PRAGMA foreign_keys = ON");
++    migrate(db, MIGRATIONS.slice(0, 5));
++    db.exec("INSERT INTO departments (id, name) VALUES ('d', '部');");
++    for (const [id, name] of [["sato", "佐藤"], ["suzuki", "鈴木"], ["ito1", "伊藤"], ["ito2", "伊藤"]]) {
++      db.prepare("INSERT INTO users (id, name, department_id, active) VALUES (?, ?, 'd', 1)").run(id, name);
++    }
++    rows.forEach(([no, extra]) => {
++      db.prepare(
++        "INSERT INTO instruments (management_no, name, manager_id, interval_months, last_calibrated_on, extra) VALUES (?, 'x', 'sato', 12, '2026-01-01', ?)",
++      ).run(no, extra);
++    });
++    migrate(db);
++    return db;
++  }
++
++  it("carries over readable values and keeps extra untouched", () => {
++    const extra = (o: object) => JSON.stringify(o);
++    const db = legacyDb([
++      ["MI-0001", extra({ inspector: "佐藤", last_inspected: "2026-09-01" })],
++      ["MI-0002", extra({ inspector: "鈴木さん", last_inspected: "R8.9.10" })],
++      ["MI-0003", extra({ inspector: "外部委託", last_inspected: "先月" })],
++      ["MI-0004", extra({ inspector: "伊藤", last_inspected: "2026/8/20" })], // 同名が 2 人
++      ["MI-0005", "{}"],
++      ["MI-0006", "not json"],
++    ]);
++    const get = (no: string) => getInstrument((db.prepare("SELECT id FROM instruments WHERE management_no = ?").get(no) as { id: number }).id, db)!;
++    assert.equal(get("MI-0001").inspectorId, "sato");
++    assert.equal(get("MI-0001").lastInspectedOn, "2026-09-01");
++    assert.equal(get("MI-0001").nextInspectionOn, "2026-12-01");
++    assert.equal(get("MI-0002").inspectorId, "suzuki");
++    assert.equal(get("MI-0002").lastInspectedOn, "2026-09-10");
++    assert.equal(get("MI-0003").inspectorId, null);
++    assert.equal(get("MI-0003").lastInspectedOn, null);
++    assert.equal(get("MI-0003").extra.inspector, "外部委託");
++    assert.equal(get("MI-0003").extra.last_inspected, "先月");
++    assert.equal(get("MI-0004").inspectorId, null);
++    assert.equal(get("MI-0004").lastInspectedOn, "2026-08-20");
++    assert.equal(get("MI-0005").inspectionIntervalMonths, 3);
++    assert.equal(get("MI-0006").inspectorId, null);
++  });
++
++  it("matches seeded legacy data, including a user who has left", () => {
++    const db = openDb();
++    assert.equal(byNo(db, "MI-0003").inspectorId, "suzuki"); // 鈴木さん
++    assert.equal(byNo(db, "MI-0004").inspectorId, "inoue"); // 退職済みでも引き継ぐ
++    assert.equal(byNo(db, "MI-0006").lastInspectedOn, "2026-09-10"); // R8.9.10
++    assert.equal(byNo(db, "MI-0009").inspectorId, null); // 外部委託
++    assert.equal(byNo(db, "MI-0009").extra.inspector, "外部委託");
++  });
++});
++
++describe("recordInspection", () => {
++  it("records history and moves the next inspection date", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001");
++    assert.equal(inst.lastInspectedOn, "2026-09-01");
++    const r = recordInspection(inst.id, GOOD, "sato", db, new Date("2026-11-06T00:00:00Z"));
++    assert.equal(r?.inspection.inspectedBy, "sato");
++    assert.equal(r?.instrument.status, "in_use");
++    assert.equal(r?.instrument.lastInspectedOn, "2026-11-05");
++    assert.equal(r?.instrument.nextInspectionOn, "2027-02-05");
++    recordInspection(inst.id, { ...GOOD, inspectedOn: "2026-11-10", inspectedBy: "kimura" }, "sato", db);
++    const list = listInspections(inst.id, db);
++    assert.deepEqual(list.map((i) => [i.inspectedOn, i.inspectedBy]), [["2026-11-10", "kimura"], ["2026-11-05", "sato"]]);
++  });
++
++  it("does not move the last inspected date backwards", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001");
++    const r = recordInspection(inst.id, { ...GOOD, inspectedOn: "2026-01-01" }, "sato", db);
++    assert.equal(r?.instrument.lastInspectedOn, "2026-09-01");
++  });
++
++  it("suspends the instrument when it needs repair", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001");
++    const r = recordInspection(inst.id, { ...GOOD, result: "needs_repair", note: "ガタあり" }, "sato", db);
++    assert.equal(r?.instrument.status, "suspended");
++    assert.equal(listInspections(inst.id, db)[0].note, "ガタあり");
++  });
++
++  it("does not revive a disposed instrument", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0001");
++    updateInstrument(inst.id, { status: "disposed" }, db);
++    const r = recordInspection(inst.id, { ...GOOD, result: "needs_repair" }, "sato", db);
++    assert.equal(r?.instrument.status, "disposed");
++  });
++
++  it("returns undefined for unknown instruments", () => {
++    assert.equal(recordInspection(9999, GOOD, "sato", openDb()), undefined);
++  });
++
++  it("treats an instrument with no inspection at all as not inspected", () => {
++    const db = openDb();
++    const inst = byNo(db, "MI-0009");
++    assert.equal(inst.lastInspectedOn, "2026-10-02"); // 旧台帳の日付は引き継がれる
++    const created = createInstrument(
++      { managementNo: "ZZ-0001", name: "新規", model: "", location: "", managerId: "sato", intervalMonths: 12, lastCalibratedOn: "2026-11-01", status: "in_use", note: "" },
++      db,
++    );
++    assert.equal(created.lastInspectedOn, null);
++    assert.equal(created.nextInspectionOn, null);
++    assert.equal(created.inspectionIntervalMonths, 3);
++    assert.equal(created.inspectorId, null);
++  });
++});
++
++describe("validateInspectionInput", () => {
++  const now = new Date("2026-11-11T03:00:00Z");
++  it("accepts a valid input and trims the note", () => {
++    const v = validateInspectionInput({ inspectedOn: "2026-11-11", result: "good", note: " 異常なし " }, openDb(), now);
++    assert.deepEqual(v.ok && v.value, { inspectedOn: "2026-11-11", result: "good", note: "異常なし" });
++  });
++  it("rejects a future date (JST), a bad result, a long note and a non-object", () => {
++    const db = openDb();
++    assert.equal(validateInspectionInput({ ...GOOD, inspectedOn: "2026-11-12" }, db, now).ok, false);
++    assert.equal(validateInspectionInput({ ...GOOD, inspectedOn: "2026-11-31" }, db, now).ok, false);
++    assert.equal(validateInspectionInput({ ...GOOD, result: "pass" }, db, now).ok, false);
++    assert.equal(validateInspectionInput({ ...GOOD, note: "あ".repeat(1001) }, db, now).ok, false);
++    assert.equal(validateInspectionInput(null, db, now).ok, false);
++  });
++  it("uses Japan time for today (UTC evening is already tomorrow in Japan)", () => {
++    const late = new Date("2026-11-11T20:00:00Z"); // 日本時間 11/12 5:00
++    assert.equal(validateInspectionInput({ ...GOOD, inspectedOn: "2026-11-12" }, openDb(), late).ok, true);
++  });
++  it("accepts only active users as the inspector", () => {
++    const db = openDb();
++    assert.equal(validateInspectionInput({ ...GOOD, inspectedBy: "kimura" }, db, now).ok, true);
++    assert.equal(validateInspectionInput({ ...GOOD, inspectedBy: "inoue" }, db, now).ok, false); // 退職
++    assert.equal(validateInspectionInput({ ...GOOD, inspectedBy: "kondo" }, db, now).ok, false); // 休職
++    assert.equal(validateInspectionInput({ ...GOOD, inspectedBy: "nobody" }, db, now).ok, false);
++    assert.equal(validateInspectionInput({ ...GOOD, inspectedBy: null }, db, now).ok, false);
++  });
++});
++
++describe("点検の担当者・周期の更新", () => {
++  it("selects only active users, but keeps a current inspector who has left", () => {
++    const db = openDb();
++    const mi4 = byNo(db, "MI-0004"); // 担当者は退職した井上
++    const chk = (body: object, current: string | null) => validateInstrumentInput(body, { partial: true, currentInspectorId: current }, db);
++    assert.equal(chk({ inspectorId: "kimura" }, mi4.inspectorId).ok, true);
++    assert.equal(chk({ inspectorId: "kondo" }, mi4.inspectorId).ok, false);
++    assert.equal(chk({ inspectorId: "inoue" }, mi4.inspectorId).ok, true); // 変えない
++    assert.equal(chk({ inspectorId: "inoue" }, null).ok, false);
++    assert.equal(chk({ inspectorId: "nobody" }, null).ok, false);
++    assert.equal(chk({ inspectorId: null }, mi4.inspectorId).ok, true);
++    assert.equal(chk({ inspectorId: 5 }, null).ok, false);
++  });
++
++  it("validates the interval (1-120 months) and updates both fields", () => {
++    const db = openDb();
++    for (const n of [0, 121, 1.5, "3", null]) {
++      assert.equal(validateInstrumentInput({ inspectionIntervalMonths: n }, { partial: true }, db).ok, false, String(n));
++    }
++    const v = validateInstrumentInput({ inspectionIntervalMonths: 6, inspectorId: "kimura" }, { partial: true }, db);
++    assert.ok(v.ok);
++    const inst = byNo(db, "MI-0001");
++    const after = updateInstrument(inst.id, v.value, db)!;
++    assert.equal(after.inspectorId, "kimura");
++    assert.equal(after.nextInspectionOn, "2027-03-01"); // 2026-09-01 + 6 か月
++    // 触っていない項目は変わらない
++    assert.equal(updateInstrument(inst.id, { note: "x" }, db)!.inspectorId, "kimura");
++  });
++});

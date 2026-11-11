@@ -29,7 +29,7 @@ RESULTS = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO
 # W22 は W21 の題材と正解を使う
 CASES = ROOT / "docs" / "poc" / "answer-key" / ({"W22": "W21", "W25": "W21", "W26": "W24", "W27": "W20", "W28": "W20", "W29": "W20", "W30": "W20", "W31": "W20", "W32": "W20"}.get(SCENARIO, SCENARIO)) / "cases"
 JUDGE = RESULTS / "judge"
-SEED = {"W20": 20261120, "W21": 20261121, "W22": 20261122, "W23": 20261123, "W24": 20261124, "W25": 20261125, "W26": 20261126, "W27": 20261127, "W28": 20261128, "W29": 20261129, "W30": 20261130, "W31": 20261131}.get(SCENARIO, 20261132)
+SEED = {"W20": 20261120, "W21": 20261121, "W22": 20261122, "W23": 20261123, "W24": 20261124, "W25": 20261125, "W26": 20261126, "W27": 20261127, "W28": 20261128, "W29": 20261129, "W30": 20261130, "W31": 20261131, "W32": 20261132}.get(SCENARIO, 20261133)
 NAMES = re.compile(r"superpowers|feature[-_ ]?dev|pr-review-toolkit|review-pr|code-review|compound|gstack|claude|"
                    r"design-principles-review|\bce-[a-z-]+|silent-failure-hunter|pr-test-analyzer|type-design-analyzer|"
                    r"comment-analyzer|code-simplifier", re.I)
@@ -76,7 +76,7 @@ def prepare(dest):
         (dest / f"{code}.md").write_text(NAMES.sub("[redacted]", body))
     by_cfg = {}
     for code, t in mapping.items():
-        by_cfg.setdefault(re.sub(r"-[cd]\d+-\d+$", "", t), []).append(code)
+        by_cfg.setdefault(re.sub(r"-[cde]\d+-\d+$", "", t), []).append(code)
     per = max(1, round(len(mapping) * 0.25 / max(1, len(by_cfg))))
     twice = sorted(c for codes in by_cfg.values() for c in rnd.sample(codes, min(per, len(codes))))
     JUDGE.mkdir(parents=True, exist_ok=True)
