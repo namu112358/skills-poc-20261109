@@ -2,19 +2,28 @@
 """W21（見つけにくい問題でのレビューの比較）の集計表を作る。docs/poc/tasks/wf-W21-design.md の「測るもの」。
 
 使い方: python3 scripts/poc/report_w21.py > docs/poc/results/workflow/W21/tables.md
+        POC_E2_SCENARIO=W22 python3 scripts/poc/report_w21.py > docs/poc/results/workflow/W22/tables.md（W22。同じ題材の W21 の設定と並べる）
   - 入力: results/workflow/W21/judge/scores.json（POC_E2_SCENARIO=W21 python3 scripts/poc/judge_w20.py collect の出力）と、
     各試行の結果（results/workflow/W21/W21-*.json。費用・時間・サブエージェントの数）。
   - 正解の ID の種類: B = 不具合、P = 設計の問題（c7）、I = レビューへの指示への対応（c6）、D = おとり。
 """
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-RES = ROOT / "docs" / "poc" / "results" / "workflow" / "W21"
-CONFIGS = ["baseline", "cr-high", "review-pr", "principles", "ce-review"]
+SCENARIO = os.environ.get("POC_E2_SCENARIO", "W21")
+RES = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO
+CONFIGS = {
+    "W21": ["baseline", "cr-high", "review-pr", "principles", "ce-review"],
+    "W22": ["hk-baseline", "hk-cr-high", "hk-review-pr", "hk-principles", "hk-ce-review", "review-pr-full", "ce-full"],
+}[SCENARIO]
 LABEL = {"baseline": "baseline（道具なし）", "cr-high": "内蔵 `/code-review high`", "review-pr": "PR Review Toolkit `/review-pr`",
-         "principles": "自作 `design-principles-review`", "ce-review": "CE `ce-code-review`"}
+         "principles": "自作 `design-principles-review`", "ce-review": "CE `ce-code-review`",
+         "review-pr-full": "`/review-pr`（専門エージェントの起動を明示）", "ce-full": "CE `ce-code-review depth:full`"}
+for _k in ["baseline", "cr-high", "review-pr", "principles", "ce-review"]:
+    LABEL["hk-" + _k] = "Haiku: " + LABEL[_k]
 CASES = ["c1", "c2", "c3", "c4", "c5", "c6", "c7"]
 
 
@@ -81,6 +90,8 @@ def main():
     for c in CONFIGS:
         rows = [(s, t) for (cc, _), v in cell.items() if cc == c for s, t in v]
         n = len(rows)
+        if n == 0:
+            continue
         false = sum(s["false"] for s, _ in rows)
         decoys = sum(len(s["decoy_hits"]) for s, _ in rows)
         real = sum(s["off_truth"]["real"] for s, _ in rows)
