@@ -1,0 +1,99 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "詳細画面の page.tsx で、listActiveUsers が返す node:sqlite の行（null プロトタイプ）をそのままクライアントの部品 InspectionForms に渡しているため、本番では全計測器の詳細画面が 500 になる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "recordInspection で要修理を登録すると、貸出中・校正中の計測器まで suspended に上書きされ、貸出の記録と状態が食い違う。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "最終点検日を MAX(inspected_on) で決めているため、未来に近い誤った日付を登録すると、訂正の記録を足しても最終点検日が直らない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "計測器の一覧に、担当者での絞り込み・並べ替えが実装されていない。",
+   "severity": "中",
+   "match": "G1",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "担当者ごとの期限切れ台数の集計（毎朝知りたい）が実装されていない。",
+   "severity": "中",
+   "match": "G2",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "一覧の表示で、listInspectionPlans が絞り込みと関係なく約 5 万台分のプランを毎回計算するうえ、ページングも無く、性能に問題がある。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "移行処理 importLegacyInspections が、extra の JSON が壊れた行を記録も警告も残さず黙って読み飛ばす。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "点検者名を users.name との完全一致だけで照合しており、同姓などで曖昧になった行の件数や理由がログに残らない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "点検日が無く点検者だけがある旧データは記録が作られず、移行後は「未点検」になる（意図どおりか要確認）。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "新しい版で登録した点検や担当者の変更は extra に反映されないため、前の版に戻すと古い値が表示され、そのことを PR に書く必要がある。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 11,
+   "summary": "前の版で user_version が 6 の DB を開けるかが確認されていない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 12,
+   "summary": "在籍確認（isActiveUser）と更新が別々のトランザクションで行われており、その間に退職処理が入ると退職者を登録できてしまう。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 13,
+   "summary": "テストがロジックだけで画面の描画を含まず、詳細画面の 500 を検出できなかった。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0757638
+ }
+}
