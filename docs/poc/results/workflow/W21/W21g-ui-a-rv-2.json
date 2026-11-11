@@ -1,0 +1,79 @@
+{
+  "trial": "W21g-ui-a-rv-2",
+  "scenario": "W21",
+  "task": "W21g",
+  "config": "ui-a-rv",
+  "rep": 2,
+  "transcript": {
+    "cost_usd": 0.5851,
+    "tokens": {
+      "input": 40,
+      "output": 16913,
+      "cache_read": 849412,
+      "cache_creation": 96251
+    },
+    "turns": 3,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"\\\"/tmp/poc-trials/W21g-ui-a-rv-2/plugins/impeccable/skills/impeccable/scripts/impeccable\\\" context --target src/app/my-tasks/MyTasks.tsx 2>&1 | head -80\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"/tmp/poc-trials/W21g-ui-a-rv-2/plugins/impeccable/skills/impeccable/scripts/impeccable context --target src/app/my-tasks/MyTasks.tsx\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W21g-ui-a-rv-2/app; git status --short; ls src/app/my-tasks; S=/tmp/poc-trials/W21g-ui-a-rv-2/plugins/impeccable/skills/impeccable/scripts/impeccable; $S detect --json "
+      }
+    ],
+    "tool_calls": {
+      "Skill": 1,
+      "Bash": 10,
+      "Read": 2,
+      "Agent": 2,
+      "ReadNotifications": 2,
+      "ToolSearch": 1,
+      "Write": 1
+    },
+    "skills_used": [
+      "impeccable:impeccable"
+    ],
+    "subagents": 2,
+    "subagent_types": {
+      "general-purpose": 2
+    },
+    "questions": 0,
+    "active_seconds": 49,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き、そのファイルだけをコミットしました（`36add9b`）。コードは直していません。PR の差分は未コミットのままです。\n\n**ただし、実機での確認はできていません。** 無人環境で Bash の実行権限が得られず、検出器の実行、ブラウザでの計測、ダークモード表示の確認は行えませんでした。指摘はソースを読んだ評価で、タッチターゲットの大きさなどの数値は推定です。`REVIEW.md` の冒頭にもこの限界を書いています。\n\n総合は 20/40（要改善）で、17 件を指摘しました（高 3、中 10、低 4）。ログイン不能やデータ消失のような最重大の問題は見つかっていません。\n\nマージ前に必ず直すべき「高」の 3 件は次のとおりです。\n\n- **行全体がクリックで遷移する:** `<li>` に `onClick` で遷移させていて、リンクではありません。キーボードやスクリーンリーダーの人は詳細ページに行けません。\n- **送信ボタンの `tabIndex={1}`:** ページを開いて最初に Tab を押すと、ヘッダーやタイトル欄より先に「追加する」へ移ります。\n- **ステータス変更の連続操作:** 通信の失敗時に、画面とサーバーの状態がずれます。\n\n「中」には、エラーが入力欄と結びついていないこと、成功が視覚の演出だけで伝わること、`prefers-reduced-motion` と枠線の低コントラスト、スマホでの操作しやすさなどが入っています。"
+  },
+  "elapsed_seconds": 131,
+  "interventions": 0,
+  "review_md": "# レビュー: マイタスク画面（`/my-tasks`）\n\n対象: 未コミット差分（`src/app/my-tasks/MyTasks.tsx`、`src/app/my-tasks/page.tsx`、`src/app/layout.tsx` の変更）。観点は見た目・使い勝手・アクセシビリティ。\n\n## 実施範囲と限界\n\n- impeccable の `audit`（技術面）と `critique`（デザイン面）の観点で、ソースを読んで評価した。\n- 実機での確認（検出器 `impeccable detect`、ブラウザでの計測・スクリーンショット、ダークモード表示）は、この無人環境で実行権限が得られず**行えていない**。下記の寸法（タッチターゲットの大きさなど）は、ブラウザ既定の見た目を前提にした推定。\n- 総合評価: ヒューリスティック 20/40（「要改善」）。ログイン不能やデータ消失のような最重大の問題は無いが、キーボード操作・スクリーンリーダー・スマホ操作に直結する問題がある。\n- 重要度: 高 = マージ前に必ず直す / 中 = マージ前に直すことを推奨 / 低 = 余裕があれば。\n\n---\n\n## 重要度: 高\n\n### 1. タスクの行（`<li>`）全体がクリックで遷移するが、リンクではない\n- 場所: `src/app/my-tasks/MyTasks.tsx:79-85`（`<li onClick={() => (window.location.href = ...)}>`）、`:87`（`stopPropagation` で包んだ領域）\n- 問題:\n  - `<li>` はフォーカスできず、role もキー操作も無い。**キーボードだけの人・スクリーンリーダーの人は詳細ページに行けない**。「リンク」と読み上げられない。\n  - 一覧（`/tasks`）はタイトルが `<a href>` なので、同じ操作がこの画面では別物になっている。\n  - 新しいタブで開く・リンクをコピーする・中クリックができず、毎回フルリロードになる。\n  - スマホでは、選択を狙って少し外した指が詳細への遷移になる。\n- 直し方: タイトルを `<a href={`/tasks/${task.id}`}>`（または `next/link`）にする。カード全体を押せるようにしたいなら、リンクに `::after` を広げ、`select` は `position: relative` で上に出す。`<li>` の `onClick` と `stopPropagation` は削除する。\n\n### 2. 送信ボタンに `tabIndex={1}`\n- 場所: `MyTasks.tsx:113`\n- 問題: 正の `tabIndex` は、ページ内の通常の Tab 順より前にそのボタンを置く。ページを開いて最初に Tab を押すと、ヘッダーのリンクやタイトル欄より先に「追加する」へ移る。キーボード・スクリーンリーダー利用者が混乱し、空のフォームを誤送信しやすい。\n- 直し方: `tabIndex` を削除する（DOM の順がすでに自然な順序）。\n\n### 3. ステータス変更の連続操作で、画面とサーバーの状態がずれる\n- 場所: `MyTasks.tsx:50-66`（`changeStatus`）\n- 問題:\n  - 元のステータス `previous` は描画時点の `task` から取っている。「完了」を選んだ直後に「進行中」を選び、先の通信だけ失敗すると、画面は最初の値に戻るのに、サーバーは「進行中」になっている、という食い違いが起きる。通信の返ってくる順序も保証されない。\n  - エラー表示（`statusErrors`）は通信終了時にしか消えず、再試行中も古い「変更できませんでした」が出たままになる。\n  - 通信中の `select` は操作可能なまま。\n- 直し方: 通信中はそのタスクの `select` を無効にする（`pending` の ID 集合を持つ）。通信開始時に該当タスクのエラーを消す。巻き戻しは「最後にサーバーが受け付けた値」を保持して使い、描画時のクロージャに頼らない。\n\n---\n\n## 重要度: 中\n\n### 4. 追加フォームの入力エラーが、入力欄と結びついていない\n- 場所: `MyTasks.tsx:107-122`\n- 問題: エラーはボタンの下に 1 つのまとまりで出るだけ。入力欄に `aria-invalid` / `aria-describedby` が無く、フォーカスも移らないため、どの欄が悪いのか分かりにくい。タスクが多いとフォームは画面の下で、スマホではエラーが画面外になりうる。`role=\"alert\"` の領域が中身ごと後から追加される作りは、スクリーンリーダーで読み上げられないことがある。\n- 直し方: 欄ごとのメッセージを欄の直下に出し、`aria-invalid=\"true\"` と `aria-describedby` で関連付ける。失敗時は最初の誤り欄（またはエラー領域）へフォーカスを移す。空の `role=\"alert\"` / `aria-live` 領域を常に置いておき、そこに文言を入れる。入力を直したらエラーを消す。\n\n### 5. 追加・ステータス変更の成功が、視覚の演出だけで伝わる\n- 場所: `MyTasks.tsx:41, 60-65, 70-73`\n- 問題: 追加成功の合図は 0.9 秒の背景アニメーションだけ。スクリーンリーダー利用者には何も伝わらず、長い一覧では新しい行が画面外にあり、見える人にも分からない。ステータス変更の成功も無言。フォーカスは送信ボタンに残る。\n- 直し方: 控えめな `aria-live=\"polite\"` 領域で「「◯◯」を追加しました」「ステータスを「完了」に変更しました」と知らせる。追加後はタイトル欄にフォーカスを戻し、新しい行を `scrollIntoView({ block: \"nearest\" })` で見える位置に出す。\n\n### 6. アニメーションが動きを減らす設定を考慮しておらず、色が固定値\n- 場所: `MyTasks.tsx:71-72`（`#fff3b0`、`translateX(-12px)`）、`:84`（`border: 1px solid #ccc`）\n- 問題: 画面の動きを減らす設定（`prefers-reduced-motion`）にしている人にも横スライドが出る。`#ccc` の枠は白背景で約 1.6:1 しかなく（意味を持つ境界は 3:1 以上が目安）、カードの区切りが見えにくい。色がすべて直書きで、ダークモードの端末では背景色が `#fff3b0`（明るい黄）に光るなど崩れうる（※ダークモードでの表示は未確認）。\n- 直し方: `@media (prefers-reduced-motion: no-preference)` の中でのみ動かす（なければ背景のフェードだけ）。色は CSS 変数にして、ダーク時の値も用意する。枠は 3:1 以上にする。\n\n### 7. ステータスが `select` の中でしか分からない\n- 場所: `MyTasks.tsx:88-97`\n- 問題: 一覧を流し読みしても、各タスクが未着手か完了かが見分けられない（`/tasks` はテキストで表示している）。期限切れ・完了済みの区別も無く、「期限の近い順」に並べた意味が読み取りにくい。\n- 直し方: 状態をテキストのバッジ（色だけに頼らない）で見せる。完了は薄く表示する。期限切れには「期限切れ」の表示を足す。\n\n### 8. スマホでの操作しやすさ（タッチターゲット・入力欄の幅）\n- 場所: `MyTasks.tsx:90, 108-113`、`layout.tsx` のヘッダー\n- 問題（推定）: `select`・日付欄・ボタン・ヘッダーのリンクが既定サイズのままで、44px に満たない（リンクは文字の高さのみ）。複数のリンクとボタンが隣り合い、押し間違えやすい。タイトル欄は幅いっぱい、日付欄は既定幅で揃っていない。文字サイズが 16px 未満だと iOS で入力時に拡大される。\n- 直し方: 操作部品に `min-height: 44px` と余白を持たせ、入力欄は `font-size: 16px` 以上、全幅にそろえる。ヘッダーのリンク間隔を広げる。\n\n### 9. 必須項目の表示が無く、日付が ISO 形式のまま\n- 場所: `MyTasks.tsx:108-112, 98`\n- 問題: タイトルと期限は API 上必須だが、`required` も「必須」の表示も無く、送信してはじめて分かる。期限は `2026-11-14` の表示で、日本語の画面としては読みにくい。タイトルに `maxLength` が無い。\n- 直し方: `required` と「（必須）」の表記を付ける。表示は `2026年11月14日` のようにし、`<time dateTime>` で包む。\n\n### 10. 見出しの階層が h1 → h3 と飛んでいる\n- 場所: `MyTasks.tsx:105`、`page.tsx:9`\n- 問題: 見出しで移動するスクリーンリーダー利用者に、h2 が抜けた構造に見える。\n- 直し方: `<h2>` にする。\n\n### 11. ステータス変更エラーの文言を押すと、詳細ページへ遷移してしまう\n- 場所: `MyTasks.tsx:100`（`stopPropagation` の外側にある `<p role=\"alert\">`）\n- 問題: 失敗メッセージを読もうとして（選択しようとして）押すと、詳細ページへ遷移する。修正 1 で行全体のクリックをやめれば解消する。\n- 直し方: 修正 1 に合わせて `<li>` の `onClick` を無くす。\n\n### 12. 各カードの `select` ラベルがどれも「ステータス」\n- 場所: `MyTasks.tsx:88-90`\n- 問題: スクリーンリーダーでは「ステータス、コンボボックス」が件数分続き、どのタスクのものか分からない。\n- 直し方: `aria-label={`${task.title} のステータス`}` を付ける（見える文言は変えなくてよい）。\n\n### 13. 通信エラーの種類が区別されない（未ログイン・対象なし）\n- 場所: `MyTasks.tsx:34-35, 60-65`\n- 問題: セッション切れ（401）でもタスク削除済み（404）でも、「変更できませんでした」「時間をおいて…」と出る。時間をおいても直らず、再ログインが必要な人が先へ進めない。\n- 直し方: 401 は `/login` へ誘導し、404 は「このタスクはもうありません」と伝える。\n\n---\n\n## 重要度: 低\n\n### 14. エラーメッセージの `key` が重複しうる\n- 場所: `MyTasks.tsx:119`（`key={m}`）、`:34`（`data?.details` を配列と決めつけ）\n- 問題: 同じ文言が 2 件あると key が衝突する。`details` が配列でない場合に画面が壊れる。\n- 直し方: `key={`${i}-${m}`}` にする。`Array.isArray(data?.details)` で確認してから使う。\n\n### 15. 担当タスクが無いときの案内が弱い\n- 場所: `MyTasks.tsx:74-76`\n- 問題: 「担当しているタスクはありません。」だけで、次の行動（下のフォームで追加できる）が分からない。\n- 直し方: 「下のフォームから追加できます。」を足す。\n\n### 16. ヘッダーの構造と、依頼範囲を超えた余白の変更\n- 場所: `src/app/layout.tsx`（`margin: 24 → 16`、リンク追加）\n- 問題: リンク群が `<nav>` になっておらず、現在のページが分からない。`margin` の変更は `/tasks`・`/login` など他の画面の見た目も変える（CLAUDE.md の「変更は依頼された範囲にとどめる」）。意図したものなら PR の説明に書く。\n- 直し方: リンクを `<nav aria-label=\"メイン\">` で囲み、現在の画面に `aria-current=\"page\"` を付ける。余白の変更は意図を明記するか、`/my-tasks` 側だけで調整する。\n\n### 17. 新しいタスクの担当者をクライアントから送っている\n- 場所: `MyTasks.tsx:31`（`assignee: userId`）\n- 問題: 画面の問題ではないが、「自分のタスクを追加」を画面側の値に頼っている。API 側でログイン中の人に固定されているか確認が必要（画面上は他人名義の追加を防げない）。\n- 直し方: `validateTaskInput` / API Route 側の扱いを確認する。\n\n---\n\n## 良い点（維持してよい）\n\n- 失敗時にそのタスクの近くへ `role=\"alert\"` で知らせ、選択を元に戻す設計。\n- 送信中はボタンを無効にして「追加中…」と表示する。\n- 長いタイトルが `overflowWrap: \"anywhere\"` で折り返す。ヘッダーが `flexWrap` で折り返す。\n- 入力欄の `label` が見える形で付いている。画面の文言は自然な日本語。\n",
+  "observations": {
+    "hook_outputs": {
+      "PostToolUse:Write": 1
+    },
+    "hook_samples": [
+      {
+        "hook": "PostToolUse:Write",
+        "output": "{\"systemMessage\": \"security-guidance: the AI security review of your changes is not running. No Anthropic credentials were passed to the plugin's hooks, so only the pattern warnings on edits are active. See \\\"Credentials\\\" in the plugin README. Set ENABLE_CODE_SECURITY_REVIEW=0 to turn the review off and hide this notice, which is shown at most once a week.\"}"
+      }
+    ],
+    "design_docs": [],
+    "fonts": [
+      "system-ui, sans-serif\", margin: 16"
+    ],
+    "overused_fonts": [],
+    "files_changed": [
+      "REVIEW.md",
+      "src/app/layout.tsx",
+      "src/app/my-tasks/MyTasks.tsx",
+      "src/app/my-tasks/page.tsx",
+      "src/lib/tasks.ts",
+      "tests/tasks.test.ts"
+    ]
+  }
+}
