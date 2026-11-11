@@ -4,6 +4,7 @@
 使い方:
   python3 scripts/check-skills.py                # 検査する（エラーがあれば終了コード 1）
   python3 scripts/check-skills.py --update-lock  # vendored Skills の指紋（scripts/skills.lock.json）を作り直す
+  python3 scripts/check-skills.py --root <パス>   # 別のリポジトリを検査する（配布先のスクリプトを実行せずに済む）
 
 検査の内容:
 - vendored Skills（scripts/skills.lock.json に載っているもの）
@@ -27,10 +28,19 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILLS = ROOT / ".claude" / "skills"
-SOURCES = SKILLS / "SOURCES.md"
-LOCK = ROOT / "scripts" / "skills.lock.json"
-QUICK_VALIDATE = SKILLS / "skill-creator" / "scripts"
+
+
+def set_root(root: Path) -> None:
+    """検査するリポジトリを決める（既定はこのスクリプトが置かれたリポジトリ）。"""
+    global ROOT, SKILLS, SOURCES, LOCK, QUICK_VALIDATE
+    ROOT = root.resolve()
+    SKILLS = ROOT / ".claude" / "skills"
+    SOURCES = SKILLS / "SOURCES.md"
+    LOCK = ROOT / "scripts" / "skills.lock.json"
+    QUICK_VALIDATE = SKILLS / "skill-creator" / "scripts"
+
+
+set_root(ROOT)
 MAX_LINES = 500
 MIN_TRIGGER_EACH = 5  # 発火する例・しない例のそれぞれ。skill-creator の推奨は合わせて 20 件
 
@@ -199,7 +209,10 @@ def check_vendored(skill: Path, lock: dict, sources: set) -> tuple:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--update-lock", action="store_true", help="SOURCES.md に載っている Skills の指紋を作り直す")
+    ap.add_argument("--root", type=Path, help="検査するリポジトリ（既定はこのスクリプトが置かれたリポジトリ）")
     args = ap.parse_args()
+    if args.root:
+        set_root(args.root)
 
     sources = sources_dirs()
     if args.update_lock:

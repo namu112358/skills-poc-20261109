@@ -52,7 +52,6 @@ cp "$WORK/gh-cli/LICENSE" "$DEST/gh/LICENSE"
 echo "synced: anthropics/skills@$ANTHROPIC_REF vercel-labs/agent-skills@$VERCEL_REF github/gh-stack@$GH_STACK_REF cli/cli@$GH_CLI_REF"
 # vendored Skills の指紋を作り直す（scripts/check-skills.py が手での編集を検出するのに使う）
 [[ "$TARGET" == "$ROOT" ]] || cp "$ROOT/.claude/skills/SOURCES.md" "$DEST/SOURCES.md"
-if [[ -f "$TARGET/scripts/check-skills.py" ]]; then
-  python3 "$TARGET/scripts/check-skills.py" --update-lock
-fi
+# 指紋を作り直す。配布先にあるスクリプトは実行せず、このリポジトリの版で配布先を対象にする
+python3 "$ROOT/scripts/check-skills.py" --root "$TARGET" --update-lock
 echo "SOURCES.md のコミット SHA を更新し、git diff をレビューしてからコミットしてください。"

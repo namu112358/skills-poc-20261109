@@ -69,9 +69,8 @@ vendor_vercel_skills() { # skill...
   done
   rm -rf "$work"
   # vendored Skills の指紋を作り直す（scripts/check-skills.py が手での編集を検出するのに使う）
-  if [[ -f "$DEST/scripts/check-skills.py" ]]; then
-    python3 "$DEST/scripts/check-skills.py" --update-lock
-  fi
+  # 指紋を作り直す。配布先にあるスクリプトは実行せず、このリポジトリの版で配布先を対象にする
+  python3 "$ROOT/scripts/check-skills.py" --root "$DEST" --update-lock
 }
 
 for stack in "$@"; do
