@@ -33,33 +33,39 @@
 | 構成 | 回数 | AI の見た目の判定 / 20 | 機械の検査 / 50 | 費用（平均） | 時間（平均・分） | デザインの Skill が呼ばれた回数 | 呼ばれた Skill |
 |---|---:|---:|---:|---:|---:|---|---|
 | ツールなし | 4 | 14.1 | 50.0 | $0.37 | 2.4 | 0 / 4 | なし |
-| 4 つすべて | 4 | 15.5 | 49.5 | $0.62 | 3.3 | 3 / 4 | frontend-design, impeccable:impeccable |
-| Impeccable（整理案 A） | 4 | 15.9 | 48.0 | $1.98 | 9.2 | 4 / 4 | impeccable:impeccable |
-| Frontend Design | 4 | 14.9 | 49.8 | $0.63 | 3.6 | 4 / 4 | frontend-design |
-| UI/UX Pro Max | 4 | 13.9 | 50.0 | $0.48 | 2.4 | 3 / 4 | ui-ux-pro-max:ui-ux-pro-max |
-| Frontend Design + 指示 | 1 | — | 49.0 | $0.46 | 3.3 | 1 / 1 | frontend-design |
-| Impeccable + 指示 | 1 | — | 50.0 | $1.12 | 5.1 | 1 / 1 | impeccable:impeccable |
-| 4 つすべて + 役割の指示 | 1 | — | 49.0 | $1.16 | 4.8 | 1 / 1 | impeccable:impeccable |
+| 4 つすべて | 4 | 15.2 | 49.5 | $0.62 | 3.3 | 3 / 4 | frontend-design, impeccable:impeccable |
+| Impeccable（整理案 A） | 4 | 14.6 | 48.0 | $1.98 | 9.2 | 4 / 4 | impeccable:impeccable |
+| Frontend Design | 4 | 17.5 | 49.8 | $0.63 | 3.6 | 4 / 4 | frontend-design |
+| UI/UX Pro Max | 4 | 14.1 | 50.0 | $0.48 | 2.4 | 3 / 4 | ui-ux-pro-max:ui-ux-pro-max |
+| Frontend Design + 指示 | 3 | 18.0 | 49.3 | $0.41 | 2.8 | 3 / 3 | frontend-design |
+| Impeccable + 指示 | 3 | 17.0 | 48.7 | $1.06 | 5.0 | 3 / 3 | impeccable:impeccable |
+| 4 つすべて + 役割の指示 | 3 | 14.5 | 48.3 | $1.22 | 5.6 | 3 / 3 | impeccable:impeccable |
 
 ### W21e ダッシュボード
 
 | 構成 | 回数 | AI の見た目の判定 / 20 | 機械の検査 / 50 | 費用（平均） | 時間（平均・分） | デザインの Skill が呼ばれた回数 | 呼ばれた Skill |
 |---|---:|---:|---:|---:|---:|---|---|
-| ツールなし | 4 | 13.4 | 50.0 | $0.47 | 2.8 | 0 / 4 | なし |
-| 4 つすべて | 4 | 14.0 | 50.0 | $0.58 | 3.0 | 2 / 4 | frontend-design |
-| Impeccable（整理案 A） | 4 | 14.6 | 50.0 | $0.60 | 2.9 | 2 / 4 | impeccable:impeccable |
-| Frontend Design | 4 | 16.2 | 50.0 | $0.59 | 3.3 | 4 / 4 | frontend-design |
-| UI/UX Pro Max | 4 | 14.2 | 50.0 | $0.57 | 3.3 | 0 / 4 | なし |
+| ツールなし | 4 | 13.9 | 50.0 | $0.47 | 2.8 | 0 / 4 | なし |
+| 4 つすべて | 4 | 13.9 | 50.0 | $0.58 | 3.0 | 2 / 4 | frontend-design |
+| Impeccable（整理案 A） | 4 | 14.4 | 50.0 | $0.60 | 2.9 | 2 / 4 | impeccable:impeccable |
+| Frontend Design | 4 | 15.8 | 50.0 | $0.59 | 3.3 | 4 / 4 | frontend-design |
+| UI/UX Pro Max | 4 | 13.9 | 50.0 | $0.57 | 3.3 | 0 / 4 | なし |
+| Frontend Design + 指示 | 3 | 16.2 | 50.0 | $0.42 | 2.3 | 3 / 3 | frontend-design |
+| Impeccable + 指示 | 3 | 15.7 | 50.0 | $0.93 | 4.5 | 3 / 3 | impeccable:impeccable |
+| 4 つすべて + 役割の指示 | 3 | 16.2 | 50.0 | $1.07 | 5.2 | 3 / 3 | impeccable:impeccable, web-design-guidelines |
 
 ### W21f 登録フォーム
 
 | 構成 | 回数 | AI の見た目の判定 / 20 | 機械の検査 / 50 | 費用（平均） | 時間（平均・分） | デザインの Skill が呼ばれた回数 | 呼ばれた Skill |
 |---|---:|---:|---:|---:|---:|---|---|
-| ツールなし | 4 | 13.8 | 50.0 | $0.80 | 4.0 | 0 / 4 | なし |
-| 4 つすべて | 4 | 14.8 | 49.0 | $0.95 | 5.1 | 2 / 4 | frontend-design, impeccable:impeccable |
-| Impeccable（整理案 A） | 4 | 14.9 | 49.0 | $1.70 | 7.3 | 3 / 4 | impeccable:impeccable |
-| Frontend Design | 4 | 12.9 | 50.0 | $1.14 | 5.3 | 3 / 4 | frontend-design |
-| UI/UX Pro Max | 4 | 13.6 | 50.0 | $0.99 | 5.1 | 2 / 4 | ui-ux-pro-max:ui-ux-pro-max |
+| ツールなし | 4 | 13.2 | 50.0 | $0.80 | 4.0 | 0 / 4 | なし |
+| 4 つすべて | 4 | 14.0 | 49.0 | $0.95 | 5.1 | 2 / 4 | frontend-design, impeccable:impeccable |
+| Impeccable（整理案 A） | 4 | 14.5 | 49.0 | $1.70 | 7.3 | 3 / 4 | impeccable:impeccable |
+| Frontend Design | 4 | 13.0 | 50.0 | $1.14 | 5.3 | 3 / 4 | frontend-design |
+| UI/UX Pro Max | 4 | 13.4 | 50.0 | $0.99 | 5.1 | 2 / 4 | ui-ux-pro-max:ui-ux-pro-max |
+| Frontend Design + 指示 | 3 | 15.3 | 50.0 | $0.94 | 5.2 | 3 / 3 | frontend-design |
+| Impeccable + 指示 | 3 | 14.8 | 50.0 | $1.37 | 6.4 | 3 / 3 | impeccable:impeccable |
+| 4 つすべて + 役割の指示 | 3 | 12.5 | 50.0 | $1.30 | 5.4 | 3 / 3 | impeccable:impeccable, web-design-guidelines |
 
 ### デザインの Skill が呼ばれたかどうかと AI の見た目の判定
 
@@ -67,8 +73,8 @@
 |---|---|---|
 | W21a 紹介ページ | 10 件・16.9 | 6 件・15.2 |
 | W21b タスク一覧の改善 | 10 件・15.1 | 6 件・15.1 |
-| W21d SaaS の LP | 14 件・15.2 | 2 件・14.0 |
-| W21e ダッシュボード | 8 件・15.4 | 8 件・14.1 |
-| W21f 登録フォーム | 10 件・14.7 | 6 件・13.0 |
+| W21d SaaS の LP | 23 件・15.9 | 2 件・14.2 |
+| W21e ダッシュボード | 17 件・15.5 | 8 件・14.0 |
+| W21f 登録フォーム | 19 件・14.4 | 6 件・12.4 |
 
 （ツールなしの構成は除く。AI の判定は 5 項目 × 0〜4 点、順番を変えた 2 回の平均）

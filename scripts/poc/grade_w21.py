@@ -20,7 +20,7 @@ from pathlib import Path
 
 TRIAL = sys.argv[1]
 FLAGS = set(sys.argv[2:])
-m = re.fullmatch(r"(W21[a-f])-(ui-(?:none|all|a|fd|pm)(?:-md)?)-(\d+)", TRIAL)
+m = re.fullmatch(r"(W21[a-f])-(ui-(?:none|all|a|fd|pm)(?:-md(?:-wdg|-imp)?)?)-(\d+)", TRIAL)
 if not m:
     sys.exit(f"W21 の試行 ID ではない: {TRIAL}")
 TASK, CONFIG, REP = m.group(1), m.group(2), int(m.group(3))
@@ -92,11 +92,13 @@ def build_checks(base):
     return checks, deps_same
 
 
-def browser(kind):
+def browser(kind, app=None, prefix=None):
+    app = app or APP
+    prefix = prefix or TRIAL
     port = grade.free_port()
     env = dict(os.environ, PORT=str(port))
     env.pop("DATABASE_PATH", None)
-    srv = subprocess.Popen(["npx", "next", "start", "-p", str(port)], cwd=APP, env=env,
+    srv = subprocess.Popen(["npx", "next", "start", "-p", str(port)], cwd=app, env=env,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     try:
         base_url = f"http://localhost:{port}"  # ログイン後の移動先が localhost になるため、Cookie の送り先を合わせる
@@ -107,7 +109,7 @@ def browser(kind):
             except Exception:
                 time.sleep(1)
         SHOTS.mkdir(parents=True, exist_ok=True)
-        p = subprocess.run(["node", str(ROOT / "scripts/poc/w21_browser.cjs"), kind, base_url, str(SHOTS / TRIAL)],
+        p = subprocess.run(["node", str(ROOT / "scripts/poc/w21_browser.cjs"), kind, base_url, str(SHOTS / prefix)],
                            capture_output=True, text=True, timeout=300)
         try:
             return json.loads(p.stdout)
@@ -115,6 +117,35 @@ def browser(kind):
             return {"errors": [p.stderr[-800:]], "checks": {}, "axe": {}}
     finally:
         os.killpg(srv.pid, 15)
+
+
+def pre_polish(kind):
+    """W23: 仕上げの前のコミット（raw/<ID>/pre-polish-commit）を別の作業ツリーでビルドし、検査とスクリーンショット（<ID>-pre）を取る。"""
+    pre = (RAW / "pre-polish-commit").read_text().strip()
+    tree = APP.parent / "pre"
+    subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=APP, capture_output=True)
+    subprocess.run(["git", "worktree", "add", "-q", "--detach", str(tree), pre], cwd=APP, check=True, capture_output=True)
+    subprocess.run(["cp", "-al", str(APP / "node_modules"), str(tree / "node_modules")], check=True)
+    b = subprocess.run("npm run build", cwd=tree, shell=True, capture_output=True, text=True, timeout=900)
+    res = {"commit": pre, "build": b.returncode == 0}
+    res["browser"] = browser(kind, tree, TRIAL + "-pre") if b.returncode == 0 else {"errors": ["build failed"], "checks": {}, "axe": {}}
+    subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=APP, capture_output=True)
+    # 仕上げの前までの費用（その時点までの最後の result の累計）
+    n = int((RAW / "pre-polish-step").read_text().strip())
+    cost = 0.0
+    for k in range(1, n + 1):
+        f = RAW / f"step{k}.jsonl"
+        if not f.exists():
+            continue
+        for line in f.open():
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if d.get("type") == "result" and d.get("total_cost_usd") is not None:
+                cost = d["total_cost_usd"]
+    res["cost_before_polish"] = round(cost, 4)
+    return res
 
 
 def score_build(checks, deps_same, b):
@@ -159,7 +190,14 @@ def main():
         b = browser(TASK[-1]) if checks["build"]["pass"] else {"errors": ["build failed"], "checks": {}, "axe": {}}
         result.update({"checks": checks, "deps_same": deps_same, "browser": b, "score": score_build(checks, deps_same, b),
                        "observations": observations(base)})
-        msg = f"subtotal={result['score']['subtotal_50']}/50 axe={result['score']['axe_serious']}"
+        if (RAW / "pre-polish-commit").exists():
+            pre = pre_polish(TASK[-1])
+            pre["score"] = score_build({"build": {"pass": pre["build"]}, "typecheck": {"pass": True}, "test": {"pass": True}}, True, pre["browser"])
+            result["pre_polish"] = pre
+            msg_pre = f" pre={pre['score']['subtotal_50']}"
+        else:
+            msg_pre = ""
+        msg = f"subtotal={result['score']['subtotal_50']}/50 axe={result['score']['axe_serious']}{msg_pre}"
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     print(f"{TRIAL}: {msg} cost=${stats.get('cost_usd', 0):.2f} skills={stats.get('skills_used')}")

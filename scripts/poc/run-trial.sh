@@ -3,7 +3,7 @@
 # 使い方: scripts/poc/run-trial.sh <シナリオ> <候補> <回>
 #   候補: baseline | superpowers | feature-dev | compound-engineering | gstack
 #         | baseline-conventions（W12 で追加。候補なしで、作業用コピーの CLAUDE.md の末尾に開発規約だけを足す）
-#         | ui-none | ui-all | ui-a | ui-fd | ui-pm | ui-fd-md | ui-a-md | ui-all-md（W21 の課題だけ。*-md は W22。UI/UX 系ツールの組み合わせ。docs/poc/tasks/wf-W21-design.md）
+#         | ui-none | ui-all | ui-a | ui-fd | ui-pm | ui-fd-md | ui-a-md | ui-all-md | ui-fd-md-wdg | ui-fd-md-imp（W21 の課題だけ。*-md は W22、*-md-* は W23。UI/UX 系ツールの組み合わせ。docs/poc/tasks/wf-W21-design.md）
 #   （gstack の setup 実行は 2026-11-09 にユーザーの許可を得た。専用 HOME の中だけで実行する）
 # 作業用コピー（既定は /tmp/poc-trials/<ID>。POC_TRIAL_ROOT で変更可）で、専用の HOME を使って Claude Code をヘッドレスで起動する。
 # 作業用コピーをリポジトリの外に置くのは、正解データ（docs/poc/answer-key/）や他の試行の結果へ相対パスで辿れないようにするため。
@@ -151,9 +151,11 @@ if [[ "$CAND" == baseline-conventions ]]; then
 fi
 # W22（docs/poc/tasks/wf-W22-design.md）: *-md の構成は、使う Skill の指示（wf-W22-<構成>.md。固定の文言）を CLAUDE.md の末尾に足す。
 # 初期状態の一部なので、候補からは差分に見えない
-if [[ "$CAND" == *-md ]]; then
-  cat "$ROOT/docs/poc/tasks/wf-W22-$CAND.md" >> "$APP/CLAUDE.md"
-  sha256sum "$ROOT/docs/poc/tasks/wf-W22-$CAND.md" | sed "s#$ROOT/##" > "$OUT/w22-instruction"
+# W23 の ui-fd-md-* も、作る段階は ui-fd-md と同じ指示を足す（docs/poc/tasks/wf-W23-design.md）
+if [[ "$CAND" == *-md || "$CAND" == *-md-* ]]; then
+  INSTR="$ROOT/docs/poc/tasks/wf-W22-${CAND%%-md*}-md.md"
+  cat "$INSTR" >> "$APP/CLAUDE.md"
+  sha256sum "$INSTR" | sed "s#$ROOT/##" > "$OUT/w22-instruction"
 fi
 # 汎用の開発標準（W12 の追加条件。POC_STANDARD=generic、W12 のときだけ）: docs/poc/standards/generic-dev-standard.md の
 # 区切り（コメント）より下を、そのまま CLAUDE.md の末尾に足す。試行 ID は回の番号 11・12 で区別する（設計書 §5）。
@@ -222,14 +224,14 @@ copy_plugin "$CPO/security-guidance" security-guidance
 copy_plugin "$CPO/typescript-lsp" typescript-lsp
 # W21 の構成（ui-*）では、Impeccable と UI/UX Pro Max を構成に入るときだけ読み込む。ほかの候補は従来どおり両方
 case "$CAND" in
-  ui-none|ui-fd|ui-fd-md) ;;
-  ui-a|ui-a-md) copy_plugin "$CACHE/impeccable/plugin" impeccable ;;
+  ui-none|ui-fd|ui-fd-md|ui-fd-md-wdg) ;;
+  ui-a|ui-a-md|ui-fd-md-imp) copy_plugin "$CACHE/impeccable/plugin" impeccable ;;
   ui-pm) copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max ;;
   *) copy_plugin "$CACHE/impeccable/plugin" impeccable; copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max ;;
 esac
 case "$CAND" in
   baseline|baseline-conventions) ;;
-  ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md) [[ "$SCENARIO" == W21? ]] || { echo "ui-* は W21 の構成: $SCENARIO" >&2; exit 1; } ;;
+  ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md|ui-fd-md-wdg|ui-fd-md-imp) [[ "$SCENARIO" == W21? ]] || { echo "ui-* は W21 の構成: $SCENARIO" >&2; exit 1; } ;;
   superpowers) copy_plugin "$CACHE/superpowers" superpowers ;;
   feature-dev) copy_plugin "$CPO/feature-dev" feature-dev ;;
   # W20 のレビューの設定: cr-low・cr-high は組み込みの /code-review、review-pr・combo は PR Review Toolkit、sp-review は Superpowers
@@ -405,7 +407,7 @@ else
   case "$CAND" in
     baseline|baseline-conventions|superpowers) STEPS=("$TASK") ;;
     # W21: どの構成も課題文を渡すだけ（Skill の自動発火）
-    ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md) STEPS=("$TASK") ;;
+    ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md|ui-fd-md-wdg|ui-fd-md-imp) STEPS=("$TASK") ;;
     feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
     compound-engineering) STEPS=("/ce-plan $TASK" "/ce-work" "/ce-code-review") ;;
     gstack) STEPS=("$TASK" "/review") ;;
@@ -782,6 +784,16 @@ if [[ "$SCENARIO" == W13 ]]; then
     run_step "$i" "$NUDGE"
     qa_loop
   done
+fi
+# W23: 作る段階（手順と介入）が終わった時点を「仕上げの前」として記録し、仕上げの工程を後の手順として行う
+if [[ "$CAND" == ui-fd-md-wdg || "$CAND" == ui-fd-md-imp ]]; then
+  ( cd "$APP" && git add -A && git commit -qm "poc: uncommitted leftovers before polish" ) || true
+  git -C "$APP" rev-parse HEAD > "$OUT/pre-polish-commit"
+  echo "$i" > "$OUT/pre-polish-step"
+  case "$CAND" in
+    ui-fd-md-wdg) POST_STEPS=("web-design-guidelines Skill を使って、今回作った画面をレビューしてください。見つかった問題のうち直すべきものを直し、ブラウザで見た目を確かめてから、変更を git にコミットしてください。") ;;
+    ui-fd-md-imp) POST_STEPS=("/impeccable:impeccable polish 今回作った画面（課題で依頼された画面）を仕上げてください。直したら、ブラウザで見た目を確かめてから、変更を git にコミットしてください。") ;;
+  esac
 fi
 for step in "${POST_STEPS[@]}"; do
   if over_budget; then echo "post step skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi

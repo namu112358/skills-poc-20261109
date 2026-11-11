@@ -9,6 +9,9 @@
   python3 scripts/poc/judge_w21.py review <作業場所>
     - W21c の各試行の REVIEW.md を、正解（answer-key/W21/truth-c.md）と突き合わせさせる（W20 の judge_w20.py と同じ形）。
       約 25% は 2 回判定して一致を見る。結果は results/workflow/W21/judge/review.json。
+  python3 scripts/poc/judge_w21.py pair <作業場所>
+    - W23: 仕上げの工程の前（<ID>-pre-desktop.jpg）と後（<ID>-desktop.jpg）を A・B として、左右を入れ替えて 2 回比べさせる。
+      2 回とも同じ方を選んだときだけ、その方を勝ちとする（そろわなければ split）。結果は results/workflow/W21/judge/pairs.json。
   python3 scripts/poc/judge_w21.py score
     - 判定の結果と grade_w21.py の結果から、試行ごとの品質（100 点）を results/workflow/W21/scores.json に書く。
 """
@@ -143,6 +146,47 @@ def visual(task, work):
     print(f"visual {task}: {len(ids)} trials, cost ${out['cost_usd']:.2f}")
 
 
+PAIR = """# 2 つの画面の比較
+
+ある会社の社内向けタスク管理アプリについて、同じ依頼で作った画面の 2 つの版のスクリーンショット（幅 1280px、ページ全体）を比べてください。
+依頼は次のとおりです。
+
+> {task}
+
+`A.jpg` と `B.jpg` を Read ツールで両方見てから、この会社の社員が使う（または見る）画面として、どちらが良いかを選んでください。
+見た目の良さ・情報の階層と読みやすさ・余白と整列・色と書体・依頼の目的が伝わるか、を総合して判断します。差がほとんど無ければ "same" にしてください。
+
+出力は JSON だけにしてください（説明の文は不要）:
+{{"winner": "A" | "B" | "same", "reason": "一言"}}
+"""
+
+
+def pair(work):
+    """W23: 同じ試行の仕上げの前（<ID>-pre）と後（<ID>）を、左右を入れ替えて 2 回比べる。"""
+    out = {"pairs": {}, "cost_usd": 0}
+    for f in sorted(RESULTS.glob("W21*-ui-fd-md-*-*.json")):
+        t = f.stem
+        if t.endswith("-0") or not (SHOTS / f"{t}-pre-desktop.jpg").exists():
+            continue
+        task = t[:4]
+        runs = []
+        for order in (("pre", "post"), ("post", "pre")):
+            d = Path(work) / "pair" / t / "-".join(order)
+            shutil.rmtree(d, ignore_errors=True); d.mkdir(parents=True)
+            for side, which in zip("AB", order):
+                shutil.copy(SHOTS / (f"{t}-pre-desktop.jpg" if which == "pre" else f"{t}-desktop.jpg"), d / f"{side}.jpg")
+            res, cost = ask(PAIR.format(task=TASKS[task][0]), d)
+            out["cost_usd"] += cost
+            w = res.get("winner", "same")
+            runs.append({"order": order, "winner": "same" if w == "same" else order["AB".index(w)], "reason": res.get("reason", "")})
+        ws = {r["winner"] for r in runs}
+        verdict = runs[0]["winner"] if len(ws) == 1 else "split"
+        out["pairs"][t] = {"runs": runs, "verdict": verdict}
+        print(f"pair {t}: {verdict}")
+    JUDGE.mkdir(parents=True, exist_ok=True)
+    (JUDGE / "pairs.json").write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n")
+
+
 def review(work):
     ids = trials("W21c")
     truth = TRUTH.read_text()
@@ -205,6 +249,8 @@ if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "visual":
         visual(sys.argv[2], sys.argv[3])
+    elif cmd == "pair":
+        pair(sys.argv[2])
     elif cmd == "review":
         review(sys.argv[2])
     elif cmd == "score":
