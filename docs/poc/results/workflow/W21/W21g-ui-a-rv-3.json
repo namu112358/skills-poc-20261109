@@ -1,0 +1,75 @@
+{
+  "trial": "W21g-ui-a-rv-3",
+  "scenario": "W21",
+  "task": "W21g",
+  "config": "ui-a-rv",
+  "rep": 3,
+  "transcript": {
+    "cost_usd": 0.6006,
+    "tokens": {
+      "input": 44,
+      "output": 17993,
+      "cache_read": 1225132,
+      "cache_creation": 83724
+    },
+    "turns": 22,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"\\\"/tmp/poc-trials/W21g-ui-a-rv-3/plugins/impeccable/skills/impeccable/scripts/impeccable\\\" context --target src/app/my-tasks/MyTasks.tsx 2>&1 | head -80\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"/tmp/poc-trials/W21g-ui-a-rv-3/plugins/impeccable/skills/impeccable/scripts/impeccable context --target src/app/my-tasks/MyTasks.tsx\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Skill": 2,
+      "Read": 2,
+      "Agent": 1,
+      "ReadNotifications": 4,
+      "Write": 1,
+      "Monitor": 2
+    },
+    "skills_used": [
+      "impeccable:impeccable"
+    ],
+    "subagents": 1,
+    "subagent_types": {
+      "general-purpose": 1
+    },
+    "questions": 0,
+    "active_seconds": 102,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "レビューを `REVIEW.md` に書き、2 回に分けてコミットしました（`526e48c`、`d50de66`）。コードは変更していません。コミットしたのは `REVIEW.md` だけで、レビュー対象の差分は未コミットのままです。\n\n指摘は 19 件で、高・中・低の重要度、場所、困る人と状況、直し方を付けています。ブラウザでの実機確認は行っておらず、ソースの読解と、独立したサブエージェントのレビューとの突き合わせに基づきます。`impeccable` の context と detect を実行するコマンドは承認が得られず、実行できませんでした。\n\nマージ前に必ず直すべき「高」は次の 4 件です。\n1. **タスク行の遷移**: `<li onClick>` で `window.location.href` を使っているため、キーボードやスクリーンリーダーでは詳細に行けません。タイトルを `<a href>` にしてください。\n2. **Tab 順序**: 「追加する」ボタンの `tabIndex={1}` で、最初の Tab がこのボタンに飛びます。`tabIndex` を削除してください。\n3. **ステータスの select**: 全行が同じ「ステータス」という名前で、どのタスクか支援技術に伝わりません。`aria-label` にタイトルを含めてください。\n4. **エラーと成功の通知**: エラー領域が常設でなく、追加成功は視覚の強調だけで、どの欄が誤りかも示されません。`role=\"status\"` と `aria-invalid` を使ってください。\n\n「中」は 7 件を記載しています。主なものは次のとおりです。\n- ステータスを素早く連続で変えたときの巻き戻しの誤り\n- スマートフォンでの入力部品の小ささと、iOS で入力欄が拡大される問題\n- カード全体が遷移対象になる誤タップ\n- `prefers-reduced-motion` を無視するアニメーション\n- 見出しの h1 から h3 への飛び\n- 401（ログイン切れ）でも再試行を促す文言になること\n\n`layout.tsx` の `margin` を 24 から 16 に変えた点は他の画面にも影響するため、CLAUDE.md の「変更は依頼された範囲にとどめる」に照らして「低」で指摘しました。\n\n`REVIEW.md` には項目 1〜15 に続けて、突き合わせで追加した項目 16〜19 を末尾に追記しています。"
+  },
+  "elapsed_seconds": 110,
+  "interventions": 0,
+  "review_md": "# レビュー: マイタスク画面（`/my-tasks`）\n\n観点: 画面の見た目・使い勝手・アクセシビリティ（`impeccable` の audit / critique の考え方に沿って、ソースを読んで確認）。\n対象: `src/app/my-tasks/MyTasks.tsx`、`src/app/my-tasks/page.tsx`、`src/app/layout.tsx`（ヘッダー）。\n実施方法: ソースの読解と、独立したレビュー担当（サブエージェント）の指摘との突き合わせ。ブラウザでの実機確認とセマンティクス/コントラストの自動検出（`impeccable` の launcher）は、実行の承認が得られず行っていません。以下はコードから確実に言えることだけを書いています。\n\n重要度: **高** = マージ前に必ず直す / **中** = マージ前に直したい / **低** = 余裕があれば。\n\n---\n\n## 高\n\n### 1. タスクの行が `<li onClick>` での遷移になっており、キーボード・スクリーンリーダーでは詳細に行けない\n- 場所: `MyTasks.tsx` の `<li data-testid=\"my-task\" onClick={() => (window.location.href = ...)}>`\n- 問題: リンクでもボタンでもない要素にクリック処理だけを付けているため、Tab で止まらず、Enter でも開けず、スクリーンリーダーには操作できるものとして伝わらない。キーボードのみの人・スクリーンリーダーの人は詳細ページに行けない。マウスでも、Ctrl/Cmd+クリックの新規タブ、右クリックの「リンクをコピー」ができず、`window.location.href` の代入でページ全体が再読み込みされる。`/tasks` 一覧は `<a href>` を使っており、操作が不揃い。\n- 直し方: タイトルを `<a href={`/tasks/${task.id}`}>`（`next/link` でも可）にし、`li` の `onClick`・`cursor: pointer`・`stopPropagation` 用のラッパー `onClick` を削除する。カード全体を押せるようにしたい場合は、リンクの `::after` を広げる方法を使う（セレクトはその上に `position: relative` で重ねる）。\n\n### 2. 追加ボタンの `tabIndex={1}` で Tab の順序が壊れる\n- 場所: `MyTasks.tsx` の `<button type=\"submit\" disabled={submitting} tabIndex={1}>`\n- 問題: 正の `tabIndex` はページ内で最初にフォーカスされる。ページを開いて Tab を押すと、ヘッダーのリンクより先に「追加する」ボタンに飛び、その次がヘッダー、その後ろが各行・入力欄となる。キーボード利用者は読む順序と操作の順序が食い違って混乱する（WCAG 2.4.3 フォーカス順序）。\n- 直し方: `tabIndex` を削除する（DOM の順序に任せる）。\n\n### 3. ステータスのセレクトが、どのタスクのものか支援技術に伝わらない\n- 場所: `MyTasks.tsx` の `<label>ステータス <select>` （各行で同じラベル）\n- 問題: スクリーンリーダーでフォーム項目を一覧すると「ステータス」「ステータス」…が並ぶだけで、どのタスクか分からない。誤ったタスクを変更するおそれがある。\n- 直し方: `aria-label={`${task.title}のステータス`}` を付ける。または各行を `<article aria-labelledby>` 等でタイトルに関連づける。見た目のラベルは残してよい。\n\n### 4. 保存失敗・追加成功・追加失敗の通知が、操作した人に確実に届かない／届き方が不十分\n- 場所: `MyTasks.tsx` の `role=\"alert\"` の `<p>` / `<div>` と、追加成功時の `setJustAdded`\n- 問題:\n  - `role=\"alert\"` の要素を、エラー発生時に初めて DOM に追加している。実装によっては最初の追加が読み上げられないことがあるため、常に存在する `aria-live` 領域（中身だけ差し替える）にするほうが確実。\n  - 追加に成功したときは、黄色く光る動き（視覚のみ）しかなく、スクリーンリーダー利用者には成功したことが伝わらない。入力欄が空になるだけ。\n  - 入力エラー時、フォーカスが移動せず、`aria-invalid` や `aria-describedby` でどの欄が誤りかも示されない。エラー文はボタンの下にまとめて出るだけで、タイトルと期限のどちらが誤りかが読み上げから分からない。\n- 直し方: エラー用の領域を常に描画しておき、中身だけ切り替える。成功時は「追加しました」を `role=\"status\"` で通知し、リストへの追加が分かるようにする。誤った欄に `aria-invalid=\"true\"` と `aria-describedby`（エラー文の id）を付けるか、エラー表示時に最初のエラー欄へフォーカスを移す。\n\n## 中\n\n### 5. ステータス変更の連続操作で、失敗時に誤った値へ戻る\n- 場所: `MyTasks.tsx` の `changeStatus`（`const previous = task.status` と失敗時のロールバック）\n- 問題: 楽観的に即座に更新するが、リクエストの完了を待たずに続けて変更できる。「未着手→進行中」（保存中）→「完了」と素早く変更し、先のリクエストが失敗すると、`previous`（未着手）に戻され、後の「完了」の保存が成功していても画面だけ「未着手」になる。画面と保存内容が食い違い、利用者は完了したと思ったタスクが未完了のまま、または逆になる。\n- 直し方: そのタスクの保存中は `select` を `disabled` にするか、リクエストを直列にする。ロールバックは「最新の選択が失敗したときだけ」「サーバーの値に戻す」ようにする。保存中であることの表示（「保存中…」）も添える。\n\n### 6. 保存失敗の表示が弱く、いつまでも残る\n- 場所: `MyTasks.tsx` の `{statusErrors[task.id] && <p role=\"alert\">ステータスを変更できませんでした。</p>}`\n- 問題: 文言が原因と次の行動（「もう一度お試しください」など）を示さない。色・アイコンなどの視覚的な区別もなく、普通の文字と同じ見た目で、見落としやすい。別の操作を成功させるまで消えない。\n- 直し方: 「ステータスを変更できませんでした。通信状況を確認して、もう一度お試しください。」とし、エラーには色（コントラスト 4.5:1 以上）と記号を付ける。閉じる操作か、次の成功で消える挙動を明記する。\n\n### 7. カード全体がクリックで遷移するため、スマートフォンで誤タップしやすい\n- 場所: `MyTasks.tsx` の `<li onClick>`（`padding: 8` のカード全体）\n- 問題: セレクトのまわりの余白や期限の文字を押すだけで詳細ページに移動する。スマートフォンでセレクトを狙って外すと、画面が遷移し、追加フォームに入力した内容が失われる。\n- 直し方: 項目 1 の直しでタイトルのリンクだけを遷移の対象にする（カード全体を押せるようにする場合も、フォームの入力中は遷移させない）。\n\n### 8. スマートフォンでの入力部品が小さい・iOS で拡大される\n- 場所: `MyTasks.tsx` の `<select>`、`<input name=\"title\">`、`<input type=\"date\">`、`<button>`（スタイル指定なし）\n- 問題: 既定のサイズ（高さ約 20〜30px、文字 13px 前後）のため、(a) タップ対象が 44px（最低でも WCAG 2.5.8 の 24px）に満たず、隣接する要素と近い。(b) iOS Safari は 16px 未満の入力欄にフォーカスすると画面を勝手に拡大し、入力後も戻らない。画面はスマートフォンでの利用が前提なので、主要操作が使いづらい。\n- 直し方: `select` / `input` / `button` に `min-height: 44px`、`font-size: 16px`、十分な余白を指定する。ボタンは小さな画面で横幅いっぱいにする。\n\n### 9. 追加フォームがリストの下にあり、追加後の結果が見えない\n- 場所: `MyTasks.tsx` の `<h3>タスクを追加</h3>` 以降、`sortTasks` による挿入\n- 問題: タスクが多いと、スマートフォンでフォームまで長くスクロールする必要がある。追加後は期限順で挿入されるため、新しい行がフォームから離れた画面外に入ることが多く、黄色い強調も見えない。入力欄が空になるだけで「できたか分からない」。\n- 直し方: フォームをリストの上に置くか、追加後に「『〇〇』を追加しました」の確認メッセージをフォームの近くに表示する（項目 4 の `role=\"status\"` と兼用）。\n\n### 10. 強調アニメーションが `prefers-reduced-motion` を無視し、色が固定値\n- 場所: `MyTasks.tsx` の `<style>` 内の `@keyframes my-task-added`（`translateX(-12px)`、`#fff3b0`）\n- 問題: 動きを減らす設定の人にも横移動のアニメーションが再生される。背景色が `#fff3b0`→`transparent` と固定のため、ダークテーマで使うと文字色との組み合わせでコントラストが落ちる。また `<style>` を JSX 内に埋めており、プロジェクトの他の画面にない書き方。\n- 直し方: `@media (prefers-reduced-motion: reduce)` で `animation: none`（色の変化だけ残すのが望ましい）。移動は使わず色だけにする。スタイルは共通の CSS に移す。\n\n### 11. 見出しの階層が飛んでいる\n- 場所: `MyTasks.tsx` の `<h3>タスクを追加</h3>`（ページは `<h1>` の次が `<h3>`）\n- 問題: h2 が無く、見出しでの移動をするスクリーンリーダー利用者に構造が不自然に伝わる。\n- 直し方: `<h2>` にする（リストにも `<h2>担当タスク</h2>` を付ける）。\n\n## 低\n\n### 12. 全画面共通のヘッダー・余白への変更が、この PR の範囲を超えている／ナビの扱い\n- 場所: `layout.tsx` の `margin: 24` → `16`、ヘッダーのリンク追加\n- 問題: 余白の変更は `/tasks` や `/login` など他の画面にも影響する（CLAUDE.md の「変更は依頼された範囲にとどめる」）。また、ナビゲーションのリンクが `<nav>` で囲まれておらず、現在のページを示す `aria-current=\"page\"` も無いため、マイタスク画面でどちらにいるか分からない。\n- 直し方: 余白の変更は別 PR にする（または理由を説明する）。リンクを `<nav aria-label=\"メイン\">` に入れ、現在のページに `aria-current=\"page\"` を付ける。\n\n### 13. 期限の表示が ISO 形式のまま、期限切れの区別が無い\n- 場所: `MyTasks.tsx` の `<span>期限 {task.dueDate}</span>`\n- 問題: 期限順に並べる画面なのに、期限が過ぎたもの・今日のものが視覚的に区別できない。完了済みのタスクも同じ見た目で混ざり、次にやることが探しにくい。\n- 直し方: 期限切れ・今日を文字（「期限切れ」など）で示す（色だけにしない）。完了済みは弱い見た目にするか下にまとめる。\n\n### 14. 担当タスクが 0 件のときの案内\n- 場所: `MyTasks.tsx` の `<p>担当しているタスクはありません。</p>`\n- 問題: 文言は仕様どおりだが、すぐ下に追加フォームがあることを案内していない。初めての人は次の行動が分からない。\n- 直し方: 文言（仕様）は変えず、フォームの見出しが分かるようにする（項目 9 の配置変更で解決する場合もある）。\n\n### 15. 入力欄の補助が無い\n- 場所: `MyTasks.tsx` の追加フォーム\n- 問題: タイトルに `required` や `maxLength` の示唆が無い。空のまま送信してサーバーのエラーを待つ必要がある。ラベルと入力欄が同じ行に折り返して並ぶ（`label` 内にテキスト＋入力欄）ため、狭い画面でラベルが入力欄から離れて見えることがある。\n- 直し方: ラベルを入力欄の上に置く（`display: grid`）。必須項目には「必須」の表記を添える。サーバー側の検証は残したままで良い。\n\n---\n\n## 追記（独立レビューとの突き合わせで追加した指摘）\n\n### 16. セッション切れ（401）でも「時間をおいてもう一度」と表示される（中）\n- 場所: `MyTasks.tsx` の `add()`（`!res.ok` 分岐）と `changeStatus()`\n- 問題: ログインの有効期限が切れて 401 が返っても、追加は「時間をおいてもう一度お試しください。」、ステータス変更は一般的な失敗文になる。何度やっても直らず、ログインし直す必要があると分からない。\n- 直し方: 401 のときは「ログインの有効期限が切れました。ログインし直してください。」と `/login` へのリンクを出す。\n\n### 17. 期限が空のとき、日付欄に合わない文言になる／事前の入力補助が無い（低）\n- 場所: `MyTasks.tsx` の `<input name=\"dueDate\" type=\"date\">` と `<input name=\"title\">`\n- 問題: 期限を空で送ると、サーバーの「YYYY-MM-DD 形式」の文言が出る。日付ピッカーを使う人には意味が合わない。`required` も無く、無駄な往復になる。\n- 直し方: `required` を付ける（サーバー検証は残す）。項目 15 の「必須」の表記と合わせる。\n\n### 18. `/my-tasks` のページタイトルが共通のまま（低）\n- 場所: `src/app/my-tasks/page.tsx`（`metadata` なし。`layout.tsx` は固定の「PoC タスク管理」）\n- 問題: タブやブラウザ履歴、スクリーンリーダーのページ名で他の画面と区別できない（WCAG 2.4.2）。\n- 直し方: `export const metadata = { title: \"マイタスク | PoC タスク管理\" }` を追加する。\n\n### 19. ステータスのラベルを複製している（低）\n- 場所: `MyTasks.tsx` の `TASK_STATUSES` / `STATUS_LABELS`（`src/lib/tasks.ts` にも同名の定義がある）\n- 問題: 文言を変えたとき、`/tasks` と `/my-tasks` で表示がずれる。\n- 直し方: `src/lib/tasks.ts` の定義を使う。クライアント側から読み込めない事情があるなら、ラベルだけを別ファイルに切り出して共有する。\n\n### 補足\n- 上の「項目 4」「項目 5」と同じ領域で、追加ボタンは送信中に `disabled` になるため、Enter で送信するとブラウザによってフォーカスが失われる。`aria-disabled` と常設の `aria-live` 領域に置き換えると確実（低）。\n- 項目番号は本文の連番（1〜15）に続けて 16〜19 としている。\n",
+  "observations": {
+    "hook_outputs": {
+      "PostToolUse:Write": 1
+    },
+    "hook_samples": [
+      {
+        "hook": "PostToolUse:Write",
+        "output": "{\"systemMessage\": \"security-guidance: the AI security review of your changes is not running. No Anthropic credentials were passed to the plugin's hooks, so only the pattern warnings on edits are active. See \\\"Credentials\\\" in the plugin README. Set ENABLE_CODE_SECURITY_REVIEW=0 to turn the review off and hide this notice, which is shown at most once a week.\"}"
+      }
+    ],
+    "design_docs": [],
+    "fonts": [
+      "system-ui, sans-serif\", margin: 16"
+    ],
+    "overused_fonts": [],
+    "files_changed": [
+      "REVIEW.md",
+      "src/app/layout.tsx",
+      "src/app/my-tasks/MyTasks.tsx",
+      "src/app/my-tasks/page.tsx",
+      "src/lib/tasks.ts",
+      "tests/tasks.test.ts"
+    ]
+  }
+}
