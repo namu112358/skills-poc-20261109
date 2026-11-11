@@ -6,11 +6,11 @@
 
 ## このリポジトリについて
 
-新規開発プロジェクト向けの Claude Code 標準構成（Skills / Plugins / MCP）と、比較検討中のツールの PoC をまとめたリポジトリです。作業内容に応じて、次の資料を先に読んでください。
+AI エージェントを使った新規開発の標準（入れる Skills、開発ワークフロー、GitHub の設定、AI への指示と管理）を決め、各プロジェクトに配るリポジトリです。候補は PoC で比べ、その結果を根拠にします。作業内容に応じて、次の資料を先に読んでください。
 
 | 作業 | 読むもの |
 |---|---|
-| 標準構成・導入済みツールの確認 | [README.md](README.md) |
+| 4 つの問いへの今の答えと、配るもの | [README.md](README.md) |
 | 開発標準・設計原則 | [docs/standards/ai-software-factory-engineering-standard.md](docs/standards/ai-software-factory-engineering-standard.md) |
 | PoC の計画・評価基準 | [docs/poc/PLAN.md](docs/poc/PLAN.md) |
 | PoC の結果 | [docs/poc/results/workflow/summary.md](docs/poc/results/workflow/summary.md) |
