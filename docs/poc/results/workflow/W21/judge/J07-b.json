@@ -1,0 +1,50 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "NOTIFIER_KIND を slack/email にすると SlackNotifier/EmailNotifier.send が必ず例外を投げ、updateTask が DB 更新後に emit で例外を伝えるため、更新済みなのに PATCH が 500 になる",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "NotifierFactory で NOTIFIER_KIND に知らない値を入れると黙って console に落ち、設定誤りに気づけないので起動時にエラーにすべき",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "ログ 1 行の要件に対し、src/lib/notify/ に EventBus・Notifier 抽象・Factory・未実装の Slack/Email・使われないイベント種別まで作っており作りすぎ（YAGNI/KISS）",
+   "severity": "高",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "tests/notify.test.ts は EventBus と Factory の内部だけを確かめ、担当者変更時にログが出る・出ないという受入条件を確かめていない",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "notify/index.ts の読み込み時の購読登録とグローバルな eventBus により、updateTask の副作用がコードから追えず、テストでも差し替えられない",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "events.ts の subscribe/emit で as unknown as Handler や as never のキャストを使い、型検査を回避している",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0252604
+ }
+}
