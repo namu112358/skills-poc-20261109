@@ -1,0 +1,48 @@
+{
+  "trial": "W22-hk-baseline-c5-1",
+  "scenario": "W22",
+  "config": "hk-baseline",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# コードレビュー: 担当者の項目名を `assigneeId` / `assignee_id` にする変更\n\n対象: 未コミットの差分（`git diff HEAD`）。確認のため `npm test` を実行した（19 件すべて成功）。\nただし、以下の 1・2 は既存のテストでは検出されない。動作は一時的なスクリプトで直接確認した。\n\n## 指摘一覧\n\n### 1. 【高】`listTasks` が担当者 ID を返さない（一覧画面と一覧 API で担当者が空になる）\n\n- 場所: `src/lib/tasks.ts` の `listTasks`（37 行目の SQL）と `toTask`（31–33 行目）\n- 問題: `listTasks` の SQL が `assignee_id AS assignee` と書かれているが、`toTask` は `row.assignee_id` を読む。そのため `assigneeId` は `undefined` になる。\n  - 入力: 任意の `listTasks({})` 呼び出し（`/tasks` 画面、`GET /api/tasks`）。\n  - 結果（実行で確認）: `{\"id\":1,\"title\":\"要件定義書のレビュー\",\"status\":\"done\",\"dueDate\":\"2026-11-02\"}` のように `assigneeId` が欠ける。`getTask(1)` は `assigneeId: \"sato\"` を返すので、一覧と単体で結果が食い違う。\n  - `/tasks` 画面の担当者列は空欄になり、PR の「画面の表示は変えない」に反する。\n  - 既存の `listTasks` テストは件数と `status` しか見ていないため、落ちない。\n- 直し方: SQL のエイリアスを外し、`SELECT id, title, status, assignee_id, due_date FROM tasks ...` とする（`getTask` と同じ形）。あわせて `listTasks` のテストで返り値の各項目（特に `assigneeId`）を検証する。\n\n### 2. 【高】API の入出力（JSON のキー）が変わり、既存のクライアントが壊れる\n\n- 場所: `src/lib/tasks.ts` の `validateTaskInput`（87–92 行目の `need(\"assigneeId\")` と `value.assigneeId`）、`toTask`（32 行目、返す JSON の `assigneeId`）。影響を受けるのは `src/app/api/tasks/route.ts` の `POST`（13 行目）、`src/app/api/tasks/[id]/route.ts` の `PATCH`（16 行目）と `GET`。\n- 問題: PR の表では「画面・API は変えない」としているが、API の JSON のキーが `assignee` から `assigneeId` に変わっている。\n  - 入力: 従来どおり `POST /api/tasks` に `{\"title\":\"a\",\"status\":\"todo\",\"assignee\":\"sato\",\"dueDate\":\"2026-12-01\"}` を送る。\n  - 結果（実行で確認）: `validateTaskInput` は `{\"ok\":false,\"errors\":[\"担当者が存在しません\"]}` を返し、API は 400 になる。\n  - レスポンスの `task.assignee` も `task.assigneeId` に変わるため、読む側も壊れる。\n- 直し方: どちらかに決める。\n  - (a) API の境界では従来の `assignee` のキーを維持する（`validateTaskInput` の入力と `toTask` の出力を変換する層を挟む、あるいは API Route で変換する）。PR の「API は変えない」を守る案。\n  - (b) API の変更を仕様として認め、PR の説明と変更表を直し、API の利用者に通知する。\n  - 上の変更内容のままマージするなら (b) にあたるので、少なくとも PR の説明を訂正すること。\n\n### 3. 【中】テストが項目名の変更とエンドツーエンドの形を検証していない\n\n- 場所: `tests/tasks.test.ts` の `listTasks` のテスト（14–24 行目）、`validateTaskInput` の `valid` 入力（48 行目）\n- 問題: `listTasks` のテストは件数と `status` しか見ていないため、指摘 1 が通ってしまう。`validateTaskInput` のテストは新しい `assigneeId` キーだけを使うため、指摘 2 の互換性の破れも検出されない。\n- 直し方: `listTasks` の各要素について `assigneeId` を含む全項目を `deepEqual` で確認する。API の入出力（JSON のキー）についても、望む形（a または b）に合わせてテストを追加する。\n\n### 4. 【低】マイグレーション 3 で列名を変えたが、インデックス名が古いまま\n\n- 場所: `src/lib/db/migrations.ts` の version 3（42–47 行目、`ALTER TABLE tasks RENAME COLUMN assignee TO assignee_id;`）\n- 問題: 列の付け替えで `tasks_assignee` インデックスは残る（名前は `tasks_assignee` のまま、対象は `assignee_id` 列）。PR の目的（名前を揃える）からすると中途半端。動作には影響しない。\n- 直し方: version 3 の SQL に `DROP INDEX tasks_assignee; CREATE INDEX tasks_assignee_id ON tasks(assignee_id);` を追加する。既存の version 1 は書き換えない（CLAUDE.md の規約 7）。コメントの「インデックスは SQLite が付け替える」も、その記述に合わせて直す。\n\n## 問題が無いと判断した点\n\n- マイグレーションの番号付けと適用方法（`PRAGMA user_version`、トランザクション内での適用）は既存の仕組みに沿っている。既存の DB（version 2）にも version 3 が順に適用される。\n- `seed.ts`、`index.ts` の INSERT、`updateTask`、`createTask` の列名とプレースホルダの対応は正しい。\n- 画面の文言は変わっていない。\n- 残っている `assignee` の文字列は、いずれもマイグレーション 1 の旧定義か、指摘 1 の SQL エイリアスだけ。\n",
+  "review_chars": 2999,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0254,
+    "tokens": {
+      "input": 34,
+      "output": 12041,
+      "cache_read": 930444,
+      "cache_creation": 50512
+    },
+    "turns": 25,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/poc-trials/W22-hk-baseline-c5-1/scratch_check.ts 2>/dev/null; mkdir -p /tmp/claude-0/-tmp-poc-trials-W22-hk-baseline-c5-1-app/e71af056-07eb-4b54-98b8-cb1e2a74f1cb/scratchpad &&"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --experimental-strip-types /tmp/claude-0/-tmp-poc-trials-W22-hk-baseline-c5-1-app/e71af056-07eb-4b54-98b8-cb1e2a74f1cb/scratchpad/check.ts 2>&1 | grep -v -i warning; echo \\\"exit=$?\\\""
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -q -m \\\"$(printf 'Add code review notes for assigneeId rename\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claud"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 14,
+      "Write": 4,
+      "Edit": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 70,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は、直前のレビューの 4 件をそのまま残し、場所の欄だけを行番号つきに直しました。新しい指摘は足していません。コードには触れていません。`REVIEW.md` だけを `2976866` としてコミットしました。\n\n指摘の内容は前回と同じです。`REVIEW.md` は、各指摘に場所・問題・直し方・重要度（高・中・低）を書く形式になっています。\n\n1. **高**: `listTasks`（`src/lib/tasks.ts` 37 行目）が担当者 ID を返さない。`toTask`（31–33 行目）と SQL の別名が合っていない。\n2. **高**: API の JSON キーが `assignee` から `assigneeId` に変わる（`validateTaskInput` 87–92 行目、`toTask` 32 行目、`POST` と `PATCH`）。\n3. **中**: `tests/tasks.test.ts` の `listTasks` テスト（14–24 行目）が項目の中身を見ていない。\n4. **低**: マイグレーション 3（`migrations.ts` 42–47 行目）でインデックス名 `tasks_assignee` が残る。\n\n作業ツリーには、レビュー対象の未コミット差分（8 ファイル）がそのまま残っています。"
+  },
+  "interventions": 0
+}

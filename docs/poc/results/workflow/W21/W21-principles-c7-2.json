@@ -1,0 +1,33 @@
+{
+  "trial": "W21-principles-c7-2",
+  "scenario": "W21",
+  "config": "principles",
+  "case": "c7",
+  "rep": 2,
+  "review_md": "# レビュー: 担当者変更の監査ログ\n\n## 要約\n\n目的は「担当者が変わったときに `[audit] ...` を 1 行ログに出す」こと。記録先は当面ログだけと合意済み。\n実際に要る変更は `updateTask` に `console.log` を 1 行足すだけだが、イベントバス・Notifier 抽象・Factory・Slack/メールの未実装クラスまで作られている。さらに、それが原因で更新が失敗する経路がある。**修正を求める。**\n\n## 良い点\n\n- 担当者が変わらない更新では出さない、という条件を `next.assignee !== current.assignee` で正しく判定している。\n- ログの出力は DB の UPDATE の後に行っており、書き込みに失敗した更新の記録が残ることはない。\n- 型の絞り込みや、`src/lib/` にロジックを置く既存の方針は守っている。\n\n## 指摘\n\n### 1. 【重要度: 高】`NOTIFIER_KIND=slack` / `email` にすると、DB は更新されたのに更新 API が例外になる\n\n- 場所: `src/lib/notify/notifier.ts` の `SlackNotifier.send` / `EmailNotifier.send`、`src/lib/notify/index.ts`、`src/lib/tasks.ts` の `updateTask`（emit の箇所）\n- 何が起きるか: 環境変数 `NOTIFIER_KIND` を `slack` または `email` にすると、`send` が必ず `throw` する。`updateTask` は UPDATE を実行した後で `eventBus.emit` を呼ぶ。`emit` はハンドラの例外をそのまま伝えるので、`PATCH /api/tasks/:id` で担当者を変えると、DB は更新済みなのに 500 が返る。クライアントは失敗と思って再送する。設定ミスや、将来 Slack を有効にしかけた状態で、本業の更新が壊れる。\n- 直し方: 未実装のクラスと切り替えの仕組みごと削除する（指摘 2）。そのうえで、監査ログ出力の失敗でタスク更新を失敗させない方針にするなら、ログ出力側で例外を握って `console.error` する。\n  なお、`NOTIFIER_KIND` に知らない値を入れると黙って console に落ちる。これは設定誤りに気づけない。切り替えを残すなら、不正な値は起動時にエラーにする。\n\n### 2. 【重要度: 高】合意されていない仕組みを作りすぎている（YAGNI / KISS）\n\n- 場所: `src/lib/notify/events.ts`、`src/lib/notify/notifier.ts`、`src/lib/notify/index.ts`（新規 3 ファイル、約 90 行）\n- 何が起きるか:\n  - PR には「記録先は当面ログだけで、ほかの記録先にする予定は今のところない」とある。それなのに、`Notifier` インターフェース、`NotifierKind`、`NotifierFactory`、環境変数 `NOTIFIER_KIND`、`SlackNotifier`、`EmailNotifier`（どちらも常に例外）がある。`SLACK_WEBHOOK_URL` という新しい設定項目も増えている。\n  - `AppEvent` には発行されないイベント（`task.status_changed`、`task.created`）が定義されている。購読者も無い。\n  - 使われないコードは、読む人と保守の負担になる。そのうえ、指摘 1 の不具合の元になっている。\n  - `CLAUDE.md` の規約 6（依頼された範囲にとどめる）にも反する。\n- 直し方: `src/lib/notify/` を丸ごと削除する。`updateTask` に次のように書く。ログの形式を整える関数が必要なら `src/lib/` に小さく 1 つ置く。\n\n  ```ts\n  if (next.assignee !== current.assignee) {\n    console.log(`[audit] task ${id}: assignee ${current.assignee} -> ${next.assignee} at ${new Date().toISOString()}`);\n  }\n  ```\n\n  別の記録先が実際に必要になった時点で、そのときの要件に合わせて抽象を作る。\n\n### 3. 【重要度: 中】追加した振る舞いそのもののテストが無い\n\n- 場所: `tests/notify.test.ts`（追加）、`tests/tasks.test.ts`（変更なし）\n- 何が起きるか:\n  - テストは EventBus と Factory の内部だけを確かめている。PR の受入条件を確かめるものが無い。受入条件は、担当者が変わると `[audit] task <ID>: assignee <前> -> <後> at <日時>` が出ることと、変わらない更新では出ないこと。\n  - 例えば `updateTask` の emit を消しても、`npm test` は通る。PR の「検証結果」にある「テストが通った」は、この機能の動作を保証していない。\n  - Factory のテストは `instanceof` と内部の `kind` を見ているだけで、内部の実装を直すと落ちる。\n- 直し方: `tests/tasks.test.ts` に、`openDb()` の DB を渡して `updateTask` を呼ぶテストを足す。`console.log` を差し替えて出力を取る。日時は固定するか、形式だけ確かめる。\n  - 担当者を変えると、期待する 1 行が 1 回出る。\n  - タイトルだけの更新や、同じ担当者への更新では出ない。\n  - 存在しない ID では出ない。\n  指摘 2 のとおり `notify/` を消すなら、`tests/notify.test.ts` も削除する。\n\n### 4. 【重要度: 中】グローバルなシングルトンと import の副作用で、`tasks.ts` の挙動が見えにくい\n\n- 場所: `src/lib/notify/index.ts`（読み込み時に購読を登録）、`src/lib/notify/events.ts`（`eventBus` の共有インスタンス）、`src/lib/tasks.ts:2`\n- 何が起きるか:\n  - ログが出るかどうかは、`notify/index.ts` が import されたかに依存する。`tasks.ts` は `index.ts` を import しているので今は動くが、`events.ts` を直接 import するとログが出ない。\n  - 呼び出し元（`updateTask`）を読んでも、何が起きるかが分からない。\n  - `src/lib/` の関数は、テスト用に引数 `db` を渡せる設計になっている。これに対し、バスは差し替えられず、テストのたびに実際のログが出る。\n- 直し方: 指摘 2 の直接ログ出力に変えれば解消する。バスを残す場合でも、購読の登録は `index.ts` の読み込みの副作用にせず、明示的な関数にする。\n\n### 5. 【重要度: 低】型の安全性を弱めるキャストがある\n\n- 場所: `src/lib/notify/events.ts` の `subscribe`（`as unknown as Handler`）、`emit`（`event as never`）\n- 何が起きるか: コンパイラの検査を回避している。ハンドラの型を取り違えても、型検査では見つからない。\n- 直し方: 指摘 2 で削除する。残す場合は、型ごとに分けた型安全な形にする。\n\n## 補足（問題なしと判断した点）\n\n- `updateTask` で、ログに必要な `current.assignee` を更新前に取得している。この点は妥当。\n- ログに出す内容は、タスク ID・前後の担当者・時刻だけで、個人情報や機密に当たるものは含まれない。\n",
+  "review_chars": 3529,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2389,
+    "tokens": {
+      "input": 20,
+      "output": 4931,
+      "cache_read": 369059,
+      "cache_creation": 38167
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 50,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの 5 件は、すでに `REVIEW.md` に指定の形式で書いてコミット済みです（コミット `302ce2d`）。そのため、今回は書き換えもコミットもしていません。`REVIEW.md` に未コミットの変更はありません。\n\n5 件とも「場所・何が起きるか・直し方・重要度」を書いています。指摘を足したり削ったりはしていません。\n\n1. 【高】`NOTIFIER_KIND=slack` / `email` で、DB は更新されるのに更新 API が例外になる\n2. 【高】合意されていない仕組みを作りすぎている（YAGNI / KISS）\n3. 【中】追加した振る舞いそのもののテストが無い\n4. 【中】グローバルなシングルトンと import の副作用で、`tasks.ts` の挙動が見えにくい\n5. 【低】型の安全性を弱めるキャストがある\n\nコードは直していません。PR の変更は、これまでどおりステージされたままで、コミットしていません。"
+  },
+  "interventions": 0
+}

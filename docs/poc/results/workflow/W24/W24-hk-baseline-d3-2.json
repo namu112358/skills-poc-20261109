@@ -1,0 +1,47 @@
+{
+  "trial": "W24-hk-baseline-d3-2",
+  "scenario": "W24",
+  "config": "hk-baseline",
+  "case": "d3",
+  "rep": 2,
+  "review_md": "# コードレビュー: ダッシュボードとタスクのコメント\n\n対象: `git diff HEAD`（未コミットの差分。新規ファイルを含む）\n確認: `npm run typecheck` は通過。`npm test` は 30 件すべて通過。ただし下記の問題はテストで検出されていない。\n\n重要度: 高（マージ前に必ず直す） / 中（マージ前に直すことを推奨） / 低（余裕があれば直す）\n\n---\n\n## 高\n\n### 1. ダッシュボードのキャッシュがユーザーをまたいで共有される（情報漏えい）\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（64 行目付近）\n- 問題: キャッシュのキーが `\"dashboard\"` の固定値で、`userId` が含まれていない。例えば佐藤さんが 30 秒以内に `/dashboard` を開くと、その後に鈴木さんが開いても佐藤さんのタスク一覧・件数・期限切れ一覧が表示される（`/api/dashboard` も同じ）。`userId` を無視して返すため、認可の境界を越えて他人の担当タスクが見える。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。テストに「2 人のユーザーで続けて呼んで、それぞれ自分の担当だけが返る」ケースを追加する。\n\n### 2. コメントの編集（PATCH）に作成者の確認が無い\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`（9〜18 行目）\n- 問題: ログインしていれば誰でも、他人のコメント本文を書き換えられる。`DELETE` には `comment.authorId !== user.id` の確認（27 行目）があるのに、`PATCH` には無い。\n- 直し方: `DELETE` と同じく、`comment.authorId !== user.id` のとき 403（「自分のコメントだけを編集できます」）を返す。PATCH の権限テストを追加する。\n\n### 3. コメント本文のリンクで `javascript:` URL が通る（保存型 XSS）\n- 場所: `src/lib/comments.ts` `renderBody`（63 行目）、`src/app/tasks/[id]/page.tsx` の `dangerouslySetInnerHTML`（42 行目）\n- 問題: HTML の特殊文字はエスケープしているので、タグを挿入することはできない。しかし `[文字](URL)` の URL 部分は `[^)\\s]+` で何でも許すため、`[クリック](javascript:...)` という本文を投稿すると、`<a href=\"javascript:...\">` になり、そのリンクを開いた人のブラウザでスクリプトが動く。`dangerouslySetInnerHTML` で描画しているので、コメントを見るすべての人が対象になる。\n- 直し方: リンクにしてよいのは `http:` と `https:` だけにする（相対パスも不可なら含めない）。それ以外の形式は、リンクにせず通常の文字として表示する。テストに `javascript:` と `data:` のケースを追加する。\n\n### 4. `countByStatus` が共有の定数 `TASK_STATUSES` を書き換える\n- 場所: `src/lib/dashboard.ts` `countByStatus`（37 行目）。元の定数は `src/lib/tasks.ts` の `TASK_STATUSES`（9 行目）\n- 問題: `Array.prototype.reverse()` は配列をその場で並べ替える。そのため呼ぶたびに `TASK_STATUSES` の並びが反転し、次の呼び出しで元に戻る。ダッシュボードの表示順が描画のたびに入れ替わるほか、同じ定数を使う他の処理（一覧の並び順など）にも影響しうる。テストの「done が先頭」は 1 回の呼び出しでしか確認していないため通ってしまう。\n- 直し方: `const order = [...TASK_STATUSES].reverse();` にするか、表示順を `[\"done\", \"in_progress\", \"todo\"]` と明示的に書く。2 回続けて呼んでも結果が同じことを確かめるテストを追加する。\n\n---\n\n## 中\n\n### 5. 日曜日に「今週が期限」が翌週の範囲になる\n- 場所: `src/lib/week.ts` `weekRange`（20 行目）\n- 問題: `dow` は日曜が 0 なので、`start = addDays(today, 1 - dow)` は日曜のとき翌日（翌週の月曜）になる。例: 2026-11-15（日）に開くと、今週は 11-09〜11-15 のはずが、11-16〜11-22 になり、今週の期限のタスクが表示されない。\n- 直し方: 月曜からの経過日数 `const offset = (dow + 6) % 7;` を使い、`start = addDays(today, -offset)` にする。日曜日（2026-11-15）のテストを追加する。\n\n### 6. コメントの作成日時を地域形式の文字列で保存しており、並び順が崩れる\n- 場所: `src/lib/comments.ts` `formatCreatedAt`（23 行目）と `listComments` の `ORDER BY created_at, id`（29 行目）\n- 問題: `toLocaleString(\"ja-JP\")` は `2026/9/5 10:00:00` のように月・日を 0 埋めしない。SQL の `ORDER BY` は文字列として比較するので、`2026/10/1` が `2026/9/5` より前に並ぶ（確認済み）。また出力形式が実行環境の ICU に依存する。\n- 直し方: DB には `new Date().toISOString()`（UTC）で保存し、表示するときに日本時間へ変換する。`ORDER BY` はそのまま使える。9 月と 10 月をまたぐ並び順のテストを追加する。\n\n### 7. 担当タスクが 0 件のとき完了率が「NaN%」になる\n- 場所: `src/lib/dashboard.ts` `completionRate`（45〜47 行目）\n- 問題: `tasks.length === 0` のとき `0 / 0` で `NaN` になり、ページに「完了率 NaN%」と表示される（確認済み）。\n- 直し方: 件数が 0 のとき 0 を返す。0 件のケースのテストを追加する。\n\n### 8. SQL に `userId` を文字列連結で埋め込んでいる（CLAUDE.md 規約 8 違反）\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`（29 行目）\n- 問題: `` `... WHERE assignee = '${userId}' ...` `` は SQL インジェクションの形になっている。現在 `userId` はログイン済みのセッションから来る固定のユーザー ID なので直ちには悪用できないが、規約に違反しており、ユーザー ID が入力から決まるようになると危険になる。\n- 直し方: `WHERE assignee = ?` とし、`.all(userId)` でプレースホルダに渡す。\n\n### 9. 存在しないタスクへのコメント投稿が 404 にならず、500 になる\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` `POST`（20〜21 行目）\n- 問題: `POST` は ID の形式だけを確認し、タスクが存在するかを確認していない。`PRAGMA foreign_keys = ON`（`src/lib/db/index.ts`）のため、`INSERT` は外部キー違反で例外になり、500 を返す。CLAUDE.md の「対象が無いときは 404」にも反する。`GET` にはこの確認がある（16 行目）。\n- 直し方: `if (id === undefined || !getTask(id)) return jsonError(404, \"タスクが見つかりません\");` にする。存在しない ID への POST のテストを追加する。\n\n### 10. テストが今回の不具合を捕まえていない\n- 場所: `tests/comments.test.ts`、`tests/dashboard.test.ts`\n- 問題: API の認可（401・403・404）のテストが無く、コメントの PATCH の権限（指摘 2）、キャッシュのユーザー分離（指摘 1）、日曜日の週範囲（指摘 5）、`javascript:` リンク（指摘 3）、0 件の完了率（指摘 7）のテストも無い。CLAUDE.md の規約 5（ロジックを変えたら単体テストを追加する）の範囲でも不足している。\n- 直し方: 上の各指摘に対応するケースを追加する。API 経路は少なくとも認可の分岐を確認する。\n\n---\n\n## 低\n\n### 11. 期限切れと「今週が期限」に同じタスクが両方出る\n- 場所: `src/lib/dashboard.ts` `overdueTasks`（53 行目）と `dueThisWeek`（59 行目）\n- 問題: 月曜から昨日までに期限が来た未完了タスクは、期限切れ（`dueDate < today`）と今週（`dueDate >= 月曜`）の両方に入る。画面に同じタスクが 2 回出る。\n- 直し方: どちらを正とするか決める。例えば「今週が期限」を `dueDate >= today` と `dueDate <= 日曜` にして、期限切れと重ならないようにする。仕様として決めたことをテストに書く。\n\n### 12. キャッシュの有効期間と無効化\n- 場所: `src/lib/cache.ts`、`src/lib/dashboard.ts`（`CACHE_TTL_MS = 30_000`）\n- 問題: タスクのステータスを変えても、最大 30 秒は古い件数が表示される。PoC としては許容できる可能性が高いが、画面に「更新直後に反映されない」と書いておくか、タスク更新時にキャッシュを消す必要がある。指摘 1 を直すときに、この点も合わせて決めるとよい。\n\n---\n\n## 問題なしと判断した点（参考）\n- コメントの本文は HTML エスケープしてから変換しているため、タグの直接挿入は防げている（リンク以外）。\n- `DELETE` は作成者の確認をしている。\n- 新しいマイグレーションは末尾に version 3 として追加されており、既存のマイグレーションは変更されていない。\n- `parseTaskId` によって ID は正の整数に限定されている。\n",
+  "review_chars": 4723,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0251,
+    "tokens": {
+      "input": 28,
+      "output": 13386,
+      "cache_read": 797744,
+      "cache_creation": 52190
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node -v && node -e '\\nconsole.log(new Date(\\\"2026-09-05T01:00:00Z\\\").toLocaleString(\\\"ja-JP\\\",{timeZone:\\\"Asia/Tokyo\\\"}));\\nconsole.log(new Date(\\\"2026-10-01T01:00:00Z\\\").toLocaleString(\\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'Add code review notes for dashboard and comments\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://cla"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -F /tmp/poc-trials/W24-hk-baseline-d3-2/app/.git/REVIEW_MSG.txt -- REVIEW.md 2>&1; echo \\\"exit $?\\\"\", \"description\": \"Commit REVIEW.md only\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 83,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は前回の作業ですでに、依頼された形式（場所・問題・直し方・重要度）で書かれていて、コミット `de3b523` に入っています。作業ツリーとの差分はありません。指摘は 12 件すべて残っているので、今回は書き換えもコミットもしていません。空のコミットを作ると履歴が汚れるためです。\n\n中身は次のとおりです。\n- 高: 1〜4（キャッシュのユーザー間共有、PATCH の権限不足、`javascript:` リンクによる XSS、`TASK_STATUSES` の書き換え）\n- 中: 5〜10（日曜日の週範囲、コメント日時の並び順、完了率 NaN、SQL の文字列連結、存在しないタスクへの投稿、テスト不足）\n- 低: 11〜12（期限切れと今週の重複、キャッシュの有効期間）\n\n新しい指摘は追加していません。指摘の削除もしていません。\n\n別の形式にしたい場合（例えば Issue 形式や表）は教えてください。その場合は `REVIEW.md` を書き直して、そのファイルだけをコミットします。"
+  },
+  "interventions": 0
+}

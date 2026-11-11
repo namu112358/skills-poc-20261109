@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "emit に try/catch が無く、NOTIFIER_KIND=slack/email のとき未実装の send() の例外が DB 更新後に updateTask から出て PATCH が 500 になる（更新は保存済み）",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "NotifierFactory.create の registry[kind] が Object.prototype の継承キー（constructor・toString・__proto__）に反応し、console へのフォールバックが効かず send で TypeError になる",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "notify/index.ts が import の副作用で通知器の生成と購読の登録を行うため、updateTask を使うだけ（テストを含む）で購読と出力が起き、HMR などで重複登録もされる",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "NOTIFIER_KIND はロード時に 1 回読まれるだけで、不正な値でも起動時に気づけず、最初の担当者変更で失敗する",
+   "severity": "中",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "テストはバスとファクトリの単体だけで、担当者が変わったときに emit し、変わらないときに emit しないという updateTask の振る舞いを確かめていない",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "監査ログの行に、誰が変更したか（操作者）が含まれていない",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "console.log 1 行の要件に対して、常に throw する SlackNotifier/EmailNotifier のスタブ・ファクトリ・レジストリ・インターフェースを加えており、依頼された範囲を超えている",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "task.status_changed / task.created のイベント型は宣言されているだけで、どこからも emit されない",
+   "severity": "低",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "unsubscribe が同じハンドラの登録をすべて外し、空の配列が Map に残る",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 10,
+   "summary": "emit 中に subscribe すると反復中の配列に追加され、新しいハンドラが同じ emit の中で実行される",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 11,
+   "summary": "NotifierKind の宣言順と、レジストリのキーとの二重管理を、コンパイラが保証できない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "ConsoleNotifier.send が event 引数を使っていない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0816278
+ }
+}

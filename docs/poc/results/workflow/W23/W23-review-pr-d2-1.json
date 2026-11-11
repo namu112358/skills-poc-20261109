@@ -1,0 +1,33 @@
+{
+  "trial": "W23-review-pr-d2-1",
+  "scenario": "W23",
+  "config": "review-pr",
+  "case": "d2",
+  "rep": 1,
+  "review_md": "# レビュー: タスクにコメントを付けられるようにする\n\n## 高\n\n### 1. `renderBody` が `javascript:` リンクを通す（保存型 XSS）\n- 場所: `src/lib/comments.ts` の `renderBody`、表示側は `src/app/tasks/[id]/page.tsx` の `dangerouslySetInnerHTML`\n- 問題: `[クリック](javascript:alert(document.cookie))` というコメントを投稿すると `<a href=\"javascript:...\">` がそのまま出力される。URL に空白と `)` が含まれなければ通る。HTML のエスケープは `<` `>` `\"` `&` だけで、URL のスキームは検証していない。タスクを開いた他のユーザーがリンクをクリックすると、そのユーザーの権限でスクリプトが動く。`data:` なども同様。\n- 直し方: リンクにするのは `http:` / `https:` だけにする（`new URL()` で解析してスキームを確認。通らなければリンクにせず文字列のまま出す）。できれば `dangerouslySetInnerHTML` をやめ、本文を分割して React の要素（`<a>` / `<br>`）として描画する。テストに `javascript:` の入力を追加する。\n\n### 2. 他人のコメントを編集できる\n- 場所: `src/app/api/comments/[commentId]/route.ts` の `PATCH`\n- 問題: `DELETE` は `comment.authorId !== user.id` を確認しているが、`PATCH` には確認が無い。ログイン済みなら誰でも、他人のコメントの本文を書き換えられる（なりすましで発言を改ざんできる）。\n- 直し方: `DELETE` と同じ作成者の確認を `PATCH` にも入れ、違えば 403 を返す。権限判定は `src/lib/comments.ts` の関数にまとめて両方から使う。他人のコメントに対する PATCH / DELETE が 403 になるテストを足す。\n\n## 中\n\n### 3. 存在しないタスクへの `POST` が 500 になる\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` の `POST`\n- 問題: `GET` は `getTask(id)` で存在を確認しているが `POST` は確認していない。`POST /api/tasks/9999/comments` では外部キー（`PRAGMA foreign_keys = ON`）違反の例外 `FOREIGN KEY constraint failed` が出て 500 になる。CLAUDE.md の規約 9 は「対象が無いときは 404」。\n- 直し方: `GET` と同じく `!getTask(id)` なら 404 を返す。\n\n### 4. コメントの並び順が日付として正しくない\n- 場所: `src/lib/comments.ts` の `formatCreatedAt` と `listComments` の `ORDER BY created_at, id`\n- 問題: `created_at` に表示用の `toLocaleString(\"ja-JP\")` の文字列（`2026/10/1 10:00:00` のように月日がゼロ埋めされない）を保存し、それを文字列として並べ替えている。`2026/9/30` と `2026/10/1` を投稿すると、10 月 1 日のコメントが先に並ぶ（実際に確認した）。時刻の桁も同様。\n- 直し方: DB には ISO 8601（`now.toISOString()`）を保存し、`ORDER BY created_at, id` はそのままにする。表示用の整形は画面側（`formatCreatedAt` を表示時に使う）で行う。マイグレーション 3 はまだ未適用なので、書き換えずに済む今のうちに直す。並び順のテスト（月・日をまたぐ日時）を追加する。\n\n### 5. 画面からコメントを書けない\n- 場所: `src/app/tasks/[id]/page.tsx`\n- 問題: PR の説明は「コメントを読み書きできる」だが、画面には一覧表示しかなく、投稿・編集・削除のフォームやボタンが無い。書けるのは API を直接呼んだときだけ。\n- 直し方: 投稿フォーム（日本語の文言）を追加する。意図して API だけにするなら、PR の説明を直す。\n\n## 低\n\n### 6. テストが足りない\n- 場所: `tests/comments.test.ts`\n- 問題: ライブラリ関数の正常系しか無く、API Route の認可（401・403・404）、存在しないタスク、`javascript:` リンク、`&` を含む URL、長さ 2000 文字ちょうどの境界、並び順の月またぎが無い。1〜4 はテストがあれば PR 作成時に見つかっていた。\n- 直し方: 上の各項目に対応するテストを足す。Route のロジックは `src/lib/` に出すと単体テストしやすい。\n\n### 7. 細かい点\n- `src/app/api/comments/[commentId]/route.ts`: コメント ID の検証に `parseTaskId`（名前がタスク用）を使っている。`parseId` のような汎用名にするか、コメント用の関数を用意する。\n- `updateComment` は編集したことを記録しない。編集済みの表示が要るなら `updated_at` 列を追加する（今ならマイグレーション 3 に含められる）。\n- `getUser(c.authorId)?.name ?? c.authorId` は、ユーザー削除後の ID をそのまま表示する。外部キーがあるので通常は起きない。\n",
+  "review_chars": 2584,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2519,
+    "tokens": {
+      "input": 24,
+      "output": 4708,
+      "cache_read": 462692,
+      "cache_creation": 39628
+    },
+    "turns": 10,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 7
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 50,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は、直前のレビューの指摘をすべて、依頼された形式で書いてあります。そのため、書き写し直す作業は要りませんでした。変更もコミットも新しく足していません。\n\n- **内容:** 7 件の指摘を載せています。高が 2 件、中が 3 件、低が 2 件です。各項目に、場所、何が問題か（どういう入力で何が起きるか）、直し方、重要度を書いています。新しい指摘は足しておらず、削った指摘もありません。\n- **コミット:** 先ほどの `PR レビュー結果（コメント機能）を追加` で、`REVIEW.md` だけをコミット済みです。コミットに含まれるのは `REVIEW.md` だけで、`git status` でも `REVIEW.md` に未コミットの変更はありません。\n- **コード:** 直していません。元の未コミットの差分は、そのまま残っています。"
+  },
+  "interventions": 0
+}

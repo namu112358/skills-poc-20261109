@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "EventBus.emit が購読者の例外を握りつぶさず同期で伝えるため、UPDATE 実行後に通知が失敗すると、更新は保存済みなのに PATCH API が 500 を返す",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "NOTIFIER_KIND に slack・email を指定すると、NotifierFactory はそれを有効な値として受け付けるが、SlackNotifier・EmailNotifier は未実装で常に例外を投げるため、設定ミスがそのまま障害になる",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "ログに 1 行出す要件に対して、src/lib/notify/ のイベントバス・ファクトリ・未実装の Slack/メール通知・使われないイベント型を作りすぎており、updateTask で直接 console.log すべき",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "tests/notify.test.ts はイベントバスとファクトリの動作しか確かめず、担当者が変わったときだけ監査ログが出るという要件を検証していない",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "購読の登録が notify/index.ts の読み込み時の副作用で行われ、updateTask からの通知の結線が追えず、除去されると記録が黙って止まる",
+   "severity": "低",
+   "match": "P2",
+   "kind": ""
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0675438
+ }
+}

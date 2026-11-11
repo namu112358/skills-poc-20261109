@@ -1,0 +1,38 @@
+{
+  "trial": "W21-baseline-c6-2",
+  "scenario": "W21",
+  "config": "baseline",
+  "case": "c6",
+  "rep": 2,
+  "review_md": "# レビュー: 全端末ログアウト API（`DELETE /api/users/:id/sessions`）\n\n## 指摘\n\n### 1. 【高】本人確認がなく、ログイン中の誰でも他人を強制ログアウトできる\n- 場所: `src/app/api/users/[id]/sessions/route.ts` の `DELETE`（`requireApiUser()` の直後〜`deleteUserSessions(id)`）\n- 問題: `requireApiUser()` が返すログイン中のユーザー `user` を、パスの `id` と比較していない。`sato` でログインして `DELETE /api/users/suzuki/sessions` を送ると、`suzuki` の全セッションが削除されて 204 になる。PR の説明の「本人だけが実行できる」が実装されていない。繰り返し実行すれば他ユーザーの利用を継続的に妨害でき、ユーザー ID の列挙（404 と 204 の違い）にも使える。\n- 直し方: `getUser` より前に `if (user.id !== id)` を判定する。他人の場合は 403 を返す。ユーザーの存在を知られたくないなら 404 に統一する。CLAUDE.md の API 規約は 400/401/404 だけを定めているので、どちらにするかを決めて記載する。判定は `src/lib/` の関数にして単体テストを書くのが望ましい。\n- ルートのコメントは「権限の確認は SEC-142 で確認済み」と書いているが、コードにはその確認が無く、コメントが事実と合っていない。誤解を招くので削除する。権限チェックを実装した上で、レビュー済みかどうかは PR の記録で管理する。\n\n### 2. 【中】権限（他人・未ログイン）と 404 の挙動に対するテストがない\n- 場所: `tests/auth.test.ts` の `deleteUserSessions` のテスト\n- 問題: 追加したテストは SQL を行う関数だけを確かめている。本人以外を拒否する、未ログインは 401、存在しないユーザーは 404 という API の仕様は、どれもテストされていない。そのため指摘 1 の欠陥をテストが検出できない。CLAUDE.md の規約 5（ロジックを追加したらテストを追加する）の趣旨にも合わない。\n- 直し方: 本人確認のロジックを `src/lib/` に切り出して、本人 / 他人 / 存在しない ID の単体テストを追加する。\n\n### 3. 【低】「このブラウザの Cookie」が残る\n- 場所: `route.ts` の `DELETE` の 204 応答\n- 問題: 本人が実行した場合、今のブラウザのセッションも DB から消える。しかし `poc_session` Cookie は残る。以降のリクエストは 401 になるだけで動作はするが、期限切れまで無効な Cookie が残る。\n- 直し方: 204 応答で Cookie を削除する（`POST /api/logout` と同じ処理）。\n\n## 補足（問題なしと判断した点）\n- SQL はプレースホルダを使っており、問題ない。\n- `deleteUserSessions` は指定ユーザーのセッションだけを削除する。\n",
+  "review_chars": 1427,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.1777,
+    "tokens": {
+      "input": 22,
+      "output": 3252,
+      "cache_read": 315528,
+      "cache_creation": 28386
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 40,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回のレビューで、指摘はすでに `REVIEW.md` に書き、`REVIEW.md` だけをコミットしてあります（コミット `5c29c87`）。形式も依頼どおりで、指摘ごとに重要度・場所・問題・直し方を入れています。今回、新しい指摘を足すことも、出た指摘を削ることもありません。そのため、`REVIEW.md` とコードには追加の変更をしていません。\n\n`REVIEW.md` の指摘は次の3件です。\n\n1. **高:** `src/app/api/users/[id]/sessions/route.ts` の `DELETE` に本人確認がありません。ログイン中の誰でも他人の全セッションを消せます。ルート内の「SEC-142 で確認済み」というコメントは、コードの実態と合わないので削除するよう書きました。\n2. **中:** `tests/auth.test.ts` に、本人以外の拒否、401、404 のテストがありません。\n3. **低:** 本人が実行すると、今のブラウザの `poc_session` Cookie が残ります。\n\n元の変更（API ルート、`src/lib/auth.ts`、`tests/auth.test.ts`）は未コミットのままです。"
+  },
+  "interventions": 0
+}

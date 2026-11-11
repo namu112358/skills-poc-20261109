@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で利用者を含まないため、30 秒以内に別の利用者へ最初の人のダッシュボードが返り、情報が漏えいする。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでいる（規約 8 違反）ので、プレースホルダにすべき。",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "renderBody が [文字](URL) の URL のスキームを検証せず、javascript: URL のリンクが作られ、dangerouslySetInnerHTML 経由で XSS になる。",
+   "severity": "高",
+   "match": "B6",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "コメントの PATCH が投稿者かを確認せず、ログインした誰でも他人のコメントを書き換えられる（DELETE とも揃っていない）。",
+   "severity": "高",
+   "match": "B7",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "コメントの POST がタスクの存在を確認せず、存在しない id では外部キー制約違反で 500 になる（404 を返すべき）。",
+   "severity": "高",
+   "match": "B8",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "countByStatus が共有定数 TASK_STATUSES を reverse() でその場で反転させ、呼ぶたびにアプリ全体の並び順が入れ替わる。",
+   "severity": "中",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "completionRate が担当タスク 0 件のとき 0/0 で NaN になり、画面に「完了率 NaN%」と出る。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "dueThisWeek が期限切れのタスクも含むため、overdueTasks と重複しており、意図でなければ直すべき。",
+   "severity": "中",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "created_at を toLocaleString の表示用文字列で保存し、その文字列で ORDER BY しているため、ゼロ埋めの無い日付で時系列順にならない。",
+   "severity": "中",
+   "match": "B9",
+   "kind": ""
+  },
+  {
+   "n": 10,
+   "summary": "コメント ID の検証に parseTaskId を流用しており、名前が誤解を招く。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "ユーザー別キャッシュ・0 件・連続呼び出し・javascript: リンク・認可・存在しないタスクについてのテストが不足している。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "Dashboard の generatedAt が画面で使われておらず、キャッシュ時は古い値になる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0837518
+ }
+}

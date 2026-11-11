@@ -1,0 +1,39 @@
+{
+  "trial": "W27-baseline-run-c2-2",
+  "scenario": "W27",
+  "config": "baseline-run",
+  "case": "c2",
+  "rep": 2,
+  "review_md": "# レビュー: 計測器ごとの定期点検（担当者・周期・点検記録）\n\n実際に node で関数を動かして確認した点には「再現」と書いています。\n\n## 高\n\n### 1. 合意した要件「担当者での絞り込み・並べ替え」「担当者ごとの遅れ台数」が未実装\n- 場所: `src/app/instruments/page.tsx`（一覧）、`src/lib/inspections.ts`（`listInspectionPlans`）\n- 問題: 一覧は担当者の列を足しただけです。担当者での絞り込み・並べ替えがありません。`listInstruments` にも担当者の条件がありません。担当者ごとの遅れ台数（毎朝知りたい）を返す関数・API・画面もありません。PR の説明にも「残課題」として書かれていません。\n- 直し方: `src/lib/` に、担当者（`inspector_id`）での絞り込み・並べ替えと、担当者別の期限切れ台数を数える関数（SQL で集計）を追加します。クエリパラメータは型ガードで検証し（規約 2）、画面に出し、テストを書きます。\n  - 期限切れの判定に使う日付は、`SELECT MAX(inspected_on)` の結果と `addMonths` を SQL でも使えるように揃えるか、一覧用に「次の点検予定日」を持たせます。\n  - 廃棄済み（`disposed`）を遅れの台数に含めるかも決めて明記します。現状は廃棄済みも「期限切れ」になります。\n\n### 2. 要修理の記録で、貸出中・校正中の計測器まで使用停止にしてしまう\n- 場所: `src/lib/inspections.ts` の `recordInspection`（`UPDATE instruments SET status = 'suspended' WHERE id = ? AND status <> 'disposed'`）\n- 問題: CLAUDE.md には「貸出中は貸出・返却の操作でだけ変わる」とあります。\n  - 再現: MI-0002（貸出中、未返却の貸出あり）に要修理を登録すると、状態が `suspended` になります。一方で貸出の行は `returned_at = NULL` のまま残ります。\n  - 返却すると `WHERE status = 'on_loan'` に当たらないので、状態が戻りません。貸出と状態が食い違います。\n  - 校正中（MI-0005）も同様に `suspended` になります。\n- 直し方: 貸出中のときの扱いを決めます。\n  - 案: 貸出中なら状態は変えず、返却時に「要修理で使用停止」にします。または登録を拒否して、先に返却するよう案内します。\n  - 決めた内容をテストで固定します。校正の不合格（`calibrations.ts`）にも同じ問題がありますが、今回の範囲外です。\n\n## 中\n\n### 3. 「間違えたら訂正の記録を足す」が、日付の誤りに対しては成り立たない\n- 場所: `src/lib/inspections.ts` の `PLAN_SELECT`（`MAX(r.inspected_on)`）\n- 問題: 最後の点検日は日付の最大値で決まります。\n  - 再現: MI-0001 に誤って 2026-11-11 の記録を入れ、2026-09-01 の訂正を足しても、最後の点検日は 2026-11-11、次の予定は 2027-02-11 のままです。\n  - 記録は消せないので、日付を打ち間違えると次の点検予定日が直せません。\n- 直し方: 訂正の記録に「どの記録を訂正するか」（`corrects_id`）を持たせ、訂正された記録は最後の点検日の計算から外します。または、無効にする印（`voided`）を付けられるようにします。履歴は残します。\n- 補足: 結果（良好・要修理）も最新の記録ではなく日付で見ていません。要修理のあとに過去日付の「良好」を足した場合の扱いも決めてください。\n\n### 4. 旧 extra の値の一部を黙って捨てる・見えなくする\n- 場所: `src/lib/inspections-legacy.ts` の `importLegacyInspections`、`src/app/instruments/[id]/page.tsx`（`extra` から `inspector` / `last_inspected` を除外）\n- 問題:\n  - `inspector` や `last_inspected` が文字列でない値（数値、オブジェクトなど）の場合、`typeof ... === \"string\"` で空扱いになり、移行も保存もされません。\n  - 詳細画面は `extra` の `inspector` / `last_inspected` を一律に隠すため、これらの値は画面のどこにも出ません。「黙って捨てない」に反します。`extra` の JSON 自体が壊れている行も `continue` で飛ばされ、何も残りません。\n  - 移行後に `PATCH /api/instruments/:id` の `extra` で `inspector` を書き換えても、新しい担当者に反映されず、画面にも出ません。\n- 直し方: 文字列以外の値は `JSON.stringify` した文字列で `legacy_inspector` / `legacy_date` に残します。壊れた JSON はログに出します。詳細画面で隠すのは、移行済みの値だけにします。\n\n### 5. 旧データの点検日が読めないとき、「未点検」と表示される\n- 場所: `src/lib/inspections.ts` の `PLAN_SELECT` / `judgeDue`、`inspection_records.inspected_on IS NULL` の行\n- 問題: 日付が読めない旧データ（例: `令和元年9月1日`、`2026年9月1日`）は `inspected_on = NULL` で移行されます。最後の点検日が無いので「未点検」と目立たせて表示されますが、実際には点検済みの可能性があります。\n  - 再現: `parseLegacyDate(\"2026年9月1日\")` と `parseLegacyDate(\"令和元年9月1日\")` は `undefined` を返します。\n- 直し方:\n  - 「年月日」区切りと「元年」を読めるようにします。\n  - 読めない日付がある計測器は、「未点検」とは別の「日付要確認」の状態にします。\n\n## 低\n\n### 6. 担当者名の照合が厳密すぎる\n- 場所: `normalizeInspectorName` と `findUsers`（`WHERE name = ?`）\n- 問題: 入力側の空白・敬称は取り除きますが、利用者名の側（`users.name`）は正規化しません。`users.name` が「鈴木 太郎」のように空白を含むと、extra の「鈴木太郎」「鈴木 太郎さん」と一致しません。この場合は担当者にならず、元の書き方が残るだけで、データは失われません。\n- 直し方: 両側を同じ関数で正規化して比べます。\n\n### 7. 一覧が全件を毎回読み込む\n- 場所: `src/app/instruments/page.tsx`（`listInspectionPlans()` が全件の Map を作る）\n- 問題: 約 5 万件で `listInspectionPlans` は約 0.2 秒でした（関連サブクエリは `inspection_records_instrument` の索引だけで解決されます）。DB 側の速度は問題ありません。ただし一覧画面は 5 万行をすべて描画し、ページ分けがありません。「毎朝開く」画面としては重くなります。\n- 直し方: 絞り込み（指摘 1）と合わせて、ページ分けまたは件数の上限を設けます。画面に出す行の計測器だけの点検状況を取ります。\n\n### 8. テストの不足\n- 場所: `tests/inspections.test.ts`\n- 問題: 指摘 1〜5 に当たるテストがありません。マイグレーション 6 を既存の本番相当の DB（version 5 のデータ入り）に適用して、`extra` が変わらないこと（担当部署 `dept` を含む）を確かめるテストもありません。\n- 直し方: 上の各項目の振る舞いが決まったらテストを追加します。version 5 → 6 のマイグレーションのテストも追加します。\n\n## 確認できて問題なかった点（参考）\n- `dept` を含む `extra` は書き換えていません（ロールバックして前の版に戻しても動くはずです）。\n- `addMonths` の月末の丸め（1/31 + 1 か月 = 2/28、閏日）は正しく動きました。\n- 点検日の「未来日」の判定は日本時間で正しく動きました。\n- 担当者の変更は在籍中のみ許可し、現担当者の据え置きは許可する、という判定どおりに動きました。\n",
+  "review_chars": 3846,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4297,
+    "tokens": {
+      "input": 30,
+      "output": 12079,
+      "cache_read": 736375,
+      "cache_creation": 58810
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -n 95,125p src/lib/calibrations.ts; grep -n \\\"export\\\" src/lib/db/index.ts src/lib/loans.ts | head -30; mkdir -p /tmp/rv && cat > /tmp/rv/t.mts <<'EOF'\\nimport { openDb, seed } from \\"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 10,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 102,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、前回のレビューで出した指摘 8 件がすべて入っています。形式も最初の依頼どおりです。各指摘に見出しの重要度（高・中・低）があり、「場所」「問題」「直し方」を書いています。\n\n内容は前回のコミット（e124251）のままなので、書き写しの差分は無く、新しいコミットはしていません。`REVIEW.md` に未コミットの変更はありません。指摘の追加や削除はしておらず、コードも直していません。\n\n| 重要度 | 指摘 |\n|---|---|\n| 高 | 1. 担当者での絞り込み・並べ替えと、担当者ごとの遅れ台数が未実装 |\n| 高 | 2. 要修理の記録で、貸出中・校正中の計測器まで使用停止になる |\n| 中 | 3. 日付の入力ミスを訂正の記録で直せない |\n| 中 | 4. 旧データの一部を黙って捨てたり、画面から隠したりする |\n| 中 | 5. 旧データの日付が読めないと、点検済みでも「未点検」と出る |\n| 低 | 6. 担当者名の照合で、利用者名側を正規化していない |\n| 低 | 7. 一覧が約 5 万件を全件描画する |\n| 低 | 8. 上の指摘とマイグレーション 6 のテストが足りない |\n\n末尾の「確認できて問題なかった点」は、指摘ではなく参考として前回から載せているものです。"
+  },
+  "interventions": 0
+}

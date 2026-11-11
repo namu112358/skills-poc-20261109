@@ -1,0 +1,52 @@
+{
+  "trial": "W27-baseline-run-c4-2",
+  "scenario": "W27",
+  "config": "baseline-run",
+  "case": "c4",
+  "rep": 2,
+  "review_md": "# レビュー: 西日本校正センター CSV の取込\n\n実際に `node` で関数を呼んで確かめた結果を書いています。\n\n## 1. BOM 付きの西日本校正センター CSV が取り込めない（要件 3 違反）\n\n- **重要度**: 高\n- **場所**: `src/lib/calib-import-nishinihon.ts` の `isNishinihonCsv`（先頭の BOM 判定で `return false`）。`tests/calib-import-nishinihon.test.ts` の「detects the sample file and rejects other formats」も BOM 付きを `false` と期待している。\n- **問題**: 要件 3 は「BOM の有無・改行コードの違いで取り込めなくならないようにする」。BOM 付き UTF-8 の B 社 CSV は B 社形式と判定されず、東日本のレガシー取込へ回る。BOM + CRLF の B 社 CSV で再現した結果、`isNishinihonCsv` は `false`、`importCalibrationCsv` は `{\"imported\":0,\"errors\":[{\"line\":1,\"message\":\"CSV の形式が違います（1 行目に「管理番号」の列がありません）\"}]}` を返し、API は 400 になる。月初のスクリプトが BOM 付きで保存されたファイルを送ると、1 件も取り込めない。CRLF だけのファイルは正しく判定される。\n- **直し方**:\n  - `isNishinihonCsv` と `importNishinihonCsv` の両方で、先頭の BOM（EF BB BF）を取り除いてから UTF-8 として読む。\n  - 判定は見出しの「機器番号」の有無だけで行う。A 社の BOM 付き UTF-8 は見出しが「管理番号」なので衝突しない。\n  - 「BOM 付きは B 社形式でない」としているテストを直し、BOM 付き（BOM＋CRLF も）の取込が通るテストを足す。\n  - `docs/calibration-import.md` の「UTF-8・BOM なし」という判別条件の記述も直す。\n\n## 2. コメントに改行を含む行で、件数が合わずファイル全体が止まる\n\n- **重要度**: 中\n- **場所**: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv` の行分割（`split(/\\r\\n|\\n|\\r/)` のあとに `parseCsvLine` を 1 行ずつ呼ぶ）。\n- **問題**: 引用符で囲まれたコメントの中に改行があると 2 行に割れる。再現では、`MI0003,...,COND,W2,,\"a<LF>b\"` と `END,1` のファイルが「データの行数が合いません（END の行数 1、実際 2）」で全体 400 になった。正しい CSV なのに取り込めない。\n- **直し方**: 引用符の状態を行をまたいで持つレコード分割にする。または、改行入りのコメントを仕様外と決めて文書に書く。仕様書は改行の扱いを定めていないので、依頼者に確認するか、置いた仮定を PR に書く。\n\n## 3. 合意事項にない行の誤り条件が増えている\n\n- **重要度**: 低\n- **場所**: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv`（「成績書番号が空」「51 文字以上」「未来日」の各エラー、`END` の判定）。\n- **問題**: 要件 8 は誤りにする行を「台帳に無い機器番号・読めない判定」としている。A 社の取込は成績書番号が空でも取り込むが、B 社では errors になる（再現で確認）。仕様書にも「成績書番号は必須」とは書かれていない。`END` は大文字小文字を区別し、`end,1` は「END が無い」と判定されて全体 400 になる（再現で確認）。なお未来日の判定は日本時間で正しく動き、境界の問題は無かった。\n- **直し方**: 追加した条件が品質保証部の決定であることを PR に明記する。決定でないなら外す。`END` は大文字小文字を区別せず許容してもよい（仕様書は大文字）。\n\n## 4. PR の検証の記述が要件 3 の証拠になっていない\n\n- **重要度**: 低\n- **場所**: PR 説明の「検証結果」。\n- **問題**: BOM 付きを仕様どおり扱わないテストが通っているため、「typecheck・test・build が通る」だけでは要件 3 を満たした証拠にならない。\n- **直し方**: 指摘 1 を直したうえで、要件ごとの確認結果を PR に書く。\n\n## 問題なしと確認した点\n\n- 再現で確認: CRLF の取込、日本時間の未来日の境界（UTC 15:30 は JST で翌日）。\n- 読んで確認: END の件数不一致と END のあとのデータ、ハイフン無し番号、取込済みの読み飛ばし、COND の備考追記（上限 1000 文字は同じトランザクションで確認）。\n",
+  "review_chars": 2233,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4507,
+    "tokens": {
+      "input": 42,
+      "output": 12421,
+      "cache_read": 1083313,
+      "cache_creation": 54517
+    },
+    "turns": 24,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c4-2-app/64346945-6fb6-4762-8268-43d83dbef9d5/scratchpad && cat > $S/r.mts <<'EOF'\\nimport { importNishinihonCsv, isNishinihonCsv } from \\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c4-2-app/64346945-6fb6-4762-8268-43d83dbef9d5/scratchpad && mv $S/r.mts $S/r.ts && node --experimental-strip-types $S/r.ts 2>&1 | grep -v "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"sato\\\\|INSERT INTO users\\\" src/lib/db/seed.ts | head -3; sed -i 's/\\\"u\\\"/\\\"sato\\\"/g' /tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c4-2-app/64346945-6fb6-4762-8268-43d83dbef9d5"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i 's/\\\"u\\\"/\\\"sato\\\"/g' /tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c4-2-app/64346945-6fb6-4762-8268-43d83dbef9d5/scratchpad/r.ts && node --experimental-strip-types /tmp/claude-0/-"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 16,
+      "Write": 3,
+      "Edit": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 107,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を、指摘ごとに「重要度・場所・問題・直し方」を書く形式に整え、`REVIEW.md` だけをコミットしました。新しい指摘は足していません。直前のレビューで出した 4 件（高 1・中 1・低 2）はすべて残しています。コードは直していません。\n\n前回の版に `REVIEW.md` がすでにありましたが、重要度が見出しに混ざっていて、場所・問題・直し方の項目も揃っていませんでした。今回は各指摘に重要度・場所・問題・直し方の項目を揃えました。\n\n未コミットの差分（`docs/`・`src/`・`tests/` の変更）は、そのまま残してあります。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,36 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "updateTask の UPDATE 後に同期で emit され、未実装の SlackNotifier・EmailNotifier が例外を投げる。NOTIFIER_KIND=slack/email を選ぶと、更新は済んでいるのに API が 500 を返す。NotifierFactory が未実装の値を有効として受け付けるため、設定ミスがそのまま障害になる。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "「ログに 1 行」の要件に対し、EventBus、NotifierFactory、未実装の Slack・メール通知、使われないイベント型を追加しており、依頼の範囲を超えた作りすぎになっている。",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "tests/notify.test.ts はイベントバスとファクトリの動作だけを調べており、担当者が変わったときだけ監査ログが出る（変わらないときは出ない）という要件を確かめていない。",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "購読の登録が notify/index.ts の読み込み時の副作用で行われ、tasks.ts の import に依存している。結線がコードから追えず、登録が外れても気づけない。",
+   "severity": "低",
+   "match": "P2",
+   "kind": ""
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.028774
+ }
+}

@@ -1,0 +1,50 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "listTasks の SELECT で列に assignee という別名を付けているのに、toTask は row.assignee_id を読むため、一覧の assigneeId が常に undefined になる。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "PATCH /api/tasks/:id に旧項目名 assignee を送ると、validateTaskInput が無視して空の更新になり、担当者が変わらないのに 200 を返す。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "validateTaskInput が assigneeId を必須にし、レスポンスも assigneeId になるため、API の項目名が assignee から変わる。旧名で POST すると 400 になり、レスポンスから assignee が消えるため、PR の説明に反して既存のクライアントが壊れる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "listTasks を変更したのに、一覧の assigneeId を確認する単体テストが無い。規約 5 を満たしていない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "マイグレーション 3 の後もインデックス名が tasks_assignee のままで列名と合わないため、名前を揃えるべきだという指摘。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "listTasks と getTask で SELECT の列の指定が重複しているため、定数にまとめるべきだという指摘。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0567038
+ }
+}

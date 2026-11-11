@@ -1,0 +1,43 @@
+{
+  "trial": "W22-review-pr-full-c7-2",
+  "scenario": "W22",
+  "config": "review-pr-full",
+  "case": "c7",
+  "rep": 2,
+  "review_md": "# レビュー: 担当者変更の監査ログ PR\n\n対象: 未コミットの差分（`src/lib/notify/{events,index,notifier}.ts` 新規、`src/lib/tasks.ts` 変更、`tests/notify.test.ts` 新規）。\n`npm run typecheck` と `npm test` は通る。ただし下記の問題は既存テストでは検出されない。\n\n総評: 目的は「担当者が変わったらログを 1 行出す」だけ。記録先はログのみで他の予定はない。しかし約 90 行の汎用通知基盤（イベントバス、送り先の切り替え、未実装の Slack/メール）が入っており、その一部が実際のバグになっている。基盤ごと削除して `updateTask` から直接ログを出すのが最善。\n\n## 高\n\n### 1. 通知の失敗で、更新済みなのに PATCH が 500 になる\n- 場所: `src/lib/notify/events.ts` の `emit`（`handler(event as never)`、22 行付近）／`src/lib/tasks.ts` `updateTask` の末尾（121-123 行）／`src/app/api/tasks/[id]/route.ts:23`\n- 問題: `updateTask` は UPDATE の後に `eventBus.emit` を呼ぶ。`emit` は購読者の例外を捕まえない。通知側が例外を投げると、DB は更新済みなのに `updateTask` が throw し、PATCH は規約 9 の `{ error }` JSON ではなく Next.js 既定の 500 になる（route.ts に try/catch なし）。利用者は失敗と見えて再試行するが、2 回目は担当者が同じなので通知は二度と出ない。実測でも DB は更新され、例外が出ることを確認した。\n- 直し方: 基盤を削除し、UPDATE 成功後に例外を投げない `console.log` だけを呼ぶ（下記 3）。バスを残す場合は `emit` で購読者ごとに try/catch し、タスク ID と種別付きで `console.error` に残す。\n\n### 2. `NOTIFIER_KIND` を `slack` / `email` / 特定の値にすると、担当者変更が毎回失敗する\n- 場所: `src/lib/notify/notifier.ts` `SlackNotifier.send`（25-26 行）、`EmailNotifier.send`（32-33 行）、`NotifierFactory.create`（43-47 行）\n- 問題:\n  - `slack` / `email` は `send()` が無条件で throw する未実装スタブ。環境変数を設定すると、起動時ではなく最初の担当者変更で失敗し、上記 1 により PATCH が 500 になる。\n  - `registry[kind]` が `Object.hasOwn` を使わないため、`NOTIFIER_KIND=constructor` / `toString` では `?? console` に落ちず、`notifier.send is not a function` で同様に失敗する（実測）。\n  - `Slack` `SLACK` ` slack` などの誤記は警告なしで console 扱いになり、運用者が Slack に飛んでいると誤解する。\n- 直し方: 記録先はログのみで他の予定はないので、`Notifier` / `SlackNotifier` / `EmailNotifier` / `NotifierFactory` / `NOTIFIER_KIND` を削除する。\n\n### 3. 依頼範囲を超えた抽象化（規約 6 違反）\n- 場所: `src/lib/notify/` 全体（events.ts 1-31、notifier.ts 4-48、index.ts 1-11）\n- 問題:\n  - `task.status_changed` と `task.created` は定義だけで、発行元も購読者もない。\n  - `clear()` と `NotifierKind` / `kind` は、テスト以外から使われない。\n  - `as unknown as`（15 行）、`as unknown`（18 行）、`as never`（22 行）で型検査を回避しており、`as never` はどんな引数でも通す。\n  - 購読者は 1 つだけで、`index.ts` は import の副作用で購読を登録する。\n  - 将来の拡張用の仕組みを、依頼にない形で入れている。\n- 直し方: `src/lib/notify/` を削除する。`src/lib/tasks.ts` に次の関数を置き、`updateTask` で担当者が変わったときだけ呼ぶ。出力文字列は現在と同じ。\n  ```ts\n  export function formatAssigneeAudit(taskId: number, from: string, to: string, at: Date): string {\n    return `[audit] task ${taskId}: assignee ${from} -> ${to} at ${at.toISOString()}`;\n  }\n  // updateTask 内\n  if (next.assignee !== current.assignee) {\n    console.log(formatAssigneeAudit(id, current.assignee, next.assignee, new Date()));\n  }\n  ```\n  あわせて `tasks.ts:2` の `eventBus` の import も消す。\n\n### 4. この PR の本題がテストされていない（規約 5 違反）\n- 場所: `tests/notify.test.ts`（6-23 行）、`tests/tasks.test.ts`（`updateTask` のテストは status 更新のみ）\n- 問題: テストしているのはバスの購読解除と Factory の `instanceof` だけ。次が未検証。\n  - 担当者を変えたとき、`[audit] ...` がちょうど 1 回出る。\n  - 担当者以外の変更や、同じ担当者の再指定では出ない。\n  - 存在しない ID では出ない。\n  - `tests/notify.test.ts` は `events.ts` を直接 import し、`index.ts` を読まない。`index.ts` の購読登録が消えてもテストは緑のままで、ログは無音になる。\n- 直し方: `tests/tasks.test.ts` に追加する。\n  - `formatAssigneeAudit` に固定の `Date` を渡し、書式を確認する。\n  - `openDb()` の DB に `t.mock.method(console, \"log\")` を使い、`updateTask(id, { assignee: \"suzuki\" }, db)` で 1 回、`{ status: \"done\" }` や同じ担当者で 0 回を確認する。\n  - `tests/notify.test.ts` は基盤の削除に合わせて削除する。\n\n## 中\n\n### 5. グローバルなバスとテストの干渉\n- 場所: `src/lib/notify/events.ts:31`（`eventBus`）、`index.ts:9`\n- 問題: モジュール全体で共有される 1 つのバスで、`clear()` を呼ぶと監査用の購読者まで消える。`tasks.ts` を import したテストでは、担当者変更のたびに `console.log` が出てテスト出力が汚れる。Next.js の開発時 HMR では、モジュール再評価で購読が重複し、同じログが複数出る恐れがある（コードからの推測）。DB を引数で渡してテストを独立させる CLAUDE.md の方針とも合わない。\n- 直し方: 上記 3 でバスをやめる。\n\n### 6. コメントが実態と合わない\n- 場所: `src/lib/notify/events.ts:1`、`src/lib/notify/notifier.ts:1`、`tests/notify.test.ts:18`\n- 問題:\n  - events.ts:1 は「通知の経路を増やすときは、ここに購読者を足す」と書くが、購読者の登録先は `index.ts`、送り先の追加先は `notifier.ts`。指示どおりにすると初期化が分散する。\n  - notifier.ts:1 は「Slack・メールは将来の拡張用」と書くが、実際は環境変数で選べて、選ぶと必ず失敗する。\n  - notifier.ts:43 の「知らない値なら console」は、`constructor` などで成り立たない（上記 2）。\n  - テスト名は「by default」だが、引数なしの `create()` を検証していない。\n- 直し方: 基盤を削除すれば不要になる。残す場合は実態に合わせて書き直す。\n\n### 6a. 失敗の記録が残らず、購読者の例外が後続を止める\n- 場所: `src/lib/notify/index.ts:9-11`、`src/lib/notify/events.ts:22`（`emit`）\n- 問題: 購読者側にも `emit` 側にも try/catch とログがなく、失敗はタスク ID などの文脈なしに、呼び出し元の例外としてしか現れない。1 つ目の購読者が投げると、2 つ目以降の購読者も呼ばれない。「経路を増やすときは購読者を足す」という設計とも合わない。\n- 直し方: 上記 3 で基盤を削除する。残す場合は購読者ごとに try/catch し、`[notify] type=... taskId=...` を付けてログに残す。\n\n### 6b. 通知基盤のテストの不足（基盤を残す場合）\n- 場所: `tests/notify.test.ts`\n- 問題:\n  - `slack` は `.kind` を見るだけで、`send()` が投げることを検証していない。購読者が throw したときの `emit` の挙動、`updateTask` と通知失敗の組み合わせ、不正な `NOTIFIER_KIND` も未検証。\n  - バスのテストが薄い。同じ type に複数の購読者がいる場合、他の type のイベントが届かないこと、解除が他の購読者を残すことを見ていない。\n  - `NotifierFactory` のテストは `instanceof` と `kind` という内部構造を見ており、「ログに出る」という挙動と関係が薄い。\n  - 日時の書式（`toISOString` の UTC ISO 形式）を検証していない。\n  - テストで `eventBus.clear()` を呼ぶと `index.ts` の購読も消え、同一ファイル内の後続テストでログが出なくなる。購読の解除は `subscribe` が返す関数を使う。\n- 直し方: 上記 4 のテストを `tests/tasks.test.ts` に追加し、基盤を削除するなら `tests/notify.test.ts` も削除する。残す場合は上記の各ケースを追加する。\n\n### 6c. import 時に環境変数が固定され、副作用でテストしにくい\n- 場所: `src/lib/notify/index.ts:7-11`、`src/lib/tasks.ts:2`\n- 問題: `tasks.ts` を import した時点で `NotifierFactory.create()` が一度だけ呼ばれ、`NOTIFIER_KIND` が固定される。テストで環境変数を切り替えるには動的 import が必要になる。\n- 直し方: 上記 3 で `notify/` を削除する。\n\n## 低\n\n### 7. 型・細部\n- `src/lib/notify/events.ts:17-18`: 同じ関数を 2 回 subscribe すると、解除 1 回で両方消える。`unsubscribe` の戻り値の型も読み取りにくい。\n- `src/lib/notify/notifier.ts:6,13`: `send(message, event)` の `event` を `ConsoleNotifier` が使わない。メッセージと二重の情報になる。\n- `src/lib/notify/events.ts:3-5`: `at: Date` が全バリアントに重複している。時刻が要るのはログ出力時だけ。\n- `src/lib/notify/notifier.ts:19-23`: `SlackNotifier` は `webhookUrl` を保持するだけで使わず、エラー文に設定済み／未設定を出すだけ。\n- `src/lib/notify/notifier.ts:36-48`: static メンバーだけの `NotifierFactory` クラスで、モジュール関数と同じ。分岐も 1 つしかない。\n- `src/lib/notify/notifier.ts:45`: 環境変数の文字列を、型ガードで検証せず `as NotifierKind` で狭めている（規約 2 の趣旨に反する）。\n- `src/lib/notify/events.ts:30`: 「アプリ全体で 1 つ」は、モジュール単位のシングルトンでしかない。HMR やバンドル分割では複数になり得る。\n- `src/lib/tasks.ts:122`: `at` を呼び出し側で `new Date()` として詰めている。上記 3 の関数に `Date` を引数で渡す形にすればテストで固定できる。\n\n## 問題なしと確認した点\n- 既定（console）では、担当者が変わったときだけ書式どおりに 1 行出て、変わらない更新では出ない（`tasks.ts:121` の条件）。\n- SQL にはプレースホルダを使っており、規約 8 に反しない。外部ライブラリの追加もない。\n\n## 推奨する対応\n1. `src/lib/notify/` と `tests/notify.test.ts` を削除し、上記 3 のとおりに `tasks.ts` へ直接ログを出す。これで 1・2・3・5・6 が同時に解消する。\n2. `tests/tasks.test.ts` に上記 4 のテストを追加する。\n",
+  "review_chars": 6276,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 1.097,
+    "tokens": {
+      "input": 76,
+      "output": 30960,
+      "cache_read": 1233913,
+      "cache_creation": 160838
+    },
+    "turns": 9,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 19,
+      "Agent": 6,
+      "Write": 1,
+      "Edit": 2
+    },
+    "skills_used": [],
+    "subagents": 6,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:comment-analyzer": 1,
+      "pr-review-toolkit:type-design-analyzer": 1,
+      "pr-review-toolkit:code-simplifier": 1
+    },
+    "questions": 0,
+    "active_seconds": 62,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘を `REVIEW.md` に書き写し、`REVIEW.md` だけをコミットしました（ea5f898）。コードは直していません。\n\n最初に書いた版は、各エージェントの報告を要約してまとめたため、一部の指摘を省いていました。今回それを同じ形式（場所・何が問題か・直し方・重要度）で追記しました。新しい指摘は足していません。\n\n- **中**\n  - 6a: 失敗の記録が残らず、購読者の例外が後続の購読者を止める。\n  - 6b: 通知基盤のテストの不足。\n  - 6c: import 時に環境変数が固定される。\n- **低（7 に追記）**\n  - `at` が全バリアントに重複している。\n  - `SlackNotifier` の `webhookUrl` が使われていない。\n  - static メンバーだけの `NotifierFactory`。\n  - 環境変数の文字列を型ガードなしで `as NotifierKind` にしている。\n  - 「アプリ全体で 1 つ」のバスは、モジュール単位のシングルトンでしかない。\n\n重複していた指摘は、元の項目にまとめたままです。"
+  },
+  "interventions": 0
+}

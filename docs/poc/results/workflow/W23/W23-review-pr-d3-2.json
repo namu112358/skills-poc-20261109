@@ -1,0 +1,33 @@
+{
+  "trial": "W23-review-pr-d3-2",
+  "scenario": "W23",
+  "config": "review-pr",
+  "case": "d3",
+  "rep": 2,
+  "review_md": "# レビュー: ダッシュボードとタスクのコメント\n\n対象: 未コミットの差分（`git diff HEAD`）。結論: **マージ前に直すべき問題あり**（高 5 / 中 4 / 低 3）。\n\n## 高\n\n### 1. ダッシュボードのキャッシュキーがユーザーごとでなく、他人の内容が見える\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）\n- 問題: キーが固定の `\"dashboard\"` のため、30 秒以内に別ユーザーがアクセスすると、先に計算した人のダッシュボード（`userId`・タスク名・件数）がそのまま返る。例: `sato` が開いた直後に `suzuki` が `/dashboard` または `GET /api/dashboard` を開くと、`sato` のタスクが表示される。情報漏えいかつ表示の誤り。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。テストを追加する（2 ユーザーが続けて呼んで、それぞれ自分のタスクになること）。現状のテストは `beforeEach` でキャッシュを消し、ユーザーも 1 人だけなので検出できない。\n\n### 2. SQL を文字列連結で組み立てている（SQL インジェクション）\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`（`WHERE assignee = '${userId}'`）\n- 問題: CLAUDE.md 規約 8 違反。今は `userId` がセッション由来だが、関数は任意の文字列を受け取るので、将来呼び出し元が変わると `' OR '1'='1` で全タスクが読める。\n- 直し方: `WHERE assignee = ?` とし、`.all(userId)` で渡す。\n\n### 3. コメント本文のリンクで `javascript:` が通る（XSS）\n- 場所: `src/lib/comments.ts` `renderBody`、使用箇所 `src/app/tasks/[id]/page.tsx`（`dangerouslySetInnerHTML`）\n- 問題: HTML エスケープ後に `[文字](URL)` を `<a href=\"$2\">` へ置換するが、URL のスキームを検査していない。`[クリック](javascript:alert(document.cookie))` というコメントを投稿すると、タスク詳細を開いてリンクを押した人のブラウザでスクリプトが動く（`data:` なども同様）。`\"` はエスケープ済みなので属性の外には出られないが、スキームは防げない。\n- 直し方: URL を `http:` / `https:` に限定する（それ以外は置換せず文字のまま出す）。もしくは `dangerouslySetInnerHTML` をやめ、React の要素として組み立てる（リンクは `new URL()` で検証）。`javascript:` を含むテストを追加する。\n\n### 4. コメントの編集（PATCH）に作成者の確認がない\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`\n- 問題: ログインしていれば他人のコメントを書き換えられる。同じファイルの `DELETE` は `authorId` を確認しており、扱いが食い違っている。\n- 直し方: `DELETE` と同様に `comment.authorId !== user.id` なら 403 を返す。\n\n### 5. `countByStatus` が共有定数 `TASK_STATUSES` を破壊的に逆順にする\n- 場所: `src/lib/dashboard.ts` `countByStatus`（`TASK_STATUSES as TaskStatus[]` を `.reverse()`）\n- 問題: キャストは同じ配列を指すので、`reverse()` が `tasks.ts` の定数そのものを書き換える。呼ぶたびに順序が反転するため、(a) ダッシュボードの並びが「完了」先頭と「未着手」先頭を交互に繰り返す、(b) `src/app/tasks/page.tsx` の絞り込み選択肢の並びも、ダッシュボードを開いたあとは逆順になる。テストは 1 回しか呼ばないので通ってしまう。\n- 直し方: `[...TASK_STATUSES].reverse()`（または `toReversed()`）にする。2 回続けて呼んでも同じ結果になるテストを追加する。\n\n## 中\n\n### 6. 担当タスクが 0 件だと完了率が `NaN`\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 問題: `0 / 0` で `NaN`。画面は「完了率 NaN%」、API の JSON では `null` になる。タスクの無い新規ユーザーで起きる。\n- 直し方: `tasks.length === 0` なら 0 を返す。テストを追加する。\n\n### 7. 存在しないタスクにコメントを投稿すると 500 になる\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` `POST`\n- 問題: `GET` はタスクの存在を確認して 404 を返すが、`POST` は確認しない。`comments.task_id` は外部キーなので、`POST /api/tasks/9999/comments` は INSERT で例外になり 500。規約 9（対象が無いときは 404）に反する。\n- 直し方: `GET` と同じく `getTask(id)` を確認する。\n\n### 8. コメントの並び順が文字列比較で、時刻がずれる\n- 場所: `src/lib/comments.ts` `formatCreatedAt` と `listComments`（`ORDER BY created_at, id`）\n- 問題: 表示用の日本語ロケールの文字列（例: `2026/11/11 9:05:00`）を `created_at` に保存し、それで並べ替えている。時が 1 桁（`9:05:00`）と 2 桁（`10:05:00`）では文字列として `10:` が `9:` より小さく、古い順にならない。ロケールの書式が環境で変わる影響も受ける。\n- 直し方: `created_at` には ISO 8601（`now.toISOString()`）を保存し、表示時に日本時間へ整形する。既存のマイグレーションを書き換えずに済むので、`created_at` の意味だけ変えればよい（マイグレーションは未リリースの 3 のままで直せるなら 3 で、リリース済みなら新番号で）。順序のテストに 9 時台と 10 時台を入れる。\n\n### 9. API と画面のテストが無く、テストが問題を拾えていない\n- 場所: `tests/`\n- 問題: 新しい 3 つの Route（認証・404・403・400）、コメント画面、`GET /api/dashboard` のテストが無い。上の 1・5・6・7 はいずれも、該当するテストがあれば PR の時点で見つかった。`buildDashboard` のテストはキャッシュを毎回消している。\n- 直し方: 上記の各項目のテストに加え、空のタスク、別ユーザーの連続呼び出し、`TASK_STATUSES` が変化しないこと、時間桁の順序を足す。\n\n## 低\n\n### 10. 「今週が期限」に期限切れが重複して出る\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`\n- 問題: 今週の月曜〜昨日が期限の未完了タスクは「期限切れ」と「今週が期限」の両方に出る（テストも `[1, 2]` でそれを前提にしている）。意図通りでなければ、`dueDate >= today` にするなど仕様を決めて直す。\n\n### 11. 画面にコメントの投稿フォームが無い\n- 場所: `src/app/tasks/[id]/page.tsx`\n- 問題: PR 説明は「コメントを読み書きできる」だが、画面は一覧表示のみで、書き込みは API 経由のみ。意図通りなら説明を直す。そうでなければフォームを追加する。\n\n### 12. 命名・細部\n- `src/app/api/comments/[commentId]/route.ts`: コメント ID の検証に `parseTaskId` を使っている。意味が違うので `parseId` などに改名するか汎用化する。\n- `src/lib/cache.ts`: 古いエントリを消さない（キーが増えると肥大する。#1 を直すとユーザー数分だけ増える）。また、タスクの更新（`PATCH /api/tasks/:id`）でキャッシュを無効化していないため、最大 30 秒は更新前の数字が出る。許容するなら説明に書く。\n",
+  "review_chars": 3896,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2835,
+    "tokens": {
+      "input": 20,
+      "output": 6000,
+      "cache_read": 382769,
+      "cache_creation": 46300
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 70,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "追加の変更はありません。前のターンで出した指摘は、すでにすべて `REVIEW.md` に依頼の形式で書いてコミットしてあり、書き写す内容が残っていないためです。`git status` でも `REVIEW.md` に未コミットの変更はありませんでした。\n\n- **内容:** 指摘は 12 件（高 5・中 4・低 3）です。それぞれに、場所（ファイルと関数）、何が問題か（どういう入力や状況で何が起きるか）、直し方、重要度を書いています。\n- **コミット:** `9eb210b` が `REVIEW.md` だけを含みます。\n- **指摘の増減:** 新しい指摘は足していません。削った指摘もありません。\n- **コード:** 直していません。他の変更は、未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

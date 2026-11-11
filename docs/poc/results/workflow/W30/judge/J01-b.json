@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "移行（migrations.ts version 5 の after と linkInstrumentsToLocations）が location_id だけを設定し、instruments.location 列は元の表記ゆれのまま残り、経理部が読む列に正式名称が入らない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 2,
+   "summary": "updateInstrument が location 列に変更前の locationOriginal を書き戻すため、PATCH で場所を変えても古い列は旧い場所のままになり、前の版や経理部が古い場所を見る。",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "location-master.ts の updateLocation で場所の名前を変えても、その場所の計測器の location 列は旧い名前のまま残る。",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "validateLocation の locationId の分岐が locationOriginal を設定しないため、createInstrument で undefined が SQLite にバインドされ、locationId を指定した POST /api/instruments が 500 になる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "recordInventory は場所が確定済みの計測器に照合できない文字が送られると、それを捨てて 200 を返し、確認中にしないため要件 6 に反する。",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 6,
+   "summary": "validateLocation の location 文字列の分岐により、登録・編集の API が自由入力の location を受け付けて 201（確認中）で登録でき、一覧から選ぶ要件 3 に反する。",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "linkInstrumentsToLocations は全件を行ごとに正規化して 1 件ずつ UPDATE しており、5 万件規模での起動時間が実測されていない（ログ locations.migrated が total>0 のときだけ出る点も含む）。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "ALIASES で『大阪営』『名古屋営』を営業所に寄せるのは推測による寄せにあたる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 9,
+   "summary": "LocationForm.tsx の save が保存成功後に window.location.reload() するため、成功メッセージが表示されない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "新規登録フォームの場所選択がこの変更に含まれていない可能性がある（要確認）。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0785598
+ }
+}

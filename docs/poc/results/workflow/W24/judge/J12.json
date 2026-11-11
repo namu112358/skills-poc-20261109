@@ -1,0 +1,85 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で userId を含まず、30 秒以内に別ユーザーが開くと他人のダッシュボード（担当タスク・件数）が返る。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "同じキャッシュのせいで now 引数も無視され、日付が変わっても古い日付で計算した期限切れ・今週の判定が返り続ける。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "renderBody が [文字](URL) の URL のスキームを確かめないため javascript: のリンクが作られ、dangerouslySetInnerHTML で描画されて保存型 XSS になる。",
+   "severity": "高",
+   "match": "B6",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "コメント編集の PATCH に投稿者の確認が無く（DELETE にはある）、ログインした誰でも他人のコメントを書き換えられる。",
+   "severity": "高",
+   "match": "B7",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "countByStatus の reverse() が共有の定数 TASK_STATUSES をその場で反転させ、呼ぶたびにダッシュボードと一覧の絞り込みの並びが変わる。",
+   "severity": "中",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "formatCreatedAt が created_at を 0 埋めの無い ja-JP の表示用文字列で保存し、listComments が文字列で並べるため、9 日と 10 日（9 時と 10 時）の順が逆になる。",
+   "severity": "中",
+   "match": "B9",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "weekRange で日曜の getUTCDay() が 0 のため 1 - dow が +1 になり、日曜には翌週の月〜日を返す。",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり、規約 8 に反し、引用符を含む値で条件が壊れる。",
+   "severity": "中",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "コメントの POST がタスクの存在を確かめないため、存在しないタスク ID では外部キーエラーで 500 になる（GET は 404 を返す）。",
+   "severity": "中",
+   "match": "B8",
+   "kind": ""
+  },
+  {
+   "n": 10,
+   "summary": "completionRate はタスクが 0 件のとき 0/0 で NaN になり、画面に「完了率 NaN%」と出る。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 11,
+   "summary": "validateCommentBody が body.length（UTF-16 の単位）で数えるため、絵文字は 2 文字として数えられ、「2000 文字以内」という文言と食い違う。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0916398
+ }
+}

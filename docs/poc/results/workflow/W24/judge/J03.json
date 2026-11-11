@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で利用者を含まないため、30 秒以内に別の利用者が開くと前の利用者の担当タスク・件数が返り情報漏えいになる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "タスクの作成・更新後もキャッシュにより古いダッシュボードが最大 30 秒残る。",
+   "severity": "高",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 3,
+   "summary": "キャッシュキーに db が含まれず、テスト間で干渉する。",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 4,
+   "summary": "期限切れのキャッシュエントリが削除されず溜まり続ける。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "countByStatus が TASK_STATUSES を型の断定で可変配列にして reverse() し、共有定数をその場で書き換えるため、呼ぶたびに順序が反転する。",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり規約 8 違反で、引用符を含む ID でクエリが壊れる。プレースホルダを使うべき。",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "completionRate が担当タスク 0 件で 0/0 となり NaN を返し、画面に「完了率 NaN%」、API では null と出る。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "tests/dashboard.test.ts にキャッシュ分離・2 回呼び出し・0 件・401 などのテストが無く、上記の不具合を検出できない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "dueThisWeek が今週月曜〜昨日の期限切れタスクも含み、「期限切れ」と重複する。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 10,
+   "summary": "dashboard/page.tsx の内部リンクが <a> でページ全体を再読み込みするため、next/link の Link にすべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0656958
+ }
+}

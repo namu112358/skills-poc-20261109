@@ -1,0 +1,48 @@
+{
+  "trial": "W21-principles-c7-1",
+  "scenario": "W21",
+  "config": "principles",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# レビュー: 担当者の変更をサーバーのログに残す\n\n## 要約\n\n目的は、担当者が変わったときに `[audit] task <ID>: assignee <前> -> <後> at <日時>` を 1 行ログに出すこと。必要なのは `updateTask` に `console.log` を 1 行足すことだが、実際にはイベントバス・通知の送り先・ファクトリを足している。しかも肝心のログ出力にはテストが無い。**修正を求める。**\n\n良い点: 担当者が変わったときだけ出す判定（`next.assignee !== current.assignee`）は正しい。出力の書式も PR の説明どおり。ログ出力を DB 更新の後に置いているので、更新に失敗した変更は記録されない。\n\n## 指摘\n\n### 1. 通知の送り先が例外を投げると、DB は更新済みなのに API が 500 を返す\n\n- 重要度: 高\n- 場所: `src/lib/notify/notifier.ts` の `SlackNotifier.send` / `EmailNotifier.send`、`src/lib/notify/events.ts` の `EventBus.emit`、`src/lib/tasks.ts` の `updateTask`（122 行目付近）\n- 何が問題か: `NOTIFIER_KIND=slack`（または `email`）を設定すると、`send` は必ず `throw` する。`emit` は購読者の例外を捕まえないので、`UPDATE` の後に例外が `updateTask` から外へ出る。`PATCH /api/tasks/:id` は 500 を返すが、担当者は変わってしまっている。`NOTIFIER_KIND` の設定ミスで、タスク更新が壊れる。\n- 直し方: 未実装の送り先は削除する（指摘 2）。監査ログの出力が失敗しても更新を失敗させたくないなら、`emit` 側ではなく呼ぶ側で例外の扱いを決める。\n\n### 2. 要件に無い仕組みを作りすぎている\n\n- 重要度: 中\n- 場所: `src/lib/notify/` 全体（`events.ts`、`notifier.ts`、`index.ts`）\n- 何が問題か: PR の説明は「記録先は当面サーバーのログだけ。ほかの記録先にする予定は今のところない」としている。それなのに、次のものが入っている。\n  - `SlackNotifier`・`EmailNotifier`（常に例外を投げるだけ。呼ばれたら害になる）\n  - `NotifierFactory` と環境変数 `NOTIFIER_KIND`\n  - `task.status_changed`・`task.created` イベント（発行する側が無い）\n  - `EventBus.clear`（使われていない）\n  - 購読者の登録を読み込み時に行う副作用つきの `index.ts`\n\n  読む人はこれら全部を理解しないと、「ログを 1 行出す」だけの処理にたどり着けない。使われないコードは、変更のたびに合わせる費用になる。\n- 直し方: `notify/` を削除する。`updateTask` で担当者が変わったときに、`console.log(`[audit] task ${id}: assignee ${current.assignee} -> ${next.assignee} at ${new Date().toISOString()}`)` を出す。ログを出す部分を関数（例: `logAssigneeChange`）に切り出すのはよい。送り先を増やす話が実際に出たときに、そのときの要件で抽象を作る。\n\n### 3. 暗黙の副作用に依存している\n\n- 重要度: 中\n- 場所: `src/lib/notify/index.ts`、`src/lib/tasks.ts:2`\n- 何が問題か: ログが出るのは、`tasks.ts` が `notify/index.ts` を import した結果、読み込み時に購読が登録されるからである。`updateTask` を呼んでも、その呼び出しを読む限りログが出るとは分からない。テストなどで `events.ts` だけを import すると、購読者がいないので何も出ない。import の整理で消えたり、順序が変わったりすると、ログが無言で出なくなる。監査の記録としては危うい。\n- 直し方: 指摘 2 のとおり直接ログを出す。\n\n### 4. 肝心の振る舞いにテストが無い\n\n- 重要度: 中\n- 場所: `tests/notify.test.ts`\n- 何が問題か: PR の受入条件は「担当者が変わったときだけログが出る」である。テストが確かめているのは、イベントバスの購読・解除と、ファクトリが返すクラスだけで、次のものは確かめていない。\n  - `updateTask` で担当者を変えると、`[audit] ...` の行が出ること\n  - 担当者が変わらない更新では出ないこと（担当者を同じ値で送る、他の項目だけ更新する）\n  - タスクが無いとき（`undefined` を返すとき）は出ないこと\n\n  `tests/notify.test.ts` は `index.ts` を読み込まないので、購読の配線が壊れていても通る。CLAUDE.md の規約 5（ロジックの追加・変更にはテスト）にも反する。ファクトリのテストは、指摘 2 の不要なコードの分のテストである。\n- 直し方: `openDb()` で作ったインメモリ DB を `updateTask` に渡し、`console.log` を `node:test` の `mock.method` で差し替えて、出力された行を確かめるテストを書く。日時は `mock.timers` などで固定するか、書式を正規表現で確かめる。\n\n### 5. 知らない `NOTIFIER_KIND` を黙って console にする\n\n- 重要度: 低\n- 場所: `src/lib/notify/notifier.ts` の `NotifierFactory.create`\n- 何が問題か: `NOTIFIER_KIND=slak` のような誤りが気づかれず、意図しない送り先で動き続ける。入力の誤りは境界で止める（早く失敗する）方がよい。\n- 直し方: 指摘 2 で `NOTIFIER_KIND` ごと無くなる。残す場合は知らない値で例外を投げる。\n\n### 6. `emit` と `subscribe` の型の抜け道\n\n- 重要度: 低\n- 場所: `src/lib/notify/events.ts` の `subscribe`（`as unknown as`）、`emit`（`as never`）\n- 何が問題か: 型の検査を 2 か所で無理に回避している。型が合っているかを、コンパイラが確かめられなくなる。\n- 直し方: 指摘 2 で `events.ts` ごと無くなる。\n",
+  "review_chars": 2997,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2974,
+    "tokens": {
+      "input": 26,
+      "output": 7793,
+      "cache_read": 529852,
+      "cache_creation": 41613
+    },
+    "turns": 13,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'E'\\nimport re\\ns=open('REVIEW.md').read()\\ns=s.split('\\\\n## 補足')[0].rstrip()+'\\\\n'\\ndef f(m):\\n    return f\\\"### {m.group(1)}. {m.group(3)}\\\\n\\\\n- 重要度: {m.group(2)}\\\\n\\\"\\ns=r"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i -E 's/^### ([0-9])\\\\. \\\\[(高|中|低)\\\\] (.*)$/### \\\\1. \\\\3\\\\n\\\\n- 重要度: \\\\2/; s/^- 問題:/- 何が問題か:/' REVIEW.md && sed -i '/^## 補足/,$d' REVIEW.md && grep -n \\\"重要度\\\\|^### \\\\|補足\\\\|何が問題か\\\" REV"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 2,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 77,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` の指摘 6 件を、依頼の形式（重要度・場所・何が問題か・直し方）に整えて、`REVIEW.md` だけをコミットしました（`f28961d`）。コードは直していません。PR の変更ファイルは、未コミットのまま残っています。\n\n- **重要度の書き方:** 見出しの `[高]` などをやめて、各指摘に「重要度: 高/中/低」の行を付けました。「問題」というラベルは「何が問題か」に改めました。\n- **指摘の中身:** 6 件とも、前回の内容のままです。\n- **削った節:** 前回の `REVIEW.md` にあった「補足」の節は、チャットで報告した指摘に無かったので削りました。"
+  },
+  "interventions": 0
+}

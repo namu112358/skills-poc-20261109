@@ -1,0 +1,33 @@
+{
+  "trial": "W21-review-pr-c1-1",
+  "scenario": "W21",
+  "config": "review-pr",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# レビュー結果: タスクに「保留」ステータスを追加\n\n## 指摘 1（重要度: 高）DB の CHECK 制約が `on_hold` を拒否する。マイグレーションが無い\n\n- 場所: `src/lib/db/migrations.ts` のバージョン 1 `users_and_tasks`（21 行目付近 `CHECK (status IN ('todo', 'in_progress', 'done'))`）。今回の差分にはマイグレーションの変更が含まれていない。\n- 問題: アプリ側（`TASK_STATUSES` と `isTaskStatus`）は `on_hold` を通すが、`tasks.status` の CHECK 制約は 3 種類のままである。\n  - `POST /api/tasks` に `status: \"on_hold\"` を送ると、入力検証は通る。その後の `createTask` の INSERT で `CHECK constraint failed: status IN ('todo', 'in_progress', 'done')` が発生する。\n  - `PATCH /api/tasks/:id` に `status: \"on_hold\"` を送ると、`updateTask` の UPDATE で同じエラーが発生する。\n  - `src/app/api/tasks/route.ts` の POST には例外処理が無いので、400 ではなく 500 が返る。PR の主目的である「API で保留を選べる」が動かない。\n  - 再現: `openDb()` の DB で `createTask({title:\"a\",status:\"on_hold\",assignee:\"sato\",dueDate:\"2026-12-01\"}, db)` と `updateTask(1, {status:\"on_hold\"}, db)` を実行した。どちらも上記の CHECK 制約エラーで失敗した。\n  - 一覧の絞り込みが動くのは、`status = 'on_hold'` の行がそもそも作れず、常に 0 件になるからにすぎない。\n- 直し方: CLAUDE.md の規約 7 に従い、`MIGRATIONS` の末尾にバージョン 3 を追加する。既存のバージョン 1 は書き換えない。SQLite は CHECK 制約を `ALTER` で変更できないので、テーブルを作り直す。\n  1. 新しい CHECK（`'todo','in_progress','on_hold','done'`）付きの `tasks_new` を作る。\n  2. `INSERT INTO tasks_new SELECT ... FROM tasks` でデータを移す。\n  3. `DROP TABLE tasks` してから `ALTER TABLE tasks_new RENAME TO tasks` する。\n  4. `tasks_assignee` インデックスを作り直す。\n  - 既存の `AUTOINCREMENT` の採番（`sqlite_sequence`）を引き継ぐこと。\n  - `migrate()` は 1 つのトランザクション内で実行され、`foreign_keys = ON` である。`tasks` を参照するテーブルは現状無いので、この手順で問題ない。\n\n## 指摘 2（重要度: 高）テストが指摘 1 を検出できない\n\n- 場所: `tests/tasks.test.ts` の追加分（`accepts the on_hold status`、`isTaskStatus` への 1 行）。\n- 問題: 追加されたテストは検証関数と型ガードだけを見ている。DB への保存は検証していない。そのため `npm test` と `npm run typecheck` が通っても、実際には保存できない。PR の「検証結果」は、機能が動くことの裏付けになっていない。規約 5 のテストが、リスクのある箇所を通っていない。\n- 直し方: 次のテストを追加する。\n  - `createTask` で `status: \"on_hold\"` のタスクを作り、`getTask` で `on_hold` が返る。\n  - `updateTask` で既存タスクを `on_hold` に更新できる。\n  - `listTasks({ status: \"on_hold\" })` が、保留のタスクだけを返す。\n  - 新しいマイグレーションを、旧スキーマ（バージョン 2）の DB に適用しても既存データが保持される。`migrate()` に `MIGRATIONS` の一部だけを渡して検証できる。\n\n## 指摘 3（重要度: 低）保留タスクの画面確認が無い\n\n- 場所: `src/app/tasks/page.tsx`、`src/app/tasks/[id]/page.tsx`。\n- 内容: 絞り込みのリンクとラベルは `TASK_STATUSES` と `STATUS_LABELS` から作られるので、コードの変更は不要である。ただし、指摘 1 の修正後に、`?status=on_hold` の絞り込みと詳細画面の「保留」表示を、手動またはテストで確認することを勧める。初期データ（`seed.ts`）に保留のタスクが無いので、画面確認には作成が必要である。必須ではない。\n",
+  "review_chars": 2320,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2332,
+    "tokens": {
+      "input": 22,
+      "output": 3775,
+      "cache_read": 404480,
+      "cache_creation": 38734
+    },
+    "turns": 9,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 6
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 41,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘は、すでに `REVIEW.md` に最初の依頼の形式で書いてあり、コミット済みです（`ca90d9d`）。そのため、今回は書き換えも新しいコミットもしていません。\n\n- **書式:** 3 件とも、重要度・場所・何が問題か・直し方の項目が入っています。\n- **件数:** 指摘は 3 件（高 2、低 1）で、新しい指摘の追加も削除もありません。\n- **コミット:** コミットしたのは `REVIEW.md` だけです。`src/lib/tasks.ts` と `tests/tasks.test.ts` は、PR の変更のまま未コミットで、コードは直していません。"
+  },
+  "interventions": 0
+}

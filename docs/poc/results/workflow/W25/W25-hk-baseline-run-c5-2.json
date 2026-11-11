@@ -1,0 +1,47 @@
+{
+  "trial": "W25-hk-baseline-run-c5-2",
+  "scenario": "W25",
+  "config": "hk-baseline-run",
+  "case": "c5",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスクの担当者の項目名を `assigneeId` / `assignee_id` にする変更\n\n対象: 未コミットの差分（`git diff HEAD`）。`npm run typecheck` と `npm test`（19 件）は通る。\nただし既存テストは `assigneeId` の中身や API の入出力を検証していないため、以下の問題を検出できていない。\n\n再現に使ったスクリプト: `/tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c5-2-app/cfa407d1-d84d-4ff2-900c-17e1c9a6748f/scratchpad/repro/repro.ts`（作業用コピーの外。`node --experimental-strip-types` で実行）\n\n---\n\n## 1. `listTasks()` が返す `assigneeId` が全件 `undefined` になる\n\n- **場所**: `src/lib/tasks.ts` の `listTasks`（35〜40 行。SQL の 37 行に `assignee_id AS assignee`）と、その行を変換する `toTask`（31〜33 行。32 行で `row.assignee_id` を読む）\n- **何が問題か**: SELECT で列に `AS assignee` と別名を付けているのに、`toTask` は `assignee_id` を読むため、`assigneeId` に値が入らない。`getTask` は別名を付けていないので正しく動く。\n  - 再現（`openDb()` の初期データで `listTasks({}, db)`）: 7 件すべて `assigneeId` の型が `undefined`。`{\"id\":1,\"title\":\"要件定義書のレビュー\",\"status\":\"done\",\"dueDate\":\"2026-11-02\"}` のように担当者の項目が無い。\n  - 影響: `src/app/tasks/page.tsx` の担当者列が空になる。`GET /api/tasks` の JSON からも `assigneeId` が消える。\n- **直し方**: `listTasks` の SELECT の `AS assignee` を外し、`getTask` と同じく `assignee_id` を選ぶ。あわせて `tests/tasks.test.ts` の `listTasks` のテスト（14 行〜）で、各タスクの `assigneeId` が期待値（例: 1 件目は `\"sato\"`）と一致することを確認する。\n- **重要度**: 高\n\n## 2. PR の「API の入出力は変えない」は成り立たない（入力キーと出力キーが変わっている）\n\n- **場所**: `src/lib/tasks.ts` の `validateTaskInput`（65 行〜。入力キーの確認は 87〜92 行）、`toTask`（31〜33 行。出力キー）。影響するのは `src/app/api/tasks/route.ts` の POST（13〜18 行）、`src/app/api/tasks/[id]/route.ts` の PATCH（16〜23 行）と、GET の JSON。\n- **何が問題か**: 入力も出力も JSON のキーが `assignee` から `assigneeId` に変わる。\n  - 旧キーで POST すると `{\"assignee\":\"sato\", ...}` は「担当者が存在しません」の 400 になる（再現済み）。\n  - 出力の `task.assignee` は消え、`task.assigneeId` が現れる。API を使っている側（画面以外のクライアント）が壊れる可能性がある。\n  - PR 説明の「画面の表示と API の入出力は変えません」と矛盾する。\n- **直し方**: 次のどちらかにし、PR 説明も合わせて直す。\n  - (a) API の境界では従来どおり `assignee` を使い続ける（ルートまたは `toTask`／`validateTaskInput` の出入りで写像する）。内部だけ `assigneeId` にする。これが PR の趣旨（内部の名前の整理）に一番合う。\n  - (b) 名前変更を API の破壊的変更として扱う。API 利用者への通知と、PR 説明への明記を行う。\n- **重要度**: 高\n\n## 3. PATCH で旧キー `assignee` を送ると、何も変えずに 200 を返す\n\n- **場所**: `src/lib/tasks.ts` の `validateTaskInput`（65 行〜。部分更新のとき `need` は 76 行で「送られたキーだけ」を見る）、`src/app/api/tasks/[id]/route.ts` の PATCH（16〜23 行。21 行で `partial: true` を渡す）\n- **何が問題か**: 部分更新では、送られた既知のキーだけを検証する。`{\"assignee\":\"tanaka\"}` は既知のキーが無いので `{ ok: true, value: {} }` となり、`updateTask` は何も変えないまま 200 とタスクを返す（再現済み: タスク 1 の `assigneeId` は `\"sato\"` のまま）。利用者は更新できたと誤解する。\n- **直し方**: 部分更新で「既知の項目が 1 つも無い」場合は 400 にする（例: `更新する項目がありません`）。未知のキーを拒否するか、少なくとも警告を返す。あわせて、`{\"assignee\": ...}` を PATCH して 400 になるテストを追加する。（指摘 2 の対応を (a) で行う場合は、旧キーを受け付けるかどうかでこの扱いも決まる。）\n- **重要度**: 中\n\n## 4. 移行 3 の後も、インデックス名 `tasks_assignee` が残る\n\n- **場所**: `src/lib/db/migrations.ts` の version 3（42〜48 行。46 行で `ALTER TABLE tasks RENAME COLUMN assignee TO assignee_id`）。古いインデックス名は 25 行の version 1 で作られている。\n- **何が問題か**: 列名の変更でインデックスの中身は正しく付け替わる（既存データ・外部キー・インデックスとも再現で確認: `user_version` 3、行は `assignee_id = 'sato'` で保持、`FOREIGN KEY constraint failed` で外部キーが有効）。ただしインデックス名は古い `tasks_assignee` のまま。名前だけの問題で、動作には影響しない。\n- **直し方**: 直す必要は小さい。直すなら既存の version 3 は書き換えず、version 4 で `DROP INDEX tasks_assignee; CREATE INDEX tasks_assignee_id ON tasks(assignee_id);` を追加する。version 3 のコメントの「インデックス」の記述も合わせて確認する。\n- **重要度**: 低\n\n---\n\n## 問題なしと判断した点\n\n- DB の移行（version 3）: 既存データ、外部キー、CHECK 制約とも保たれる。既存マイグレーションは書き換えていない。\n- `seed.ts` と `index.ts` の初期データ投入: 列名・項目名とも一致している。\n- 詳細画面 `src/app/tasks/[id]/page.tsx`: `getTask` を使うので `assigneeId` は正しく入る。\n- 単体テストの項目名の置き換え: 漏れなく置き換えられている（`grep` で旧名の残りは `migrations.ts` の旧マイグレーションのみ）。\n",
+  "review_chars": 3482,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0303,
+    "tokens": {
+      "input": 36,
+      "output": 17101,
+      "cache_read": 1044173,
+      "cache_creation": 56344
+    },
+    "turns": 23,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat package.json && grep -rn \\\"getUser\\\" src/lib | head -5 && node --version && (npm run typecheck 2>&1 | tail -5) && (npm test 2>&1 | tail -15)\", \"description\": \"Check package scripts, N"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c5-2-app/cfa407d1-d84d-4ff2-900c-17e1c9a6748f/scratchpad/repro && cat > /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c5-2-a"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -rn \\\"listTasks\\\\|/api/\\\\|assigneeId\\\" tests/ | head -20; ls REVIEW.md 2>&1; git config user.name; git config user.email; git status --short\", \"description\": \"Check test coverage of "
+      }
+    ],
+    "tool_calls": {
+      "Bash": 17,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 93,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を最初の依頼の形式（場所・何が問題か・直し方・重要度）に書き直し、そのファイルだけをコミットしました（コミット `96874e6`）。新しい指摘は足さず、既存の 4 件はそのまま残しています。\n\n- **1. 高**: `listTasks()` の `assigneeId` が全件 `undefined`。場所は `src/lib/tasks.ts` の 35〜40 行（37 行の `AS assignee`）と `toTask`（32 行）。\n- **2. 高**: API の入力・出力キーが `assignee` から `assigneeId` に変わっている。PR の「API の入出力は変えない」と矛盾する。\n- **3. 中**: PATCH で旧キー `assignee` を送ると、何も更新されず 200 が返る。\n- **4. 低**: 移行 3 の後もインデックス名 `tasks_assignee` が残る。\n\n行番号は今の作業ツリーで確認したものです。コードは直していません。作業ツリーの他の未コミット変更（`src/`・`tests/` の 8 ファイル）も触っていません。"
+  },
+  "interventions": 0
+}

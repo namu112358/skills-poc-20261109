@@ -1,0 +1,63 @@
+{
+  "trial": "W30-baseline-both-c4-1",
+  "scenario": "W30",
+  "config": "baseline-both",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー: 西日本校正センターの CSV の取込\n\n対象: 未コミットの差分（`src/lib/calib-import-nishinihon.ts`・`src/app/api/calibrations/import/route.ts`・`src/lib/calibrations.ts`・`src/lib/csv.ts` ほか）。\n確認方法: 要件を 1 つずつコードと照合し、`npm run build` → `npm run start`（本番モード）でログインして `POST /api/calibrations/import` を実際に呼んだ。確認後にサーバーは停止済み。\n\n## 指摘一覧\n\n| # | 重要度 | 内容 | 反する要件 |\n|---|---|---|---|\n| 1 | 高 | BOM 付きの西日本校正センターの CSV が取り込めない | 3 |\n| 2 | 高 | ファイル内の重複の判定が A 社と違う | 7 |\n| 3 | 低 | 合意に無い検証を B 社だけに足している | 8（範囲外） |\n| 4 | 低 | docs の判別条件の記述が、指摘 1 の修正後に食い違う | — |\n\n## 1. BOM 付きの西日本校正センターの CSV が取り込めない\n\n- **重要度**: 高\n- **場所**: `src/lib/calib-import-nishinihon.ts` の `isNishinihonCsv()`（先頭の BOM なら `return false` の行）、および `src/app/api/calibrations/import/route.ts` の `POST`（`isNishinihonCsv` による分岐）\n- **何が問題か**: BOM（EF BB BF）で始まるファイルは B 社の形式と判定されず、A 社の取込（`importCalibrationCsv`）に回る。BOM 付きの B 社 CSV を実際に送ると `400 {\"error\":\"CSV の形式が違います（1 行目に「管理番号」の列がありません）\"}` になり、1 件も取り込まれなかった。要件 3「保存のしかた（BOM の有無・改行コード）の違いで取り込めなくならない」に反する。Windows のエディタで保存し直したファイルが月初のスクリプトから送られる場面で失敗する。取込側（`importNishinihonCsv`）は BOM を読み飛ばせるが、判定で弾かれるため到達しない。なお CRLF は取り込める（確認済み）。\n- **直し方**: `isNishinihonCsv()` で BOM を取り除いてから見出しを見る（`data.subarray(3)`）。A 社の BOM 付き UTF-8 との見分けは見出し（「機器番号」か「管理番号」か）で行う。BOM あり・なし × LF・CRLF のテストを追加する（現在のテストに「BOM 付きは別の形式」を前提にしたものがあれば要件に合わせて直す）。\n\n## 2. ファイル内の重複の判定が A 社と違う\n\n- **重要度**: 高\n- **場所**: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv()` の取込ループ（`const key = \\`${no}|${date}|${cert}\\`` と `seen`）\n- **何が問題か**: A 社（`src/lib/legacy/calib-import.ts`）の「同じファイルの中の重複」は「機器番号＋校正日」で判定し、後の行を読み飛ばす。新しい実装は成績書番号まで含めているため、同じ機器・同じ校正日で成績書番号だけ違う行が両方取り込まれる。MI0003・2026-11-04 で成績書番号 C-1 と C-2 の 2 行を送ると `imported: 2`・`skipped: []` になり、校正記録が二重に入った。要件 7「同じファイルの中の重複も、A 社と同じ決まりで後の行を読み飛ばす」に反する。2 行の判定が PASS と FAIL で食い違うと、後の行の結果で前回校正日・状態が決まってしまう。\n- **直し方**: ファイル内の重複は `${no}|${date}` で判定する。台帳との「取込済み」判定（機器・校正日・成績書番号）は A 社と同じなので今のままでよい。成績書番号違いの重複行のテストを追加する。\n\n## 3. 合意に無い検証を B 社だけに足している\n\n- **重要度**: 低\n- **場所**: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv()`（「校正実施日が未来」「成績書番号が空」「成績書番号は 50 文字以内」のエラー）\n- **何が問題か**: 要件 8 が誤りにする行は「台帳に無い機器番号・読めない判定」で、上の 3 つは PR の説明に無い（`docs/calibration-import.md` には書いてある）。A 社は成績書番号が空でも取り込むため、扱いが非対称になる。仕様どおりなら実害は小さいが、依頼者との合意の範囲を超えている。\n- **直し方**: PR の説明に「置いた仮定」として書くか、依頼者に確認する。\n\n## 4. docs の判別条件の記述が、指摘 1 の修正後に食い違う\n\n- **重要度**: 低\n- **場所**: `docs/calibration-import.md` の「形式は見出しで自動判別する（UTF-8・BOM なしで…）」の行、`src/lib/calib-import-nishinihon.ts` の `isNishinihonCsv()` の関数コメント\n- **何が問題か**: 判別条件に「BOM なし」と書いてあり、指摘 1 を直すと実装と食い違う。\n- **直し方**: 指摘 1 の修正に合わせて「BOM の有無を問わず、見出しに『機器番号』がある UTF-8 の CSV」に改める。\n\n## 補足（要件どおり動くことを確認した点）\n\n- 要件 1（機関名）・4（COND は合格＋備考末尾に追記、有効期限は不使用）・5（ハイフン無しの機器番号）・6（END の件数不一致は 400 で 1 件も取り込まない）・7 の「同じファイルを 2 回取り込んでも二重にしない」・8（台帳に無い番号・読めない判定は errors に入り他の行は取込）・9（応答の形）・10（A 社のコードは無変更）は満たしている。\n- 未ログインは 401。\n",
+  "review_chars": 2796,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.5452,
+    "tokens": {
+      "input": 56,
+      "output": 14356,
+      "cache_read": 1583294,
+      "cache_creation": 60811
+    },
+    "turns": 37,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -n 100,140p src/lib/calibrations.ts; grep -n \\\"MI-00\\\\|users\\\\|INSERT\\\" src/lib/db/seed.ts | head -40; (npm run build 2>&1 | tail -15)\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 nohup npm run start > /tmp/claude-0/-tmp-poc-trials-W30-baseline-both-c4-1-app/5de7c676-ec78-4f30-97f6-d1a05320a5b1/scratchpad/srv.log 2>&1 &) ; sleep 5; S=/tmp/claude-0/-tmp-p"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W30-baseline-both-c4-1-app/5de7c676-ec78-4f30-97f6-d1a05320a5b1/scratchpad && \\ncp /tmp/poc-trials/W30-baseline-both-c4-1/app/docs/agencies/nishinihon-sam"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W30-baseline-both-c4-1-app/5de7c676-ec78-4f30-97f6-d1a05320a5b1/scratchpad && cp /tmp/poc-trials/W30-baseline-both-c4-1/app/docs/agencies/nishinihon-sampl"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"D=/tmp/claude-0/-tmp-poc-trials-W30-baseline-both-c4-1-app/5de7c676-ec78-4f30-97f6-d1a05320a5b1/scratchpad; for f in $D/cnt.csv $D/dup.csv $D/bom.csv /tmp/poc-trials/W30-baseline-both-c4-"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i 's/ `importNishinihonCsv()` 側も .*到達しない）。/ 取込側（`importNishinihonCsv`）は BOM を読み飛ばせるが、判定で弾かれるため到達しない。/' REVIEW.md && grep -c \\\"到達しない\\\" REVIEW.md && git add REVIEW.md && git commit -m "
+      }
+    ],
+    "tool_calls": {
+      "Bash": 24,
+      "Read": 2,
+      "Write": 5,
+      "ToolSearch": 1,
+      "TaskStop": 1,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 133,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "指摘 4 件を、場所・何が問題か・直し方・重要度の形式にそろえて `REVIEW.md` に書き直し、`REVIEW.md` だけをコミットしました。新しい指摘は足しておらず、前回出した指摘も削っていません。コードは直していません。\n\n| # | 重要度 | 指摘 |\n|---|---|---|\n| 1 | 高 | BOM 付きの西日本校正センターの CSV が取り込めない（要件 3 に反する） |\n| 2 | 高 | ファイル内の重複の判定が A 社と違う（要件 7 に反する） |\n| 3 | 低 | 合意に無い検証（未来日・成績書番号の空や 51 文字以上）を B 社だけに足している |\n| 4 | 低 | `docs/calibration-import.md` の判別条件が、指摘 1 を直すと実装と食い違う |\n\n前回の `REVIEW.md` の「要件ごとの判定」表は、末尾の「補足」に短くまとめ直しました。"
+  },
+  "interventions": 0
+}

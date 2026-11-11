@@ -1,0 +1,61 @@
+{
+  "trial": "W27-baseline-run-c4-1",
+  "scenario": "W27",
+  "config": "baseline-run",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー: 西日本校正センター CSV の取込\n\n実際に関数を呼んで確認した結果に基づく。確認できなかった点は書いていない。\n\n## 指摘\n\n### 1. 【高】BOM 付きの西日本校正センター CSV が取り込めない（要件 3 違反）\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の `isNishinihonCsv`（先頭の BOM 判定で `return false`）、およびそれに続く `src/app/api/calibrations/import/route.ts` の分岐。\n- 問題: BOM 付き UTF-8 の B 社ファイルは判別で false になり、東日本用の `importCalibrationCsv` に回る。再現では結果が `errors:[{line:1,\"CSV の形式が違います（1 行目に「管理番号」の列がありません）\"}]` となり、route は 400 を返す。要件 3 は BOM の有無で取り込めなくならないことを求めている。BOM 付き UTF-8 は A 社でも実際に来たので、B 社でも Excel で保存し直すと同じ状況になる。エラー文も A 社の見出しの話になり、原因が分からない。\n- 直し方: 判別の前に先頭の BOM（EF BB BF）を取り除いて判定する。取込側の `importNishinihonCsv` でも同じく BOM を取り除いてから見出しを読む。判別は「見出しに `機器番号` がある」ことを基準にし、BOM は判別から除外しない。A 社の BOM 付き UTF-8（`管理番号` の見出し）は今までどおり A 社側に回ることをテストで確かめる。現在のテスト（`tests/calib-import-nishinihon.test.ts` 24 行目）は BOM 付きを「別形式」と固定しているので、期待を直す。\n\n### 2. 【中】ファイル内の重複の判定が A 社の決まりと違う（要件 7 違反）\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv` 内 `const key = \\`${no}|${date}|${cert}\\``。\n- 問題: A 社の取込（`src/lib/legacy/calib-import.ts`）は「機器 + 校正日」が同じなら後の行を読み飛ばす。B 社側はキーに成績書番号を含めている。同じ機器・同じ校正日で成績書番号だけ違う 2 行（`MI0003,…,2026-11-04,PASS,W1` と `MI-0003,…,2026-11-04,PASS,W2`）を再現したところ、`imported:2, skipped:[]` で 2 件とも校正記録になった。要件は「A 社と同じ決まりで後の行を読み飛ばす」。\n- 直し方: ファイル内の重複キーを `${no}|${date}` にそろえ、後の行を「同じファイルの中で重複」で読み飛ばす。「取込済み」（DB との照合）は A 社と同じく 機器・校正日・成績書番号のままでよい。成績書番号違いのテストを追加する。\n\n## 確認して問題なかった点（参考）\n\n- 日本時間の日付の境目（UTC 15:30 は翌日の日本時間）で「今日」の未来日判定が正しく動く。\n- CRLF、`END,01`、`pass ` などの表記ゆれは取り込める。\n- COND の備考追記は 2 回目の取込で二重にならない（「取込済み」）。\n",
+  "review_chars": 1511,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4239,
+    "tokens": {
+      "input": 42,
+      "output": 10646,
+      "cache_read": 1081029,
+      "cache_creation": 52323
+    },
+    "turns": 22,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -n 1,40p tests/calib-import-nishinihon.test.ts; grep -n \\\"export\\\" src/lib/db/index.ts | head; cat > /tmp/poc-trials/r.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W27-baselin"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c4-1-app/8ca6211e-5c2a-4280-8316-102314bbe05d/scratchpad && mkdir -p $S && cat > $S/r.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c4-1-app/8ca6211e-5c2a-4280-8316-102314bbe05d/scratchpad; ls $S; node --experimental-strip-types $S/r.ts 2>&1 | head -30; grep -n '\\\"test\\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i 's/\\\"u\\\"/\\\"sato\\\"/g' /tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c4-1-app/8ca6211e-5c2a-4280-8316-102314bbe05d/scratchpad/r.ts && node --experimental-strip-types --no-warnings /"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 15,
+      "Write": 2,
+      "Edit": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 91,
+    "answer_key_access": [],
+    "isolation_suspects": [
+      {
+        "step": "step2.jsonl",
+        "tool": "Bash",
+        "reasons": [
+          "他の試行の作業用コピー"
+        ],
+        "input": "{\"command\": \"sed -n 1,40p tests/calib-import-nishinihon.test.ts; grep -n \\\"export\\\" src/lib/db/index.ts | head; cat > /tmp/poc-trials/r.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W27-baseline-run-c4-1/app/src/lib/db/index.ts\\\";\\nimport { importNishinihonCsv, isNishinihonCsv } from \\\"/tmp/p"
+      }
+    ],
+    "final_message": "`REVIEW.md` は、直前のレビューの指摘 2 件を依頼どおりの形式（場所・何が問題か・直し方・重要度）で、すでに書いてコミット済みです（コミット `c344cf6`）。作業ツリーに未コミットの変更は残っていません。そのため書き写しの作業もコミットも新たには行っていません。\n\n- 【高】BOM 付きの西日本校正センター CSV が取り込めない（`isNishinihonCsv`）\n- 【中】ファイル内の重複判定が東日本と違う（`importNishinihonCsv` の重複キー）\n\n新しい指摘は足しておらず、削った指摘もありません。コードも直していません。"
+  },
+  "interventions": 0
+}

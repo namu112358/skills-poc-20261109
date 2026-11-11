@@ -1,0 +1,85 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で userId を含まず、30 秒以内に別の利用者へ先の利用者のダッシュボード（担当タスク）が返り、情報が漏えいする。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "countByStatus が共有定数 TASK_STATUSES を型の断定で可変にして reverse() で破壊的に並べ替え、タスク一覧の絞り込みの順番などアプリ全体の並びが変わる。",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "weekRange で日曜は getUTCDay() が 0 のため 1 - dow が +1 になり、日曜の「今週」が翌週の月〜日になる（直し方は (dow + 6) % 7、テストは水曜のみ）。",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "completionRate がタスク 0 件のとき 0/0 で NaN を返し、画面に「完了率 NaN%」と表示される。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり規約 8 に反し、引用符を含む値でクエリが壊れる。プレースホルダにすべき。",
+   "severity": "中",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "キャッシュのため、タスク更新後も最大 30 秒は古い件数・完了率が表示される。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "キャッシュヒット時に引数 now が無視され、日付をまたいだ直後も前の基準時刻で期限切れ・今週の判定が行われる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "weekRange のテストが水曜のみで、日曜・月曜・月またぎのケースがない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "完了率 0 件、利用者ごとのキャッシュ分離、TASK_STATUSES 不変のテストがない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "listAssignedTasks のテストがシードデータの件数（sato の 3 件）に依存しており、シード変更で壊れる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "/dashboard と /api/dashboard の未ログイン時（401・リダイレクト）の確認テストがない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0752158
+ }
+}

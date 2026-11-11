@@ -1,0 +1,99 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "validateLocation の locationId の枝で locationOriginal が未設定のまま createInstrument が INSERT に渡し、SQLite の束縛エラーで場所 ID 指定の登録が 500 になる",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "移行（version 5 の after と linkInstrumentsToLocations）が location_id を設定するだけで、location 列を正式な名前に書き換えず表記ゆれのまま経理に渡る",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "location-master.ts の updateLocation で場所の名前を変えても、その場所の計測器の location 列は古い名前のまま",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "updateInstrument で画面から場所を選んで保存しても locationOriginal が変わらず、location 列が更新されない",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "recordInventory でハンディ端末の値が正式な場所に一致したときも、location 列に端末が送った生の文字を書いている",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "前の版に戻した直後は、移行で正規化されていない元の文字列が location 列に見える",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "前の版で location 列だけを直したあと新しい版に戻すと、location_id が優先され、移行も再照合しないため修正が消える",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "新しい版で場所を未設定にしてから前の版に戻すと、location 列は古い名称のまま残る",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "recordInventory で確定済みの計測器に寄せられない端末の文字が来たとき、確認中にせず捨ててログだけに出しており、要件 6 と食い違う",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "移行の件数ログが全体の内訳で今回寄せた件数にならず、total が 0 件のときはログ自体が出ない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 11,
+   "summary": "ALIASES で末尾が切れた表記（大阪営・名古屋営）を合意のないまま別名として寄せている",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 12,
+   "summary": "matchLocationName が呼び出しごとに全場所の正規化キーを計算し直しており、移行が非効率",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 13,
+   "summary": "場所の追加・名称変更の API に、誰が何を変えたかの監査ログが無い",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0829798
+ }
+}

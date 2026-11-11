@@ -1,0 +1,33 @@
+{
+  "trial": "W27-baseline-c2-2",
+  "scenario": "W27",
+  "config": "baseline",
+  "case": "c2",
+  "rep": 2,
+  "review_md": "# レビュー: 計測器ごとの定期点検（担当者・周期・点検記録）\n\nコードは変更していない。マージ前に直すべきものを重要度順に書く。\n\n## 高\n\n### 1. 担当者での絞り込み・並べ替え、担当者ごとの遅れ台数が無い（要件の未実装）\n- 場所: `src/app/instruments/page.tsx`（`InstrumentsPage`）、`src/lib/instruments.ts` の `listInstruments`、`src/lib/inspections.ts`\n- 問題: 合意した要件「担当者で絞り込み・並べ替えができる」「担当者ごとに、点検が遅れている台数を毎朝知りたい」に対応する実装が差分に無い。一覧は列を足しただけで、`inspector` / `sort` のクエリも、担当者別の集計関数・画面・ジョブも無い。`instruments_inspector` インデックスは作られているが使われていない。\n- 直し方: `src/lib/` に担当者での絞り込み・並べ替え（`isInspectorFilter` のような型ガードで検証。不正値は「指定なし」）と、担当者ごとの「未点検 / 期限切れ」台数の集計（SQL の GROUP BY）を追加し、一覧に出す。毎朝の通知が必要なら `docs/operations.md` の形式でジョブを足す。テストも追加する。\n\n### 2. 一覧が 5 万件の点検状況を毎回すべて計算し、絞り込み・ページ分割も無い\n- 場所: `src/lib/inspections.ts` の `listInspectionPlans` / `PLAN_SELECT`、`src/app/instruments/page.tsx`\n- 問題: 一覧を開くたびに、全計測器について相関サブクエリ（`MAX(inspected_on)`）を実行し、`Map` に 5 万件を載せる。表示するのが一部でも全件計算する（`listInstruments` は元から全件）。毎朝開く画面なので遅くなる。期限切れの判定も SQL ではなく JS で全件に対して行っている。\n- 直し方: 最後の点検日は集計の結果を計測器側に持たせるか（記録登録時に更新）、`JOIN (SELECT instrument_id, MAX(inspected_on) ... GROUP BY instrument_id)` にする。期限切れ・未点検の絞り込みと件数は SQL で行い、一覧はページ分割する。5 万件規模の DB でかかる時間を確かめる。\n\n## 中\n\n### 3. 要修理の記録で「貸出中」の計測器まで使用停止にしてしまう\n- 場所: `src/lib/inspections.ts` の `recordInspection`（`UPDATE instruments SET status = 'suspended' WHERE id = ? AND status <> 'disposed'`）\n- 問題: 状態が `on_loan` の計測器に要修理の点検記録を入れると `suspended` に変わる。CLAUDE.md の「貸出中は貸出・返却の操作でだけ変わる」に反する。未返却の貸出が残ったまま状態だけ変わり、返却処理（`status = 'on_loan'` の場合だけ `in_use` に戻す）では状態が戻らなくなる。\n- 直し方: 貸出中の扱い（要修理の記録は残すが状態は変えない／返却時に使用停止へ、など）を決め、`status NOT IN ('disposed','on_loan')` などで条件を絞る。仮定は PR に書き、テストを追加する。\n\n### 4. 廃棄済み・使用停止の計測器も「期限切れ」「未点検」として数えられる\n- 場所: `src/lib/inspections.ts` の `toPlan` / `judgeDue`\n- 問題: `disposed` の計測器が点検周期を過ぎると永久に「期限切れ」「未点検」になり、遅れ台数（要件 1）を実際より多くする。\n- 直し方: 廃棄済みは点検の状況を「対象外」にし、遅れ台数の集計からも除く。\n\n### 5. 旧版へ戻したとき（ロールバック）に、点検の情報が旧版から見えない・食い違う\n- 場所: `src/lib/inspections.ts`（`updateInspectionPlan` / `recordInspection`）、`src/lib/instruments.ts` の `updateInstrument`\n- 問題: 新版は担当者・点検日を専用の列・テーブルにだけ書き、`extra.inspector` / `last_inspected` は更新しない。旧版に戻すと、画面の点検者・最終点検日はリリース前の値のままで、新版で変えた担当者や記録した点検が見えない。逆に、旧版で `extra` を書き換えた分は、新版へ戻したとき移行済み扱いで反映されない。\n- 直し方: 戻す運用を前提に、新版でも `extra.inspector` / `last_inspected` を同期して書く（担当者名・最後の点検日）か、戻したときの扱いと手順を PR と `docs/operations.md` に書く。担当部署 `dept` は変えていないので問題なし。\n\n### 6. 既存 API（PATCH /api/instruments/:id の `extra`）で書いた点検者・最終点検日が、黙って無視される\n- 場所: `src/app/instruments/[id]/page.tsx`（`extra` の `inspector` / `last_inspected` を表示から除外）、`src/lib/instruments.ts` の `validateInstrumentInput` / `updateInstrument`\n- 問題: 他システム・画面が `extra.inspector` を更新しても受け付けられるが、どこにも表示されず点検の状況にも効かない。既存 API の互換性（標準 11）は保たれているように見えて、値だけ死ぬ。\n- 直し方: `extra` の該当キーを書く入力を、新しい列へ反映するか 400 で拒否する。どちらにするかを PR に書く。\n\n### 7. 旧データの名前の突き合わせが、空白入りの氏名に合わない\n- 場所: `src/lib/inspections-legacy.ts` の `normalizeInspectorName` / `importLegacyInspections`\n- 問題: 点検者の書き方からは空白（全角含む）をすべて取り除くが、`users.name` 側は取り除かない。利用者名が「鈴木 太郎」なら、旧データ「鈴木 太郎さん」は正規化後「鈴木太郎」で一致せず、利用者と分かる名前なのに担当者にならない（元の書き方は残る）。同姓同名が複数いるときも担当者にしない扱いはよいが、その件数が分からない。\n- 直し方: 利用者名も同じ正規化で比較する（SQL で `REPLACE` するか、読み出して JS で比べる）。マイグレーション時に、担当者にできなかった件数と理由をログに出す。\n\n## 低\n\n### 8. 旧データの非文字列・壊れた値の扱いが黙って捨てになる\n- 場所: `src/lib/inspections-legacy.ts` の `importLegacyInspections`\n- 問題: `extra` が壊れた JSON のとき `continue` で飛ばし、`inspector` / `last_inspected` が文字列以外（数値など）のときは空扱いになる。要件「黙って捨てない」に対し、記録が残らない。`extra` 自体は消さないので復旧はできるが、移行結果からは分からない。\n- 直し方: 飛ばした行は移行ログに出す。文字列以外は `String()` にして `legacy_*` に残す。\n\n### 9. 日付が読めない記録だけの計測器は「未点検」と出る\n- 場所: `src/lib/inspections.ts` の `PLAN_SELECT`（`MAX(inspected_on)` は NULL を無視）\n- 問題: 旧データの日付が読めなかった計測器は「未点検」と表示される。点検日の分からない記録があることは詳細画面でしか分からない。\n- 直し方: 一覧の状況に「点検日が不明」を区別して出す。\n\n### 10. 旧データの日付の書き方の対応が狭い\n- 場所: `src/lib/inspections-legacy.ts` の `parseLegacyDate`\n- 問題: 「2026年9月1日」「令和元年」などは読めず `legacy_date` に回る（捨てはしないが、点検の遅れ判定には効かない）。\n- 直し方: 年月日の区切りと元年を足す。読めない件数を移行ログに出して、現場の書き方を確かめる。\n\n### 11. 点検記録の訂正の手順が無い\n- 場所: `src/app/instruments/[id]/inspection-forms.tsx`、`src/lib/inspections.ts`\n- 問題: 「間違えたら訂正の記録を足す」とあるが、訂正であることを示す項目・画面が無く、最後の点検日が `MAX` なので、誤って未来寄りの日付を入れると、訂正で日付を戻しても `MAX` が変わらない（点検日は今日以前のみなので影響は小さい）。\n- 直し方: 訂正する記録を指す列（`corrects_id`）を足し、訂正された記録は最後の点検日の計算から除く。\n",
+  "review_chars": 4101,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3201,
+    "tokens": {
+      "input": 22,
+      "output": 7348,
+      "cache_read": 447517,
+      "cache_creation": 50449
+    },
+    "turns": 9,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 6
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 71,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は、前回のレビューの 11 件すべてを、すでに指定の形式で書いてあります。各指摘に重要度（高・中・低）、場所、何が問題か、直し方があります。作業ツリーに未コミットの変更は無く、コミット `ace25b5` に反映済みです。そのため今回は書き直しもコミットもしていません。指摘の追加や削除、コードの修正もしていません。\n\n件数は高 2、中 5、低 4 です。"
+  },
+  "interventions": 0
+}

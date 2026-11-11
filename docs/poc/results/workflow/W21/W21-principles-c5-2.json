@@ -1,0 +1,34 @@
+{
+  "trial": "W21-principles-c5-2",
+  "scenario": "W21",
+  "config": "principles",
+  "case": "c5",
+  "rep": 2,
+  "review_md": "# レビュー: assignee → assigneeId への名前の整理\n\nPR の目的は、内部の名前（コード・DB 列）だけを `assigneeId` / `assignee_id` に揃え、画面の表示と API の入出力は変えないこと。\n結論: **修正を求める**。画面（一覧）が壊れ、API の入出力も変わっており、どちらも PR の「変えない」に反する。型チェックとテストが通ったのは、どちらもこれらを検出できないため。\n\n## 指摘\n\n### 1. [高] タスク一覧の担当者列が空になる\n\n- 場所: `src/lib/tasks.ts` の `listTasks`（SELECT 文、37 行目付近）と `toTask`（32 行目）\n- 問題: `listTasks` の SQL が `assignee_id AS assignee` と別名を付けているが、`toTask` は `row.assignee_id` を読む。そのため一覧の全タスクで `assigneeId` が `undefined` になる。`/tasks` の担当者列が全行で空になる（`getTask` は別名を付けていないので詳細画面は正しく、一覧と詳細で結果が食い違う）。`TaskRow` への `as` キャストが型の不一致を隠すので、`npm run typecheck` では見つからない。`assigneeId` を含む `listTasks` のテストも無いので、`npm test` でも見つからない。\n- 直し方: SELECT を `assignee_id`（別名なし）にする。あわせて `tests/tasks.test.ts` に `listTasks` の結果の `assigneeId`（例: 先頭の要素が `\"sato\"`）を確かめるテストを足す。規約 5（ロジック変更にはテスト）にも当たる。\n\n### 2. [高] API のリクエストとレスポンスの項目名が変わっている（互換性が壊れる）\n\n- 場所: `src/lib/tasks.ts` の `validateTaskInput`（`need(\"assigneeId\")`、`b.assigneeId`）、`Task` 型、`src/app/api/tasks/route.ts`・`src/app/api/tasks/[id]/route.ts`\n- 問題: `Task` 型をそのまま JSON で返しており、`validateTaskInput` が本文のキーを直接読む。そのため次のようになる。\n  - `GET /api/tasks`、`GET /api/tasks/:id` などの応答のキーが `assignee` から `assigneeId` に変わる。既存のクライアントは担当者を読めなくなる。\n  - `POST /api/tasks` と `PATCH /api/tasks/:id` では、本文の `assignee` が無視される。POST は「担当者が存在しません」の 400 になる。PATCH は `assignee` だけを送ると何も変わらないまま成功を返す（`{ ...current, ...changes }` に未知のキーが混ざるだけ）。\n  - PR の説明は「API の入出力は変えない」と書いているので、説明と実装が食い違う。API の差分も無く、テストも無いので、この変更に気づく仕組みが無い。\n- 直し方（どちらかを選ぶ）:\n  - (a) PR の意図どおり API を変えない場合: API の境界（`validateTaskInput` の入力と、API Route の応答）で `assignee` ⇄ `assigneeId` を相互に変換する。内部の名前だけを変える。\n  - (b) API も変える場合: PR の説明を直し、利用者への周知や移行の手順を決めてから別の変更にする。\n  - どちらでも、API Route を通した（または `validateTaskInput` と応答の形の）テストを足し、入出力の項目名を固定する。\n\n### 3. [中] 画面の文言・名前の取り違えが残っている（PR の動機が解決していない）\n\n- 場所: `src/app/tasks/page.tsx:47`\n- 問題: PR の動機は「画面で名前を出すところで取り違えが起きかけた」こと。しかし一覧は ID（`task.assigneeId`）をそのまま表示しており、詳細画面は名前（`assignee?.name ?? task.assigneeId`）を表示する。一覧と詳細で表示が揃っていない。これは変更前からの挙動なので、この PR で直すと「画面は変えない」に反する。直さないなら、現状の表示は意図どおりであることを説明に書いておくこと。\n- 直し方: この PR では変えない。名前を表示したいなら、別の変更で `src/lib/` に担当者名を付けて返す関数を作り、ページには表示だけを書く（規約 1）。\n\n### 4. [低] マイグレーションの検証が足りない\n\n- 場所: `src/lib/db/migrations.ts`（version 3）、`tests/db.test.ts`\n- 問題: `RENAME COLUMN` 自体は、インデックスと外部キーを SQLite が付け替えるので妥当。マイグレーションは version 末尾への追加で、既存のものを書き換えていない（規約 7 は守れている）。ただし次の点が確かめられていない。\n  - 既存の DB（バージョン 2 の状態でデータが入っているもの）に適用したときに、データが残ること。\n  - インデックス `tasks_assignee` の名前は古い列名のままである。動作には影響しないが、名前の整理という PR の目的からは外れる。\n- 直し方: バージョン 2 で行を入れてからバージョン 3 を適用し、データが残ることを確かめるテストを足す。インデックス名は、別の変更でインデックスを作り直す際に揃えてもよい（今回は必須ではない）。\n\n## 良い点\n\n- マイグレーションを新しい番号で末尾に追加しており、既存のマイグレーションを書き換えていない。\n- 変更が名前の整理に絞られており、`Task` 型のコメント（`users.id`）で意味を示している。\n- SQL のプレースホルダを守っている。\n",
+  "review_chars": 2725,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2344,
+    "tokens": {
+      "input": 18,
+      "output": 4177,
+      "cache_read": 324348,
+      "cache_creation": 40051
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 4,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 55,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの指摘 4 件がすでにそのまま書かれていて、コミット済みです（コミット 549da47）。これ以上書き写す内容は無いので、今回は追加のコミットをしていません。\n\n`git status` と `git diff HEAD` で `REVIEW.md` に未コミットの差分が無いことも確かめました。\n\n指摘は 1 件ずつ、場所・何が問題か・直し方・重要度（高・中・低）の形式で書いてあります。指摘の追加も削除もしていません。\n\n| 重要度 | 内容 |\n|---|---|\n| 高 | `listTasks` の別名のせいで、一覧の担当者列が空になる |\n| 高 | API のリクエスト・レスポンスの項目名が変わっている |\n| 中 | 一覧は ID、詳細は名前を表示している（変更前からの挙動） |\n| 低 | マイグレーション 3 の検証が足りない（データが残ることの確認、旧名のインデックス） |\n\n前の返信の最後にあるとおり、PR の差分（コード側）は未コミットのまま残していて、直していません。"
+  },
+  "interventions": 0
+}

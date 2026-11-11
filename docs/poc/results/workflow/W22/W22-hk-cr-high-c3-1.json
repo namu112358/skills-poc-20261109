@@ -1,0 +1,47 @@
+{
+  "trial": "W22-hk-cr-high-c3-1",
+  "scenario": "W22",
+  "config": "hk-cr-high",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の CSV ダウンロード（`GET /api/tasks/export`）\n\n対象: `src/lib/export.ts`、`src/app/api/tasks/export/route.ts`、`tests/export.test.ts`（未コミットの差分）\n\nマージ前に直すべき指摘を、重要度の高い順に並べています。\n\n---\n\n## 1. CSV の項目でダブルクォートが二重化されていない（重要度: 高）\n\n- **場所**: `src/lib/export.ts` の `field()`（11 行目）\n- **何が問題か**: `field()` は値を `\"${value}\"` で囲むだけで、値の中の `\"` を `\"\"` に置き換えていません。タイトルに `\"` が含まれると、CSV として壊れます。\n  - 入力例: タイトルが `He said \"hi\", ok` のタスク（ID 9、未着手、sato、期限 2026-12-01）\n  - 出力: `\"9\",\"He said \"hi\", ok\",\"未着手\",\"sato\",\"2026-12-01\"`\n  - 結果: 行が 5 項目に分かれず、ステータス・担当者・期限が別の列にずれるか、Excel で行が正しく読み込まれません。\n  - 確認済み: `toCsv` にこの入力を渡すと、上記の壊れた行が出力されることを確認しました。\n- **直し方**: `field()` で `\"` を `\"\"` に置き換えてから囲みます。\n\n  ```ts\n  function field(value: string | number): string {\n    return `\"${String(value).replace(/\"/g, '\"\"')}\"`;\n  }\n  ```\n\n  個別の文字だけを直すのではなく、項目の作り方そのものを直すことが根本対策です。\n\n---\n\n## 2. CSV インジェクション（数式として実行される恐れ）（重要度: 高）\n\n- **場所**: `src/lib/export.ts` の `field()`（11 行目）\n- **何が問題か**: `=`、`+`、`-`、`@` で始まるセルを無害化していません。タイトルは 1〜200 文字であることしか検証されていないため、ログインできるユーザーが数式を入れられます。\n  - 入力例: ログイン済みのユーザーがタイトル `=HYPERLINK(\"http://evil.example\",\"開く\")` のタスクを作成する\n  - 状況: 別のユーザーが `/api/tasks/export` をダウンロードし、`tasks.csv` を Excel で開く\n  - 結果: 周りのダブルクォートは Excel の数式評価を止めないため、先頭の `=` が数式として評価されます。\n  - 確認済み: `toCsv` は値をそのまま `\"=HYPERLINK(\"http://x\",\"go\")\"` の形で出力します。\n- **直し方**: 値の先頭が `=`、`+`、`-`、`@`（タブ・CR を含む場合も含む）のときは、`'` を前に付けて文字列として扱わせます。数値の ID はこの対象外でかまいません。ダブルクォートの二重化（指摘 1）と合わせて `field()` で処理してください。\n\n---\n\n## 3. 不正な `status` の値を `isTaskStatus` で検証していない（重要度: 中）\n\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`（10 行目）\n- **何が問題か**: `status` を `as TaskStatus | null` で型だけ合わせ、値を検証していません。CLAUDE.md の規約 2 に反します。\n  - 規約: 「URL のクエリパラメータは、型ガード（例: `isTaskStatus`）で検証してから使う。不正な値は「指定なし」として扱う。」\n  - 入力例: `GET /api/tasks/export?status=bogus` または `?status=`\n  - 結果: 値がそのまま絞り込み条件として渡るため、項目だけの CSV（データ行なし）が返ります。\n  - 一方、画面（`src/app/tasks/page.tsx` の 11 行目）と `GET /api/tasks`（`src/app/api/tasks/route.ts` の 10 行目）は、不正な値を「指定なし」として全件を返します。結果がそろっていません。\n- **直し方**: `src/lib/tasks.ts` の `isTaskStatus` で検証し、不正な値は `undefined` として扱います。\n\n  ```ts\n  const raw = new URL(request.url).searchParams.get(\"status\");\n  const status = isTaskStatus(raw) ? raw : undefined;\n  const csv = toCsv(listTasks({ status }));\n  ```\n\n---\n\n## 4. テスト名と内容が合っていない（引用符の処理が未テスト）（重要度: 中）\n\n- **場所**: `tests/export.test.ts` の `escapes quotes and commas in titles`（15〜18 行目）\n- **何が問題か**: テスト名は引用符とカンマのエスケープを確認すると書いていますが、入力のタイトル `週次 定例の準備` には `\"` もカンマも含まれていません。そのため指摘 1 の不具合を検出できず、テストは通ってしまいます（`npm test` は 22/22 が通ることを確認済み）。\n- **直し方**: 引用符を含むタイトル（例: `He said \"hi\"`）を入力にして、出力が `\"\"hi\"\"` を含むことを確認するテストを追加します。カンマを含むタイトルも同様に確認してください。テスト名に合わせて、入力とアサーションを作り直します。\n\n---\n\n## 5. 絞り込み（`status`）の分岐に単体テストがない（重要度: 中）\n\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`（10〜11 行目）\n- **何が問題か**: 追加された絞り込みの処理に、テストがありません。CLAUDE.md の規約 5（「ロジックを追加・変更したら `tests/` に単体テストを追加する」）を満たしていません。現在のテストは `toCsv` だけを対象にしています。\n  - 状況: `status` の渡し方が `listTasks` で壊れても、テストでは検出できません。\n- **直し方**: 絞り込みの処理（指摘 3 の `isTaskStatus` による検証を含む）を `src/lib/` の関数に移し、`openDb()` で作ったインメモリ DB に対して、有効な値・不正な値・未指定の 3 つを確認するテストを `tests/` に追加します。\n\n---\n\n## 6. 純粋な CSV 整形モジュールが DB 層に依存している（重要度: 低）\n\n- **場所**: `src/lib/export.ts` の import（2 行目）\n- **何が問題か**: `toCsv` は純粋な整形処理ですが、`./tasks.ts` から `STATUS_LABELS` を読むために、`node:sqlite` と `getDb` を含む DB 層まで読み込まれます。`toCsv` の単体テストも同じ依存を通ります。\n- **直し方**: `STATUS_LABELS` と `Task` 型を、DB に依存しないモジュール（例: `src/lib/task-types.ts`）に移すか、ラベルを引数として渡します。動作は変わりません。\n\n---\n\n## 7. 認証の付いた CSV のレスポンスに `Cache-Control` がない（重要度: 中）\n\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`（12〜17 行目、`headers`）\n- **何が問題か**: レスポンスにはログインしたユーザーの全タスクが含まれますが、`Cache-Control` が設定されていません。共有のプロキシやブラウザのキャッシュが内容を保存し、同じ端末やネットワークの別のユーザーに返す恐れがあります。\n- **直し方**: `headers` に `\"Cache-Control\": \"no-store\"` を追加します。\n",
+  "review_chars": 3761,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0218,
+    "tokens": {
+      "input": 26,
+      "output": 14488,
+      "cache_read": 494439,
+      "cache_creation": 59105
+    },
+    "turns": 5,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline -5 && (git rev-parse --abbrev-ref @{upstream} 2>/dev/null || echo \\\"no upstream\\\") && git diff main...HEAD --stat 2>/dev/null || git diff HEAD~1 --"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git diff @{upstream}...HEAD 2>/dev/null | head -c 200000 || true; echo \\\"---WORKING---\\\"; git diff HEAD --stat\", \"description\": \"Show upstream diff and working tree changes\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm test 2>&1 | tail -60); echo ----; (npm run typecheck 2>&1 | tail -20)\", \"description\": \"Run unit tests and typecheck\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 14,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 73,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を作成し、そのファイルだけを `1a67800` としてコミットしました。コードは変更していません。\n\n直前のレビューの 7 件をすべて書き写しています。新しい指摘は足していません。重要度は元のレビューに無かったため、私が付けました。\n\n| # | 場所 | 指摘 | 重要度 |\n|---|---|---|---|\n| 1 | `src/lib/export.ts` `field()` | 引用符を `\"\"` に二重化していないため、タイトルに `\"` があると CSV が壊れる | 高 |\n| 2 | `src/lib/export.ts` `field()` | `=` `+` `-` `@` で始まるセルを無害化していない（CSV インジェクション） | 高 |\n| 3 | `src/app/api/tasks/export/route.ts` | `status` を `isTaskStatus` で検証せず型だけ合わせている（CLAUDE.md 規約 2 違反） | 中 |\n| 4 | `tests/export.test.ts` | 「引用符とカンマ」のテストに引用符もカンマも入っていない | 中 |\n| 5 | `src/app/api/tasks/export/route.ts` | 絞り込みの分岐に単体テストがない（規約 5 違反） | 中 |\n| 6 | `src/lib/export.ts` の import | DB 層に依存する必要のない純粋な整形モジュール（整理の指摘） | 低 |\n| 7 | `src/app/api/tasks/export/route.ts` | `Cache-Control` がなく、認証付きの CSV がキャッシュされる恐れ | 中 |\n\n指摘 1・2 は `field()` をまとめて直す前提で書きました。\n\n作業ツリーでは、3 つの新規ファイル（`route.ts`、`export.ts`、`export.test.ts`）がまだ git に追加（ステージ）された状態のままです。`--only REVIEW.md` でコミットしたため、これらはコミットされていません。"
+  },
+  "interventions": 0
+}

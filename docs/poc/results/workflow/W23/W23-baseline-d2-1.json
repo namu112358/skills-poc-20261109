@@ -1,0 +1,38 @@
+{
+  "trial": "W23-baseline-d2-1",
+  "scenario": "W23",
+  "config": "baseline",
+  "case": "d2",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスクにコメントを付けられるようにする\n\n## 指摘一覧\n\n### 1. [高] `javascript:` リンクによる格納型 XSS\n- 場所: `src/lib/comments.ts` `renderBody`、`src/app/tasks/[id]/page.tsx` の `dangerouslySetInnerHTML`\n- 問題: `<` `>` `\"` はエスケープされるが、`[クリック](javascript:alert(document.cookie))` は `<a href=\"javascript:...\">` になる。コメントは DB に保存され、タスク詳細を開いた全ユーザーに表示されるため、リンクをクリックされると閲覧者の権限でスクリプトが実行される。`data:` なども同様。\n- 直し方: リンク URL は `http:` / `https:`（必要なら相対パス）だけ許可し、それ以外はリンクにせず文字のまま出す。理想は `dangerouslySetInnerHTML` をやめ、React 要素（`<a>` と `<br />`）として組み立てる。許可しないスキームの URL を含むテストを追加する。\n\n### 2. [高] 他人のコメントを編集できる（PATCH に作者チェックがない）\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`\n- 問題: DELETE は `comment.authorId !== user.id` で 403 にしているが、PATCH にはなく、ログインさえしていれば誰でも他人のコメント本文を書き換えられる。\n- 直し方: PATCH にも DELETE と同じ作者チェックを入れる（`src/lib/` の関数にまとめて両方で使う）。作者以外が PATCH した場合のテストを追加する。\n\n### 3. [中] 存在しないタスクへのコメント追加が 404 にならない\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` `POST`\n- 問題: GET と違い `getTask(id)` で存在確認をしていない。`foreign_keys = ON` のため、`POST /api/tasks/99999/comments` は外部キー違反の例外となり 500 になる（規約 9 の「対象が無いときは 404」に反する）。\n- 直し方: `id === undefined || !getTask(id)` なら 404 を返す。本文の検証より前に確認する。\n\n### 4. [中] `created_at` を表示用ロケール文字列で保存しており、並び順が壊れる\n- 場所: `src/lib/comments.ts` `formatCreatedAt` / `addComment` / `listComments`（`ORDER BY created_at, id`）\n- 問題: `toLocaleString(\"ja-JP\")` は `2026/11/9 9:05:00` のようにゼロ埋めされない。文字列比較では `2026/11/10` が `2026/11/9` より前、`2026/11/11 10:00` が `2026/11/11 9:00` より前になり、「古い順」が崩れる。テストは 01:00Z と 02:00Z（JST 10:00 と 11:00）しか使わず検出できていない。日付の形式が将来変わると過去データも解釈できない。\n- 直し方: DB には ISO 8601（`now.toISOString()`）を保存し、表示時に `formatCreatedAt` で日本時間に変換する。月跨ぎ・桁数が変わる時刻（9 時と 10 時など）の順序テストを追加する。\n\n### 5. [中] 画面からコメントを書けない（PR の説明と不一致）\n- 場所: `src/app/tasks/[id]/page.tsx`\n- 問題: 説明は「詳細画面でコメントを読み書きできる」だが、画面には一覧表示しかなく、投稿フォームも編集・削除の操作もない。書き込みは API を直接呼ぶしかない。\n- 直し方: 投稿フォーム（日本語の文言）を追加するか、説明を「表示のみ。書き込みは API」に直す。\n\n### 6. [低] リンク記法の正規表現が URL 中の `)` を扱えない／本文検証の細部\n- 場所: `src/lib/comments.ts` `renderBody`、`validateCommentBody`\n- 問題: `[a](https://example.com/foo_(bar))` は途中で切れる。また `body.length > MAX_BODY` は trim 前の長さで判定しているため、前後の空白で上限ちょうどのコメントが拒否される。\n- 直し方: 仕様として許容するか、URL の解釈を決めて明記する。長さは trim 後で判定する。\n\n### 7. [低] テスト不足\n- 場所: `tests/comments.test.ts`\n- 問題: API Route（401・400・404・403）、他人のコメントの編集・削除、存在しないタスク、`javascript:` リンク、並び順の境界がテストされていない。上記 1〜4 はいずれもテストで見つかるはずの内容。\n- 直し方: 各指摘に対応するテストを追加する。\n",
+  "review_chars": 2349,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2081,
+    "tokens": {
+      "input": 20,
+      "output": 3718,
+      "cache_read": 323640,
+      "cache_creation": 34625
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat -n $f; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 40,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘 7 件は、すでに指定の形式（場所・問題・直し方・重要度）で `REVIEW.md` に書いてあり、`REVIEW.md` だけのコミット（`acba5ee`）も済んでいます。そのため、新しく書き写す作業はありません。`git status` でも `REVIEW.md` に未コミットの変更はありません。指摘の追加・削除、コードの修正もしていません。\n\n`git log` に出た 161 ファイルの変更は、その手前の `baseline` コミット（`f5b0c93`）のものです。"
+  },
+  "interventions": 0
+}

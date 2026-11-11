@@ -1,0 +1,57 @@
+{
+  "trial": "W24-hk-baseline-d1-3",
+  "scenario": "W24",
+  "config": "hk-baseline",
+  "case": "d1",
+  "rep": 3,
+  "review_md": "# コードレビュー: ダッシュボード追加（未コミット差分）\n\n対象: `git diff HEAD`（`src/app/api/dashboard/route.ts`, `src/app/dashboard/page.tsx`, `src/lib/cache.ts`, `src/lib/dashboard.ts`, `src/lib/week.ts`, `tests/dashboard.test.ts`）\n\n`npm test` は 27 件すべて通過しました。ただし、以下の問題はテストで検出されていません。\n\n各指摘の形式: 場所 / 問題 / 直し方 / 重要度\n\n---\n\n## 高\n\n### 1. SQL 文字列連結\n\n- **場所**: `listAssignedTasks`（`src/lib/dashboard.ts`）\n- **問題**: `WHERE assignee = '${userId}'` と値を直接埋め込んでいます。CLAUDE.md の規約 8（プレースホルダを使い、文字列連結で組み立てない）に違反します。`listAssignedTasks(\"x' OR '1'='1\", db)` が 7 件（全タスク）を返すことを確認しました。担当者の絞り込みが外れ、他人のタスクが見えます。現状の `userId` はセッションから来る DB 上のユーザー ID なので、今すぐ外部から書き換えられる経路は見当たりません。ただし、ID に引用符を含むユーザーが作られた場合や、この関数を別の入力で呼ばれた場合に SQL が壊れる、あるいは他人のデータが漏れます。\n- **直し方**: `db.prepare(\"SELECT ... WHERE assignee = :userId ORDER BY due_date, id\").all({ userId })` とします（`listTasks` と同じ書き方）。引用符を含む ID のテストも追加してください。\n- **重要度**: 高\n\n### 2. キャッシュがユーザーを区別しない\n\n- **場所**: `buildDashboard`（`src/lib/dashboard.ts`）\n- **問題**: キャッシュのキーが固定の `\"dashboard\"` です。30 秒以内に別のユーザーがアクセスすると、前のユーザーのダッシュボードがそのまま返ります。`buildDashboard(\"sato\", db, now)` の直後に `buildDashboard(\"tanaka\", db, now)` を呼ぶと、`userId` が `\"sato\"` のオブジェクトが返ることを確認しました（同一オブジェクト）。実際の画面では、tanaka がログインして `/dashboard` を開くと sato の担当タスクが表示されます。個人のタスク情報が別の人に見えます。\n- **直し方**: キーを `` `dashboard:${userId}` `` にしてください。あわせて、ユーザーをまたいで同じ結果が返らないことを確かめるテストを追加してください。\n- **重要度**: 高\n\n### 3. 共有配列を破壊する `reverse()`\n\n- **場所**: `countByStatus`（`src/lib/dashboard.ts`）\n- **問題**: `TASK_STATUSES as TaskStatus[]` を `order.reverse()` で並べ替えています。`reverse()` は元の配列を書き換えるため、`src/lib/tasks.ts` の `TASK_STATUSES`（全体で共有）が呼び出すたびに反転します。呼び出し前は `['todo', 'in_progress', 'done']`、1 回呼んだ後は `['done', 'in_progress', 'todo']` になることを確認しました。`/tasks` ページの絞り込みプルダウン（`TASK_STATUSES.map`）の並びが、ダッシュボードを開いた回数によって変わります。この関数の結果も呼び出し回数で順序が変わります。\n- **直し方**: `[...TASK_STATUSES].reverse()` にするか、完了を先頭にした並びを明示的な配列（例: `[\"done\", \"in_progress\", \"todo\"]`）として定義してください。`TASK_STATUSES` 自体は変更しないでください。テストで「呼び出し後も `TASK_STATUSES` が変わらない」ことを確認してください。\n- **重要度**: 高\n\n---\n\n## 中\n\n### 4. タスクが 0 件のとき完了率が NaN\n\n- **場所**: `completionRate`（`src/lib/dashboard.ts`）\n- **問題**: `done / tasks.length` を 0 で割っています。担当タスクが無いユーザーでは `NaN` になります。`completionRate([])` は `NaN` を返すことを確認しました。ページには「完了率 NaN%」と表示されます。\n- **直し方**: 件数が 0 のとき `0` を返すか、`null` を返して画面では「—」と表示してください。テストも追加してください。\n- **重要度**: 中\n\n### 5. テストが上の問題を検出できない\n\n- **場所**: `tests/dashboard.test.ts`\n- **問題**: ユーザー間でキャッシュが混ざらないこと（指摘 2）、引用符を含む ID（指摘 1）、`TASK_STATUSES` が変わらないこと（指摘 3）、タスク 0 件の完了率（指摘 4）のテストがありません。また、`listAssignedTasks` のテストはシードデータの件数 3 件を直接書いています。シードを変えると失敗するため、テスト用の DB を作って件数を入れる形の方が安定します。\n- **直し方**: 上の 4 つの指摘それぞれに対応するテストを追加してください。シード件数への依存は、テスト用 DB に件数を入れてから検証する形に変えてください。\n- **重要度**: 中（シード依存の部分は低）\n\n---\n\n## 低\n\n### 6. 期限判定の基準日がキャッシュされる\n\n- **場所**: `buildDashboard`（`src/lib/dashboard.ts`）\n- **問題**: キャッシュは `now` を使わず、保存時点の `now` で計算した「期限切れ」「今週が期限」を最大 30 秒返します。日付が変わる直前後（特に週の境目）に、古い分類が表示される可能性があります。影響は小さいです。\n- **直し方**: キーに日付（JST の `todayJst(now)`）を含めると避けられます。\n- **重要度**: 低\n\n### 7. 変更の範囲（CLAUDE.md 規約 6）\n\n- **場所**: `src/lib/cache.ts`（新規）\n- **問題**: 汎用のキャッシュ機構を新しく追加しています。依頼された範囲は「ダッシュボード」で、キャッシュの必要性は PR 説明に書かれていません。また、キャッシュは Map に無制限に溜まります（ユーザー数に比例して増えます）。\n- **直し方**: 必要ないなら取り除くか、理由を PR 説明に書いてください。キャッシュを残す場合、キーは指摘 2 のとおり修正し、上限を設けてください。\n- **重要度**: 低\n\n---\n\n## 問題ないと判断した点（参考）\n\n- ログイン確認（`requireApiUser` / `requireUser`）は既存の仕組みに沿っており、未ログインは 401 / リダイレクトになります。\n- 期限・週の計算（JST、月曜始まり、月またぎ）は、テストの範囲では正しく動きます。\n- タイトルの表示は React が自動でエスケープするため、XSS の問題はありません。\n",
+  "review_chars": 3413,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0232,
+    "tokens": {
+      "input": 28,
+      "output": 13392,
+      "cache_read": 708192,
+      "cache_creation": 46932
+    },
+    "turns": 19,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/poc-trials/W24-hk-baseline-d1-3/scratch_check.test.ts 2>/dev/null; mkdir -p \\\"$HOME/../../claude-0/scratch\\\" 2>/dev/null; S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-d1-3-a"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-d1-3-app/b1e5703e-5f73-4dcf-84cc-1a453cdb6be5/scratchpad && mkdir -p \\\"$S\\\" && cat > \\\"$S/check.ts\\\" <<'EOF'\\nimport { TASK_STATUSES } from"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'Add review notes for dashboard change\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.ai/code"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Write": 4,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 71,
+    "answer_key_access": [],
+    "isolation_suspects": [
+      {
+        "step": "step2.jsonl",
+        "tool": "Bash",
+        "reasons": [
+          "../ で作業用コピーの外に出る相対パス"
+        ],
+        "input": "{\"command\": \"cat > /tmp/poc-trials/W24-hk-baseline-d1-3/scratch_check.test.ts 2>/dev/null; mkdir -p \\\"$HOME/../../claude-0/scratch\\\" 2>/dev/null; S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-d1-3-app/b1e5703e-5f73-4dcf-84cc-1a453cdb6be5/scratchpad; mkdir -p $S; cat > $S/check.ts <<'EOF'\\nimport {"
+      }
+    ],
+    "final_message": "`REVIEW.md` を最初の依頼の形式に書き直し、そのファイルだけをコミットしました（コミット `e33c893`）。コードは変更していません。\n\n- 各指摘に「場所／問題／直し方／重要度」の 4 項目を付けました。前回の版は重要度を見出しで示していて、直し方が欠けている指摘もあったので、それを補いました。\n- 新しい指摘は足していません。前回の 7 件（高 3、中 2、低 2）はすべて残し、同じ内容を書き直して重複する部分は 1 つにまとめました。指摘 5 のテスト不足は、指摘 1〜4 への対応テストをまとめた形にしました。\n- 残りの 6 ファイル（ダッシュボードの差分）は、前回と同じくステージ済みのまま未コミットです。"
+  },
+  "interventions": 0
+}

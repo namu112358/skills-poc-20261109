@@ -1,0 +1,50 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "NOTIFIER_KIND=slack/email では NotifierFactory が未実装の送り先を作り、send が例外を投げるため、DB の更新が確定した後に PATCH が 500 を返す",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "eventBus.emit が購読者の例外を隔離しないため、1 つの購読者が失敗すると後続の購読者が呼ばれない",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "tests/notify.test.ts はイベントバスとファクトリだけを確かめており、updateTask で担当者が変わったときだけ出ること・出ないこと・ログの形式を確かめていない",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "購読が notify/index.ts の読み込み時の副作用で登録されるため、eventBus.clear() を呼ぶと以後の記録が黙って止まり、テスト間にも影響する",
+   "severity": "低",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "createTask で担当者を指定しても記録が出ないので、作成時の担当者設定を記録の対象にするか仕様を確認すべき",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 6,
+   "summary": "将来、呼び出し側が複数の更新をトランザクションにまとめて取り消した場合、確定していない変更がログに残りうる",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0632558
+ }
+}

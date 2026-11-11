@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "node:sqlite の null プロトタイプの行を listActiveUsers からそのままクライアントコンポーネント inspection-forms.tsx の props に渡しており、全計測器の詳細画面が本番で 500 になる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "計測器の一覧に、合意した要件「担当者で絞り込み・並べ替え」が実装されていない。",
+   "severity": "高",
+   "match": "G1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "合意した要件「担当者ごとに点検が遅れている台数を毎朝知る」集計が実装されていない。",
+   "severity": "高",
+   "match": "G2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "一覧が全計測器（約 5 万件）分の点検状況を相関サブクエリで毎回計算して Map に載せており、遅くなる。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "recordInspection が「要修理」で disposed 以外をすべて suspended にするため、貸出中・校正中の計測器の状態まで上書きし、貸出の規則に反する。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "最後の点検日を MAX(点検日) で求めるため、誤って遠い日付を入れると訂正の記録を足しても直らず、訂正の仕組みもない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "マイグレーション 6 の後に前の版へ戻すと、新しい版で登録した点検・担当者の変更が extra に反映されず、旧データとずれる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "旧データ移行で、日付の無い点検者データは記録を作らず、文字列以外の extra.inspector は黙って捨てられ legacy_* に残らない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "旧データ移行で、移行した件数・残した件数のログが出ない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "ログインした利用者なら誰でも、任意の計測器の担当者・周期を変更でき、他人の名義で点検記録を登録できる（権限の確認が無い）。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 11,
+   "summary": "廃棄済みの計測器でも、点検周期の変更や点検記録の登録が通る。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 12,
+   "summary": "テストがロジックだけで、画面の描画・API の応答・性能を検証しておらず、指摘 1 がすり抜けた。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0722518
+ }
+}

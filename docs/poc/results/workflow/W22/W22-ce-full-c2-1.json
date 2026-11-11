@@ -1,0 +1,40 @@
+{
+  "trial": "W22-ce-full-c2-1",
+  "scenario": "W22",
+  "config": "ce-full",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: タスク一覧の「期限の近い順」並べ替え\n\n対象: 未コミットの差分（`src/app/api/tasks/route.ts`、`src/app/tasks/page.tsx`、`src/lib/tasks.ts`、`tests/tasks.test.ts`）。\n\n## 結論\n\nマージ前に必ず直すべき問題（重要度が高・中のもの）は見つかりませんでした。低の指摘が 2 件あります。\n\n確認したこと:\n\n- `npm run typecheck` と `npm test`（23 件）が通ることを手元で確認しました。\n- `due_date` は `NOT NULL` で、形式は `YYYY-MM-DD` に限られます（`DATE_RE`）。そのため文字列の `ORDER BY due_date, id` が日付順になり、期限が同じタスクは登録順になります。\n- `sort` は `isTaskSort` で検証し、不正な値は「指定なし」（登録順）になります。画面と API のどちらも規約 2 に沿っています。\n- SQL に入る値は `SORT_COLUMNS` の固定の列名だけです。利用者の入力が SQL に入る経路はありません。\n\n## 指摘\n\n### 1. 【低】`listTasks` が検証されていない `sort` を受け取ると、原因のわかりにくい SQL エラーになる\n\n- 場所: `src/lib/tasks.ts` の `listTasks`（`ORDER BY ${SORT_COLUMNS[filter.sort ?? \"id\"]}, id` の行）\n- 問題: `listTasks` は export されていて、`SORT_COLUMNS` の引き当てが「呼び出し側が `isTaskSort` を通した」ことを前提にしています。型の上では `TaskSort` しか渡せません。しかし `any` やキャストを通して `sort: \"title\"` のような値が渡ると、`SORT_COLUMNS[\"title\"]` が `undefined` になり、SQL は `ORDER BY undefined, id` になります。結果は `no such column: undefined` のような実行時エラー（API なら 500）で、原因が追いにくくなります。現状の呼び出し元（API Route と画面）は検証済みなので、今すぐ起きる不具合ではありません。\n- 直し方: `listTasks` の中で `const column = SORT_COLUMNS[isTaskSort(filter.sort) ? filter.sort : \"id\"];` のように、関数自身でも検証して登録順に落とします。また、規約 8（SQL への文字列連結を避ける）の例外であることがわかるよう、既存のコメントに「`ORDER BY` の列名にはプレースホルダが使えないため、許可リストを通す」と書き添えるとよいです。\n\n### 2. 【低】API Route の `sort` の扱いと画面の組み合わせにテストがない\n\n- 場所: `tests/tasks.test.ts`、`src/app/api/tasks/route.ts` の `GET`、`src/app/tasks/page.tsx`\n- 問題: 追加された単体テストは `listTasks` と `isTaskSort` だけです。「`GET /api/tasks?sort=due_date` のような不正値が登録順になる」「`status` と `sort` を同時に渡せる」という PR の説明にある挙動を、Route 側で確かめるテストはありません。現状はコードを読めば正しいのですが、将来 Route 側で `isTaskSort(sort) ? sort : undefined` を外すなどの変更が入っても、テストでは気づけません。リポジトリには Route を呼ぶテストの土台がないため、これは規約 5 を満たしていないという指摘ではなく、保証の範囲が説明より狭いという指摘です。\n- 直し方: 次のどちらかにします。\n  - Route を直接 `GET(new Request(...))` で呼び、不正な `sort` で 200 と登録順が返ることを確認するテストを足す（ログインの確認が要るので、セッションをテスト用に用意する）。\n  - テストを足さない場合は、PR の「検証結果」の書き方を「`listTasks` と型ガードの単体テスト」に改める。\n",
+  "review_chars": 1953,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3507,
+    "tokens": {
+      "input": 26,
+      "output": 5368,
+      "cache_read": 628914,
+      "cache_creation": 58515
+    },
+    "turns": 13,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && BASE=$(git merge-base HEAD HEAD) && echo \\\"BASE:$BASE\\\" && git diff --name-only $BASE && git diff -U10 --irreversible-delete $BASE && echo UNTRACKED: && git ls-files"
+      }
+    ],
+    "tool_calls": {
+      "Read": 2,
+      "Bash": 7,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 60,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回のレビューの指摘は、すでに依頼の形式で `REVIEW.md` に書いてコミット済み（f53b502）です。今回は新しい作業が要らなかったので、変更もコミットもしていません。\n\n`REVIEW.md` には、前回の 2 件の指摘が過不足なく入っています。どちらも「場所・何が問題か（どういう入力で何が起きるか）・直し方・重要度」の形式で、まとめた指摘も削った指摘もありません。\n\n1. 【低】`src/lib/tasks.ts` の `listTasks`：検証されていない `sort` が渡ると `ORDER BY undefined, id` になり、SQL エラーになる。\n2. 【低】API Route の `sort` の扱いと画面の組み合わせにテストがない。\n\n`git status` で `REVIEW.md` に未コミットの変更がないことを確認しました。コードは触っていません。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,38 @@
+{
+  "trial": "W22-hk-baseline-c4-1",
+  "scenario": "W22",
+  "config": "hk-baseline",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# コードレビュー: 期限が近いタスクの表示\n\n対象: 未コミットの差分（`src/app/tasks/page.tsx`、`src/lib/due.ts`、`tests/due.test.ts`）\n\n確認したこと: `npm run typecheck` は通過、`npm test` は 22 件すべて通過。ただし下記の 1・2 はテストで検出されず、時刻を指定して直接実行して確認した。\n\n## 指摘\n\n### 1. 【高】日付の数え方が日本時間になっていない（今日が期限のタスクが日中に外れる）\n\n- 場所: `src/lib/due.ts` `daysUntilDue()`\n- 問題: `Date.parse(\"2026-11-12\")` は日付だけの文字列を UTC の 0:00 として解釈する。一方で比較する `now` は絶対時刻なので、日本時間の日付で数えていない。日本時間 9:00 以降（UTC の日付が変わった後）になると、今日が期限のタスクの残り日数が `-1` になり、「期限間近」から外れる。\n  - 確認結果: 2026-11-12 10:00 (JST) に、期限 `2026-11-12` の未完了タスクを判定すると `daysUntilDue` は `-1`、`isDueSoon` は `false`。同 23:00 (JST) も同じ。\n  - 0:00 (JST) ちょうどだけは正しく `0` になる。そのため既存のテストは通る。\n- 直し方: 日付文字列はそのまま使い、`now` を日本時間の暦日に変換してから差を取る。例:\n  ```ts\n  const jstToday = new Intl.DateTimeFormat(\"en-CA\", { timeZone: \"Asia/Tokyo\", year: \"numeric\", month: \"2-digit\", day: \"2-digit\" }).format(now); // \"YYYY-MM-DD\"\n  const [ty, tm, td] = jstToday.split(\"-\").map(Number);\n  const [dy, dm, dd] = dueDate.split(\"-\").map(Number);\n  return Math.round((Date.UTC(dy, dm - 1, dd) - Date.UTC(ty, tm - 1, td)) / DAY_MS);\n  ```\n  テストには JST の 0:00・9:00・10:00・23:59 などの時刻を入れる。\n\n### 2. 【高】「3 日後」が対象に入らない（境界の誤り）\n\n- 場所: `src/lib/due.ts` `isDueSoon()` の `days < DUE_SOON_DAYS`\n- 問題: 仕様は「今日から 3 日以内（今日・明日・明後日・3 日後）」なので、残り日数 0〜3 が対象。実装は `days < 3` で 0〜2 だけを対象にしている。例: 今日が 2026-11-12 (JST) のとき、期限 `2026-11-15` の未完了タスクは `false`（期待は `true`）。\n  - テストは 2 日後（2026-11-14）までしか見ておらず、この誤りを検出できていない。\n- 直し方: `days <= DUE_SOON_DAYS` に変える（または定数の意味を「範囲の上限日数」に合わせて名前を変える）。テストに 3 日後（期待 `true`）と 4 日後（期待 `false`）を追加する。\n\n### 3. 【中】テストが 1 つの時刻でしか判定していない\n\n- 場所: `tests/due.test.ts`\n- 問題: `now` が日本時間 0:00 の 1 点だけなので、指摘 1 の時刻依存の不具合も、指摘 2 の境界の誤りも検出できない。`new Date(...)` の時刻を変えたケースがない。\n- 直し方: 日本時間の複数の時刻（0:00・9:00・23:59）と、境界日（今日・3 日後・4 日後）を組み合わせて検証する。\n\n### 4. 【低】`due-soon` クラスに対応するスタイルがない\n\n- 場所: `src/app/tasks/page.tsx` の `className={isDueSoon(task, now) ? \"due-soon\" : undefined}`\n- 問題: CSS に `.due-soon` の定義が無い（`src` を検索して確認）。付けても見た目は変わらない。PR の「目立たせる」は、今の実装では「（期限間近）」の文字と `<strong>` だけで実現されている。\n- 直し方: 不要ならクラス名を削る。スタイルを付けるなら、一覧の行に背景色などを定義する（既存のスタイルの方式に合わせる）。\n\n## 問題なしと判断した点\n\n- 完了済み（`done`）と期限切れの除外は、テストで確認できている。\n- SQL・入力値の扱いは変更されていない（表示のみの変更）。\n- `import ... from \"./tasks.ts\"` は `tsconfig` の `allowImportingTsExtensions` で通る。\n",
+  "review_chars": 2229,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.016,
+    "tokens": {
+      "input": 22,
+      "output": 8033,
+      "cache_read": 487388,
+      "cache_creation": 35391
+    },
+    "turns": 13,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"dueDate\\\\|due_date\\\" src/lib/tasks.ts src/lib/db/*.ts | head -30; grep -rn \\\"due-soon\\\" src | head; grep -rn \\\"allowImportingTsExtensions\\\" tsconfig.json; grep -rn \\\"from \\\\\\\"\\\\"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 10
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 56,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は今のままで依頼の形式を満たしているため、書き直しもコミットもしていません。作業ツリーで `REVIEW.md` に差分はなく、コミット `d754578` の内容がそのまま最新です。\n\n4 件の指摘はすべて残っており、新しい指摘は足していません。各指摘には場所、問題（入力や状況と結果）、直し方があり、重要度は見出しに書いてあります（1・2 が高、3 が中、4 が低）。\n\n- 1【高】日付が日本時間で数えられていない（`src/lib/due.ts` `daysUntilDue`）\n- 2【高】3 日後が対象に入らない（`isDueSoon` の `days < DUE_SOON_DAYS`）\n- 3【中】テストが 1 つの時刻でしか判定していない（`tests/due.test.ts`）\n- 4【低】`due-soon` クラスに対応するスタイルがない（`src/app/tasks/page.tsx`）\n\n重要度を各指摘の中に「重要度:」の行として書き直すこともできます。その場合は REVIEW.md を変更してコミットします。"
+  },
+  "interventions": 0
+}

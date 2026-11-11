@@ -1,0 +1,39 @@
+{
+  "trial": "W21-cr-high-c2-1",
+  "scenario": "W21",
+  "config": "cr-high",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の「期限の近い順」並べ替え\n\n指摘は 6 件です。重要度の高い順に並べています。\n\n## 1. 【中】SQL をテンプレートリテラルで組み立てている（規約 8 違反）\n\n- 場所: `src/lib/tasks.ts:58`（`listTasks` の `ORDER BY ${SORT_COLUMNS[...]}`）\n- 問題: 値を SQL 文に埋め込むときは必ずプレースホルダを使い、文字列連結で組み立てない（CLAUDE.md 規約 8）。列名はプレースホルダにできず、許可リスト（`SORT_COLUMNS`）で今の呼び出し元では安全だが、規約に反しており、他のコードが真似するパターンになる。\n- 直し方: ソートキーごとに完全な SQL 文（または ORDER BY 句全体）を `Record<TaskSort, string>` で固定して持ち、変数から SQL を組み立てない。\n\n## 2. 【中】`listTasks` が `filter.sort` を実行時に検証していない\n\n- 場所: `src/lib/tasks.ts:58`（`SORT_COLUMNS[filter.sort ?? \"id\"]`）\n- 問題: `isTaskSort` を呼ぶのはページと API Route だけで、SQL を組み立てる関数自体には検査がない。将来の呼び出し元（キャスト、JSON、新しい Route）が `sort: \"constructor\"` や `\"toString\"` を渡すと、`SORT_COLUMNS` が通常のオブジェクトなので `Object.prototype` の継承関数が文字列化されて SQL に入る。未知のキー（例: `\"due_date\"`）は `ORDER BY undefined, id` になり、SQL エラー（500）になる。安全の担保が呼び出し側にあり、SQL を作る関数側にない。\n- 直し方: `listTasks` 内でも `isTaskSort` で再検証して不正値は既定（`id`）にする。または `SORT_COLUMNS` を `Object.hasOwn` で引く／プロトタイプなしのオブジェクトにする。指摘 1 の固定 SQL 方式にすると同時に解消できる。\n\n## 3. 【中】テストが足りず、シードデータに依存している\n\n- 場所: `tests/tasks.test.ts:29` 付近\n- 問題: 新しいテストが `SEED_TASKS` の内容（id 1〜7、id 2 と同じ期限の新規行、todo の期限リスト）を直接書いている。シードを変えると並べ替えと無関係のアサーションが壊れる。また API Route の `sort` パラメータのテストがなく、不正な `sort` が既定にフォールバックすることを確かめるテストもない。Route の GET から `isTaskSort` を外す、またはフォールバックを壊しても、どのテストも落ちない。規約 5（ロジック変更には単体テスト）に対し、検証してフォールバックする処理は Route とページにあるのにテストされていない。\n- 直し方: 期待値はテスト内で投入したデータから導く。検証とフォールバックは `src/lib/` の関数にまとめ（指摘 4 参照）、不正値・未指定・`due`・`id` の単体テストを追加する。\n\n## 4. 【低】クエリパラメータの検証が page と API Route で重複している\n\n- 場所: `src/app/tasks/page.tsx:13`（および API Route の GET）\n- 問題: `isTaskStatus(x) ? x : undefined` と `isTaskSort(x) ? x : undefined` が 2 か所に書かれている。フィルタを増やす、フォールバックの規則を変えるといった変更で、片方だけ直し忘れて、同じ URL を画面と API が違うように扱うおそれがある。規約 1 はデータ取得・絞り込みのロジックを `src/lib/` に置くよう求めている。\n- 直し方: `parseTaskFilter(params)` のような関数を `src/lib/tasks.ts` に置き、page と Route の両方から使う。単体テストも付ける。\n\n## 5. 【低】並べ替えの `<select>` が「指定なし」を持たず、`sort=id` が常に URL に付く\n\n- 場所: `src/app/tasks/page.tsx:32`\n- 問題: `<select>` の既定値が未指定ではなく `id` のため、フォームを送信するたびに `sort=id` が URL に付く。ステータスだけ選ぶと `?status=todo&sort=id` になり、既定の一覧 URL（`sort` なし）と不揃いになる。コード上は「sort なし」と「id」は同じ扱いで、ブックマーク等の URL がばらつく。また送信ボタンが「絞り込む」のままで、並べ替えも行うボタンの動作を表していない。\n- 直し方: 既定の選択肢は値を空にして `sort` を送らない（または `id` のときは URL に含めない）。ボタンの文言を「絞り込む・並べ替える」などに直す。\n\n## 6. 【低】`ORDER BY id, id` の重複と、期限の文字列ソートへの暗黙の依存\n\n- 場所: `src/lib/tasks.ts:58`\n- 問題: ソートが `id` のとき `ORDER BY id, id` になる。害はないが冗長で、タイブレーカー（`, id`）が対応表の一部ではなく後付けになっている。また `due` は `due_date` をテキストとして並べるため、ゼロ埋めされた YYYY-MM-DD でない値が `validateTaskInput` を通らずに入ると順序が狂う。今は入力時の `DATE_RE` 検査だけで防がれている。\n- 直し方: 指摘 1 の `Record<TaskSort, string>` に ORDER BY 句全体（`\"id\"`、`\"due_date, id\"`）を持たせる。期限の形式が文字列ソートの前提であることをコメントに残す。\n",
+  "review_chars": 2672,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2537,
+    "tokens": {
+      "input": 18,
+      "output": 6521,
+      "cache_read": 270341,
+      "cache_creation": 48581
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -50; echo ---; git diff HEAD\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 61,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書いて、そのファイルだけをコミットしました（`b63c179`）。コードは直していません。PR の未コミットの変更は、そのまま作業ツリーに残っています。\n\n指摘は元の 6 件のうち、重要度を高・中・低で付けた 6 件です。\n\n- **中（3件）**:\n  - SQL をテンプレートリテラルで組み立てていて、規約 8 に違反している。\n  - `listTasks` が実行時に `sort` を検証していない。\n  - テストがシードデータに依存し、Route の `sort` とフォールバックのテストが無い。\n- **低（3件）**:\n  - 検証処理が page と Route で重複している。\n  - `<select>` の既定値のせいで URL に常に `sort=id` が付く。ボタン文言もそのまま。\n  - `ORDER BY id, id` の重複と、期限の文字列ソートへの暗黙の依存がある。\n\n重要度は、レビュー結果に書かれていなかったので私が付けました。元の結果では指摘 2 とテストの指摘が別々でしたが、そのまま 1 件ずつにしています。重複の整理で件数は変えていません。\n\n重要度「高」の指摘はありません。現状の呼び出し元では SQL インジェクションにはなりませんが、将来 `listTasks` を直接呼ぶ箇所が増えると危うくなります。"
+  },
+  "interventions": 0
+}

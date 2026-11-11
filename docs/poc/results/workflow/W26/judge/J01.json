@@ -1,0 +1,64 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュのキーが固定の \"dashboard\" で利用者を含まず、30 秒以内に別の利用者へ最初の人のダッシュボードが返る（情報漏えい）。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり（規約 8 違反）、SQL インジェクションが可能なのでプレースホルダにすべき。",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "countByStatus が型の断定で readonly を外して reverse() し、共有の TASK_STATUSES を呼ぶたびに書き換えて表示順や他の利用箇所が変わる。",
+   "severity": "中",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "completionRate が担当タスク 0 件のとき 0/0 で NaN になり、画面に「完了率 NaN%」、API では null が出る。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "dueThisWeek が今週の月曜〜昨日の期限切れタスクも含み、overdue と重複するので今日以降に限定すべき。",
+   "severity": "中",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "overdueTasks のコメントは「期限の古い順」だが、順序は入力配列（SQL の並び）に依存し関数内で保証していない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "テストに複数ユーザー・複数回呼び出し・0 件・日曜/月曜の週境界・SQL 特殊文字のケースが無く、バグを検出できない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "/dashboard ページで generatedAt が未使用で、キャッシュを残すなら古さを利用者に示すか検討する（任意）。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0591078
+ }
+}

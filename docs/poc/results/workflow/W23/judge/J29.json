@@ -1,0 +1,64 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュのキーが固定の \"dashboard\" で利用者を含まないため、30 秒以内に別の利用者が開くと前の利用者の担当タスクが表示される",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり、引用符で SQL が壊れ、規約 8 にも違反する",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "countByStatus の reverse() が共有定数 TASK_STATUSES をその場で反転させ、呼ぶたびに並びが変わる",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "weekRange で日曜は getUTCDay() が 0 のため 1 - dow が +1 になり、翌週の範囲を返す（テストは水曜だけ）",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "completionRate で担当タスクが 0 件だと 0/0 で NaN になり「完了率 NaN%」と表示される",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "tests/dashboard.test.ts に週の境界・0 件・複数の利用者・countByStatus を 2 回呼ぶ場合・API の 401 などのテストが無い",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "dueThisWeek が今週の月曜〜昨日に期限切れになったタスクも含み、overdueTasks と重複する",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "キャッシュがモジュールで共有する Map に状態を持ち、テストの分離を clearCache() に頼っているので、指摘 1 の対応と一緒に整理すべき",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0690878
+ }
+}

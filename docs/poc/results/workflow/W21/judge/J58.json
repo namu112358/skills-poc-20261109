@@ -1,0 +1,85 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "NOTIFIER_KIND=slack/email を選ぶと未実装の send が DB 更新後に例外を投げ、PATCH が 500 になる（更新は済んでいる）。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "EventBus.emit に try/catch が無く、購読者の 1 つが例外を投げると後続の購読者に届かない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "SlackNotifier のエラーメッセージから、どのタスクの通知か分からない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 4,
+   "summary": "ログ 1 行の要件に対し、汎用イベントバス・未使用イベント・未実装の Slack/メール・ファクトリなど作りすぎで、notify を削除して updateTask で直接 console.log すべき。",
+   "severity": "高",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "tests/notify.test.ts はイベントバスとファクトリだけを試し、担当者が変わったとき・変わらないときのログ出力という要件を確かめていない。",
+   "severity": "高",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "NotifierFactory.create が NOTIFIER_KIND の未知値や誤記を黙って console にするため、設定の誤りに気づけない。",
+   "severity": "中",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "レジストリが素のオブジェクトなので、constructor や __proto__ を指定すると Object.prototype の関数が引かれ、send の無い notifier になって TypeError になる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "監査ログが notify/index.ts の読み込み時の購読登録とグローバルな eventBus に依存しており、clear すると黙って止まり、テスト間でも購読が漏れる。",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "AppEvent に発行元の無い task.status_changed / task.created があり、通知が網羅されているように見える。",
+   "severity": "低",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 10,
+   "summary": "subscribe の解除関数が Map.set の結果を返し、同じハンドラを二重登録すると filter で両方外れる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "emit の event as never で型が潰れている。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0805118
+ }
+}

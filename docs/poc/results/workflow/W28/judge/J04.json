@@ -1,0 +1,71 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "移行（migration 5 / linkInstrumentsToLocations）は location_id を付けるだけで、instruments.location 列に表記ゆれの元の文字列が残り、場所マスタの名前にならない",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 2,
+   "summary": "画面で場所を選び直すと PATCH は locationId だけを送り、validateLocation が locationOriginal を設定しないため、updateInstrument 後も古い列 location は変更前の文字列のまま残る",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "updateLocation で場所を改名しても locations.name だけが変わり、計測器の location 列は旧名称のまま残る",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "ハンディ端末で確定した場合（recordInventory）、location 列には端末から送られた文字列が入り、正式な名前にならない",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 5,
+   "summary": "前の版に戻すと location 列だけが更新されて location_id と食い違い、新規登録分は location_id が NULL で確認中になる。再照合の処理もない（要件 8）",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "recordInventory は確定済みの計測器に一致しない文字が来ると何も残さず 200 を返し、要件 6 の「確認中として文字を残す」と異なる",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 7,
+   "summary": "テストは JOIN した表示の location しか見ず、instruments.location の生の列や前の版との往復を確かめていない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "normalizeLocationKey が「工事倉庫」を「工事部 倉庫」に寄せており（1,206 件）、要件 2 の範囲を超えている可能性がある",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 9,
+   "summary": "updateLocation 自体は重複名の確認をせず呼び出し側の検証に頼っており、他の経路から呼ぶと重複名が入りうる",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.07598780000000001
+ }
+}

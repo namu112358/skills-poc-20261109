@@ -1,0 +1,64 @@
+{
+  "trial": "W28-baseline-e2e-c2-2",
+  "scenario": "W28",
+  "config": "baseline-e2e",
+  "case": "c2",
+  "rep": 2,
+  "review_md": "# レビュー: 計測器ごとの定期点検の追加\n\n確認方法: `npm run build` → `npm run start -p 3457`（シード DB）→ `/api/login` でログイン（sato）→ `/instruments`・`/instruments/9` を取得し、`/api/instruments/:id/inspection` と `/inspections` を GET / POST / PATCH で実際に呼んだ。確認後にサーバーは停止済み。\nbuild・画面表示・移行結果（敬称つき「鈴木さん」→鈴木、「R8.9.10」→2026-09-10、「外部委託」→元の書き方を残す）は期待どおりだった。以下は直すべき点。\n\n## 高\n\n### 1. 要修理の記録が「貸出中」を使用停止に上書きする\n- 場所: `src/lib/inspections.ts` `recordInspection`（`UPDATE instruments SET status = 'suspended' WHERE id = ? AND status <> 'disposed'`）\n- 問題: 貸出中は貸出・返却の操作でだけ変わる決まり（CLAUDE.md）。実際に MI-0002（貸出中・未返却の貸出あり）へ `POST /api/instruments/2/inspections` で `result: \"repair\"` を送ると、201 で `status: \"suspended\"` になった。その後 `GET /api/instruments/2` では `currentLoan`（returnedAt: null）が残ったまま、状態は使用停止。貸出と状態が食い違い、返却の操作や貸出一覧・超過集計が壊れるおそれがある。校正中（calibrating）も同様に上書きされ、校正完了時の `in_use` への復帰ができなくなる。\n- 直し方: `on_loan` のときの扱いを決める（例: 状態は変えず、返却時に使用停止にする／要修理の記録は受けつけるが警告を返す）。少なくとも `status = 'on_loan'` を上書きしない。貸出中・校正中・使用中それぞれのテストを追加する。校正の不合格（`calibrations.ts`）にも同じ穴が既にあるが、今回の変更の範囲では点検側で防ぐ。\n\n### 2. 要件の「担当者で絞り込み・並べ替え」と「担当者ごとの遅れ台数」が無い\n- 場所: `src/app/instruments/page.tsx`、`src/lib/instruments.ts`（`listInstruments`）、`src/lib/inspections.ts`\n- 問題: 一覧の絞り込みフォームは状態と担当部署のままで、担当者での絞り込みも並べ替えも無い（`inspector_id` のインデックスだけ作られて使われていない）。担当者ごとの「点検が遅れている台数」を出す画面・API・ジョブも無い（`docs/operations.md` のジョブにも追加が無い）。合意した要件の未実装で、PR の説明にもその旨の記載が無い。\n- 直し方: `src/lib/` に担当者での絞り込み・並べ替え（クエリは型ガードで検証）と、担当者ごとの遅れ・未点検の件数を数える関数を置いて画面に出す。毎朝知りたいなら通知ジョブ（`/api/jobs/...`）として足し、`docs/operations.md` を更新する。\n\n## 中\n\n### 3. 誤って登録した記録を「訂正」できない（最後の点検日が MAX で決まる）\n- 場所: `src/lib/inspections.ts` `PLAN_SELECT`（`MAX(r.inspected_on)`）\n- 問題: 記録は消せず、間違いは訂正の記録を足す決まりだが、最後の点検日は日付の最大値で決まる。たとえば点検日を 2026-11-10 と誤って登録し（本当は 2026-05-10）、正しい日付の記録を足しても、MI-0005 で最後の点検日は 2026-11-10 のまま、次の点検予定日も 2027-02-10 のままだった。誤入力で「遅れ」が隠れ続ける。\n- 直し方: 訂正の記録の持ち方を決める（例: `corrects_record_id` を持たせ、訂正された記録は最終点検日の計算から除く）。最後の点検日は「訂正されていない最新の記録」から求める。\n\n### 4. 一覧が全計測器分の点検状況を毎回読み込む\n- 場所: `src/app/instruments/page.tsx`（`listInspectionPlans()`）、`src/lib/inspections.ts` `listInspectionPlans`\n- 問題: 本番は約 5 万件で、毎朝開く画面。状態や部署で絞り込んでも、全 5 万件の担当者・周期・MAX の副問い合わせを実行して Map にする。表示するのは絞り込み後の行だけ。\n- 直し方: 一覧の取得（`listInstruments`）の絞り込みと同じクエリに点検の列を JOIN する／表示する ID だけを `IN` で取る。ページング、または担当者・遅れでの絞り込み（指摘 2）もこのクエリに入れる。本番相当の 5 万件で表示時間を確かめる。\n\n### 5. 要修理後、「担当者の遅れ」が消える（要修理でも次回予定日が延びる）\n- 場所: `src/lib/inspections.ts` `judgeDue` / `recordInspection`\n- 問題: 結果が要修理の記録でも「最後の点検日」が更新され、使用停止中の計測器が「期限内」と表示される。要件は「最後の点検日 + 周期」だが、要修理の記録を点検済みとして扱ってよいかは未確認で、PR に仮定の記載が無い。\n- 直し方: 仮定を PR に書くか、依頼者に確認する。使用停止中は期限の判定の対象外にするなど、扱いを決める。\n\n### 6. 日付を読めない旧データだけの計測器は「未点検」になるが、記録はある\n- 場所: `src/lib/inspections.ts` `PLAN_SELECT`、`inspections-legacy.ts`\n- 問題: `inspected_on` が NULL の移行記録だけある計測器は `lastInspectedOn = null` となり「未点検」と表示される。詳細の履歴には「日付を読み取れません」と出るので、画面どうしで食い違い、何が起きたか利用者に伝わらない。\n- 直し方: 状況の表示に「日付不明の記録あり」を区別して出す（旧データを捨てない趣旨に合わせる）。\n\n## 低\n\n### 7. 切り戻し後・extra 経由の更新で、旧データが古いまま残る\n- 場所: `src/app/instruments/[id]/page.tsx`（`extra` の `inspector` / `last_inspected` を非表示）、`PATCH /api/instruments/:id`\n- 問題: 新しい版は extra を読まず、更新もしない。前の版へ戻すと、画面は移行時点の古い点検者・点検日を表示し、移行後の点検記録は見えない。また `PATCH /api/instruments/9` で `extra.inspector` / `last_inspected` を送ると 200 で保存されるが、新しい画面には一切反映されない（黙って無視される）。切り戻し時の挙動と、extra の旧キーの扱いが PR に書かれていない。\n- 直し方: 切り戻しの手順（移行後の記録は前の版で見えないこと）を `docs/operations.md` に書く。extra の旧キーの更新は 400 にするか、点検の API へ誘導するメッセージを返す。\n\n### 8. 退職者の担当・点検者の名前一致が厳密すぎる\n- 場所: `src/lib/inspections-legacy.ts` `normalizeInspectorName` / `importLegacyInspections`\n- 問題: 一致は `users.name` との完全一致のみで、同姓の利用者が複数いる場合や「鈴木 太郎」「佐藤課長」などは元の書き方に残る（黙って捨てはしないので安全側）。また一致した相手が退職者（MI-0004 の井上）でも担当者として設定される。要件上は許容だが、画面上は「在籍していません」と出るので、移行件数と未一致の一覧を運用が確認できるよう、移行時にログ（件数・未一致の書き方）を出すとよい（`logger` を使う）。\n- 直し方: 移行結果のログ出力を足す。\n\n## 補足（問題なしと判断した点は省略）\n- テスト（`tests/inspections.test.ts`）は追加されているが、指摘 1・3 に当たる「貸出中・校正中での要修理」「訂正の記録」のテストが無い。\n",
+  "review_chars": 3797,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.5264,
+    "tokens": {
+      "input": 50,
+      "output": 9743,
+      "cache_read": 1507239,
+      "cache_creation": 69530
+    },
+    "turns": 29,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -n 10,32p src/lib/db/seed.ts; sed -n 95,115p src/lib/calibrations.ts; (npm run build 2>&1 | tail -15)\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run build > /tmp/claude-0/build.log 2>&1; tail -15 /tmp/claude-0/build.log\", \"timeout\": 400000}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run build --prefix /tmp/poc-trials/W28-baseline-e2e-c2-2/app\", \"timeout\": 400000}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run start -- -p 3457 > /tmp/claude-0/server.log 2>&1 &\\nsleep 4; curl -s -i -c /tmp/claude-0/cj -X POST localhost:3457/api/login -H 'content-type: application/json' -d '{\\\"userId\\\":\\\""
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"curl -s -i -c /tmp/claude-0/cj -X POST localhost:3457/api/login -H 'content-type: application/json' -d '{\\\"userId\\\":\\\"sato\\\",\\\"password\\\":\\\"password\\\"}'; grep -n \\\"userId\\\\|id\\\\b\\\" /dev/n"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for i in 1 3 4 6 9 10; do curl -s -b /tmp/claude-0/cj localhost:3457/api/instruments/$i/inspection; echo; done; curl -s -b /tmp/claude-0/cj localhost:3457/api/instruments/6/inspections\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f \\\"next start\\\" ; pkill -f \\\"next-server\\\"; sleep 1; pgrep -fl next || echo stopped\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 24,
+      "TaskStop": 1,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 97,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘 8 件は、すべて `REVIEW.md` に書いてあります。場所・何が問題か・直し方・重要度（高 2、中 4、低 2）の形式で、コミット済み（`f15ed14`）です。内容は直前に報告したものと同じで、書き写すものが残っていなかったため、ファイルの変更も新しいコミットもありません。指摘の追加や削除もしておらず、コードも直していません。"
+  },
+  "interventions": 0
+}

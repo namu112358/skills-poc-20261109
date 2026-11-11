@@ -1,0 +1,85 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "renderBody が [文字](URL) の URL スキームを検証せず、javascript: リンクが href になり dangerouslySetInnerHTML 経由で保存型 XSS になる",
+   "severity": "高",
+   "match": "B6",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "PATCH /api/comments/:commentId が DELETE と違って投稿者を確認せず、誰でも他人のコメントを書き換えられる",
+   "severity": "高",
+   "match": "B7",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "tasks/[id]/comments の POST が getTask で存在確認せず addComment し、外部キー違反で 500 になる（GET は 404）",
+   "severity": "中",
+   "match": "B8",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "formatCreatedAt で created_at を日本語表記の文字列で保存し listComments が ORDER BY created_at で並べるため、桁の違いで時系列順にならない",
+   "severity": "中",
+   "match": "B9",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "詳細画面に投稿・編集・削除のフォームが無く、PR の説明（画面で読み書きできる）と実装が一致しない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "validateCommentBody が長さをトリム前に検査するため、トリム後は 2000 文字以内でも 400 になる",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "コメント ID の解析にタスク用の parseTaskId を流用していて意図が読み取りにくい",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "PATCH で取得後にコメントが削除されると updateComment が undefined を返し、{ comment: undefined } が 200 で返る",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "投稿件数の上限やページ分割が無く、listComments が全件を描画するため詳細画面が重くなる",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "tests/comments.test.ts が指摘 1〜4 や存在しない ID への更新・削除を検出できず、テストが不足している",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 11,
+   "summary": "編集・削除機能は PR の説明に無く、規約 6 の依頼範囲を超えている可能性がある",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.07530780000000001
+ }
+}

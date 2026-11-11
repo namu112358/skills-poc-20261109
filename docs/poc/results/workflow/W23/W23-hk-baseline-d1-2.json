@@ -1,0 +1,52 @@
+{
+  "trial": "W23-hk-baseline-d1-2",
+  "scenario": "W23",
+  "config": "hk-baseline",
+  "case": "d1",
+  "rep": 2,
+  "review_md": "# コードレビュー: ダッシュボード追加（未コミット差分）\n\n対象: `git diff HEAD`（`/dashboard`、`GET /api/dashboard`、`src/lib/dashboard.ts`・`week.ts`・`cache.ts`、テスト）\n\nマージ前に直すべき問題を重要度順に書きます。「再現」は、実際にコードを呼んで確認したものです（コードは変更していません）。\n\n---\n\n## 1. キャッシュが利用者ごとに分かれておらず、別の人のダッシュボードが返る\n\n- 場所: `src/lib/dashboard.ts` `buildDashboard()`、`src/lib/cache.ts` `cached()`\n- 何が問題: キャッシュのキーが `\"dashboard\"` の固定値で、`userId` が含まれません。30 秒以内に別のユーザーがアクセスすると、先に計算されたユーザーの内容がそのまま返ります。\n  - 再現: `buildDashboard(\"sato\", db, now)` の直後に `buildDashboard(\"tanaka\", db, now)` を呼ぶと、後者の結果の `userId` が `\"sato\"` になります（同一オブジェクト）。\n  - 影響: `/dashboard` と `/api/dashboard` で、ログイン中の人とは別の人の担当タスク（タイトル・期限）が見えます。個人のタスク情報の漏えいにあたります。\n- 直し方: キーを `` `dashboard:${userId}` `` にします。あわせて、ユーザー A の結果がユーザー B に返らないことを確かめるテストを `tests/dashboard.test.ts` に追加します。キャッシュを使わずに済ませる案も検討してください（項目 6 も参照）。\n- 重要度: 高\n\n## 2. `countByStatus` が共有の定数配列を破壊的に並べ替える\n\n- 場所: `src/lib/dashboard.ts` `countByStatus()`（`const order = TASK_STATUSES as TaskStatus[]; order.reverse()`）\n- 何が問題: `TASK_STATUSES`（`src/lib/tasks.ts`）は全体で共有される配列です。`reverse()` は元の配列を書き換えるため、一度呼ぶと全体の並びが `done, in_progress, todo` に変わります。\n  - 再現: `countByStatus([])` を 1 回呼ぶと `TASK_STATUSES` が `['done','in_progress','todo']` になりました（呼ぶ前は `['todo','in_progress','done']`）。\n  - 影響: タスク一覧ページの絞り込みのプルダウン（`src/app/tasks/page.tsx` が `TASK_STATUSES` を使用）の順番が、ダッシュボードを一度開いただけで変わります。ダッシュボードを開くたびに順番が反転することもあります。\n- 直し方: コピーしてから逆順にします（`[...TASK_STATUSES].reverse()`）。または、表示順を `done` 先頭の配列として明示的に定義します。「完了が先頭」の並びをテストで確かめ、`TASK_STATUSES` が変わらないこともテストしてください。\n- 重要度: 高\n\n## 3. 日曜日の「今週」の範囲が翌週になる\n\n- 場所: `src/lib/week.ts` `weekRange()`（`addDays(today, 1 - dow)`）\n- 何が問題: 日曜は `dow = 0` なので、週の開始（月曜）が「今日の翌日」になります。日曜の「今週」は、今週の月曜〜日曜ではなく翌週の月曜〜日曜になります。\n  - 再現: 2026-11-15（日）で `weekRange` を呼ぶと `{ start: '2026-11-16', end: '2026-11-22' }` になりました（正しくは `2026-11-09`〜`2026-11-15`）。\n  - 影響: 日曜には「今週が期限」の一覧に翌週のタスクが出て、今週の期限のタスク（今日が期限のものを含む）が抜けます。\n- 直し方: 月曜からの経過日数を `const offset = (dow + 6) % 7;` で求め、`start = addDays(today, -offset)` とします。テストに日曜の日付を追加してください（現在のテストは水曜日だけです）。\n- 重要度: 中\n\n## 4. タスクが 0 件のとき、完了率が NaN になる\n\n- 場所: `src/lib/dashboard.ts` `completionRate()`\n- 何が問題: `tasks.length` が 0 のとき `0 / 0` となり、`Math.round(NaN)` は `NaN` です。\n  - 再現: `completionRate([])` は `NaN` を返しました。\n  - 影響: 担当タスクが 1 件もないユーザーの画面に「完了率 NaN%」と表示されます（`src/app/dashboard/page.tsx`）。現在のシードデータではどの利用者にもタスクがあるため表に出ていませんが、新しい利用者では起きます。\n- 直し方: 0 件のときは `0` を返すか、`null` を返して画面では「—」を表示します。テストに空配列の場合を追加してください。\n- 重要度: 中\n\n## 5. SQL に値を文字列連結で埋め込んでいる（CLAUDE.md の規約 8 に反する）\n\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks()`（`WHERE assignee = '${userId}'`）\n- 何が問題: 値をプレースホルダではなくテンプレート文字列で埋め込んでいます。`userId` は現状セッションの利用者 ID（DB の `users.id`）なので直ちに悪用できるわけではありませんが、規約違反であり、ID に `'` が含まれるような値が入るとクエリが壊れる、または改変されます。\n- 直し方: `WHERE assignee = ?` にして `.all(userId)` を使います。同じ関数内の他の SQL と書き方をそろえてください（`src/lib/tasks.ts` の `listTasks` などはプレースホルダを使っています）。\n- 重要度: 中\n\n## 6. キャッシュにより、更新直後も最大 30 秒は古い内容が出る／`now` が無視される\n\n- 場所: `src/lib/dashboard.ts` `buildDashboard()`、`src/lib/cache.ts` `cached()`\n- 何が問題:\n  - タスクの状態を変えても、ダッシュボードは最大 30 秒は古い件数を表示します（ステータス・完了率・期限切れの一覧が古いままになります）。\n  - キャッシュにヒットしたとき、引数の `now` は使われません。期限切れや今週の判定は、最初に計算された時刻で行われ続けます。日付をまたいだ直後の表示が前日の基準のままになる可能性があります。\n- 直し方: PoC の規模では、キャッシュを外すのが最も単純です。残すなら、キーに日付（JST の今日）と利用者 ID を含め、タスクの更新（`updateTask` など）でそのキャッシュを消します。\n- 重要度: 低\n\n## 7. テストの抜け\n\n- 場所: `tests/dashboard.test.ts`\n- 何が問題:\n  - `weekRange` のテストは水曜日だけです。日曜（項目 3）、月曜、月をまたぐ週がありません。\n  - 完了率が 0 件の場合（項目 4）、利用者ごとのキャッシュの分離（項目 1）、`TASK_STATUSES` が変わらないこと（項目 2）のテストがありません。\n  - `listAssignedTasks` のテストは `sato` の件数（3 件）に固定しています。シードデータが変わると失敗するので、テスト内で用意したデータで確かめる方が安定します。\n  - `/dashboard` と `/api/dashboard`（未ログイン時の 401、リダイレクト）の確認がありません。\n- 直し方: 上記の各ケースをテストに追加します。`listAssignedTasks` はテスト内で作ったデータで確かめます。`npm test` のほかに、少なくとも `/api/dashboard` の 401 の応答を確かめてください。\n- 重要度: 低\n\n---\n\n## 問題がないと判断した点（参考）\n\n- `GET /api/dashboard` は、最初に `requireApiUser()` で確認しています。\n- `/dashboard` は `requireUser()` で未ログインならログイン画面へ移動します。\n- 期限の比較は `YYYY-MM-DD` の文字列比較で、日本時間の日付を使っています。\n- `/dashboard` のリンク先 `/tasks/${id}` は存在するルートです。\n\n## 優先順位\n\n1. 項目 1（利用者の取り違え）— 他人の担当タスクが見えるため、マージ前に必ず直す。\n2. 項目 2（共有配列の破壊）、項目 3（日曜の週の範囲）— 他の画面や日曜の表示を壊すため、マージ前に直す。\n3. 項目 4、5 — 表示の誤りと規約違反。あわせて直す。\n4. 項目 6、7 — 設計の判断とテストの補強。\n",
+  "review_chars": 4161,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0273,
+    "tokens": {
+      "input": 32,
+      "output": 16004,
+      "cache_read": 872279,
+      "cache_creation": 53100
+    },
+    "turns": 20,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --version && mkdir -p /tmp/claude-0/scratch-review 2>/dev/null; S=/tmp/claude-0/-tmp-poc-trials-W23-hk-baseline-d1-2-app/7f71514e-5d8f-4a3f-ada8-923d6dcf7dfa/scratchpad; mkdir -p $S "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --version; S=/tmp/claude-0/-tmp-poc-trials-W23-hk-baseline-d1-2-app/7f71514e-5d8f-4a3f-ada8-923d6dcf7dfa/scratchpad; mkdir -p $S; cat > $S/check.ts <<'EOF'\\nimport { weekRange } from"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W23-hk-baseline-d1-2-app/7f71514e-5d8f-4a3f-ada8-923d6dcf7dfa/scratchpad && cat > /tmp/claude-0/-tmp-poc-trials-W23-hk-baseline-d1-2-app/7f71514e-5d"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"ls REVIEW.md 2>/dev/null; git log --oneline -3; git config user.name; git config user.email | sed 's/.*/(set)/'\", \"description\": \"Check for existing REVIEW.md and git identity\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Write": 3,
+      "Read": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 81,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き直し、そのファイルだけをコミットしました（コミット `7107a6e`）。コードは変更していません。\n\n各指摘を「場所」「何が問題」「直し方」「重要度」の 4 項目に分けて書き直しました。指摘は 7 件で、前回と同じ内容・同じ重要度です。新しい指摘は足していません。\n\n- 項目 1（高）: キャッシュが利用者ごとに分かれていない\n- 項目 2（高）: `countByStatus` が共有の `TASK_STATUSES` を書き換える\n- 項目 3（中）: 日曜日の「今週」が翌週になる\n- 項目 4（中）: タスク 0 件で完了率が `NaN%` になる\n- 項目 5（中）: SQL に `userId` を文字列連結で埋め込んでいる\n- 項目 6（低）: キャッシュによる古い表示と、`now` が無視される問題\n- 項目 7（低）: テストの抜け\n\n「問題がないと判断した点」と「優先順位」の節は残しています。"
+  },
+  "interventions": 0
+}

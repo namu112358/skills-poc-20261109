@@ -1,0 +1,44 @@
+{
+  "trial": "W24-baseline-run-d3-1",
+  "scenario": "W24",
+  "config": "baseline-run",
+  "case": "d3",
+  "rep": 1,
+  "review_md": "# コードレビュー: ダッシュボードとタスクのコメント\n\n「再現」と書いた項目は、作業用コピーの外の一時スクリプトで関数を実際に呼んで確かめた結果です。\n\n## 高\n\n### 1. ダッシュボードのキャッシュがユーザーごとに分かれていない（他人のタスクが見える）\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）、`src/lib/cache.ts`\n- 問題: キャッシュのキーが固定文字列 `\"dashboard\"` で、`userId` を含まない。30 秒以内に別の人が `/dashboard` や `GET /api/dashboard` を開くと、先に開いた人の結果（担当タスクの件数・タイトル・期限）がそのまま返る。\n- 再現: `buildDashboard(\"sato\")` の直後に `buildDashboard(\"suzuki\")` を呼ぶと、返り値の `userId` が `\"sato\"` のままだった。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。そもそもキャッシュが必要かも再検討する（タスクの更新が最大 30 秒反映されない。`db` や `now` を引数で渡してもキャッシュが優先されるため、テストも不安定になる）。キャッシュを残すならタスク更新時に無効化する。\n\n### 2. SQL インジェクション\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`\n- 問題: `` `... WHERE assignee = '${userId}' ...` `` と文字列連結でSQLを作っている（規約 8 違反）。現状の `userId` はセッション由来で直接は悪用しにくいが、関数としては任意の文字列で全件が読める。\n- 再現: `listAssignedTasks(\"x' OR '1'='1\")` が全 7 件を返した（他人のタスクを含む）。\n- 直し方: `WHERE assignee = ? ` とし `.all(userId)` にする。\n\n### 3. コメント本文のリンクで `javascript:` URL が通る（XSS）\n- 場所: `src/lib/comments.ts` `renderBody`、`src/app/tasks/[id]/page.tsx`（`dangerouslySetInnerHTML`）\n- 問題: `[文字](URL)` の URL を検証せず `href` に入れている。`\"` と `<` はエスケープされるが、スキームは制限されない。\n- 再現: `renderBody(\"[x](javascript:alert(1))\")` → `<a href=\"javascript:alert(1\" ...>`。正規表現が最初の `)` で止まるため括弧の付いた例は壊れるが、括弧の要らない `javascript:alert\\`1\\`` 等は成立する（この形は実行せず、出力が href にそのまま入ることから判断）。コメントを開いた人のブラウザで、クリックにより任意のスクリプトが動く。\n- 直し方: URL は `new URL()` で解析し `http:` / `https:`（必要なら `mailto:`）だけを許可、それ以外はリンクにせず文字のまま出す。そもそも `dangerouslySetInnerHTML` をやめ、React の要素（`<a>`、`<br />`）として組み立てるほうが安全。\n\n### 4. 他人のコメントを編集できる\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`\n- 問題: `DELETE` は `comment.authorId !== user.id` を確認して 403 を返すが、`PATCH` には確認が無い。ログインしていれば誰でも他人のコメント本文を書き換えられる。\n- 直し方: `PATCH` にも `DELETE` と同じ作成者の確認を入れる。テストも追加する（現状、API 層のテストは無い）。\n\n### 5. 日曜日に「今週」が翌週になる\n- 場所: `src/lib/week.ts` `weekRange`\n- 問題: `dow`（日曜 = 0）を使った `addDays(today, 1 - dow)` は、日曜だと「明日（翌月曜）」になる。\n- 再現: 日本時間 2026-11-15（日）の `weekRange` が `{ start: \"2026-11-16\", end: \"2026-11-22\" }` を返した（正しくは 11-09〜11-15）。日曜は今週の期限タスクが「今週が期限」に出ず、翌週のものが出る。月曜（11-09）は正しかった。\n- 直し方: `const offset = (dow + 6) % 7; start = addDays(today, -offset)`。日曜・月曜・土曜の境界値テストを追加する（現テストは水曜だけ）。\n\n## 中\n\n### 6. コメントの並び順が正しくない（日時を表示用の文字列で保存している）\n- 場所: `src/lib/comments.ts` `formatCreatedAt` / `addComment` / `listComments`（`ORDER BY created_at, id`）、マイグレーション 3\n- 問題: `created_at` に `toLocaleString(\"ja-JP\")` の結果（`2026/11/11 9:00:00`）を保存している。0 埋めされないため文字列比較が時刻順にならない。\n- 再現: 日本時間 9:00 → 11:00 → 10:00 の順に追加すると、一覧は `10:00, 11:00, 9:00` の順だった。また 11/11 21:00 の後に 11/11 9:00 が来て、`2026/12/1` は `2026/11/…` の後ろに偶然並ぶだけ（月・日が 1 桁になる月で崩れる）。\n- 直し方: DB には ISO 8601（`now.toISOString()`）を保存し、表示のときだけ日本時間に整形する。ページ側で整形する関数を `src/lib/` に置く。既存データが無い新規テーブルなので、マイグレーション 3 の運用前に直せる（運用後は新しいマイグレーションで追加する）。\n\n### 7. 存在しないタスクにコメントを追加すると 500 になる\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` `POST`\n- 問題: `GET` は `getTask(id)` で 404 にしているが、`POST` は ID の形式しか確認しない。\n- 再現: `addComment(9999, ...)` が `FOREIGN KEY constraint failed` を投げる → API は未処理例外で 500（規約 9 は対象が無いとき 404）。\n- 直し方: `POST` にも `!getTask(id)` の 404 を入れる。\n\n### 8. 並びの表示が呼び出しのたびに入れ替わる（共有配列の破壊的変更）\n- 場所: `src/lib/dashboard.ts` `countByStatus`\n- 問題: `TASK_STATUSES as TaskStatus[]` はコピーではなく同じ配列で、`.reverse()` がそれ自体を逆順にする。呼ぶたびに `TASK_STATUSES`（アプリ全体で共有）の順序が入れ替わる。\n- 再現: `countByStatus` を続けて呼ぶと、先頭が `done` → `todo` → `done` … と交互に変わった。画面の「完了が先頭」が再読み込みごとに入れ替わり、`TASK_STATUSES` を使う他の場所（絞り込みの選択肢など）の並びにも影響する。テストは 1 回目の呼び出しだけを見るので気づけない。\n- 直し方: `[...TASK_STATUSES].reverse()`（または `toReversed()`）にする。2 回続けて呼んで結果が同じことを確かめるテストを追加する。\n\n### 9. タスクが 0 件の人の完了率が `NaN%`\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 再現: `completionRate([])` → `NaN`。画面に「完了率 NaN%」と出る。JSON では `null` になる。\n- 直し方: 0 件のときは 0 を返す（または「—」表示にする）。テスト追加。\n\n## 低\n\n### 10. 期限切れと「今週が期限」が重複する\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`\n- 問題: 今週の月曜〜昨日が期限の未完了タスクは、「期限切れ」と「今週が期限」の両方に出る（例: 水曜に期限が火曜のタスク。再現で確認）。意図通りなら説明を、そうでなければ `dueDate >= max(start, today)` にする。仕様を確認してほしい。\n\n### 11. 細部・テスト\n- `src/app/api/comments/[commentId]/route.ts` は `parseTaskId`（タスク用）を流用している。動作は同じだが名前が紛らわしいので、共通の ID 検証関数に分けるとよい。\n- `validateCommentBody` は `trim` 前の長さで 2000 文字を判定し、UTF-16 の長さで数える（絵文字は 2 と数える）。文字数の意味を決めておく。\n- `tests/dashboard.test.ts` の「ダッシュボードを作る」は、キャッシュのクリアが前提で、ユーザーを切り替えたテストが無いため #1 を検出できなかった。ユーザー違い・日曜・0 件のテストを足す。\n",
+  "review_chars": 4291,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3334,
+    "tokens": {
+      "input": 26,
+      "output": 9715,
+      "cache_read": 556033,
+      "cache_creation": 45138
+    },
+    "turns": 15,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W24-baseline-run-d3-1-app/ee0f1053-c75c-4ec8-83c5-12bf8c11b542/scratchpad && cat > $S/repro.ts <<'EOF'\\nconst A=\\\"/tmp/poc-trials/W24-baseline-run-d3-1/app"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i 's/^「再現」と書いた項目は.*/「再現」と書いた項目は、作業用コピーの外の一時スクリプトで関数を実際に呼んで確かめた結果です。/' REVIEW.md && sed -i 's/^### 11\\\\. .*/### 11. 細部・テスト/' REVIEW.md && git commit -q -m \\\"コードレビューの指摘を REVIEW.md に追加\\"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 8,
+      "Write": 2,
+      "Edit": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 102,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの指摘 11 件がすべて、依頼の形式（場所・何が問題か・直し方・重要度）で書いてあります。コミットも済んでいます（39f418c）。今回は追記も削除もしていません。コミットの後に `REVIEW.md` を変更していないことは `git status` と `git diff HEAD` で確認しました。\n\n- **高:** 5 件（キャッシュのキー、SQL インジェクション、XSS、他人のコメント編集、日曜の「今週」）\n- **中:** 4 件（コメントの並び順、存在しないタスクへのコメントで 500、`countByStatus` の共有配列の破壊的変更、完了率の `NaN`）\n- **低:** 2 件（期限切れと今週の重複、細部とテストの不足）\n\n重要度ごとに見出しを分けています。各項目に、場所（ファイルと関数）、再現した入力と結果、直し方を書きました。コードは変更していません。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,99 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "validateLocation の locationId の枝で locationOriginal が未設定のまま createInstrument の INSERT に undefined が渡り、SQLite のバインドエラーで登録 API が 500 になる",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "マイグレーション 5 は location_id を付けるだけで、location 列の表記ゆれをマスタの正式名に置き換えないため、経理に表記ゆれのまま渡る",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "updateInstrument で locationId だけを送って場所を変えても、古い location 列は変更前の値のまま残る",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "location-master.ts の updateLocation で場所の名称を変えても、その場所の計測器の location 列が旧名のまま更新されない",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "ハンディの確定時に location 列へマスタ名ではなく端末の元の文字が入る",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "ロールバック中に前の版で location 列だけを直すと location_id が古いまま残り、再度上げたときに JOIN の古い場所が表示されて食い違う",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "recordInventory で、確定済みの計測器に照合できない文字が来ると捨ててログに出すだけで、確認中にも残さない",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 8,
+   "summary": "locations.ts の ALIASES が、合意にない「大阪営」「名古屋営」を推測で正式な場所に寄せている",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 9,
+   "summary": "移行ログ locations.migrated に確認中になった値の種類・上位が無く、0 件のときはログが出ない",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "移行が 5 万行を 1 行ずつ照合・UPDATE しており遅い恐れがあり、移行時間の実測値も PR に無い",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "場所の名称を自由に変えられるので、名称変更後はハンディ端末の旧名が一致せず確認中に溜まる（運用上の注意）",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "空白判定の文字が SQL の TRIM と JS の trim() で違い、NBSP だけの値で画面と絞り込みの件数が合わない",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 13,
+   "summary": "使用終了の場所の名称変更・再開と、重複エラー 409 の表示について、UI と API のテストが薄い",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0871758
+ }
+}

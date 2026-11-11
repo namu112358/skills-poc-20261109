@@ -1,0 +1,47 @@
+{
+  "trial": "W25-baseline-run-c3-1",
+  "scenario": "W25",
+  "config": "baseline-run",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: タスク一覧の CSV エクスポート\n\n`src/lib/export.ts` の関数と `listTasks` を node で実際に呼んで確認した結果です（`npm test` は 22 件通過。ただし下記のとおり、テストが問題を拾えていません）。\n\n## 指摘\n\n### 1. [高] タイトル中のダブルクォートがエスケープされず、列がずれる\n- 場所: `src/lib/export.ts` の `field()`\n- 問題: 値を `\"${value}\"` で囲むだけで、中の `\"` を `\"\"` に置き換えていません。タイトルが `say \"hi\", ok` のとき、出力は `\"1\",\"say \"hi\", ok\",\"未着手\",…` になり、CSV として読むと項目の境界が壊れて列がずれます。PR の「引用符が含まれても列がずれない」に反します。\n- 直し方: `\"` + value.replace(/\"/g, '\"\"') + `\"` にする。\n- テストの問題: `tests/export.test.ts` の「escapes quotes and commas」は、タイトルが `週次 定例の準備`（引用符もカンマも無い）なので何も検証していません。`say \"hi\", ok` や改行入りのタイトルで、CSV パーサ相当の期待値（`\"\"` になること）を確認するテストに直してください。\n\n### 2. [高] 数式インジェクション（CSV インジェクション）への対策が無い\n- 場所: `src/lib/export.ts` の `field()`\n- 問題: タイトルは任意のログインユーザーが `POST /api/tasks` で登録できます。`=HYPERLINK(\"http://…\",\"a\")` や `+1+1`、`@…`、`-…` で始まるタイトルがそのまま出力されます。報告用に Excel で開く用途のため、他の人が開いたときに数式として評価される恐れがあります。\n- 直し方: 先頭が `=` `+` `-` `@`、タブ、CR のときは先頭に `'` を付ける（または半角スペースなどを前置する）。ID・日付などの内部生成値は対象外でもよい。対策のテストも追加する。\n\n### 3. [中] 不正な `?status=` を「指定なし」にしていない（一覧 API と挙動が違う）\n- 場所: `src/app/api/tasks/export/route.ts` の `GET`（`as TaskStatus | null` のキャスト）\n- 問題: 型ガード `isTaskStatus` を通さずキャストしています。`?status=bogus` だと `listTasks` が `status = 'bogus'` で絞り込み、0 件（見出しだけの CSV）になります（実行して確認: bogus → 0 件、指定なし → 7 件）。PR の説明の「不正な値は一覧と同じく指定なし」と、CLAUDE.md の規約 2（型ガードで検証）に反します。\n- 直し方: `GET /api/tasks` と同じく `isTaskStatus(status) ? status : undefined` にする。不正値で全件になることのテスト（ルートではなく、検証を `src/lib/` に置くなら関数のテスト）を追加する。\n\n### 4. [低] ルートのテストが無く、絞り込み・認証・ヘッダは未検証\n- 場所: `tests/export.test.ts`\n- 問題: 追加されたテストは `toCsv` だけです。BOM の付与、`status` の絞り込み、401、`Content-Disposition` はテストされていません。指摘 3 のような不具合がテストをすり抜けた原因でもあります。\n- 直し方: `status` の解釈など `src/lib/` に出せる部分は関数に切り出して単体テストを書く。BOM は `CSV_BOM` が先頭に付くこと、`toCsv` が BOM を含まないことを確認する。\n\n### 5. [低] 「担当者」列がユーザー ID（`sato` など）で、表示名ではない\n- 場所: `src/lib/export.ts` の `toCsv`（`t.assignee`）\n- 問題: 画面の表示名（佐藤）ではなく ID が出力されます。仕様上は問題ないかもしれませんが、報告用の Excel では分かりにくい可能性があります。意図した仕様か確認してください。\n- 直し方: 表示名にするなら `users` を結合して取得する。ID のままなら PR の説明にその旨を書く。\n\n## 問題なしと判断した点\n- `export/route.ts` は最初に `requireApiUser()` で認証しており、`[id]` ルートとも競合しません（静的セグメントが優先されます）。\n- 改行・CRLF 区切りと BOM の付与自体は意図どおりです（ただし指摘 1 の直しが前提）。\n",
+  "review_chars": 2148,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.24,
+    "tokens": {
+      "input": 28,
+      "output": 5560,
+      "cache_read": 517201,
+      "cache_creation": 33168
+    },
+    "turns": 14,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/repro.ts <<'EOF'\\nimport { toCsv } from \\\"/tmp/poc-trials/W25-baseline-run-c3-1/app/src/lib/export.ts\\\";\\nimport { listTasks } from \\\"/tmp/poc-trials/W25-baseline-run-c3-1/app/"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/repro.ts <<'EOF'\\nimport { toCsv } from \\\"/tmp/poc-trials/W25-baseline-run-c3-1/app/src/lib/export.ts\\\";\\nimport { listTasks } from \\\"/tmp/poc-trials/W25-baseline-run-"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 9,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 56,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回のレビューの指摘は、すでに指定の形式で `REVIEW.md` に書いてコミット済みです（`cbff0ef`）。内容は前回のレビューと同じ 5 件で、今回は追加も削除もしていません。`REVIEW.md` に未コミットの差分はなく、コードにも触れていません。\n\n各指摘には、場所（ファイルと関数）、何が問題か（入力と結果）、直し方、重要度（高・中・低）を書いています。\n\n- **[高] 1:** ダブルクォートがエスケープされず、列がずれる（`src/lib/export.ts` の `field()`）。\n- **[高] 2:** 数式インジェクション対策が無い（同じく `field()`）。\n- **[中] 3:** 不正な `?status=` が「指定なし」にならない（`src/app/api/tasks/export/route.ts` の `GET`）。\n- **[低] 4:** ルートのテストが無い（`tests/export.test.ts`）。\n- **[低] 5:** 担当者列がユーザー ID で、表示名ではない。\n\nPR の 3 ファイルは、前回のコミットと同じく未コミットのままです。"
+  },
+  "interventions": 0
+}

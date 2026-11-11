@@ -1,0 +1,43 @@
+{
+  "trial": "W26-baseline-std-d1-3",
+  "scenario": "W26",
+  "config": "baseline-std",
+  "case": "d1",
+  "rep": 3,
+  "review_md": "# レビュー: ダッシュボードを追加する\n\n疑わしい箇所は作業用の再現スクリプトで実際に動かして確認した（結果を各項目に記載）。\n\n## 高\n\n### 1. キャッシュキーがユーザーごとに分かれておらず、他人のダッシュボードが返る\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", …)`）、`src/lib/cache.ts`\n- 問題: キーが固定文字列 `\"dashboard\"` のため、30 秒以内なら最初にアクセスした人の結果が全員に返る。再現: `buildDashboard(\"sato\", …)` の直後に `buildDashboard(\"suzuki\", …)` を呼ぶと `userId` が `sato` のまま返った。`/dashboard` と `GET /api/dashboard` の両方で他人のタスク名・件数が見える（情報漏えい）。DB が違っても（テストの `openDb()` など）同じキーを共有する。\n- 直し方: キーに `userId` を含める（`dashboard:${userId}`）。テスト用 DB と混ざらないようにするなら、キャッシュをやめるか `db` ごとに分ける。あわせて「別ユーザーなら別の結果になる」テストを追加する。\n\n### 2. SQL インジェクション\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`（`WHERE assignee = '${userId}'`）\n- 問題: 値を文字列連結で埋め込んでいる（規約 8 違反）。再現: `listAssignedTasks(\"x' OR '1'='1\", db)` が 7 件（全タスク）を返した。今は `userId` がセッション由来だが、`src/lib/` の関数が危険な形のまま残る。\n- 直し方: `WHERE assignee = ?` にして `.all(userId)` で渡す。\n\n## 中\n\n### 3. 日曜日に「今週」が翌週になる\n- 場所: `src/lib/week.ts` `weekRange`（`start = addDays(today, 1 - dow)`、日曜は `dow = 0`）\n- 問題: 日曜は開始日が翌日（翌月曜）になる。再現: 2026-11-15（日）で `{start: \"2026-11-16\", end: \"2026-11-22\"}` が返った（正しくは 11-09〜11-15）。日曜は「今週が期限」に当日期限のタスクが出ず、翌週のタスクが出る。\n- 直し方: `const offset = dow === 0 ? -6 : 1 - dow;` を使う。日曜を使ったテストを追加する（現在のテストは水曜のみ）。\n\n### 4. `countByStatus` が共有の `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` `countByStatus`（`order.reverse()`）\n- 問題: `as TaskStatus[]` でキャストして `reverse()` しているため、定数 `TASK_STATUSES` そのものが呼ぶたびに逆順になる。再現: 1 回目の戻りは `done, in_progress, todo` だが、2 回目は `todo, in_progress, done` に戻った。ダッシュボードの表示順がリクエストごとに入れ替わる。`isTaskStatus` など他の利用箇所の順序にも影響し得る。\n- 直し方: `[...TASK_STATUSES].reverse()`（または `toReversed()`）にする。2 回続けて呼んでも順序が同じであるテストを追加する。\n\n### 5. 担当タスクが 0 件のとき完了率が `NaN`\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 問題: `0 / 0` で `NaN`。再現: `completionRate([])` が `NaN`。画面に「完了率 NaN%」と出て、API の JSON では `null` になる。タスクが無い新規ユーザーで起きる。\n- 直し方: `tasks.length === 0` なら 0 を返す。0 件のテストを追加する。\n\n### 6. 更新してもキャッシュが残り、画面が古い\n- 場所: `src/lib/cache.ts` / `buildDashboard`、`PATCH /api/tasks/:id`\n- 問題: タスクのステータスや期限を変えても最大 30 秒は古い数字が出る。また `cached` はプロセス内の `Map` で、期限切れのエントリを消さない。\n- 直し方: タスク更新時にそのユーザーのキャッシュを破棄する。あるいは DB の集計は軽いのでキャッシュ自体をやめる（変更範囲の観点でも不要）。\n\n## 低\n\n### 7. 「今週が期限」に期限切れのタスクが重複して出る\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`\n- 問題: 今週の月曜〜昨日が期限の未完了タスクは「期限切れ」と「今週が期限」の両方に載る（テストもその挙動を前提にしている: `[1, 2]`）。意図でなければ二重表示になる。\n- 直し方: 仕様を決める。重複させないなら `dueDate >= max(start, today)` にする。\n\n### 8. テストが上記の不具合を検出できない\n- 場所: `tests/dashboard.test.ts`\n- 問題: 日曜、タスク 0 件、複数ユーザー、`countByStatus` の連続呼び出し、SQL 特殊文字のケースが無い。`buildDashboard` のテストも 1 ユーザー・1 回のみ。API ルート（401 など）のテストも無い。\n- 直し方: 項目 1〜5 の再現ケースをテストとして追加する。\n",
+  "review_chars": 2599,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2359,
+    "tokens": {
+      "input": 24,
+      "output": 5934,
+      "cache_read": 424632,
+      "cache_creation": 33520
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W26-baseline-std-d1-3-app/ed84b5d1-e79d-4cc9-b725-5c8b8e5de098/scratchpad && cat > $S/r.ts <<'EOF'\\nimport { buildDashboard, countByStatus, completionRate,"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 67,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は、前回のレビューで出した指摘を、ご依頼の形式（重要度・場所・何が問題か・直し方）ですでに書いてあります。そのため、今回は書き直しも追加のコミットもしていません。\n\n- **内容**: 指摘 8 件（高 2、中 4、低 2）です。前回の報告にあった指摘を全部載せていて、新しい指摘は足していません。項目 8 のテスト不足は、日曜、0 件、複数ユーザー、連続呼び出し、SQL 特殊文字のケースが無い点と、API ルートのテストが無い点をまとめた指摘です。\n- **コミット**: 855cf56 で `REVIEW.md` だけをコミット済みです。いま `REVIEW.md` に未コミットの変更はありません。\n- **コード**: 直していません。ダッシュボード本体のファイルは、元どおり未コミットのままです。"
+  },
+  "interventions": 0
+}

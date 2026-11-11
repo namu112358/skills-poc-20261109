@@ -1,0 +1,38 @@
+{
+  "trial": "W21-baseline-c3-2",
+  "scenario": "W21",
+  "config": "baseline",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# レビュー: タスク CSV エクスポート API\n\nマージ前に直すべき点は以下のとおり（高 1 件・中 2 件・低 1 件）。\n\n## 1. [高] タイトル中の `\"` をエスケープしていない（CSV が壊れる）\n\n- 場所: `src/lib/export.ts` の `field()`\n- 問題: 値を `\"${value}\"` で囲むだけで、値の中の `\"` を `\"\"` に置き換えていない。PR の「引用符が含まれていても列がずれない」を満たしていない。\n  例: タイトル `5\" ケーブル, 発注` は `\"5\" ケーブル, 発注\"` となり、Excel でも他のパーサでも列がずれる／行が壊れる。\n  タイトルは API から 200 文字まで任意の文字を登録できる（`validateTaskInput`）ので、実際に起こる。\n- 直し方: `` `\"${String(value).replaceAll('\"', '\"\"')}\"` `` にする。\n\n## 2. [中] 不正な `?status=` を「指定なし」にしていない\n\n- 場所: `src/app/api/tasks/export/route.ts` の `GET`\n- 問題: `as TaskStatus | null` で型を断言しているだけで検証していない。`?status=foo` は `listTasks` の `status = 'foo'` で 0 件になり、見出しだけの CSV が返る。PR の説明（一覧と同じく「指定なし」＝全件）と、CLAUDE.md の規約 2（型ガードで検証する）に反する。\n- 直し方: `/api/tasks` の GET と同様に `isTaskStatus(status) ? status : undefined` を使う。`as` の断言と `TaskStatus` の import は不要になる。\n\n## 3. [中] CSV（数式）インジェクションへの対策がない\n\n- 場所: `src/lib/export.ts` の `field()`\n- 問題: ログイン済みの誰でもタイトルを登録できる。`=HYPERLINK(...)` や `=cmd|...`、`+`/`-`/`@` で始まるタイトルは、週次報告で Excel に貼り付け／開いたときに数式として実行される。この PR は Excel での利用が目的なので現実的なリスク。\n- 直し方: 文字列の項目が `= + - @` やタブ・CR で始まるときは先頭に `'` を付ける（ID など数値は対象外）。テストも追加する。\n\n## 4. [低] テストが要件を検証していない\n\n- 場所: `tests/export.test.ts` の \"escapes quotes and commas in titles\"\n- 問題: テーマの名前と違い、タイトル `週次 定例の準備` には引用符もカンマも改行も入っていない。そのため上記 1 のバグを検出できず、通っている。また、`?status=` の絞り込み、不正値、BOM、未ログイン 401 のテストが無い（規約 5）。\n- 直し方: タイトルに `\"`・`,`・改行（`\\n`）を含むケースを追加して、`\"\"` へのエスケープと全体が 1 項目のままであることを検証する。数式の先頭文字のケースも追加する。ステータスの解釈は `src/lib/` の関数に切り出すとテストしやすい。\n",
+  "review_chars": 1479,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.1769,
+    "tokens": {
+      "input": 20,
+      "output": 3108,
+      "cache_read": 316517,
+      "cache_creation": 28521
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files -o --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 35,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、前のメッセージの 4 件の指摘がすでに依頼の形式（重要度・場所・何が問題か・直し方）で書かれていて、コミット済みです（`48e3380`、`REVIEW.md` に未コミットの変更はありません）。そのため、書き写しのための新しいコミットは作っていません。\n\n指摘の追加も削除もしておらず、コードも直していません。内容は、次のとおりです。\n\n1. **[高]** `\"` をエスケープしていない（`src/lib/export.ts` の `field()`）\n2. **[中]** 不正な `?status=` を「指定なし」にしていない（`src/app/api/tasks/export/route.ts` の `GET`）\n3. **[中]** CSV（数式）インジェクションへの対策がない（`src/lib/export.ts` の `field()`）\n4. **[低]** テストが要件を検証していない（`tests/export.test.ts`）"
+  },
+  "interventions": 0
+}

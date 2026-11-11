@@ -1,0 +1,49 @@
+{
+  "trial": "W24-hk-baseline-run-c4-1",
+  "scenario": "W24",
+  "config": "hk-baseline-run",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# コードレビュー: 期限が近いタスクの表示\n\n対象: 未コミットの差分（`src/app/tasks/page.tsx`、`src/lib/due.ts`、`tests/due.test.ts`）。\n\n判定の確認方法: `src/lib/due.ts` の `daysUntilDue` / `isDueSoon` を、日本時間（+09:00）の時刻を指定した Node スクリプトで直接呼び出して結果を確かめた。スクリプトは作業用コピーの外（スクラッチパッド）に置いた。判定は時刻の指定だけで決まり、サーバーのタイムゾーン（`TZ`）には依存しない。\n\n## 指摘\n\n### 1. 今日が期限のタスクが、日本時間 9:00 以降に「期限間近」にならない\n\n- 場所: `src/lib/due.ts` `daysUntilDue()`（`Math.floor((Date.parse(dueDate) - now.getTime()) / DAY_MS)`）\n- 何が問題か: `Date.parse(\"2026-11-12\")` は **UTC の 0 時** を返すが、`now` は実際の時刻（瞬間）である。そのため残り日数は「日本時間の日付の差」ではなく「UTC 0 時からの経過時間」で決まる。日本時間 9:00 を過ぎると差がマイナスになり、`floor` で −1 になって `isDueSoon` が `false` になる。\n  - 再現（確認済み）:\n    - 現在 2026-11-12 00:00 JST、期限 2026-11-12 → days=0、対象 **true**\n    - 現在 2026-11-12 09:00 JST、期限 2026-11-12 → days=0、対象 true\n    - 現在 2026-11-12 15:00 JST、期限 2026-11-12 → days=**−1**、対象 **false**\n    - 現在 2026-11-12 23:59 JST、期限 2026-11-12 → days=**−1**、対象 **false**\n  - 結果: 「今日が期限」の未完了タスクは、朝の 9 時以降は「期限間近」が付かず、「期限を過ぎた」扱いになる。PR の「今日・明日・明後日・3 日後」の仕様を満たさない。\n- 直し方: 日付どうしの差を求めるように変える。現在の日本時間の日付を `YYYY-MM-DD` として得て（例: `Intl.DateTimeFormat(\"en-CA\", { timeZone: \"Asia/Tokyo\" })` を使う）、期限日とともに UTC 0 時の時刻に直してから差を取る。または両方を `Date.UTC(y, m - 1, d)` で作ってから差を取る。`daysUntilDue` は「今日の日付文字列」と「期限日文字列」を受け取る形にすると、テストも書きやすい。\n- 重要度: 高\n\n### 2. 「3 日後」のタスクが対象から外れる（境界の off-by-one）\n\n- 場所: `src/lib/due.ts` `isDueSoon()`（`return days >= 0 && days < DUE_SOON_DAYS;`）\n- 何が問題か: PR の仕様は「今日から 3 日以内（今日・明日・明後日・3 日後）」で、残り日数 0〜3 が対象である。しかし `days < DUE_SOON_DAYS`（3）なので残り 3 日の 3 日後が外れる。\n  - 再現（確認済み）: 現在 2026-11-12 00:00 JST、期限 2026-11-15 → days=3、対象 **false**（仕様では true であるべき）。\n- 直し方: `days <= DUE_SOON_DAYS` にする。または定数の意味を「期限間近とみなす残り日数の上限（3）」として、比較をそれに合わせる。境界の 3 日後をテストに加える。\n- 重要度: 中\n\n### 3. 単体テストが境界と時刻の問題を検出できていない\n\n- 場所: `tests/due.test.ts`\n- 何が問題か: 基準時刻が「2026-11-12T00:00:00+09:00（日本時間の 0 時ちょうど）」だけなので、指摘 1 の「9:00 以降に外れる」問題を検出できない。また、3 日後（指摘 2）のケースもない。`daysUntilDue` のテストも 0・1・−1 だけで、負の数や境界の日付をまたぐケースがない。\n- 直し方: 基準時刻を日本時間の 0:00、9:00、23:59 の複数にして、同じ期限日に対して結果が変わらないことを確かめる。「3 日後は対象、4 日後は対象外」を明示的にテストする。`TZ` を変えても結果が変わらないことも確かめる。\n- 重要度: 中\n\n### 4. `due-soon` クラスに対応するスタイルが無い\n\n- 場所: `src/app/tasks/page.tsx`（`className={isDueSoon(task, now) ? \"due-soon\" : undefined}`）\n- 何が問題か: リポジトリ内に `due-soon` を定義した CSS が無い（`src` 配下を検索して確認）。付けているクラスは見た目に効かない。表示は「（期限間近）」の文字と `<strong>` だけになる。\n- 直し方: 意図した見た目（例: 行の背景色）が無いなら、クラス名を外すか、CSS を追加する。意図があるなら CSS の定義を足す。\n- 重要度: 低\n\n## 問題が無いと判断した点\n\n- 完了（`done`）のタスクを対象から外す処理は正しい（`isDueSoon` の先頭で判定）。\n- 期限を過ぎたタスク（残り日数が負）を対象から外す処理は、負の値の扱いとして意図どおり（ただし指摘 1 の影響を受けている）。\n- `dueDate` は API の検証で `YYYY-MM-DD` 形式に限定されるため、`Date.parse` の形式の揺れによる問題は無い。\n- 表示の文言「（期限間近）」は日本語で、仕様どおり。\n",
+  "review_chars": 2600,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0232,
+    "tokens": {
+      "input": 34,
+      "output": 13135,
+      "cache_read": 812383,
+      "cache_creation": 42431
+    },
+    "turns": 19,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/poc-trials/W24-hk-baseline-run-c4-1/scratch 2>/dev/null; S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-c4-1-app/306376ca-387f-4e0c-ab2f-160540f28652/scratchpad; mkdir "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W24-hk-baseline-run-c4-1 && rmdir scratch 2>/dev/null; cd app && git rev-parse --show-toplevel && git log --oneline -3 && ls && grep -rln \\\"due-soon\\\\|\\\\.due\\\" src --in"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git -C /tmp/poc-trials/W24-hk-baseline-run-c4-1/app add REVIEW.md && git -C /tmp/poc-trials/W24-hk-baseline-run-c4-1/app commit -q -m \\\"$(printf 'docs: 期限間近表示のコードレビュー結果を追加\\\\n\\\\nCo-Authore"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 10,
+      "Write": 4,
+      "Edit": 1,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 67,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "REVIEW.md を書き直し、REVIEW.md だけをコミットしました（`f7e9939`）。コードは直していません。\n\n前回の 4 件の指摘はすべて残し、新しい指摘は足していません。各項目を「場所・何が問題か・直し方・重要度」の順にそろえ、重要度を項目内に明記しました。\n\n- 指摘 1: 今日が期限のタスクが、日本時間 9:00 以降に「期限間近」にならない（高）\n- 指摘 2: 3 日後のタスクが対象から外れる（中）\n- 指摘 3: 単体テストが境界と時刻の問題を検出できていない（中）\n- 指摘 4: `due-soon` クラスに対応するスタイルが無い（低）\n\n「問題が無いと判断した点」の節もそのまま残しています。作業ツリーの `due.ts` と `tests/due.test.ts` のステージ済みの変更には触れていません。"
+  },
+  "interventions": 0
+}

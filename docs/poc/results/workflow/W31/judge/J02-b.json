@@ -1,0 +1,99 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "計測器の一覧（page.tsx・listInstruments）に担当者での絞り込み・並べ替えが無く、?inspector= も効かない",
+   "severity": "高",
+   "match": "G1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "担当者ごとの遅れ台数を出す集計が、画面・API・毎朝のジョブのどれにも無い",
+   "severity": "高",
+   "match": "G2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "inspection-forms.tsx の submitPlan が常に inspectorId を送り、updateInspectionPlan が legacy_inspector を NULL にするため、周期だけ変えても旧データの点検者の書き方が消える",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "extra.inspector / last_inspected を書く他の経路が新しい担当者・記録に反映されず、詳細画面でも隠されて見えなくなる（ロールバック時も食い違う）",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "listInspectionPlans が絞り込みに関係なく全計測器の点検状況を計算し、相関サブクエリでページ分割も無いため約5万件で重くなる",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "最終点検日を MAX(inspected_on) で求めるため、未来寄りの誤入力を訂正の記録で直せない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "誤って要修理を記録して使用停止になった場合に、記録側から直す導線が無い",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 8,
+   "summary": "recordInspection が貸出中の計測器でも要修理で suspended に変え、貸出・返却の状態遷移の規約に反する",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "移行の名前の突き合わせで利用者名側の空白を正規化しないため、空白入りの名前と一致しない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 10,
+   "summary": "移行で extra が壊れた JSON の計測器を continue で飛ばし、件数や理由のログが残らない",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "日付が読めない旧データだけの計測器は、記録があるのに「未点検」と表示され、元の書き方も一覧で見えない",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 12,
+   "summary": "点検記録のフォームの「点検した人」の選択肢に、退職・休職中の現担当者が出て、選ぶと400になる",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 13,
+   "summary": "旧データの保持・API の401/404/400・extra 経由の書き込み・貸出中の要修理・空白入りの名前・性能のテストが無い",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0899838
+ }
+}

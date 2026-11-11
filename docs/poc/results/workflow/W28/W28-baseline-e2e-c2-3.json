@@ -1,0 +1,78 @@
+{
+  "trial": "W28-baseline-e2e-c2-3",
+  "scenario": "W28",
+  "config": "baseline-e2e",
+  "case": "c2",
+  "rep": 3,
+  "review_md": "# レビュー: 計測器ごとの定期点検の追加\n\n確認方法: `npm run build` → `npm run start`（本番モード、DB は既定のシード）→ curl でログインして API と画面を実際に呼んだ。確認後にサーバーは止めた。\n`typecheck` / `build` は通るが、下の 1 は本番で実際に 500 になる。**マージ前に直すこと。**\n\n## 高\n\n### 1. 計測器の詳細画面が全件 500 になる（`src/app/instruments/[id]/page.tsx` の `<InspectionForms users={planChoices} />`）\n- 再現: ログイン後 `GET /instruments/1`、`/instruments/9` などがすべて HTTP 500。サーバーログに\n  `Only plain objects, and a few built-ins, can be passed to Client Components from Server Components. Classes or null prototypes are not supported.`（`{id: \"sato\", name: \"佐藤\"}` など）。\n- 原因: `listActiveUsers()`（`src/lib/users.ts`）が `node:sqlite` の行をそのまま返していて、行は null プロトタイプのオブジェクト。それを Client Component（`inspection-forms.tsx`）の props に渡している。\n- 影響: 詳細画面が開けず、担当者・周期の変更、点検の記録、履歴の表示という今回の主な画面操作が全部できない。`typecheck`・`build`・単体テストでは検出できない（実行時だけ起きる）。\n- 直し方: 渡す前に `users.map((u) => ({ id: u.id, name: u.name }))` で普通のオブジェクトにする（`listActiveUsers` 側で詰め替えてもよい）。画面を開いて確かめる（できれば E2E か、ページを描画するテスト）。\n\n### 2. 貸出中の計測器が、点検の「要修理」で使用停止になり、貸出の状態が壊れる（`src/lib/inspections.ts` の `recordInspection`）\n- 再現: MI-0002（`on_loan`、未返却の貸出あり）に `POST /api/instruments/2/inspections` で `result: \"repair\"` → 201、状態が `suspended` になった。貸出（loan id 1）は未返却のまま。\n- 問題: CLAUDE.md の「貸出中は貸出・返却の操作でだけ変わる」に反する。使用停止にされると、返却したときの状態の戻り先が合わなくなる、貸出中の一覧と食い違う、などが起きる。`status <> 'disposed'` だけで除外している。\n- 直し方: 貸出中（`on_loan`）は状態を変えない（記録は残し、使用停止は返却後に行う運用にするか、要件を依頼者に確認する）。校正の不合格の処理（`calibrations.ts`）の扱いと揃える。テストを追加する。\n\n### 3. 「担当者で絞り込み・並べ替え」と「担当者ごとの遅れ台数を毎朝知りたい」が実装されていない\n- 合意した要件にある。再現: `GET /instruments?inspector=sato&sort=inspector` は全件が返る（`src/app/instruments/page.tsx` は `status` と `dept` だけ。担当者の列は表示だけ）。\n- 担当者ごとの遅れ台数: 画面・API・ジョブのどれも無い。`docs/operations.md` の定期ジョブ（`/api/jobs/...`）にも無い。\n- 直し方: `src/lib/` に、担当者（`isUser` のような型ガードで検証。不正なら「指定なし」）での絞り込み・並べ替えと、「担当者ごとの期限切れ・未点検の台数」を返す関数を追加し、一覧画面（または集計 API／ジョブ）から使う。コーディング規約 1・2 に従う。約 5 万件なので SQL 側で集計する（`instruments_inspector` インデックスはあるが、点検日の最大値を求めるサブクエリ込みで 5 万件の実測をすること）。\n\n## 中\n\n### 4. 「記録は消さない。間違えたら訂正の記録を足す」が成り立たない（`inspections.ts` の `PLAN_SELECT` / `recordInspection`）\n- 最後の点検日は `MAX(inspected_on)` なので、日付を間違えて未来寄りに入れた記録（例: 誤って 2026-11-10 と入力）を、より古い正しい日付の記録で訂正しても、最後の点検日は直らない。逆に、古い日付の「要修理」を後から入れると（再現: MI-0001 に `inspectedOn: 2025-01-01, result: repair` → 201）、最新の点検が良好でも計測器が使用停止になる。\n- 誤って要修理を入れた場合に使用停止を戻す手段が、点検の側に無い（状態の変更は既存の PATCH に頼る）。訂正の記録という概念（どの記録を訂正するか、無効にするか）が無い。\n- 直し方: 訂正の記録（`corrects_id` など）を持ち、最後の点検日・状態の判断は「訂正されていない最新の記録」で行う。使用停止にするのは、その点検日が最新（または同日）の記録のときだけにする。要件を依頼者に確認する。\n\n### 5. 担当者になっていない・旧データの点検者は「未設定」で、遅れ判定の対象が曖昧（`src/app/instruments/page.tsx`）\n- 担当者が未設定でも、点検の状況は計算されて表示される。担当者がいない遅れは誰にも通知されない。（3 を実装するときに「担当者なし」の集計行を作る。）\n- 使用停止・廃棄の計測器も「期限切れ」「未点検」と表示される。廃棄（例: MI-0008）は点検の対象から外すか、表示で区別する。\n\n### 6. 移行の名前の照合が緩く／厳しすぎる（`src/lib/inspections-legacy.ts` の `normalizeInspectorName` / `importLegacyInspections`）\n- 入力側だけ空白を除去して、`users.name` は除去しない。「鈴木 一郎」のように名前に空白がある利用者は、旧データが「鈴木一郎」「鈴木 一郎さん」でも一致せず、元の書き方に回る（捨てはしないが、担当者にしたい人が漏れる）。`users.name` 側も `REPLACE` で正規化して比べる。\n- `(さん|様|殿|氏)$` を 1 つだけ外す。「氏」で終わる名前を持つ利用者がいると一致の仕方が変わる。まず元の文字列で完全一致を試し、次に敬称を外して試す順にする。\n- `extra` が壊れた JSON の計測器は `continue` で黙って飛ばされる（`extra` 自体は残るがログも無い）。件数をログに出す。\n- 移行テストはシードの例だけ。空白入り・同姓同名（複数一致）・退職者に一致・敬称だけ（「さん」）・全角日付・和暦の境界（`R1.5.1`、`H31`）のテストを足す。\n\n## 低\n\n### 7. 読めない旧日付は「未点検」と判断される（`PLAN_SELECT`）\n- `inspected_on` が NULL の記録は `MAX` で無視されるので、点検したという記載があるのに「未点検」と目立たせる。元の書き方は残るので捨ててはいないが、画面の「最後の点検日」には出ない。「日付不明の記録あり」と表示すると誤解が少ない。\n\n### 8. ロールバック時の整合（運用）\n- 旧版に戻すと、DB は `user_version = 6` のまま使われる。旧版は新しい列・表を無視するだけで動くが、旧版の画面は `extra` の `inspector` / `last_inspected` を表示するため、新版で登録した担当者・点検記録は旧版に出ず、旧版で `extra` を更新しても新版に反映されない。再度新版に上げても移行は再実行されない（担当者か点検記録がある計測器は飛ばす）。`docs/operations.md` にこの扱い（戻すときの注意）を書く。\n- 変更していない点として、担当部署（`extra.dept`）と `extra` の中身は触っていない。これは要件どおりで問題なし。\n\n### 9. 認可・その他\n- 担当者・周期の変更（PATCH）と点検の記録は、ログインしていれば誰でもできる。既存の API と同じ方針だが、他の利用者を「点検した人」にして記録できる（`recordedBy` で追跡はできる）。仕様として許容するか確認する。\n- 一覧の `listInspectionPlans()` は絞り込み前の全件（約 5 万件）を毎回取り、`Map` に載せる。絞り込み・並べ替えを実装するとき（3）に SQL 側へ寄せる。\n- `CLAUDE.md` の追記は適切。\n",
+  "review_chars": 3962,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.5668,
+    "tokens": {
+      "input": 64,
+      "output": 11355,
+      "cache_read": 1955439,
+      "cache_creation": 64405
+    },
+    "turns": 34,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"isActiveUser\\\" -A4 src/lib/users.ts; cat src/lib/db/seed.ts | grep -n \\\"inspector\\\\|last_insp\\\\|users\\\\|name:\\\" | head -50; grep -n \\\"suspended\\\\|on_loan\\\" src/lib/calibrations."
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run build > /tmp/claude-0/build.log 2>&1; tail -5 /tmp/claude-0/build.log; grep -n \\\"extra\\\\|inspector\\\\|last_insp\\\" src/lib/db/seed.ts | head -30; grep -n \\\"export function isActiveU"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -rn \\\"inspector\\\\|last_insp\\\" src/lib/db/*.ts | grep -v migrations | head; grep -n \\\"SEED_USERS\\\" -A12 src/lib/db/seed.ts | head -30; grep -n \\\"status\\\" src/lib/loans.ts | head; PORT"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sleep 3; cat /tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c2-3-app/*/tasks/bt5s2ywwh.output | tail -4; grep -n \\\"id:\\\\|active\\\" src/lib/db/seed.ts | head -20; grep -n \\\"api/login\\\" -r t"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0 && curl -s -c cj -X POST localhost:3917/api/login -H 'content-type: application/json' -d '{\\\"userId\\\":\\\"sato\\\",\\\"password\\\":\\\"password\\\"}' -w ' %{http_code}\\\\n'\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"C=\\\"-b /tmp/claude-0/cj\\\"; H='content-type: application/json'; B=localhost:3917/api/instruments\\nfor i in 1 3 4 6 9; do echo \\\"== $i\\\"; curl -s $C $B/$i/inspection; echo; done\\ncurl -s $C"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for i in 1 3 4 6 9; do curl -s -b /tmp/claude-0/cj localhost:3917/api/instruments/$i/inspection; echo; done; curl -s -b /tmp/claude-0/cj localhost:3917/api/instruments/6/inspections; echo"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"curl -s -b /tmp/claude-0/cj localhost:3917/instruments -o /tmp/claude-0/list.html -w '%{http_code} %{time_total}\\\\n'; curl -s -b /tmp/claude-0/cj localhost:3917/instruments/9 -o /tmp/clau"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed 's/<[^>]*>/ /g' /tmp/claude-0/list.html | tr -s ' ' | head -c 1800\"}"
+      },
+      {
+        "tool": "Read",
+        "input": "{\"file_path\": \"/tmp/claude-0/list.html\", \"limit\": 3}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 26,
+      "Grep": 1,
+      "Read": 2,
+      "TaskStop": 1,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 113,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は前回のレビューの指摘をすべて、場所・問題・直し方・重要度の形式で書いた状態で、すでにコミット済み（`e2c8663`）です。そのため書き写す作業は残っておらず、新しいコミットも作っていません。ファイルに未コミットの変更もありません。\n\n内容は次のとおりです。\n\n- **高（3 件）**\n  - 詳細画面が全件 500 になる。\n  - 貸出中の計測器が要修理で使用停止になる。\n  - 担当者での絞り込み・並べ替えと、担当者ごとの遅れ台数が未実装。\n- **中（3 件）**\n  - 訂正の記録が成り立たない。\n  - 廃棄済みや担当者なしの扱いが曖昧。\n  - 旧データの名前の照合に漏れがある。\n- **低（3 件）**\n  - 読めない旧日付が「未点検」に見える。\n  - ロールバック時の注意が運用メモに無い。\n  - 認可と一覧の取得範囲の懸念。\n\n新しい指摘は足しておらず、削ったものもありません。コードも直していません。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,57 @@
+{
+  "trial": "W22-hk-ce-review-c5-1",
+  "scenario": "W22",
+  "config": "hk-ce-review",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# コードレビュー: 担当者項目の名前変更（assignee → assigneeId）\n\n対象: 未コミットの差分（`base:HEAD`、作業ツリーの変更 8 ファイル、38 行追加・29 行削除）。\n判定: **Not ready（マージ前に修正が必要）**\n\n## 指摘\n\n### 1. タスク一覧で担当者が表示されず、API の一覧から `assigneeId` が消える\n\n- **重要度:** 高\n\n- **場所:** `src/lib/tasks.ts` の `listTasks()`（SQL の `assignee_id AS assignee`）と `toTask()`（`row.assignee_id` を読む）\n- **何が問題か:** `listTasks()` の SQL で列に `assignee` という別名を付けているが、`TaskRow` と `toTask()` は `assignee_id` を読む。そのため `toTask()` が `assigneeId` に `undefined` を入れ、JSON から項目が落ちる。`getTask()`（別名なし）は正しく `assigneeId` を返すので、一覧だけ壊れる。\n  - 確認: 初期データで `listTasks({}, openDb())` を実行すると `{\"id\":1,\"title\":\"要件定義書のレビュー\",\"status\":\"done\",\"dueDate\":\"2026-11-02\"}` となり、`assigneeId` が無い。`getTask(1)` は `\"assigneeId\":\"sato\"` を返す。\n  - 影響: `src/app/tasks/page.tsx:47` の担当者列が全行で空になる。`GET /api/tasks`（`status` フィルタ付きも含む）の各タスクから担当者が消える。\n  - 既存テストは `listTasks` の担当者を検証していないため、通ってしまう（`npm test` は 19/19 成功）。\n- **直し方:** SQL の別名を外す。\n  ```ts\n  .prepare(\"SELECT id, title, status, assignee_id, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id\")\n  ```\n  あわせて、`listTasks()` が `assigneeId` を返すテストを `tests/tasks.test.ts` に追加する。\n\n### 2. API の入出力が変わっており、PR の「画面・API は変えない」に反する\n\n- **重要度:** 高\n\n- **場所:** `src/lib/tasks.ts` の `validateTaskInput()`（`need(\"assigneeId\")`、`b.assigneeId`）と `toTask()`。影響を受けるのは `src/app/api/tasks/route.ts`（POST）と `src/app/api/tasks/[id]/route.ts`（PATCH、GET）。\n- **何が問題か:**\n  - **リクエスト:** 入力キーが `assignee` から `assigneeId` に変わった。旧キーで送ると次のようになる。\n    - `POST /api/tasks` で `{\"assignee\":\"sato\", ...}` を送ると、`assigneeId` が無いので「担当者が存在しません」の 400 になる。\n    - `PATCH /api/tasks/:id` で `{\"assignee\":\"tanaka\"}` を送ると、`partial` のため `need(\"assigneeId\")` が偽になり、検証も更新もされないまま 200 が返る。**担当者変更が黙って捨てられる**。\n  - **レスポンス:** `{ task: { ..., assignee, ... } }` が `{ task: { ..., assigneeId, ... } }` になる。旧キーを読むクライアントは担当者を失う。\n  - PR 本文の「画面の表示と API の入出力は変えません」と一致しない。CLAUDE.md の規約 9（入力は検証関数を通す）と、API が変わった場合の扱いの両方に関わる。\n- **直し方（どちらかを選ぶ）:**\n  - (a) API の境界で旧形式に変換する。`validateTaskInput()` は `b.assignee` を受け取って `value.assigneeId` に詰め替え、レスポンスは `assignee` 名の DTO に変換してから返す（`toApiTask()` のような関数を `src/lib/tasks.ts` に置き、両 route で使う）。\n  - (b) API も `assigneeId` に変えるなら、PR の説明と「API 入出力は変えない」の記述を訂正し、クライアントへの影響を明記する。\n  - いずれの場合も、旧キーの PATCH が黙って無視されないようにテストを追加する。\n\n### 3. 新しいテストが一覧・API の形を検証していない\n\n- **重要度:** 中\n\n- **場所:** `tests/tasks.test.ts`、`tests/db.test.ts`\n- **何が問題か:** 既存テストは項目名の機械的な置き換えだけで、`listTasks()` の戻り値や API の入出力（キー名）を見ていない。指摘 1 も指摘 2 も検出できなかった。CLAUDE.md の規約 5（ロジックを変えたら単体テストを追加する）に照らして不足。\n- **直し方:** 次のテストを追加する。\n  - `listTasks()` が各タスクに `assigneeId` を持つこと（指摘 1）。\n  - `validateTaskInput()` が旧キー `assignee` を受け付けない、または (a) を選ぶなら旧キーを変換すること（指摘 2）。\n  - 検証は関数の単体テストで行い、route は必要なら別途確認する。\n\n### 4. 新しいインデックス名が旧名のまま\n\n- **重要度:** 低\n\n- **場所:** `src/lib/db/migrations.ts` の migration 3（`ALTER TABLE tasks RENAME COLUMN assignee TO assignee_id;`）\n- **何が問題か:** 列は改名されるが、migration 1 のインデックス `tasks_assignee` は名前が変わらない（SQLite は列の改名をインデックスに反映するが、インデックス名は変えない）。PR の目的は名前を揃えることなので、名前の不一致が残る。\n- **直し方:** migration 3 の SQL に `DROP INDEX tasks_assignee; CREATE INDEX tasks_assignee_id ON tasks(assignee_id);` を追加する。migration 3 はこの差分で新しく追加されたものなので、既存のマイグレーションを書き換えることにはならない。\n\n## 問題が無いと判断した点\n\n- 既存データ: `RENAME COLUMN` は既存の行を保持し、外部キーも付け替わる。既存 DB のマイグレーションは `user_version` に従って 1 回だけ走る。\n- `seed.ts` と `index.ts` の挿入列・プロパティ名は揃っている。\n- `updateTask()` と `createTask()` の列名・値の対応は正しい。\n\n## レビューの範囲と制限\n\n- `npm test` は 19/19 成功。`listTasks` の挙動は、初期 DB に対する Node での実行で確認した。\n- `review-scope.py` は、Python 実行が承認待ちで実行できなかった。そのため、深さ判定とマルチエージェントのレビューは行わず、差分・関連ファイルを読んで 1 つの文脈でレビューした。ブラウザでの画面確認、`npm run typecheck` と `npm run build` は実行していない。\n- 未追跡ファイルは無く、レビュー対象は `git diff HEAD` の変更のみ。\n",
+  "review_chars": 3641,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0365,
+    "tokens": {
+      "input": 46,
+      "output": 14429,
+      "cache_read": 1510760,
+      "cache_creation": 70940
+    },
+    "turns": 25,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=\\\"/tmp/poc-trials/W22-hk-ce-review-c5-1/plugins/compound-engineering/skills/ce-code-review\\\"; PY=\\\"$(for c in python3 python py; do command -v \\\"$c\\\" >/dev/null 2>&1 && \\\"$c\\\" -"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=\\\"/tmp/poc-trials/W22-hk-ce-review-c5-1/plugins/compound-engineering/skills/ce-code-review\\\" && which python3 && python3 -c '' && echo OK && python3 \\\"$SKILL_DIR/scripts/review-"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-hk-ce-review-c5-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\", \"description\": \"Run review scope he"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'docs: 担当者項目の名前変更のコードレビュー結果を追加\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.ai/code/session"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -F /tmp/poc-trials/W22-hk-ce-review-c5-1/msg.txt -- REVIEW.md; echo \\\"EXIT=$?\\\"\", \"description\": \"Commit REVIEW.md only using message file\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 2,
+      "Bash": 14,
+      "Write": 2,
+      "Edit": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 86,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き直し、そのファイルだけをコミットしました（コミット `fa60718`）。\n\n前回の版は場所・何が問題か・直し方を書いていましたが、重要度は見出しの中にだけありました。今回、4 件すべてに「**重要度:**」の項目を独立して付けました。\n\n- 1 件目（一覧で担当者が消える）: 高\n- 2 件目（API の入出力が変わる）: 高\n- 3 件目（テストが一覧と API の形を見ていない）: 中\n- 4 件目（インデックス名が旧名のまま）: 低\n\n指摘は増やしておらず、削ってもいません。コードは変更していません。作業ツリーの 8 ファイルは、これまでどおり未コミットのままです。"
+  },
+  "interventions": 0
+}

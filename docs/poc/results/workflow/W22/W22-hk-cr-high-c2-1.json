@@ -1,0 +1,43 @@
+{
+  "trial": "W22-hk-cr-high-c2-1",
+  "scenario": "W22",
+  "config": "hk-cr-high",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# コードレビュー指摘: タスクの一覧を期限の近い順に並べ替えられるようにする\n\n対象: 未コミットの差分（`src/lib/tasks.ts`, `src/app/api/tasks/route.ts`, `src/app/tasks/page.tsx`, `tests/tasks.test.ts`）\nレビュー: `/code-review high` の結果を書き写したもの。コードは変更していない。\n\n重要度は次のとおり付けた: 高 = マージ前に必ず直す / 中 = マージ前に直すべき / 低 = 直すとよい。\n\n---\n\n## 1. 実在しない日付（2026-02-31 など）が検証を通る【中】\n\n- **場所**: `src/lib/tasks.ts` の `validateTaskInput`（116 行付近、`dueDate` の検証）\n- **問題**: `DATE_RE` と `Date.parse` だけで検証しているため、暦に存在しない日付が通る。`Date.parse(\"2026-02-31\")` は有限値を返す（Node で 1772496000000 を確認）。\n- **どういう状況で何が起きるか**: `POST /api/tasks` で `dueDate: \"2026-02-31\"` を送ると保存される。同じ DB に `2026-03-01` のタスクがあると、`GET /api/tasks?sort=due` や画面の「期限の近い順」では `2026-02-31` が `2026-03-01` より前に並ぶ。`2026-02-31` は 3 月 3 日に正規化されるため、並び順が誤る。期限順の並べ替えは「保存されている `due_date` が実在する日付である」ことを前提にしているが、検証がそれを保証していない。テストは正しい日付しか扱っていない。\n- **直し方**: 日付を検証するとき、パースした年・月・日を元の文字列と比べて一致を確認する（例: `new Date(Date.UTC(y, m - 1, d))` の `getUTCMonth()` / `getUTCDate()` が入力と一致するか）。あわせて `2026-02-31` などを拒否するテストを `tests/tasks.test.ts` に加える。\n\n## 2. 並べ替えのキーが未検証のまま SQL に入りうる【低】\n\n- **場所**: `src/lib/tasks.ts` の `listTasks`（58 行付近）と `SORT_COLUMNS` の参照\n- **問題**: `SORT_COLUMNS[filter.sort ?? \"id\"]` は、`TaskSort` 以外の値が来たときに検査されない。`SORT_COLUMNS` は通常のオブジェクトなので、継承されたプロパティ名も引けてしまう。\n- **どういう状況で何が起きるか**: 検証は呼び出し側（ページと Route）の `isTaskSort` だけにある。今後の呼び出し元や、`listTasks({ sort: \"constructor\" as TaskSort })` のような型の回避があると、`SORT_COLUMNS[\"constructor\"]` は `Object` を返し、SQL に `function Object() { [native code] }` が埋め込まれる。その結果、登録順に戻らず SQL 構文エラー（500）になる。`\"__proto__\"` では `[object Object]` になる。\n- **直し方**: 項目 3・5 の対応（キーごとに固定の SQL 文字列を持つ表にする）を行えば、この問題もなくなる。その場合も、`Object.hasOwn` などで未知のキーを既定値（id）に戻す処理を入れる。\n\n## 3. ORDER BY をテンプレート文字列で組み立てている【中】\n\n- **場所**: `src/lib/tasks.ts` の `listTasks`（58 行付近）\n- **問題**: `CLAUDE.md` の規約 8「SQL に値を埋め込むときは必ずプレースホルダ（`?` / `:name`）を使い、文字列連結で組み立てない」に反する。`ORDER BY ${SORT_COLUMNS[...]}` は実行時に SQL 文を組み立てている。現状は値が固定の表に限られるため安全だが、規約違反である。\n- **どういう状況で何が起きるか**: 規約を守らない形で書かれているため、将来の変更で入力が直接入るようになると、そのまま SQL インジェクションになる。\n- **直し方**: 次のどちらかにする。\n  - 並べ替えごとに固定の SQL 文字列を 2 つ持ち（`ORDER BY id` と `ORDER BY due_date, id`）、キーで選ぶ。\n  - プレースホルダを使う形（例: `ORDER BY CASE WHEN :sort = 'due' THEN due_date END, id`）にする。\n\n## 4. 並べ替え・検証のルートと画面の分岐にテストがない【中】\n\n- **場所**: `src/app/api/tasks/route.ts`（11 行付近の `?sort=` の処理）、`src/app/tasks/page.tsx`（`並べ替え` の処理）\n- **問題**: テストは `isTaskSort` だけにある。ルートの既定値・不正値の扱いと、画面の並べ替えの分岐はテストされていない。\n- **どういう状況で何が起きるか**: ルートで `params.get(\"sort\")` をそのまま `listTasks` に渡すような回帰があっても `npm test` は通る。`?sort=due_date` や `?sort=title`、さらに入力に `DROP TABLE` を含むものが `listTasks` まで届いても検出されない。不正な値が「登録順」に戻らない回帰も検出されない。`CLAUDE.md` の規約 5（ロジックを変更したら `tests/` に単体テストを追加する）に照らすと、新しい分岐が未テストである。\n- **直し方**: 並べ替えの既定値（`sort` なし）、`sort=due`、`sort=id`、不正な値（`due_date`、`title`、SQL 断片）が登録順に戻ることを確かめるテストを追加する。画面側は、クエリの解釈を `src/lib/` の関数に出して、その関数をテストする（規約 1）。\n\n## 5. 並べ替えの定義が 4 か所に分かれている【低】\n\n- **場所**: `src/lib/tasks.ts` の `TaskSort`（27 行付近）、`TASK_SORTS`、`SORT_LABELS`、`SORT_COLUMNS`\n- **問題**: 並べ替えの項目を 4 つの構造で表しており、TypeScript が一部しか同期を保証しない。`TASK_SORTS` と `SORT_LABELS` は `TaskSort` と照合されるが、配列の内容はずれうる。また、`id` 指定のときは `ORDER BY id, id` となり、末尾の `id` が重複している。\n- **どういう状況で何が起きるか**: 並べ替えの項目を増やすとき、4 か所を修正する必要があり、修正漏れが起きやすい。\n- **直し方**: 1 つの表にまとめる。例: `const SORT_OPTIONS: Record<TaskSort, { label: string; orderBy: string }> = { id: { label: \"登録順\", orderBy: \"id\" }, due: { label: \"期限の近い順\", orderBy: \"due_date, id\" } }`。`TASK_SORTS` は `Object.keys` から作るか、必要ならそのまま残す。`orderBy` は固定文字列にする（項目 3 も参照）。\n\n## 6. `isTaskSort` と `isTaskStatus` が同じ処理を重複している【低】\n\n- **場所**: `src/lib/tasks.ts` の `isTaskSort`（34 行付近）。`isTaskStatus`（21〜23 行）と本体が同じ。\n- **問題**: 同じ形の型ガードが 2 つあり、片方を直しても片方に反映されない。\n- **どういう状況で何が起きるか**: 例えば一方の判定を厳しくしても、もう一方は古いままになる。\n- **直し方**: `isOneOf<T extends string>(list: readonly T[]): (value: unknown) => value is T` のような共通関数を作り、両方の型ガードをそこから作る。\n",
+  "review_chars": 3781,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.025,
+    "tokens": {
+      "input": 24,
+      "output": 18878,
+      "cache_read": 475968,
+      "cache_creation": 67958
+    },
+    "turns": 5,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && echo \\\"---\\\" && (git rev-parse --abbrev-ref --symbolic-full-name @{upstream} 2>&1 || true) && echo \\\"---\\\" && git log --oneline -5 && echo \\\"---\\\" && git branch -a 2"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(git diff main...HEAD 2>/dev/null || git diff HEAD~1) | head -c 200000 ; echo \\\"=== WORKING TREE ===\\\"; git diff HEAD | head -c 100000\", \"description\": \"Show diff against main and working"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 17,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 101,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` をリポジトリ直下に作成し、そのファイルだけをコミットしました（コミット `2a133b4`）。直前のレビューの 6 件をすべて書き写しています。新しい指摘は足していません。コードは変更していません。\n\n重要度は元の指摘に付いていなかったので、私が次のように付けました。\n\n- **中**: 1（実在しない日付が通る）、3（ORDER BY を文字列で組み立てて CLAUDE.md 規約 8 に反する）、4（新しい分岐のテストがない）\n- **低**: 2（未検証のキーが SQL に入りうる。現状は検証があるため）、5（並べ替えの定義が 4 か所に分かれている）、6（型ガードの重複）\n\n未コミットだった 4 ファイル（`route.ts`、`page.tsx`、`tasks.ts`、`tasks.test.ts`）は変更していません。コミット後も `git status` でそのまま残っています。"
+  },
+  "interventions": 0
+}

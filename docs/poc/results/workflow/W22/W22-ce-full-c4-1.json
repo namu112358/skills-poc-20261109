@@ -1,0 +1,48 @@
+{
+  "trial": "W22-ce-full-c4-1",
+  "scenario": "W22",
+  "config": "ce-full",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# コードレビュー: 期限が近いタスクを一覧で目立たせる\n\n対象: 未コミットの差分（`src/lib/due.ts`、`src/app/tasks/page.tsx`、`tests/due.test.ts`）。\n結論: **Not ready**。判定ロジックに、PR の仕様と合わない問題が 2 件あります（どちらも高）。\n\n## 指摘\n\n### 1. [高] 日本時間 9:00 以降、期限が今日のタスクに「期限間近」が付かない\n\n- 場所: `src/lib/due.ts` の `daysUntilDue`（`Math.floor((Date.parse(dueDate) - now.getTime()) / DAY_MS)`）\n- 問題: `Date.parse(\"2026-11-12\")` は UTC の 0:00（日本時間 9:00）を返します。これを現在時刻の瞬間と引き算して `floor` するため、「日本時間の日付で数える」計算になっていません。日本時間 9:00 を過ぎると、期限が今日のタスクの値は `-1` になり、期限切れ扱いで「期限間近」が消えます。業務時間のほぼ全部がこの状態です。\n- 再現: `now = 2026-11-12T15:00+09:00` のとき `daysUntilDue(\"2026-11-12\")` は `-1`、`isDueSoon` は `false` です。同じ日の 0:00〜9:00 は `0` / `true` になります。つまり表示が時刻によって変わります。\n- 直し方: 瞬間の差ではなく、日本時間のカレンダー日付どうしで数えます。\n  - 「今日」は `Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" }).format(now)` などで `YYYY-MM-DD` にします。\n  - 期限と今日の両方を `Date.UTC(y, m - 1, d)` に直し、差を `DAY_MS` で割ります。この差は整数になるので、`floor` は要りません。\n  - サーバーの `TZ` 設定に依存しないようにします。\n\n### 2. [高] 「3 日後」の期限が対象外（境界が 1 日ずれている）\n\n- 場所: `src/lib/due.ts` の `isDueSoon`（`days < DUE_SOON_DAYS`）\n- 問題: PR の仕様は「今日・明日・明後日・3 日後」で、残り日数 0〜3 を対象にします。実装は `days < 3` なので 0〜2 だけです。再現: `now = 2026-11-12T00:00+09:00` で期限が `2026-11-15` のタスクは `daysUntilDue = 3` になり、`isDueSoon` は `false` です。\n- 直し方: `days <= DUE_SOON_DAYS` にします。`DUE_SOON_DAYS` のコメント「何日以内か」とも合います。\n\n### 3. [中] テストが上の 2 件を検出できない\n\n- 場所: `tests/due.test.ts`\n- 問題:\n  - 基準時刻が日本時間 0:00 ちょうど（UTC 15:00）で、UTC 0:00 との差が出ない時刻になっています。そのため指摘 1 のずれが隠れます。\n  - 「期限間近」の最後の境界は `2026-11-14`（2 日後）までしか見ていません。3 日後（`2026-11-15`）と 4 日後が対象外になる境界を確かめていないため、指摘 2 も隠れます。\n  - `npm test` が通っていることは、判定が正しい根拠になりません。\n- 直し方: 同じ日付に対して、日本時間の 0:00・9:01・12:00・23:59 を基準時刻にして期待値が変わらないことを確かめます。3 日後が `true`、4 日後が `false` になる境界、日付をまたぐ境界（JST 23:59 と翌日 0:00）、期限が過去（前日が `false`）も加えます。\n\n### 4. [低] 同じ判定を行ごとに 2 回呼んでいる\n\n- 場所: `src/app/tasks/page.tsx` のタスク行（`className` と `{isDueSoon(...) && ...}`）\n- 問題: 1 行につき `isDueSoon` を 2 回計算します。件数が少ないので害は小さいですが、重複です。\n- 直し方: `tasks.map` の中で `const dueSoon = isDueSoon(task, now);` として使い回します。\n\n### 5. [低] `due-soon` クラスに対応するスタイルが無く、強調が文字だけに依存する\n\n- 場所: `src/app/tasks/page.tsx` の `className=\"due-soon\"`\n- 問題: このクラスを使う CSS がリポジトリに無い可能性が高く、実質何も起きません（見つけられた CSS は確認できていません）。使わないクラスなら削除し、使うなら定義を足してください。「（期限間近）」の文字そのものは `<strong>` で出るので、機能面の問題ではありません。\n- 直し方: クラスを削除するか、スタイルを追加します。\n\n## レビューの範囲と限界\n\n- `npm test` と `npm run typecheck` は実行していません。指摘 1・2 は、`node --experimental-strip-types` で `src/lib/due.ts` を直接呼んで確かめました。\n- このレビューは、スキルの手順にある多エージェントによる並列レビュー（専門レビュアーの派遣・検証・統合）を実行していません。ツールの実行許可が下りない箇所があり、差分の範囲確認と判定ロジックの読解を、レビュー担当（私）が直接行いました。差分は 3 ファイル・約 60 行です。\n- CLAUDE.md の規約（ロジックは `src/lib/` に置く、テストを追加する、新しいライブラリを足さない、日本語の文言）には、上の指摘以外の違反は見つかりませんでした。\n",
+  "review_chars": 2628,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.354,
+    "tokens": {
+      "input": 28,
+      "output": 6033,
+      "cache_read": 681960,
+      "cache_creation": 56363
+    },
+    "turns": 14,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git branch --show-current && git rev-parse HEAD && BASE=$(git merge-base HEAD HEAD) && echo \\\"BASE:$BASE\\\" && git diff --name-only $BASE && git diff -U10 --irreversi"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=\\\"/tmp/poc-trials/W22-ce-full-c4-1/plugins/compound-engineering/skills/ce-code-review\\\"; PY=python3; \\\"$PY\\\" \\\"$SKILL_DIR/scripts/review-scope.py\\\" --base \\\"$(git rev-parse HEAD"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git rev-parse HEAD > /dev/null && python3 /tmp/poc-trials/W22-ce-full-c4-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 3,
+      "Bash": 7,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 63,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は、前のターンで最初の依頼の形式（場所・何が問題か・直し方・重要度）に沿って書き、すでにコミット済みです（c9f5077）。今回は書き写す内容も、書き直す箇所もありませんでした。\n\n- 指摘は 5 件で、重要度は高 2、中 1、低 2 です。新しい指摘は足しておらず、削った指摘もありません。\n- `git status` で確認したところ、`REVIEW.md` は未コミットの変更がなく、コミット済みの内容と一致しています。\n- コードも変えていません。PR の差分（`page.tsx`、`due.ts`、`due.test.ts`）は未コミットのまま残っています。\n\nそのため、新しいコミットは作っていません。"
+  },
+  "interventions": 0
+}

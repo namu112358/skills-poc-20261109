@@ -1,0 +1,38 @@
+{
+  "trial": "W24-baseline-d1-2",
+  "scenario": "W24",
+  "config": "baseline",
+  "case": "d1",
+  "rep": 2,
+  "review_md": "# レビュー: ダッシュボードの追加\n\nマージ前に直すべき問題です。重要度順。\n\n## 1. 【高】キャッシュキーがユーザーごとでなく、他人のダッシュボードが返る\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）、`src/lib/cache.ts`\n- 問題: キーが固定文字列 `\"dashboard\"` のため、30 秒以内に別のユーザーがアクセスすると、先にアクセスした人のダッシュボード（タスク名・件数など）がそのまま返る。例: `sato` が開いた直後に `suzuki` が `/dashboard` や `GET /api/dashboard` を開くと、`userId: \"sato\"` の内容が見える。情報漏えい。`db` 引数や `now` も無視されるため、テストでも別 DB の結果が混ざる。\n- 直し方: キーを `` `dashboard:${userId}` `` にする（`db` を引数で切り替える設計ならそれも考慮）。そもそも担当タスクの SELECT は `tasks_assignee` インデックスで軽いので、キャッシュ自体をやめるのが最も安全。残すなら「別ユーザーに返らない」ことのテストを追加する。また、タスク更新（`PATCH /api/tasks/:id`）後も最大 30 秒古い値が出る点も考慮する。\n\n## 2. 【高】SQL インジェクション\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`\n- 問題: `` WHERE assignee = '${userId}' `` と値を文字列連結している（CLAUDE.md 規約 8 違反）。`userId` は現状ログイン済みユーザーの ID だが、他の呼び出し元から外部入力が渡ると `' OR '1'='1` で全員のタスクが読める。\n- 直し方: `WHERE assignee = ?` とし、`.all(userId)` で渡す。\n\n## 3. 【高】`countByStatus` が共有定数 `TASK_STATUSES` を破壊的に反転する\n- 場所: `src/lib/dashboard.ts` `countByStatus`\n- 問題: `TASK_STATUSES as TaskStatus[]` は型を変えるだけで同じ配列を指し、`.reverse()` はその場で並びを変える。呼ぶたびに `TASK_STATUSES` 全体の順序が反転するので、1 回目は「完了」が先頭、2 回目は「未着手」が先頭、と画面の表示順が毎回変わる。`TASK_STATUSES` を使う他の処理（絞り込み・検証・画面の並び）にも影響する。テストは 1 回目の呼び出ししか見ていないため通ってしまう。\n- 直し方: `[...TASK_STATUSES].reverse()` にする（または明示的な並び `[\"done\", \"in_progress\", \"todo\"]` を使う）。「2 回続けて呼んでも同じ順序」のテストを追加する。\n\n## 4. 【中】担当タスクが 0 件のとき完了率が `NaN` になる\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 問題: `tasks.length === 0` だと 0/0 で `NaN`。画面に「完了率 NaN%」と出て、`GET /api/dashboard` では JSON 化で `null` になる。タスクの無い新規ユーザーで必ず起きる。\n- 直し方: 0 件のときは 0 を返す。テストを追加する。\n\n## 5. 【中】テストが不十分（規約 5）\n- 場所: `tests/dashboard.test.ts`\n- 問題: 上記 1・3・4 を検出できるテストが無い（別ユーザー間のキャッシュ、`countByStatus` の 2 回呼び出し、0 件の完了率）。「完了のタスクだけの週」「日曜・月曜の境界」「期限が今日ちょうど」も未確認。`GET /api/dashboard` の未ログイン 401 もテストが無い。`listAssignedTasks` のテストも `sato` の 3 件という seed 依存の値のみ。\n- 直し方: 上記ケースを追加する。\n\n## 6. 【低】`generatedAt` と画面・API の扱い\n- 場所: `src/lib/dashboard.ts` `Dashboard.generatedAt`\n- 問題: キャッシュされた値の生成時刻が返るので、利用側が「今」の値と誤解しうる。画面では使われていない。\n- 直し方: 使わないなら削除（規約 6: 依頼範囲）、使うならキャッシュのことをコメントに書く。\n\n## 7. 【低】`dueThisWeek` に期限切れも含まれる\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`\n- 問題: 今週の月曜〜今日までに期限が過ぎた未完了タスクが、「期限切れ」と「今週が期限」の両方に表示される（テストでも id=1 が両方に入ることを確認している）。重複が意図かどうかが不明。\n- 直し方: 意図でなければ `dueDate >= today`（今日以降）にする。意図なら仕様として明記する。\n",
+  "review_chars": 2300,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.1944,
+    "tokens": {
+      "input": 20,
+      "output": 3884,
+      "cache_read": 324401,
+      "cache_creation": 30774
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 41,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューで出た 7 件がすべて、場所・何が問題か・直し方・重要度の形式で書いてあり、コミット済みです（`0953e64`）。作業ツリーに未コミットの差分はありません。そのため、書き直しも追加のコミットもしていません。\n\n新しい指摘は足しておらず、削った指摘もありません。コードも変更していません。\n\n| 重要度 | 件数 |\n|---|---|\n| 高 | 3 |\n| 中 | 2 |\n| 低 | 2 |\n\n内訳は次のとおりです。\n1. キャッシュキーがユーザーごとでない（高）\n2. SQL インジェクション（高）\n3. `TASK_STATUSES` を `.reverse()` で破壊的に反転している（高）\n4. タスクが 0 件のとき完了率が `NaN` になる（中）\n5. テスト不足（中）\n6. `generatedAt` の扱い（低）\n7. 「期限切れ」と「今週が期限」に同じタスクが重複して出る（低）"
+  },
+  "interventions": 0
+}

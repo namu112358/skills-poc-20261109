@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュのキーが固定の \"dashboard\" で userId を含まず、30 秒以内に別の利用者が開くと他人のダッシュボードが返る。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "キャッシュがプロセス内の Map で、期限切れのエントリが消えず、キーを利用者ごとにすると数に比例して増える。",
+   "severity": "高",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 3,
+   "summary": "countByStatus が as で readonly を外して TASK_STATUSES を reverse() でその場で反転するため、呼ぶたびに共有の定数の順序が入れ替わる。",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "renderBody が [文字](URL) の URL のスキームを確かめず、javascript: リンクが作られて dangerouslySetInnerHTML で描画され、格納型 XSS になる。",
+   "severity": "高",
+   "match": "B6",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "コメントの PATCH に投稿者のチェックが無く、ログインした誰でも他人のコメントを編集できる（DELETE にはある）。",
+   "severity": "高",
+   "match": "B7",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり、規約 8 に違反する。",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "completionRate が担当タスク 0 件のとき 0/0 で NaN になり、「完了率 NaN%」と表示される。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "コメントの POST がタスクの存在を確かめないため、存在しないタスクでは外部キー違反で 404 ではなく 500 になる。",
+   "severity": "中",
+   "match": "B8",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "formatCreatedAt がゼロ埋めされないロケール文字列で日時を保存し、listComments がそれで並べるため、古い順にならない。",
+   "severity": "中",
+   "match": "B9",
+   "kind": ""
+  },
+  {
+   "n": 10,
+   "summary": "dueThisWeek が今週の期限切れタスクも含み、overdue と重複して表示される。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 11,
+   "summary": "dueThisWeek・overdueTasks の並び順が SQL の ORDER BY に暗黙に依存している。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "上記の不具合を検出するテスト（API Route の認可・入力検証など）が無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0920118
+ }
+}

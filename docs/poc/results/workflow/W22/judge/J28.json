@@ -1,0 +1,148 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "ログ1行の要件に対し、汎用イベントバス・Notifier・ファクトリ・Slack/メールのスタブ・使われないイベント型など依頼範囲を超えた仕組みが入っている",
+   "severity": "高",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "NOTIFIER_KIND=slack/email では、DB更新後に未実装の送り先が例外を投げてPATCHが500になり、監査ログも残らない",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "追加テストはバスとファクトリの動作しか見ておらず、updateTaskで担当者が変わったときだけログが出るという要件を確かめていない",
+   "severity": "高",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "tasks.tsをimportしただけで購読者がグローバルなバスに登録される読み込み時の副作用があり、テストやHMRに影響する",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "未知や誤記のNOTIFIER_KINDが警告なしでconsoleにフォールバックし、設定の誤りに気づけない",
+   "severity": "中",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "NOTIFIER_KINDにconstructorなどを指定するとregistryがObjectプロトタイプのプロパティを拾い、send is not a functionになる",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "EventBusでunknown/neverのキャストを使い、型検査を無効化している",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "同じhandlerを2回subscribeすると、1回の解除で両方が消える",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "発行されないイベント型task.status_changedとtask.createdが定義されており、発行されるように読める",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 10,
+   "summary": "コメントが合意（他の記録先の予定なし）や実装と食い違い、「通知」という語も実態に合わない",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "イベントのfromとtoがTask[\"assignee\"]を参照せず、stringの直書きになっている",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "changes.assigneeがundefinedで来ると上書きされ、変更と判定される可能性がある（現状は実害なし）",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 13,
+   "summary": "監査ログに変更者が含まれず、構造化されていない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 14,
+   "summary": "テスト名と検証内容がずれており、1つのitに複数の検証が入っている",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 15,
+   "summary": "公開されたclear()を本番から呼ぶと監査ログの購読者が黙って消える",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 16,
+   "summary": "SlackNotifierのwebhookUrlの分岐が意味を持たず、環境変数の読み取りが2箇所に分散している",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 17,
+   "summary": "購読の登録がtasks.tsからのnotify/indexのimportに依存しており、tasks.ts側に説明がなく依存が隠れている",
+   "severity": "低",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 18,
+   "summary": "tasks.tsのemit行が120文字を超え、周囲の書式と揃っていない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 19,
+   "summary": "eventBusのテストに、別種別・複数購読者・部分解除のケースがない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 20,
+   "summary": "担当者名をそのままログに出すことによるログ偽造の可能性（現状の入力経路では実害なし）",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.1217358
+ }
+}

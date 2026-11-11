@@ -1,0 +1,39 @@
+{
+  "trial": "W25-baseline-run-c1-1",
+  "scenario": "W25",
+  "config": "baseline-run",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスクに「保留」のステータスを追加\n\n## 指摘一覧\n\n### 1. [重要度: 高] DB の CHECK 制約が `on_hold` を拒否する（マイグレーションの追加漏れ）\n\n- 場所: `src/lib/db/migrations.ts` version 1 の `tasks` テーブル定義（21 行目 `CHECK (status IN ('todo', 'in_progress', 'done'))`）。この PR では未変更。\n- 問題: PR は TypeScript の型・`TASK_STATUSES`・ラベルだけを変えていて、DB のスキーマは 3 種類のままです。入力検証（`validateTaskInput`）は `on_hold` を通すので、`POST /api/tasks` や `PATCH /api/tasks/:id` で `status: \"on_hold\"` を送ると、検証後の `createTask` / `updateTask` の INSERT / UPDATE が制約違反で例外になります。API Route は例外を捕捉しないので、400 ではなく 500 が返ります。つまり PR の目的である「保留を作成・更新で選べる」が実際には動きません。\n- 再現: `openDb()` の DB に対して次の結果になりました。\n  - `validateTaskInput({title:\"a\",status:\"on_hold\",assignee:\"sato\",dueDate:\"2026-11-20\"}, {}, db)` → `ok: true`\n  - `createTask(...)` → `CHECK constraint failed: status IN ('todo', 'in_progress', 'done')`\n  - `updateTask(1, { status: \"on_hold\" }, db)` → 同じエラー\n- 直し方: `migrations.ts` の末尾に version 3 のマイグレーションを追加します。既存の version 1 は書き換えません（規約 7）。SQLite は CHECK 制約を `ALTER` で変更できないので、テーブルを作り直します。\n  1. 新しい `tasks_new` を 4 種類の CHECK で作る。\n  2. `INSERT INTO tasks_new SELECT * FROM tasks` でデータを移す（`id` を保持して AUTOINCREMENT の連番を維持する）。\n  3. `DROP TABLE tasks` → `ALTER TABLE tasks_new RENAME TO tasks`。\n  4. `CREATE INDEX tasks_assignee ON tasks(assignee)` を作り直す。\n  \n  他のテーブルから `tasks` を参照する外部キーは無いので、この手順で安全です。`sqlite_sequence` も確認してください。\n\n### 2. [重要度: 高] 単体テストが DB まで通していないため、問題 1 を検出できない\n\n- 場所: `tests/tasks.test.ts` の追加テスト（`validateTaskInput` の `accepts the on_hold status`、`isTaskStatus` の 1 行）。\n- 問題: 追加されたテストは検証関数と型ガードだけを見ています。PR の「検証結果」で `npm test` と `npm run typecheck` が通ったのは、DB に保存する経路をテストしていないからです。CHECK 制約の違反は型チェックでも検出されません。\n- 直し方: `createTask` に `status: \"on_hold\"` を渡して保存・取得できること、`updateTask` で `on_hold` に変更できること、`listTasks({ status: \"on_hold\" })` で絞り込めることを `openDb()` の DB で確かめるテストを追加します（規約 5）。マイグレーション後、既存データが保持されることのテストもあると安心です。\n\n### 3. [重要度: 低] 一覧の絞り込みを確認していない\n\n- 場所: `src/app/tasks/page.tsx`（`TASK_STATUSES.map` で選択肢を生成）。\n- 問題: 選択肢は `TASK_STATUSES` から作られるので「保留」は自動で出ます。ただし `on_hold` のタスクは、問題 1 が直るまで作れません。シードにも保留のタスクが無く、絞り込みの結果を画面で確認できません。\n- 直し方: 問題 1 の修正後に、絞り込みの動作をテスト（上記）で確認してください。シードに保留のタスクを足すかは任意です。\n",
+  "review_chars": 2118,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2188,
+    "tokens": {
+      "input": 24,
+      "output": 4576,
+      "cache_read": 422820,
+      "cache_creation": 32673
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/repro_c1.mts <<EOF\\nimport { openDb } from \\\"/tmp/poc-trials/W25-baseline-run-c1-1/app/src/lib/db/index.ts\\\";\\nimport { createTask, updateTask, validateTaskInput } from \\\"/tmp/"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 46,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘は、すでに最初の依頼の形式で `REVIEW.md` に書いてあり、コミット済みです。そのため、今回は書き写しもコミットもしていません。\n\n`REVIEW.md` は、コミット `5ecf202` の時点から変わっていません。\n\n`REVIEW.md` の 3 件は、どれも場所・何が問題か・直し方・重要度の形式です。\n\n- **高:** DB の CHECK 制約が `on_hold` を拒否する（マイグレーションの追加漏れ）。\n- **高:** 追加したテストが DB まで通していないので、上の問題を検出できない。\n- **低:** 一覧の絞り込みを確認していない。\n\n指摘の追加も削除もしていません。コードも直していません。PR の未コミットの差分は、そのまま残っています。"
+  },
+  "interventions": 0
+}

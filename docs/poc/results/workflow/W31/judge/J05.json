@@ -1,0 +1,85 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "`validateLocation` は `locationId` 指定時に `locationOriginal` を設定しないため、`createInstrument` で新規登録すると `location` 列が空になるか、`undefined` のため失敗する。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "`PATCH` で `locationId` を選び直しても、`updateInstrument` は `location` 列を古い文字列のまま残す。",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "移行（migration 5・`linkInstrumentsToLocations`）が `location` 列を正式名に書き換えないため、表記ゆれが残る。",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 4,
+   "summary": "`location-master.ts` の `updateLocation` で場所を改名しても、計測器の `location` 列は古い名前のまま残る。",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "前の版に戻してから再び新しい版に上げると、前の版での修正に `location_id` が追随せず、古い `location_id` が優先されて修正が消える。",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 6,
+   "summary": "ハンディ端末の `recordInventory` は、分からない文字が来ても確定済みの計測器を確認中にせず、文字を捨ててしまう。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 7,
+   "summary": "`validateLocation` の `\"location\" in b` の分岐により、登録・編集 API が自由記述の `location` を受け付けて確認中として登録する（要件 3 に反する）。",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "`recordInventory` の `linked` の分岐が、確定時にも `location` 列へ端末から送られた生の文字を書く。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "`ALIASES` が `大阪営`・`名古屋営` などの略記を、依頼者に確認しないまま推測で寄せている。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "移行で計測器 1 件ごとに全場所の名称を正規化し直しており、効率が悪い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "移行ログが、今回寄せた件数ではなく既存の確定分を含めて数えており、要件 9 の数え方とずれる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0843438
+ }
+}

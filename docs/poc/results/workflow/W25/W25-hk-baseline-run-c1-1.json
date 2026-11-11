@@ -1,0 +1,47 @@
+{
+  "trial": "W25-hk-baseline-run-c1-1",
+  "scenario": "W25",
+  "config": "hk-baseline-run",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# コードレビュー：タスクに「保留」（on_hold）を追加\n\n対象：未コミットの差分（`src/lib/tasks.ts`、`tests/tasks.test.ts`）\n\n## 指摘\n\n### 1. 【高】「保留」のタスクを作成・更新すると DB の CHECK 制約で失敗する\n\n- 場所：`src/lib/db/migrations.ts` の version 1（`tasks.status` の `CHECK (status IN ('todo', 'in_progress', 'done'))`）。\n  影響する関数は `src/lib/tasks.ts` の `createTask` と `updateTask`。\n- 何が問題か：`validateTaskInput` は `on_hold` を受け付けるが、DB のスキーマは `on_hold` を許さない。\n  そのため `createTask` / `updateTask` が例外になる。\n  - 再現（`openDb()` の新規 DB で実行）：\n    - `validateTaskInput({ status: \"on_hold\", ... })` → `ok: true`\n    - `createTask({ status: \"on_hold\", ... })` → `CHECK constraint failed: status IN ('todo', 'in_progress', 'done')`\n    - `updateTask(1, { status: \"on_hold\" })` → 同じ例外\n    - `listTasks({ status: \"on_hold\" })` → 常に空配列（保存されないため）\n  - API では、`POST /api/tasks` と `PATCH /api/tasks/:id` が入力検証を通過した後に例外となる。\n    `jsonError(400, ...)` の経路を通らないため、クライアントには 400 ではなく 500 が返る見込み\n    （ルートハンドラーの処理は読んで判断。HTTP レベルでは未確認）。\n  - PR の「API で保留を選べる」「一覧で保留を絞り込める」は、実際には動かない。\n- 直し方：既存のマイグレーションを書き換えず、`migrations.ts` の末尾に version 3 を追加する。\n  SQLite は CHECK 制約を `ALTER` で変えられないため、テーブルを作り直す。\n  ```sql\n  CREATE TABLE tasks_new (\n    id       INTEGER PRIMARY KEY AUTOINCREMENT,\n    title    TEXT NOT NULL,\n    status   TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'on_hold', 'done')),\n    assignee TEXT NOT NULL REFERENCES users(id),\n    due_date TEXT NOT NULL\n  );\n  INSERT INTO tasks_new (id, title, status, assignee, due_date)\n    SELECT id, title, status, assignee, due_date FROM tasks;\n  DROP TABLE tasks;\n  ALTER TABLE tasks_new RENAME TO tasks;\n  CREATE INDEX tasks_assignee ON tasks(assignee);\n  ```\n  - 検証：上の SQL を 7 件のデータがある DB に適用したところ、件数は変わらず（7 → 7）、\n    `on_hold` での作成・更新・絞り込みが成功し、外部キーの整合性も問題なし、インデックスも再作成された。\n  - 既存の DB ファイル（`DATABASE_PATH`）にもこのマイグレーションが適用される点に注意する。\n\n### 2. 【中】テストが「保存」を通していないため、上の不具合を検出できていない\n\n- 場所：`tests/tasks.test.ts`。追加されたテストは `validateTaskInput` だけを呼んでいる（`accepts the on_hold status`）。\n- 何が問題か：`createTask` / `updateTask` と `listTasks` で `on_hold` を扱うテストが無い。\n  そのため、既存テスト 20 件は通る（`npm test` 成功、`npm run typecheck` 成功）が、保存に失敗する状態のまま通ってしまう。\n- 直し方：`openDb()` の DB を使い、次のテストを追加する。\n  - `createTask` で `on_hold` のタスクを作成し、`getTask` で同じ値が読めること。\n  - `updateTask` で `on_hold` に変更でき、`listTasks({ status: \"on_hold\" })` に含まれること。\n  - `tests/db.test.ts` に、マイグレーション後の DB が `on_hold` を受け付けることを確かめるテストを足すとよい（既存データの移行も含む）。\n\n## 確認の結果\n\n- `npm test`：20 件すべて成功。\n- `npm run typecheck`：エラーなし。\n- 問題なしと判断した点：画面の表示ラベル（`STATUS_LABELS`）と選択肢の並び（`TASK_STATUSES`）は正しい。\n  `isTaskStatus` の変更は API と画面の絞り込みで正しく使われる。\n",
+  "review_chars": 2531,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.023,
+    "tokens": {
+      "input": 30,
+      "output": 11297,
+      "cache_read": 768735,
+      "cache_creation": 48317
+    },
+    "turns": 19,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/poc-trials/W25-hk-baseline-run-c1-1/scratch-review && cat > /tmp/poc-trials/W25-hk-baseline-run-c1-1/scratch-review/repro.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trial"
+      },
+      {
+        "tool": "Write",
+        "input": "{\"file_path\": \"/tmp/poc-trials/W25-hk-baseline-run-c1-1/scratch-review/repro.ts\", \"content\": \"import { openDb } from \\\"/tmp/poc-trials/W25-hk-baseline-run-c1-1/app/src/lib/db/index.ts\\\";\\nimport { cre"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'docs: 保留ステータス追加のコードレビュー結果を追加\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.ai/code/session_"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Write": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 69,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は書き直していません。コミット済みの `d4da14c` にすでに、依頼された形式で 2 件の指摘が入っているためです。\n\n- **1. 【高】** 「保留」のタスクを作成・更新すると DB の CHECK 制約で失敗する（場所：`src/lib/db/migrations.ts` の version 1、`createTask`・`updateTask`）。問題、直し方（version 3 でテーブルを作り直す。提案 SQL は 7 件のデータで検証済み）を記載しています。\n- **2. 【中】** テストが保存を通していないため、上の不具合を検出できていない（場所：`tests/tasks.test.ts`）。直し方として、`createTask`・`updateTask`・`listTasks` のテストを追加することを記載しています。\n\n同じ内容を別の場所へ書き写すと二重になるだけなので、新しいコミットは作っていません。新しい指摘も足していません。作業ツリーには、`src/lib/tasks.ts` と `tests/tasks.test.ts` の未コミットの変更が残っています。これらは前回と同じく触っていません。"
+  },
+  "interventions": 0
+}

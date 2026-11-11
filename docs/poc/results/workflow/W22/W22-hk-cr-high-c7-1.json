@@ -1,0 +1,59 @@
+{
+  "trial": "W22-hk-cr-high-c7-1",
+  "scenario": "W22",
+  "config": "hk-cr-high",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# コードレビュー指摘（担当者変更のサーバーログ記録）\n\n対象: 未コミットの差分（`src/lib/notify/events.ts`、`src/lib/notify/index.ts`、`src/lib/notify/notifier.ts`、`src/lib/tasks.ts`、`tests/notify.test.ts`）\nレビュー: `/code-review high`\n\n重要度: 高 / 中 / 低\n\n---\n\n## 1. 通知の失敗で DB 更新は成功しているのに API が 500 を返す（重要度: 高）\n\n- **場所**: `src/lib/tasks.ts` の `updateTask`（122 行付近、担当者変更イベントの発行）。経路として `src/app/api/tasks/[id]/route.ts`（try/catch なし）。\n- **何が問題か**: `updateTask` は UPDATE を（トランザクションなしの autocommit で）実行して確定させたあと、同期的にイベントを発行する。購読者が例外を投げると、`updateTask` 自体が例外を投げる。\n  - 例: `NOTIFIER_KIND=slack` のとき、`SlackNotifier.send` が「Slack への通知は未実装です」を投げる。`PATCH /api/tasks/:id` で担当者を変えると、UPDATE は確定したまま、クライアントは 500 を受け取り、タスク本体も受け取れない。\n  - 再試行すると `current.assignee === next.assignee` になり、イベントは発行されない。結果として監査の記録が失われる。\n  - レビューでは、例外の発生と DB 行の新しい担当者の反映を実際に確認したとされている。\n- **直し方**: 発行を DB 更新の後に置き、購読者の例外が `updateTask` の呼び出し元へ伝播しないようにする（指摘 3 の対応と合わせる）。監査を確実に残したいなら、同じトランザクション内で監査行を書く方法も検討する（ただし今回の合意はログだけなので、まず例外の隔離で十分）。\n\n## 2. 通知先の選択でプロトタイプのキーを引くと誤った値が返る（重要度: 高）\n\n- **場所**: `src/lib/notify/notifier.ts:45` の `NotifierFactory.create`。\n- **何が問題か**: レジストリを素のオブジェクトリテラルで引いているため、`toString`、`constructor`、`hasOwnProperty`、`__proto__` などのプロトタイプ由来の値が返る。ドキュメントコメントが約束する「不明な種別はコンソール通知にフォールバック」にならない。\n  - 例: `NOTIFIER_KIND=toString` のとき `create()` は Notifier ではなく文字列 `\"[object Undefined]\"` を返す。`NOTIFIER_KIND=constructor` ではオブジェクトを返し、`send` を持たない。`NOTIFIER_KIND=__proto__` や `hasOwnProperty` では `TypeError` が投げられ、モジュール読み込み時に落ちる。\n  - レビューでは、`create(\"toString\")` が文字列を返し、`create(\"constructor\")` が `send` のないオブジェクトを返し、`create(\"__proto__\")` が例外を投げたことを確認したとされている。\n  - その結果、`src/lib/notify/index.ts` の購読者が `notifier.send` を非 Notifier に対して呼び、指摘 1 と同じく `updateTask` 内で例外になる。\n- **直し方**: `Object.create(null)` で作ったマップにするか、`Map` を使う。あるいは `Object.hasOwn(registry, kind)` で確認してから引き、なければコンソール通知を返す。\n\n## 3. EventBus.emit に例外の隔離がない（重要度: 高）\n\n- **場所**: `src/lib/notify/events.ts:21` の `EventBus.emit`。\n- **何が問題か**: ハンドラを順に呼ぶだけで、1 つが例外を投げると、同じイベントの残りのハンドラは呼ばれず、例外は発行元（`updateTask`）へ伝播する。DB 書き込みはすでに済んでいる。\n  - 例: `task.assignee_changed` に 2 つの購読者があり、先の購読者（監査ログ）が Slack の Webhook 失敗で例外を投げる。後の購読者は呼ばれず、例外は DB 書き込み後に `updateTask` の外へ出る。\n- **直し方**: `emit` で各ハンドラの呼び出しを `try/catch` で囲み、例外はエラーログに出して次のハンドラへ進む。\n\n## 4. 購読の登録と通知先の選択が import 時の副作用になっている（重要度: 中）\n\n- **場所**: `src/lib/notify/index.ts:7`（`eventBus.subscribe` の呼び出しと、`process.env` を読む `NotifierFactory.create`）。`src/lib/tasks.ts` からの import。\n- **何が問題か**: モジュール読み込み時に、プロセス全体で共有されるバスへ購読が登録され、通知先もそのときの環境変数で固定される。\n  - `tasks.ts` を import するすべてのモジュール（`openDb()` と `updateTask(..., db)` を呼ぶテストを含む）で、グローバルなコンソール／Slack 購読者が登録され、イベントが発行される。\n  - import 後に環境変数を変えても反映されない。テストは監査の副作用なしに `updateTask` を実行できない。\n- **直し方**: 起動時に明示的な bootstrap 関数で購読を登録する。または `updateTask` から `notifyAssigneeChanged(...)` を直接呼び、通知先を引数で注入する。どちらにしても依存を明示し、テストで差し替えられるようにする。\n\n## 5. 担当者変更の発行に単体テストがない（重要度: 中）\n\n- **場所**: `tests/tasks.test.ts:74`（`createTask` / `updateTask` のテスト）。\n- **何が問題か**: 今回追加した担当者変更のイベント発行に対応するテストがない。既存のテストは `status` の更新と「存在しない ID」だけを確認している。\n  - 次のような回帰が既存テストを通ってしまう: 毎回の更新で発行する、担当者が変わらない更新では発行しない（期待どおり）が検査されていない、そもそも発行しない。\n  - CLAUDE.md 規約 5「ロジックを追加・変更したら `tests/` に単体テストを追加する。」に反する。\n- **直し方**: 担当者が変わったときに 1 回だけ発行されること、変わらないときに発行されないこと、発行内容（前・後の担当者）を確認するテストを追加する。指摘 4 の対応で注入可能にしてからテストする。\n\n## 6. 発行されていないイベント種別と未使用の API がある（重要度: 低）\n\n- **場所**: `src/lib/notify/events.ts:4`（`task.status_changed` と `task.created` の宣言）、`EventBus.clear()`。\n- **何が問題か**: 宣言されたイベント種別のうち、本番コードで発行されるのは `task.assignee_changed` だけ。`task.created` はテストでしか発行されず、`task.status_changed` は発行されない。`clear()` も使われていない。\n  - 例: `task.created` や `task.status_changed` に購読者を登録しても、実行中のアプリではイベントが届かない。\n- **直し方**: 使わない種別と `clear()` を削除する。発行が必要になった時点で、発行箇所と一緒に追加する。\n\n## 7. 未実装の Slack・メール通知が設定から選べてしまう（重要度: 中）\n\n- **場所**: `src/lib/notify/notifier.ts:24`（`SlackNotifier` と `EmailNotifier` の空の実装）。\n- **何が問題か**: `NOTIFIER_KIND=slack` または `email` を設定でき、ファクトリもドキュメントも受け付ける。その結果、担当者が変わるたびに DB 書き込み後の実行時エラーになる（指摘 1 の経路）。\n  - 依頼はサーバーログへの記録だけで、Slack・メールは合意に含まれていない。CLAUDE.md 規約 6「変更は依頼された範囲にとどめる。」に照らすと、未実装のチャネルとそのためのインターフェース・レジストリは範囲外。\n- **直し方**: `ConsoleNotifier` だけを残す。または未実装の種別を起動時に明確なエラーで拒否する。\n\n## 8. イベントバスの型安全性が二重のキャストで失われている（重要度: 低）\n\n- **場所**: `src/lib/notify/events.ts:15`（`as unknown as Handler<AppEventType>` と `emit(event as never)`）。\n- **何が問題か**: 型付きの `subscribe` のシグネチャがあっても、内部の格納と発行でキャストしているため、型の不一致を検出できない。\n  - 例: イベント種別を追加したとき、ハンドラのマップを更新しなくてもコンパイルが通り、あるイベント用のハンドラに別のイベントのペイロードが渡る。購読者で未定義のフィールドを読んで壊れる。\n- **直し方**: `{ [K in AppEventType]: Handler<K>[] }` のようなマップ型で格納し、キャストを外す。\n",
+  "review_chars": 4473,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0291,
+    "tokens": {
+      "input": 30,
+      "output": 20647,
+      "cache_read": 595843,
+      "cache_creation": 84767
+    },
+    "turns": 6,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && echo \\\"---\\\" && (git rev-parse --abbrev-ref --symbolic-full-name @{upstream} 2>&1; git log --oneline -n 5 2>&1; git branch --show-current 2>&1)\", \"description\": \"Che"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD 2>/dev/null || git diff HEAD~1) | head -c 200000\", \"description\": \"Show committed range diff under review\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W22-hk-cr-high-c7-1-app/87b1e06f-694e-4eb7-be06-a4622aadb803/scratchpad && cat > /tmp/claude-0/-tmp-poc-trials-W22-hk-cr-high-c7-1-app/87b1e06f-694e"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W22-hk-cr-high-c7-1-app/87b1e06f-694e-4eb7-be06-a4622aadb803/scratchpad; NOTIFIER_KIND=slack node --experimental-strip-types --no-warnings $S/probe.ts 2>&1"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"NOTIFIER_KIND=slack node --experimental-strip-types --no-warnings /tmp/claude-0/-tmp-poc-trials-W22-hk-cr-high-c7-1-app/87b1e06f-694e-4eb7-be06-a4622aadb803/scratchpad/probe.ts\", \"descrip"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit --only REVIEW.md -m \\\"$(printf 'docs: 担当者変更ログ機能のコードレビュー指摘を REVIEW.md に記録\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: ht"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 15,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 98,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き、それだけをコミットしました（コミット `d3633e9`）。コードは変更していません。\n\n- 内容: 直前の `/code-review high` の 8 件を、場所・問題・直し方・重要度（高・中・低）の形式で書き写しました。新しい指摘は足していません。\n- 重要度: 高が 3 件（指摘 1〜3）、中が 3 件（4, 5, 7）、低が 2 件（6, 8）です。\n- 確認: 指摘の内容はレビュー結果をそのまま写したもので、私は各指摘のコードを再検証していません。\n- 注意: 作業ツリーには、今回のレビュー対象の差分（`src/lib/notify/*`、`src/lib/tasks.ts`、`tests/notify.test.ts`）が未コミットのまま残っています。今回のコミットには含めていません。\n\n最初に直すべきは指摘 1〜3 です。とくに指摘 3（イベントバスの例外隔離）を入れると、通知の失敗で DB 更新済みの API が 500 を返す問題が解消します。"
+  },
+  "interventions": 0
+}

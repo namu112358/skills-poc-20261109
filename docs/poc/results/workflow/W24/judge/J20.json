@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で利用者を含まないため、30 秒以内に別の利用者が開くと他人のダッシュボードが返る",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり、規約 8 違反で SQL インジェクションになる",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "renderBody がリンクの URL のスキームを検証せずに href に入れるため、javascript: リンクで XSS が起き、dangerouslySetInnerHTML で出力される",
+   "severity": "高",
+   "match": "B6",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "renderBody のリンクの正規表現が最初の ) で切れるため、括弧を含む URL では出力が壊れる",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "コメント編集の PATCH に投稿者チェックがなく、DELETE と違って誰でも他人のコメントを書き換えられる",
+   "severity": "高",
+   "match": "B7",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "weekRange が getUTCDay() の日曜 0 を扱えず、日曜には 1 - dow が +1 となり翌週の月〜日を返す",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "countByStatus が共有の TASK_STATUSES を型の断定のうえ reverse() でその場で反転するため、呼ぶたびに並びが入れ替わり、他の画面にも影響する",
+   "severity": "中",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "completionRate が担当タスク 0 件のとき 0/0 で NaN を返し、画面に「完了率 NaN%」と出る",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "formatCreatedAt がゼロ埋めのない表示用文字列で created_at を保存し、listComments がそれを文字列順に並べるため、時刻順にならない",
+   "severity": "中",
+   "match": "B9",
+   "kind": ""
+  },
+  {
+   "n": 10,
+   "summary": "コメント追加の POST がタスクの存在を確かめず、存在しない ID では外部キー制約の例外で 500 になる（GET は 404）",
+   "severity": "中",
+   "match": "B8",
+   "kind": ""
+  },
+  {
+   "n": 11,
+   "summary": "dueThisWeek が今週の月曜から昨日までに期限切れのタスクも含み、「期限切れ」と重複する",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 12,
+   "summary": "追加したテストが水曜の 1 ケースだけで、複数利用者・0 件・連続呼び出し・順序・javascript: リンク・権限・404 を確かめていない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.08901980000000001
+ }
+}
