@@ -5,6 +5,7 @@
 #           | security-review（Claude Code 組み込みの /security-review。題材 diff だけ。深さは default）
 #   題材:   clean（poc-app のまま） | vulns（answer-key/SEC/vulns.patch を当てる） | diff（diff.patch を作業ブランチのコミットにする）
 #           | diff2（diff2.patch。見つけにくい脆弱性の差分。SEC-2 で追加）
+#           | diff3（diff3.patch。既存のコードと合わせて初めて脆弱性になる差分。SEC-3 で追加）
 #   深さ:   cloudflare は quick | standard | deep、claude-security は low | medium | high（どちらも各ツールの言葉）
 #   例: POC_MODEL=claude-opus-5-5 scripts/poc/run-security-trial.sh cloudflare vulns standard 1
 # 作業用コピー（既定は /tmp/poc-trials/<ID>。POC_TRIAL_ROOT で変更可）に、poc-app のソースだけを写す
@@ -24,7 +25,7 @@ case "$TOOL:$LEVEL" in
   cloudflare:quick|cloudflare:standard|cloudflare:deep|claude-security:low|claude-security:medium|claude-security:high|security-review:default) ;;
   *) echo "ツールと深さの組み合わせが正しくない: $TOOL $LEVEL" >&2; exit 1 ;;
 esac
-case "$TARGET" in clean|vulns|diff|diff2) ;; *) echo "題材は clean・vulns・diff・diff2 のいずれか: $TARGET" >&2; exit 1 ;; esac
+case "$TARGET" in clean|vulns|diff|diff2|diff3) ;; *) echo "題材は clean・vulns・diff・diff2・diff3 のいずれか: $TARGET" >&2; exit 1 ;; esac
 [[ "$TOOL" == security-review && "$TARGET" != diff* ]] && { echo "security-review は題材 diff だけ" >&2; exit 1; }
 MODEL="${POC_MODEL:-claude-opus-5-5}"
 CACHE="${POC_CACHE:-$ROOT/.poc-cache}"
@@ -64,6 +65,7 @@ if [[ "$TARGET" == diff* ]]; then
   case "$TARGET" in
     diff) BRANCH=feature/comments; MSG="タスクにコメントを書けるようにする" ;;
     diff2) BRANCH=feature/share-links; MSG="タスクを共有リンクで社外の人に見せられるようにする" ;;
+    diff3) BRANCH=feature/assignee-ux; MSG="担当者の検索・付け替えと、ログインまわりの使い勝手を良くする" ;;
   esac
   git -C "$APP" switch -q -c "$BRANCH"
   git -C "$APP" apply "$KEY/$TARGET.patch"

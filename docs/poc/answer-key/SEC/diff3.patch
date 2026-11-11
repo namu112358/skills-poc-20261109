@@ -1,0 +1,183 @@
+diff --git a/src/app/api/login/route.ts b/src/app/api/login/route.ts
+index d5f0988..1d9bf3e 100644
+--- a/src/app/api/login/route.ts
++++ b/src/app/api/login/route.ts
+@@ -3,6 +3,7 @@
+ import { NextResponse } from "next/server";
+ import { jsonError, readJson } from "@/lib/api";
+ import { SESSION_COOKIE, SESSION_TTL_MS, authenticate, createSession } from "@/lib/auth";
++import { userExists } from "@/lib/users";
+ 
+ export async function POST(request: Request) {
+   const isJson = (request.headers.get("content-type") ?? "").includes("application/json");
+@@ -21,9 +22,11 @@ export async function POST(request: Request) {
+   const user =
+     typeof userId === "string" && typeof password === "string" ? authenticate(userId, password) : undefined;
+   if (!user) {
++    // どちらを間違えたかを伝えて、問い合わせを減らす
++    const reason = typeof userId === "string" && userExists(userId) ? "password" : "user";
+     return isJson
+-      ? jsonError(401, "ID またはパスワードが正しくありません")
+-      : NextResponse.redirect(new URL("/login?error=1", request.url), 303);
++      ? jsonError(401, reason === "user" ? "ユーザー ID が見つかりません" : "パスワードが正しくありません")
++      : NextResponse.redirect(new URL(`/login?error=${reason}`, request.url), 303);
+   }
+ 
+   const response = isJson
+diff --git a/src/app/api/logout/route.ts b/src/app/api/logout/route.ts
+index 052f5d9..5d3acc5 100644
+--- a/src/app/api/logout/route.ts
++++ b/src/app/api/logout/route.ts
+@@ -1,4 +1,5 @@
+-// POST /api/logout — セッションを削除してログイン画面へ戻る。
++// POST /api/logout・GET /api/logout — セッションを削除してログイン画面へ戻る。
++// GET はヘッダーのリンクから使う（フォームのボタンよりも見た目をそろえやすいため）。
+ import { cookies } from "next/headers";
+ import { NextResponse } from "next/server";
+ import { SESSION_COOKIE, deleteSession } from "@/lib/auth";
+@@ -11,3 +12,5 @@ export async function POST(request: Request) {
+   response.cookies.delete(SESSION_COOKIE);
+   return response;
+ }
++
++export const GET = POST;
+diff --git a/src/app/api/tasks/[id]/assignee/route.ts b/src/app/api/tasks/[id]/assignee/route.ts
+new file mode 100644
+index 0000000..34d4d26
+--- /dev/null
++++ b/src/app/api/tasks/[id]/assignee/route.ts
+@@ -0,0 +1,21 @@
++// PUT /api/tasks/:id/assignee — 担当者だけを付け替える（一覧画面のドラッグ操作用）。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { getTask, parseTaskId, updateTask } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function PUT(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
++  const assignee = ((await readJson(request)) as { assignee?: unknown } | undefined)?.assignee;
++  if (typeof assignee !== "string") return jsonError(400, "入力内容に誤りがあります", ["担当者を指定してください"]);
++  try {
++    return NextResponse.json({ task: updateTask(id, { assignee }) });
++  } catch {
++    // 存在しないユーザーは、DB の外部キー制約で弾かれる
++    return jsonError(400, "入力内容に誤りがあります", ["担当者が存在しません"]);
++  }
++}
+diff --git a/src/app/api/users/[id]/route.ts b/src/app/api/users/[id]/route.ts
+new file mode 100644
+index 0000000..76b968a
+--- /dev/null
++++ b/src/app/api/users/[id]/route.ts
+@@ -0,0 +1,13 @@
++// GET /api/users/:id — ユーザーを 1 人取得する（タスクの詳細画面で担当者名を出すため）。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { getUser } from "@/lib/users";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const found = getUser((await params).id);
++  return found ? NextResponse.json({ user: found }) : jsonError(404, "ユーザーが見つかりません");
++}
+diff --git a/src/app/api/users/search/route.ts b/src/app/api/users/search/route.ts
+new file mode 100644
+index 0000000..521e7c4
+--- /dev/null
++++ b/src/app/api/users/search/route.ts
+@@ -0,0 +1,11 @@
++// GET /api/users/search?q=… — 担当者の候補を探す。ログインが必要。
++import { NextResponse } from "next/server";
++import { requireApiUser } from "@/lib/api";
++import { searchUsers } from "@/lib/users";
++
++export async function GET(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const q = (new URL(request.url).searchParams.get("q") ?? "").trim();
++  return NextResponse.json({ users: q ? searchUsers(q) : [] });
++}
+diff --git a/src/app/layout.tsx b/src/app/layout.tsx
+index 23f0335..8574a1c 100644
+--- a/src/app/layout.tsx
++++ b/src/app/layout.tsx
+@@ -12,9 +12,7 @@ export default async function RootLayout({ children }: { children: ReactNode })
+           <header style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
+             <a href="/tasks">タスク一覧</a>
+             <span data-testid="current-user">{user.name}（{user.id}）</span>
+-            <form method="post" action="/api/logout">
+-              <button type="submit">ログアウト</button>
+-            </form>
++            <a href="/api/logout">ログアウト</a>
+           </header>
+         )}
+         {children}
+diff --git a/src/app/login/page.tsx b/src/app/login/page.tsx
+index 0dd4867..3ea0824 100644
+--- a/src/app/login/page.tsx
++++ b/src/app/login/page.tsx
+@@ -7,7 +7,11 @@ export default async function LoginPage({ searchParams }: Props) {
+   return (
+     <main>
+       <h1>ログイン</h1>
+-      {error !== undefined && <p role="alert">ID またはパスワードが正しくありません。</p>}
++      {error === "user" && <p role="alert">ユーザー ID が見つかりません。</p>}
++      {error === "password" && <p role="alert">パスワードが正しくありません。</p>}
++      {error !== undefined && error !== "user" && error !== "password" && (
++        <p role="alert">ID またはパスワードが正しくありません。</p>
++      )}
+       <form method="post" action="/api/login" aria-label="ログイン">
+         <p>
+           <label>
+diff --git a/src/lib/users.ts b/src/lib/users.ts
+index ab877f9..c0d380f 100644
+--- a/src/lib/users.ts
++++ b/src/lib/users.ts
+@@ -6,6 +6,15 @@ export function listUsers(db: Db = getDb()): User[] {
+   return db.prepare("SELECT id, name FROM users ORDER BY id").all() as User[];
+ }
+ 
++/** ID か表示名が一致するユーザーを探す（担当者の選択欄の候補に使う）。 */
++export function searchUsers(q: string, db: Db = getDb()): User[] {
++  return db.prepare("SELECT * FROM users WHERE id = ? OR name = ? ORDER BY id").all(q, q) as User[];
++}
++
++export function userExists(id: string, db: Db = getDb()): boolean {
++  return db.prepare("SELECT 1 FROM users WHERE id = ?").get(id) !== undefined;
++}
++
+ export function getUser(id: string, db: Db = getDb()): User | undefined {
+   return db.prepare("SELECT id, name FROM users WHERE id = ?").get(id) as User | undefined;
+ }
+diff --git a/tests/users.test.ts b/tests/users.test.ts
+new file mode 100644
+index 0000000..e4834aa
+--- /dev/null
++++ b/tests/users.test.ts
+@@ -0,0 +1,19 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { searchUsers, userExists } from "../src/lib/users.ts";
++
++describe("users", () => {
++  it("finds users by id or name", () => {
++    const db = openDb();
++    assert.deepEqual(searchUsers("sato", db).map((u) => u.id), ["sato"]);
++    assert.deepEqual(searchUsers("鈴木", db).map((u) => u.id), ["suzuki"]);
++    assert.equal(searchUsers("nobody", db).length, 0);
++  });
++
++  it("tells whether a user exists", () => {
++    const db = openDb();
++    assert.equal(userExists("tanaka", db), true);
++    assert.equal(userExists("nobody", db), false);
++  });
++});

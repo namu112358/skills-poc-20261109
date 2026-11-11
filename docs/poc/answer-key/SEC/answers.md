@@ -83,3 +83,20 @@
 | T5 | `api/tasks/[id]/share/route.ts` | URL に値を埋め込む | `token` は `encodeURIComponent` を通し、`id` は `parseTaskId` で数字だけにしてある |
 
 仕様として数えない点: 共有リンクにはログインが要らない（リンクを知っていることが権限という仕様）。ログイン中の利用者は、だれでも、どのタスクの共有リンクも作れる（タスクに持ち主の区別がない仕様）。
+
+## diff3: 既存のコードと合わせて初めて脆弱性になる差分 3 件（SEC-3 で追加）
+
+担当者の検索・付け替えと、ログインまわりの使い勝手の改善（`diff3.patch`）。diff2 でも差が出なかったため、差分だけを読んでも判断できず、差分の外にある既存のコードと突き合わせて初めて分かるものにした。
+
+| ID | 種類 | 場所 | 深刻度 | 判断に要る既存のコード | 中身 |
+|---|---|---|---|---|---|
+| E1 | 機密の列の漏えい | `lib/users.ts` の `searchUsers`（`api/users/search/route.ts` が返す） | high | `lib/db/migrations.ts`（v2 で `users.password_hash` を足している） | `SELECT *` で、ログイン中の全員にほかの利用者のパスワードのハッシュを返す |
+| E2 | ログアウトの CSRF | `api/logout/route.ts` の `GET`、`app/layout.tsx` | low | `api/login/route.ts`（Cookie は `SameSite=Lax`） | GET でセッションを消す。Lax の Cookie は別のサイトからのリンクの移動でも送られるので、外部のページから利用者を強制的にログアウトさせられる |
+| E3 | ユーザーの有無の漏えい | `api/login/route.ts`、`login/page.tsx` | medium | `lib/auth.ts`（ダミーのハッシュで応答時間をそろえ、ユーザーの有無を推測させないようにしている） | 誤りの理由を「ID が見つからない」「パスワードが違う」に分けて返す。既存の対策を無効にし、ID の総当たりで利用者を調べられる |
+
+誤検知の罠（指摘したら誤検知）:
+
+| ID | 場所 | 危なく見える点 | 安全な理由（判断に要る既存のコード） |
+|---|---|---|---|
+| T6 | `api/tasks/[id]/assignee/route.ts` | `validateTaskInput` を通さずに担当者を書き換える | `tasks.assignee` に外部キーがあり、`openDb` で `PRAGMA foreign_keys = ON` にしている。存在しない担当者は DB が拒否する（2026-11-11 に確認） |
+| T7 | `api/users/[id]/route.ts` | ユーザーの情報をそのまま返す | `getUser` は `id` と `name` だけを選ぶ |
