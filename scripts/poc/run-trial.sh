@@ -125,7 +125,7 @@ fi
 E2_DIR=""
 if [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 ]]; then
   # W22 は W21 の題材と正解をそのまま使う
-  E2_SCN="$SCENARIO"; [[ "$SCENARIO" == W22 || "$SCENARIO" == W25 ]] && E2_SCN=W21; [[ "$SCENARIO" == W26 ]] && E2_SCN=W24; [[ "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 ]] && E2_SCN=W20
+  E2_SCN="$SCENARIO"; [[ "$SCENARIO" == W22 || "$SCENARIO" == W25 ]] && E2_SCN=W21; [[ "$SCENARIO" == W26 ]] && E2_SCN=W24; [[ "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 ]] && E2_SCN=W20
   E2_CASE="${RUN%-*}"; E2_DIR="$ROOT/docs/poc/answer-key/$E2_SCN/cases/$E2_CASE"
   [[ -f "$E2_DIR/review.patch" && -f "$E2_DIR/pr.md" ]] || { echo "$SCENARIO: 題材が無い: $E2_DIR" >&2; exit 1; }
   echo "$E2_CASE" > "$OUT/e2-case"
