@@ -1,0 +1,148 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "NOTIFIER_KIND=slack/email のとき、UPDATE 後に購読者の send() が未実装の例外を投げ、DB は更新済みなのに API が 500 を返す。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "emit がハンドラーの例外を握りつぶさないため、1 つのハンドラーが失敗すると後続のハンドラーが呼ばれない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "tests/notify.test.ts はイベントバスとファクトリだけを確かめ、担当者が変わったときだけログが出るという要件を検証していない。",
+   "severity": "高",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "未実装の SlackNotifier・EmailNotifier が NotifierFactory で選べてしまい、選ぶと担当者変更のたびに例外になる。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "NotifierFactory.create が registry[kind] ?? で Object.prototype の継承プロパティ（constructor・toString・__proto__）を拾い、例外や読み込み失敗を起こす。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "NotifierFactory.create は綴りを誤った NOTIFIER_KIND を黙って console にし、テストもその fallback を固定している。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "500 の後にクライアントが再試行すると担当者は既に変わっているためイベントが出ず、監査行が永久に欠落する。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "記録先がログだけなので、プロセスの異常終了やログの欠落で監査記録が失われる。",
+   "severity": "高",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "updateTask が transaction() で囲まれておらず、将来囲むと COMMIT 前に通知が出て ROLLBACK 時に不整合になる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "ログに 1 行を出すだけの要件に対し、汎用イベントバス、差し替え可能な通知先、未使用のイベント種別・clear()・event 引数を作りすぎている。",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 11,
+   "summary": "events.ts の subscribe/emit が as unknown as などのキャストで型チェックを迂回している。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "Notifier.send の契約（event 引数の要否、同期か非同期か、失敗時の扱い）が型に現れていない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 13,
+   "summary": "notifier.ts の「知らない値なら console」というコメントが、継承プロパティ名の場合に成り立たない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 14,
+   "summary": "notifier.ts の「Slack・メールは将来の拡張用」というコメントが、実際には選べて呼ぶと例外になる実装と一致しない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 15,
+   "summary": "events.ts の「ここに購読者を足す」というコメントが、実際の購読の登録場所（index.ts）と違う場所を指している。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 16,
+   "summary": "tasks.ts が notify/index.ts の import 時の副作用で購読を登録しており、ドメインのモジュールに通知の初期化が隠れて混ざっている。",
+   "severity": "低",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 17,
+   "summary": "eventBus が events.ts と index.ts の両方から export されていて、経路が二重になっている。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 18,
+   "summary": "解除が filter で同じ関数の登録をすべて消し、clear() が誰でも呼べる公開メソッドになっている。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 19,
+   "summary": "テストがシングルトンの購読を finally で解除しておらず、テストが増えると壊れやすい。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 20,
+   "summary": "SlackNotifier・EmailNotifier に、未実装であることを示すコメントが無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.1256798
+ }
+}

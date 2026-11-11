@@ -1,0 +1,57 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "NOTIFIER_KIND=slack/email を選ぶと未実装の送り先が DB 更新後に例外を投げ、route が捕まえないため API が 500 を返し、更新は済んでいるのに応答と食い違う。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "「ログに 1 行」の要件に対し、イベントバス・Notifier・ファクトリ・未実装の Slack/メール・使われないイベント（task.created・task.status_changed）や clear() まで作っており作りすぎ（KISS/YAGNI）。",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "購読の登録が index.ts の import 時の副作用で行われ、tasks.ts がそれを読み込むため、updateTask を呼ぶだけで（テストでも）見えない購読者が動き、読み込み順に動作が依存する。",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "追加テストはイベントバスとファクトリだけを確かめ、担当者が変わったときだけログが出る・変わらないときは出ないという受入条件を updateTask 経由で確かめていない。",
+   "severity": "高",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "NotifierFactory が環境変数の値で registry を通常のプロパティ参照しており、toString などの組み込みプロパティ名で Notifier でない値が返り送信時に例外になる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "events.ts で as unknown as / as never のキャストを使い、イベントの種類と引数の型の対応を外している。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "同じハンドラを 2 回購読して 1 回解除すると両方が外れる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0734278
+ }
+}

@@ -140,6 +140,9 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 - 見つけにくい問題を 1 題材 1 種類ずつ仕込んだ比較（W21）でも、見つけた数に差はありませんでした。比べたのは、道具なし・内蔵 `/code-review high`・PR Review Toolkit・`design-principles-review`・Compound Engineering の `ce-code-review` です（[report](docs/poc/results/workflow/W21/report.md)）。
   - 仕込んだのは、差分の外の DB 制約・日付の計算・API の非互換・設計だけの問題・レビュアーへの指示を書いたコメントなどです。
   - 差が出たのは雑音と費用です。内蔵 `/code-review high` は誤った指摘・細かい指摘が最も多く、`ce-code-review` は誤った指摘が最も少なく、道具なしは最も安く速いという結果でした。
+- 同じ題材で、弱いモデル（Haiku）と、道具の手順を最後まで踏ませた場合も比べました（W22。[report](docs/poc/results/workflow/W22/report.md)）。
+  - Haiku の道具なしでも、Sonnet と同じく全部見つけました。費用は約 10 分の 1 です。
+  - `/review-pr` に専門エージェントを起動させても、見つける数は増えず、細かい指摘と費用（約 3.5 倍）が増えただけでした。
 - 設計の観点のレビューには、このリポジトリで作った `design-principles-review` を使います。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
   - 3 つの評価ケースで試したところ、Skill がなくても設計の問題はほぼ見つけられました。差が出たのは、指摘に重さ（必須・推奨・細かい点）を付けるかどうかと、指摘の書き方がそろうことです。
   - そのかわり、Skill を使うと時間が約 1.5 倍かかりました。

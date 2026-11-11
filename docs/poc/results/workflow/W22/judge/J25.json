@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "`NOTIFIER_KIND` が slack か email のとき、未実装の `SlackNotifier`・`EmailNotifier` が `updateTask` の `emit` の中で例外を投げ、DB は更新済みのまま PATCH が 500 になる。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "`tests/notify.test.ts` はバスとファクトリの動作だけを確かめ、担当者が変わったときだけ `updateTask` でログが出ること（変わらないときは出ないこと）を確かめていない。",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "合意は「ログだけ」なのに、イベントバス・ファクトリ・未実装の Slack/メールのスタブ・未使用のイベント型を作っており、依頼の範囲を超えた作りすぎである。",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "PATCH で得た操作者を `updateTask` に渡していないため、監査ログに誰が変更したかが残らない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 5,
+   "summary": "購読者の登録が `notify/index.ts` の import の副作用になっており、`clear()` で黙ってログが止まったり、ホットリロードで二重に登録されたりしうる。",
+   "severity": "低",
+   "match": "P2",
+   "kind": ""
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0629758
+ }
+}

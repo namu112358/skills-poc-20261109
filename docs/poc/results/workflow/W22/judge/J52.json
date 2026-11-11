@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "listTasks の SQL が assignee_id を assignee に別名付けしているため、toTask が row.assignee_id を読めず、一覧の担当者が常に undefined になる。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "Task 型をそのまま JSON で返しているため、API の応答のキーが assignee から assigneeId に変わり、PR の「API の入出力は変えない」に反する。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "validateTaskInput が assigneeId しか読まないため、assignee を送る POST は 400 になり、PATCH は 200 を返しつつ担当者の変更を黙って捨てる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "validateTaskInput が未知のキーを検査しないため、PATCH ではキーの打ち間違いも黙って無視される。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "listTasks が返すデータの形やマイグレーション 3 の既存データへの適用を確かめるテストが無く、規約 5 に反する。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "need(key: string) や as によるキャストのため、validateTaskInput と TaskInput の型がつながらず、改名の取りこぼしをコンパイラが検出できない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "updateTask の { ...current, ...changes } は、明示的な undefined で current の値を上書きしうる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "マイグレーション 3 のコメントに、インデックス名 tasks_assignee が変わらないことを一言足すべき（マイグレーション自体に問題は無いと明記）。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "画面側の ?? フォールバックが assigneeId の欠落を隠し、不具合を画面で検出できない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "assigneeId が単なる string で、利用者 ID であることが型で表されていないため、ブランド型の導入を検討する。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.08211979999999999
+ }
+}
