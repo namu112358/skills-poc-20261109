@@ -1,0 +1,44 @@
+{
+  "trial": "W24-hk-baseline-run-d3-3",
+  "scenario": "W24",
+  "config": "hk-baseline-run",
+  "case": "d3",
+  "rep": 3,
+  "review_md": "# コードレビュー: ダッシュボードとタスクのコメント\n\n対象: 未コミットの差分（`git diff HEAD`、新規ファイルを含む）。コードは変更していません。\n\n## 確認したこと\n\n- `npm test`: 30 件すべて通過。\n- `npm run typecheck`: エラーなし。\n- 疑わしい箇所は `node --experimental-strip-types` で関数を直接呼ぶ再現スクリプトで確かめました（作業用コピーの外に置いたため、リポジトリには含めていません）。\n- 既存のテストは、以下の指摘の問題をどれも検出できません（各関数を 1 回だけ、都合のよい入力で呼んでいるため）。\n\n## 指摘\n\n### 1. ダッシュボードのキャッシュが全ユーザーで共有され、別ユーザーの画面に他人のタスクが出る\n\n- **重要度**: 高\n- **場所**: `src/lib/dashboard.ts` `buildDashboard`（キャッシュキーが `\"dashboard\"` 固定）、`src/lib/cache.ts` `cached`\n- **何が問題か**: キャッシュのキーに `userId` が入っていません。30 秒以内に `sato` が表示したあと `suzuki` が `/dashboard` を開くと、`sato` のダッシュボードがそのまま返されます。\n  - 再現結果: `buildDashboard(\"sato\")` の直後に `buildDashboard(\"suzuki\")` を呼ぶと、戻り値の `userId` は `sato` でした。`suzuki` の件数（seed で 2 件のはず）は 3 件の `sato` の内容になっていました。\n  - 同じ原因で、`now` も無視されます。`2026-11-11` に計算した結果が 9 日後の `2026-11-20` の呼び出しでも返りました（`generatedAt` が変わらない）。期限切れ・今週の判定が古い日付のまま残ります。\n  - 別ユーザーの担当タスク（タイトル・期限）が見えるため、権限の境界を破ります。\n- **直し方**: キャッシュを使うなら、キーを `` `dashboard:${userId}:${日本時間の今日の日付}` `` のようにユーザーと日付を含めてください。PoC 規模ならキャッシュ自体をやめるのが最も簡単です。キャッシュ経由の呼び出しでは `db` 引数が使われないため、`db` を渡してもテストが独立に動かないことにも注意してください。テストでは `clearCache` に頼らず、ユーザーを変えて続けて呼ぶケースを加えてください。\n\n### 2. コメントの本文を `javascript:` の URL でリンクにでき、保存型 XSS になる\n\n- **重要度**: 高\n- **場所**: `src/lib/comments.ts` `renderBody`（リンクの正規表現）、`src/app/tasks/[id]/page.tsx`（`dangerouslySetInnerHTML`）\n- **何が問題か**: 本文の HTML エスケープのあとに `[文字](URL)` を `<a href>` に変換していますが、URL の形式を確認していません。`[クリック](javascript:...)` の本文を投稿すると、タスク詳細を開いた人のブラウザで script が動きます。\n  - 再現結果: `renderBody(\"[クリック](javascript:alert(document.cookie))\")` の出力は `<a href=\"javascript:alert(document.cookie\" rel=\"noopener noreferrer\">クリック</a>)` でした。`href` に `javascript:` が入っています。\n  - 既存テストはエスケープと `https://` のリンクしか見ていません。\n- **直し方**: リンクにするのを `^https?://` で始まる URL だけに限ってください。それ以外は文字としてそのまま表示します。できれば `dangerouslySetInnerHTML` をやめ、React の要素を組み立てて描画すると安全です。テストに `javascript:` と `data:` の入力を加えてください。\n\n### 3. コメントの編集（PATCH）に作成者の確認が無く、他人のコメントを書き換えられる\n\n- **重要度**: 高\n- **場所**: `src/app/api/comments/[commentId]/route.ts` `PATCH`\n- **何が問題か**: ログインしていれば、どのユーザーでも任意のコメント ID に対して `PATCH` を送って本文を書き換えられます。削除（`DELETE`）には `authorId !== user.id` の確認があるので、編集にだけ抜けています。\n  - コードを読んで確認しました（HTTP では実行していません）。\n- **直し方**: `PATCH` でも `DELETE` と同じく `comment.authorId !== user.id` のとき 403 を返してください。テストで他人のコメント編集が 403 になることを確認してください。\n\n### 4. `countByStatus` が共有の定数 `TASK_STATUSES` を書き換える\n\n- **重要度**: 中\n- **場所**: `src/lib/dashboard.ts` `countByStatus`（`order.reverse()`）\n- **何が問題か**: `reverse()` は配列を破壊的に並べ替えます。`TASK_STATUSES` はモジュールの共有の配列なので、ダッシュボードを 1 回描画するたびに並び順が反転します。\n  - 再現結果: 1 回目の呼び出しのあと `TASK_STATUSES` は `[\"done\", \"in_progress\", \"todo\"]` になり、2 回目の結果は `todo` から始まりました。\n  - `src/app/tasks/page.tsx:22` のタスク一覧の絞り込みも `TASK_STATUSES` を使っているため、ダッシュボードを開いたあとで選択肢の並びが変わります。\n- **直し方**: `[...order].reverse()` のように新しい配列を作ってから反転するか、表示用の並びを別の定数として明示してください。テストで、2 回呼んでも結果と `TASK_STATUSES` が変わらないことを確認してください。\n\n### 5. コメントの並び順が、日付の文字列の比較になっている（9 日と 10 日の順が逆になる）\n\n- **重要度**: 中\n- **場所**: `src/lib/comments.ts` `formatCreatedAt`（保存形式）、`listComments`（`ORDER BY created_at, id`）\n- **何が問題か**: `created_at` に `toLocaleString(\"ja-JP\")` の結果（`2026/11/9 9:00:00` のような形式）を保存しています。この形式は 0 埋めされず、文字列として比べると `2026/11/10` が `2026/11/9` より前に来ます。\n  - 再現結果: 10 日の投稿を先に、9 日の投稿を後に入れると、一覧は「10 日 → 9 日」の順で表示されました（正しくは 9 日が先）。同じ日の中で時刻が 9 時台と 10 時台をまたぐ場合も同じ問題が起きます。\n- **直し方**: `created_at` は `now.toISOString()`（UTC の ISO 8601）で保存し、表示するときだけ日本時間に変換してください。この表は今回追加されたばかりなので、マイグレーションの書き換えは不要です。テストに「9 日と 10 日をまたぐ」ケースを加えてください。\n\n### 6. 日曜日に「今週」が翌週の範囲になる\n\n- **重要度**: 中\n- **場所**: `src/lib/week.ts` `weekRange`（`const start = addDays(today, 1 - dow)`）\n- **何が問題か**: 日曜の `getUTCDay()` は 0 なので、開始日が「明日（翌週の月曜）」になります。日曜に開くと「今週が期限」が翌週の分になり、今週の期限のタスクが出ません。\n  - 再現結果: 日曜 `2026-11-15` で `{ start: \"2026-11-16\", end: \"2026-11-22\" }` が返りました（正しくは `2026-11-09` 〜 `2026-11-15`）。土曜・月曜は正しい値でした。\n- **直し方**: 月曜からの日数を `(dow + 6) % 7`（月 0、日 6）で求め、`start = addDays(today, -that)` にしてください。テストに日曜の日付を加えてください。\n\n### 7. `listAssignedTasks` の SQL に値を文字列連結している\n\n- **重要度**: 中\n- **場所**: `src/lib/dashboard.ts` `listAssignedTasks`（`WHERE assignee = '${userId}'`）\n- **何が問題か**: CLAUDE.md の規約 8 に反します。`userId` にはセッションから得た値が入るため、現状は外部から直接は入りませんが、引用符を含む値が渡ると条件が壊れます。\n  - 再現結果: `listAssignedTasks(\"x' OR '1'='1\")` は seed の全 7 件を返しました（担当者 `sato` の 3 件のはず）。\n- **直し方**: `WHERE assignee = ?` にして `.all(userId)` で渡してください。\n\n### 8. 存在しないタスクへのコメント投稿が 404 にならず、500 になる\n\n- **重要度**: 中\n- **場所**: `src/app/api/tasks/[id]/comments/route.ts` `POST`\n- **何が問題か**: `POST` は ID の形式しか確認していません。存在しないタスク ID に投稿すると DB の外部キーエラーで例外になり、500 が返ります。CLAUDE.md の規約 9 では「対象が無いときは 404」です。\n  - 再現結果: `addComment(9999, ...)` は `FOREIGN KEY constraint failed` を投げました。`getTask(9999)` は `undefined` でした。\n- **直し方**: `POST` でも `GET` と同じく `if (id === undefined || !getTask(id)) return jsonError(404, ...)` にしてください。\n\n### 9. タスクが 0 件のユーザーの完了率が `NaN%` になる\n\n- **重要度**: 中\n- **場所**: `src/lib/dashboard.ts` `completionRate`\n- **何が問題か**: タスク数で割っているため、0 件のとき `NaN` になります。画面には「完了率 NaN%」と出ます。\n  - 再現結果: `completionRate([])` は `NaN` でした。\n- **直し方**: 0 件のときは 0 を返してください。テストに 0 件の場合を加えてください。\n\n### 10. コメントの文字数制限が UTF-16 の長さで数えられている\n\n- **重要度**: 低\n- **場所**: `src/lib/comments.ts` `validateCommentBody`（`body.length > MAX_BODY`）\n- **何が問題か**: `length` は絵文字を 2 として数えます。画面の文言は「2000 文字以内」ですが、実際には絵文字だけなら 1000 個で止まります。\n  - 再現結果: 絵文字 1001 個（`length` が 2002）は拒否されました。\n- **直し方**: `[...body].length`（コードポイント数）で数えるか、文言を「2000 字（UTF-16 単位）」のように正確に書いてください。\n\n## テストの追加を勧めるケース\n\n指摘 1〜9 は、追加のテストで検出できます。\n- 2 人のユーザーで続けて `buildDashboard` を呼ぶ（1）\n- `javascript:` の URL（2）\n- 他人のコメントを PATCH で編集する（3）\n- `countByStatus` を 2 回呼ぶ（4）\n- 9 日と 10 日の順（5）\n- 日曜日の `weekRange`（6）\n- 引用符を含む `userId`（7）\n- 存在しないタスクへの POST（8）\n- 0 件の完了率（9）\n",
+  "review_chars": 5639,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0376,
+    "tokens": {
+      "input": 34,
+      "output": 24793,
+      "cache_read": 1088948,
+      "cache_creation": 71553
+    },
+    "turns": 22,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-d3-3-app/f3e5ecb2-f85b-4366-969d-2528fba469d9/scratchpad/repro && cat > /tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-d3-3-a"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit --only REVIEW.md -m \\\"$(printf 'Add code review notes for dashboard and comments\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Ses"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 13,
+      "Write": 5,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 114,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き直し、そのファイルだけを `fdc55c7` としてコミットしました。コードは直していません。\n\n指摘は前回と同じ 10 件で、新しい指摘は足していません。各項目は「重要度・場所・何が問題か・直し方」の順に揃えました。\n\n- **高**: 1（ダッシュボードのキャッシュがユーザー間で共有される）、2（`javascript:` リンクによる保存型 XSS）、3（他人のコメントを PATCH で編集できる）\n- **中**: 4（`TASK_STATUSES` の書き換え）、5（コメントの並び順）、6（日曜日の `weekRange`）、7（SQL の文字列連結）、8（存在しないタスクへの投稿が 500 になる）、9（完了率が `NaN%`）\n- **低**: 10（文字数制限の数え方）\n\n項目 1 の直し方の記述は一部書き換えました。「`db` 引数が使われない」を「キャッシュ経由では `db` が使われない」という正確な書き方にしています。\n\n今回の変更は書式だけです。内容は前回のレビューと同じで、再現結果もそのまま残しています。"
+  },
+  "interventions": 0
+}
