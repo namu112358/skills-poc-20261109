@@ -1,0 +1,64 @@
+{
+  "trial": "W22-hk-principles-c7-1",
+  "scenario": "W22",
+  "config": "hk-principles",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# レビュー: 担当者変更の監査ログ（未コミットの差分）\n\n## レビューの要約\n\n担当者が変わったときに 1 行をサーバーのログへ出す変更。目的は小さく、判定ロジック（`next.assignee !== current.assignee`）は正しい。一方で、目的に対して通知の仕組み（イベントバス・ファクトリ・未実装の Slack/メール）が大きすぎ、そのうちの未実装の送り先が担当者変更の API を失敗させ得る。さらに、「担当者が変わったときだけ出す」という受入条件をテストが確かめていない。**修正を求める**（重要度「高」の指摘 1 と 3 を直すこと）。\n\n## 良い点\n\n- 判定を `updateTask` の中で、更新前後の担当者を比べて行っている。担当者が変わらない更新では何も出ず、PR の受入条件の書き方と一致している。\n- ログに出す値（タスク ID・変更前後の担当者・時刻）は `updateTask` が既に持っている値だけで、余計な問い合わせを増やしていない。\n- 担当者の存在確認は `validateTaskInput` が既に行っているため、ログに存在しない担当者が出ることはない。\n\n## 指摘\n\n### 1. [高] 未実装の送り先への通知が、担当者変更の API を失敗させる\n\n- 場所: `src/lib/tasks.ts:121-123`（`updateTask` の `emit`）、`src/lib/notify/notifier.ts:18-27`（`SlackNotifier.send` が例外を投げる）、`src/lib/notify/notifier.ts:44-45`（環境変数で送り先を選ぶ）、`src/app/api/tasks/[id]/route.ts:23`（例外を捕まえていない）\n- 何が問題か: 環境変数 `NOTIFIER_KIND=slack`（または `email`）を設定して `PATCH /api/tasks/:id` で担当者を変えると、次の順で起きる。\n  1. `UPDATE tasks ...` が実行され、担当者の変更は DB に保存される（`updateTask` はトランザクションを使っていない）。\n  2. `emit` がハンドラを呼び、`SlackNotifier.send` が「未実装です」の例外を投げる。\n  3. 例外は `updateTask` から route まで伝わり、捕まえられていないため API は 500 を返す。\n\n  クライアントは失敗したと判断して再送するが、担当者はもう変わっているので 2 回目はログも出ない。結果として、保存された変更が API の応答と食い違い、監査ログも残らない。監査の目的に反する。\n- 直し方: 指摘 2 の簡素化で、送り先の選択とこの経路をまとめて取り除く。取り除かないなら、少なくとも未実装の送り先をファクトリに登録せず、`emit` の結果を route で握りつぶさないようにする（この場合も、通知の失敗で `updateTask` の応答を変えない設計にする）。\n- 判断の根拠: 早く失敗する（誤りを起きた場所で、すぐに分かる形で止める）。本体の処理（担当者の保存）は、付随する通知の失敗に巻き込まれてはならない。PR も「記録先はサーバーのログだけでよい」としている。\n\n### 2. [中] 目的に対して仕組みが大きすぎる（KISS / YAGNI）\n\n- 場所: `src/lib/notify/events.ts`（全体。特に `clear()`、`task.created` と `task.status_changed` の型）、`src/lib/notify/notifier.ts`（全体。`Notifier` インターフェース、`NotifierFactory`、Slack・メールの未実装クラス）、`src/lib/notify/index.ts`（import 時の購読登録）、`src/lib/tasks.ts:2`（`tasks.ts` が通知の初期化を副作用として読み込む）\n- 何が問題か:\n  - 「ほかの記録先にする予定は今のところありません」と合意されているのに、Slack・メールの送り先、それを選ぶファクトリ、環境変数による切り替え、購読の仕組みを作っている。これらは今の要件のどこにも使われず、指摘 1 の障害の原因にもなっている。\n  - `task.created` と `task.status_changed` は発行されず、`clear()` も呼ばれていない。読む人は「どこかで使われている」と考えて追跡に時間を取られる。\n  - 購読の登録が `index.ts` を import したときに起き、環境変数もそのときに読まれる。`tasks.ts` の読み込み順に動作が依存し、`events.ts` だけを使うと誰も受け取らず、何も出ずに終わる（驚き最小の原則に反する）。\n  - 単体テストで `updateTask` を呼ぶと、担当者が変わるたびに、テストを書いた人が知らない購読者が動く。\n- 直し方: イベントバスと通知ファイル一式（`src/lib/notify/` の 3 ファイル）を削除し、`updateTask` で直接ログを出す。`tasks.ts` 内に次のように書けば、購読の仕組みも副作用の読み込みも要らない。\n\n  ```ts\n  if (next.assignee !== current.assignee) {\n    console.log(`[audit] task ${id}: assignee ${current.assignee} -> ${next.assignee} at ${new Date().toISOString()}`);\n  }\n  ```\n\n  将来、送り先が増えたときに初めて、そのときの要件に合わせて分ければよい。`tests/notify.test.ts` は、この変更に合わせて削除するか、指摘 3 のテストに置き換える。\n- 判断の根拠: KISS（要件を満たす、仕組みの少ない方を選ぶ）と YAGNI（予想した機能は、必要になるまで作らない）。今の要件は「担当者が変わったら 1 行をログに出す」だけなので、それを満たす最小の形で足りる。\n\n### 3. [高] 受入条件（担当者が変わったときだけログを出す）をテストが確かめていない\n\n- 場所: `tests/notify.test.ts`（イベントバスとファクトリだけを確かめている）。`src/lib/tasks.ts:121-123` の判定にテストがない。\n- 何が問題か: 次の振る舞いのどれが壊れても、テストは落ちない。\n  - 担当者が変わったときにログが出ない。\n  - 担当者が変わらない更新（例: ステータスだけの更新）でログが出る。\n  - ログの内容（変更前の担当者・変更後の担当者・タスク ID）が違う。\n\n  PR の説明は「担当者が変わらない更新では出さない」と書いているが、それを確かめる手段がない。CLAUDE.md の規約 5（ロジックを追加・変更したら `tests/` にテストを追加する）も満たしていない。\n- 直し方: 指摘 2 の形にした上で、`tests/tasks.test.ts` に次のテストを足す。`node:test` の `mock.method(console, \"log\")` で出力を取る。\n  - 担当者を変えた更新で、`[audit] task <ID>: assignee <前> -> <後> at <ISO 日時>` が 1 回出る。\n  - ステータスだけを変えた更新、および同じ担当者を指定した更新では、出力がない。\n\n  時刻はパターンで確かめ（または `mock` で固定し）、時刻に依存しないようにする。\n- 判断の根拠: テストは、受入条件ごとに、公開された入口を通して結果を確かめるべき。ここでは入口は `updateTask` で、結果はログの出力と、担当者が変わらないときの無出力。\n\n### 4. [低] 環境変数の値を、オブジェクトの通常のプロパティ名で引いている\n\n- 場所: `src/lib/notify/notifier.ts:44-45`（`NotifierFactory.registry[kind as NotifierKind]`）\n- 何が問題か: `NOTIFIER_KIND=toString` のように、オブジェクトの組み込みのプロパティ名を指定すると、`registry[\"toString\"]` が登録されていない組み込み関数を返し、`make()` の戻り値が `Notifier` でない文字列になる。その後の `send` 呼び出しで例外になる。\n- 直し方: 指摘 2 の簡素化で、この分岐ごと消える。残すなら `Object.hasOwn(registry, kind)` で確かめてから引く。\n- 判断の根拠: 外から来た値は境界で検証し、内側では正しいと分かっている値だけを扱う（早く失敗する）。\n\n### 5. [低] イベントバスの型安全性を、キャストで外している\n\n- 場所: `src/lib/notify/events.ts:15`（`as unknown as`）、`:18`（`handler as unknown` の比較）、`:22`（`event as never`）\n- 何が問題か: 購読は型で種類ごとに対応を決めているが、発行側はキャストで型の対応を外している。将来、型が合わない組み合わせを追加しても、コンパイラが気づかない。また、同じハンドラを 2 回購読して 1 つを解除すると、両方が外れる。\n- 直し方: 指摘 2 の簡素化で、イベントバスごと削除する。残すなら、種類と引数の対応を型のマップで表し、キャストを使わずに書く。\n- 判断の根拠: 不正な状態を型で作れなくする。キャストは、その保証を捨てる。\n\n## 検証した内容\n\n- `npm run typecheck`: 通過（エラーなし）。\n- `npm test`: 21 件すべて通過。ただし、担当者変更のログを確かめるテストは無い（指摘 3）。\n- 指摘 1 の実行による再現は、実行の承認が下りなかったため行っていない。`src/lib/tasks.ts`・`notifier.ts`・`route.ts` のコードを読んで判断した（トランザクションが無いこと、`emit` が同期であること、route が例外を捕まえていないこと）。\n",
+  "review_chars": 4480,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.036,
+    "tokens": {
+      "input": 40,
+      "output": 21797,
+      "cache_read": 1180456,
+      "cache_creation": 66290
+    },
+    "turns": 23,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run typecheck 2>&1 | tail -5; echo \\\"typecheck exit=$?\\\"); (npm test 2>&1 | tail -12); echo ---; SCR=/tmp/claude-0/-tmp-poc-trials-W22-hk-principles-c7-1-app/14fb8d36-93e4-4ef5-bb52-"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run typecheck 2>&1 | tail -5; echo \\\"typecheck exit=${PIPESTATUS[0]}\\\"; npm test 2>&1 | tail -12\", \"description\": \"Run typecheck and unit tests\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"export function openDb\\\\|export function getDb\\\" src/lib/db/index.ts; mkdir -p /tmp/claude-0/-tmp-poc-trials-W22-hk-principles-c7-1-app/14fb8d36-93e4-4ef5-bb52-fd907f041dda/scra"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run typecheck 2>&1 | tail -5; echo \\\"typecheck exit=${PIPESTATUS[0]}\\\"; npm test 2>&1 | tail -12; grep -n \\\"export function openDb\\\" src/lib/db/index.ts\", \"description\": \"Run typechec"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"NOTIFIER_KIND=slack node --experimental-strip-types --no-warnings /tmp/claude-0/-tmp-poc-trials-W22-hk-principles-c7-1-app/14fb8d36-93e4-4ef5-bb52-fd907f041dda/scratchpad/probe.ts; echo \\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"NOTIFIER_KIND=slack node --experimental-strip-types --no-warnings /tmp/claude-0/-tmp-poc-trials-W22-hk-principles-c7-1-app/14fb8d36-93e4-4ef5-bb52-fd907f041dda/scratchpad/probe.ts\", \"desc"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit --only -m \\\"$(printf 'Add review of audit log for assignee changes\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 14,
+      "Write": 5,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 111,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "REVIEW.md を依頼の形式に書き直し、REVIEW.md だけを `b0dc393` としてコミットしました。コードは直していません。\n\n- **指摘の内容:** 5 件すべてを残しました。新しい指摘は足していません。\n- **重要度:** 前回の「必須・推奨・細かい点」を、依頼どおり「高・中・低」に変えました。対応は次のとおりです。\n  - 1（未実装の送り先で API が 500 になる）: 高\n  - 2（仕組みが要件に対して大きすぎる）: 中\n  - 3（担当者変更の受入条件をテストが確かめていない）: 高\n  - 4（環境変数をプロパティ名で引く）: 低\n  - 5（イベントバスの型をキャストで外している）: 低\n- **形式:** 各指摘に場所、何が問題か（入力と状況で何が起きるか）、直し方、重要度を書きました。\n- **確認の限界:** 指摘 1 は実行による再現をしていません。承認が下りず、コードを読んで判断した旨を「検証した内容」に残しています。\n\n他の変更（`src/lib/notify/`、`src/lib/tasks.ts`、`tests/notify.test.ts`）はコミットせず、未コミットのままです。"
+  },
+  "interventions": 0
+}

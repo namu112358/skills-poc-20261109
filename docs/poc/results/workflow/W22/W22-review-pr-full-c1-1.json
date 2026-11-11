@@ -1,0 +1,50 @@
+{
+  "trial": "W22-review-pr-full-c1-1",
+  "scenario": "W22",
+  "config": "review-pr-full",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# レビュー: タスクに「保留」(`on_hold`) ステータスを追加\n\n結論: **このままではマージ不可。** 型・検証・UI は `on_hold` に対応しているが、DB のスキーマが未対応のため、`on_hold` の保存は必ず失敗する。`npm test` / `npm run typecheck` が通るのは、追加テストが DB に書き込まないため。\n\n## 指摘一覧\n\n### 1. [高] DB の CHECK 制約に `on_hold` が無く、作成・更新が必ず失敗する(API は 500)\n\n- **場所**: `src/lib/db/migrations.ts:21`(version 1 の `tasks.status`)。影響先: `src/lib/tasks.ts` の `createTask` / `updateTask`、`src/app/api/tasks/route.ts:18`、`src/app/api/tasks/[id]/route.ts:23`\n- **問題**: `status TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'done'))` のまま。`TASK_STATUSES` に `on_hold` を足したので `validateTaskInput` は通るが、その後の INSERT / UPDATE が `CHECK constraint failed` で例外になる。\n  - 再現: ログイン後に `POST /api/tasks` へ `{\"title\":\"a\",\"status\":\"on_hold\",\"assignee\":\"sato\",\"dueDate\":\"2026-01-01\"}`、または `PATCH /api/tasks/1` へ `{\"status\":\"on_hold\"}`。\n  - API Route に try/catch が無いため、規約9の `{ error }` 形式ではなく Next.js 既定の 500 になる(HTTP 経由では未実行。`openDb()` での `createTask` / `updateTask` 呼び出しで例外を確認済み)。\n  - 画面の絞り込みに「保留」は出るが、該当行を作れないので常に「該当なし」になる。\n- **直し方**: 規約7に従い `migrations.ts` の末尾に `version: 3` を追加する(version 1 は書き換えない)。SQLite は CHECK を ALTER で変更できないのでテーブルを作り直す。\n  ```sql\n  CREATE TABLE tasks_new (\n    id       INTEGER PRIMARY KEY AUTOINCREMENT,\n    title    TEXT NOT NULL,\n    status   TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'on_hold', 'done')),\n    assignee TEXT NOT NULL REFERENCES users(id),\n    due_date TEXT NOT NULL\n  );\n  INSERT INTO tasks_new (id, title, status, assignee, due_date)\n    SELECT id, title, status, assignee, due_date FROM tasks;\n  DROP TABLE tasks;\n  ALTER TABLE tasks_new RENAME TO tasks;\n  CREATE INDEX tasks_assignee ON tasks(assignee);\n  ```\n  (列定義は version 1 の実際の定義に合わせること。`tasks` を参照する外部キーは無い。)\n\n### 2. [高] テストが DB 層を通らず、1 を検出できない(規約5・PR の検証結果の主張)\n\n- **場所**: `tests/tasks.test.ts:73-78`(`validateTaskInput` の `on_hold`)、`:96`(`isTaskStatus`)。`tests/db.test.ts` にも CHECK 制約のテストが無い。\n- **問題**: 追加テストは純粋関数しか見ていない。マイグレーションを直さなくても全部通る。PR 説明の「検証で `on_hold` が通る」は事実だが、「保存・取得できる」ことは確認されていない。\n- **直し方**: 以下を追加する(マイグレーション追加前は失敗し、追加後に通るもの)。\n  - `createTask` で `status: \"on_hold\"` を作成 → `getTask` で `on_hold` が返る。\n  - `updateTask(id, { status: \"on_hold\" })` で更新でき、他の項目は変わらない。`on_hold` から他の状態へも戻せる。\n  - `listTasks({ status: \"on_hold\" })` がそのタスクだけを返し、`todo` の絞り込みには含まれない。\n  - `tests/db.test.ts`: 4 つの状態すべてを INSERT でき、不正値(`'x'`)は拒否される。version 2 の DB に既存行を入れてからマイグレーションしても行・`tasks_assignee` インデックス・外部キーが残る。\n\n### 3. [中] DB 書き込み失敗が内容の無い 500 になる(1 の再発防止)\n\n- **場所**: `src/app/api/tasks/route.ts:18`、`src/app/api/tasks/[id]/route.ts:23`\n- **問題**: 型・検証と DB スキーマがずれると、制約違反が握られずに内容の無い 500 になり、ログも `{ error }` 本文も残らない。\n- **直し方**: `createTask` / `updateTask` を try/catch で囲み、想定外の例外は操作名・id をログに出して `jsonError(500, ...)` を返す。広く握りつぶさないこと。根本対応は 1 で、これは保険。\n\n### 4. [低] `TASK_STATUSES` と `TaskStatus` の同期が型で保証されていない\n\n- **場所**: `src/lib/tasks.ts:3`、`:13`\n- **問題**: `TASK_STATUSES: readonly TaskStatus[]` と注釈しているため、union に値を足して配列へ追加し忘れても型エラーにならない。今回は両方更新済みで実害は無い。\n- **直し方**: `as const` の配列を正とし、`type TaskStatus = (typeof TASK_STATUSES)[number]` で導出する。または `TASK_STATUSES` と CHECK 制約の一致を確認するテスト(2 のテストで兼ねられる)を置く。\n\n### 5. [低] API Route をまたぐテストが無い\n\n- **場所**: `src/app/api/tasks/` 配下(`tests/` に API Route のテストが存在しない)\n- **問題**: 1 は「`validateTaskInput` を通った後に DB 層で失敗する」という層をまたぐ不具合だが、この流れを確認するテストが無い。\n- **直し方**: 重くする必要は無い。`validateTaskInput` → `createTask` → `getTask` の流れで `on_hold` を確認するテストで足りる(2 のテストと兼ねてよい)。\n\n### 6. [低] ステータスの表示ラベルのテストが無い\n\n- **場所**: `src/app/tasks/page.tsx`、`src/app/tasks/[id]/page.tsx`(`STATUS_LABELS` を参照)\n- **問題**: 選択肢は `TASK_STATUSES`、表示は `STATUS_LABELS` から作られるので `on_hold` は自動で出るが、表示そのもののテストは無い。型(`Record<TaskStatus, string>`)が既にキー漏れを防いでいる部分もあり、重要度は低い。\n- **直し方**: `TASK_STATUSES` の全要素が `STATUS_LABELS` に空でないラベルを持つことを確認する小さな単体テストを足す。\n\n## 補足(今回の PR の範囲外・任意)\n\n- `GET /api/tasks?status=<不正値>` は 400 にならず全件を 200 で返す。ページ側は規約2どおりだが、API 側は誤字に気づけない。仕様として決めるなら 400 を返す案がある。\n\n## 確認して問題が無かった点(参考)\n\n- 絞り込みの `<select>`(`src/app/tasks/page.tsx`)は `TASK_STATUSES`、表示は `STATUS_LABELS` を使うので「保留」が自動で反映される。`status` クエリは `isTaskStatus` で検証済み。\n- `listTasks` の絞り込みはプレースホルダ使用(規約8)。`Record<TaskStatus, …>` は `STATUS_LABELS` のみで更新済み。\n",
+  "review_chars": 4105,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 1.0782,
+    "tokens": {
+      "input": 78,
+      "output": 23669,
+      "cache_read": 1322068,
+      "cache_creation": 180555
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Monitor",
+        "input": "{\"description\": \"wait for remaining agents\", \"timeout_ms\": 180000, \"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W22-review-pr-full-c1-1-app/3dcd8903-8569-49bf-809a-009f11fed307/tasks/; until [ -z \\\"$("
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='REVIEW.md'\\ns=open(p).read()\\nadd='''### 5. [低] API Route をまたぐテストが無い\\n\\n- **場所**: `src/app/api/tasks/` 配下(`tests/` に API Route のテストが存在しない)\\n- **問題**: 1 は「`validateTa"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 22,
+      "Agent": 4,
+      "Monitor": 1,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 4,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:type-design-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 51,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューで出た指摘を、すべて `REVIEW.md` に書き写し、`REVIEW.md` だけをコミットしました。前回のコミットでは pr-test-analyzer が出した2件が抜けていたので、今回追記しています。コードは直しておらず、PR の差分は未コミットのままです。\n\n`REVIEW.md` には、場所・問題・直し方・重要度を付けた指摘が6件入っています。同じ内容の指摘は1件にまとめました。\n\n| # | 重要度 | 内容 |\n|---|---|---|\n| 1 | 高 | DB の CHECK 制約に `on_hold` が無く、作成・更新が失敗する(API は 500) |\n| 2 | 高 | テストが DB 層を通らず、1 を検出できない |\n| 3 | 中 | DB 書き込みの失敗が、内容のない 500 になる |\n| 4 | 低 | `TASK_STATUSES` と `TaskStatus` の同期が型で保証されていない |\n| 5 | 低 | API Route をまたぐテストが無い(今回追記) |\n| 6 | 低 | ステータスの表示ラベルのテストが無い(今回追記) |\n\n別枠の補足として、不正な `status` を `GET /api/tasks` に渡しても 400 にならない点も残してあります。今回の PR の範囲外です。\n\n新しい指摘は足していません。"
+  },
+  "interventions": 0
+}

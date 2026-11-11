@@ -1,0 +1,72 @@
+{
+  "trial": "W22-hk-ce-review-c4-1",
+  "scenario": "W22",
+  "config": "hk-ce-review",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# コードレビュー: 期限が近いタスクの表示\n\n対象: 未コミット差分（`git diff HEAD`）。変更ファイルは `src/app/tasks/page.tsx`、`src/lib/due.ts`、`tests/due.test.ts` の 3 つ（追加 61 行、削除 2 行）。\n\n判定: **マージ前に直すべき問題あり（高 2 件）**\n\n## 指摘\n\n### 1. 3 日後が「期限間近」に含まれない（境界の off-by-one）\n\n- 場所: `src/lib/due.ts` の `isDueSoon`（18 行目 `return days >= 0 && days < DUE_SOON_DAYS;`）\n- 何が問題か: PR の仕様は「今日から 3 日以内（今日・明日・明後日・3 日後）」で、3 日後も含む。しかし比較が `days < 3` のため、残り 3 日のタスクは対象外になる。\n  - 例: 現在 2026-11-12（日本時間）、未完了で期限 2026-11-15 のタスク → `daysUntilDue` は 3 → `3 < 3` は false → 「（期限間近）」が付かない。\n  - テストも `2026-11-14`（残り 2 日）しか見ていないため、この境界は検出されない。\n- 直し方: `days <= DUE_SOON_DAYS` に変更する。テストに `2026-11-15` は true、`2026-11-16` は false を追加する。\n- 重要度: **高**\n\n### 2. 日付を日本時間で数えていない（今日が期限のタスクが、日中は「期限切れ扱い」になる）\n\n- 場所: `src/lib/due.ts` の `daysUntilDue`（11 行目 `Math.floor((Date.parse(dueDate) - now.getTime()) / DAY_MS)`）と、それを使う `isDueSoon`\n- 何が問題か: `Date.parse(\"2026-11-12\")` は UTC の 0 時を返す一方、`now` は絶対時刻として扱われる。日本時間の 9 時（UTC 0 時）を過ぎると、今日の期限との差が負になり、残り日数が -1 になる。\n  - 例: 現在 2026-11-12T10:00+09:00（= 01:00Z）、未完了で期限 \"2026-11-12\" のタスク → 差は -1 時間 → `Math.floor(-0.04)` = -1 → `days >= 0` が false → 「（期限間近）」が付かない。\n  - 影響: シードデータの「ログイン画面のデザイン」（期限 2026-11-12、進行中）は、日本時間 9 時以降この表示にならない。PR の「日本時間の日付で数える」という要件も満たしていない。\n  - 既存テストは `now` を日本時間 0 時ちょうど（UTC 15 時）に固定しており、この時間帯でのみ正しく動くため、見逃されている。\n- 直し方: `now` を日本時間の暦日（`YYYY-MM-DD`）に変換し、期限日と暦日の差を UTC の日付同士の差として計算する。例: `new Intl.DateTimeFormat(\"en-CA\", { timeZone: \"Asia/Tokyo\" }).format(now)` で今日の日付文字列を得て、両者を `Date.UTC(y, m - 1, d)` に変換して差を日単位で出す。こうすると `daysUntilDue` は時刻に依存しなくなる。テストは日本時間の 0 時ちょうど以外（例: 10:00、23:59、翌日 0:00）でも確認する。\n- 重要度: **高**\n\n### 3. `due-soon` クラスに対応するスタイルがない\n\n- 場所: `src/app/tasks/page.tsx` の `<tr>`（44 行目付近の `className={isDueSoon(task, now) ? \"due-soon\" : undefined}`）\n- 何が問題か: PR の変更内容は「（期限間近）」の文字を付けることだけだが、追加された `due-soon` クラスは CSS から参照されていない（リポジトリに CSS ファイルが無く、`due-soon` という文字列もどこにも定義されていない）。見た目に効かない無効なクラスになっている。CLAUDE.md の「変更は依頼された範囲にとどめる」にも外れる。\n- 直し方: クラスを削除する。目立たせるスタイルを本当に入れるなら、スタイルの置き場所を決めて定義してから付ける。\n- 重要度: **低**\n\n### 4. 期限間近の判定を 1 行につき 2 回呼んでいる\n\n- 場所: `src/app/tasks/page.tsx` の `<tr>` の `className`（44 行目付近）と、期限の `<td>` 内の `{isDueSoon(task, now) && ...}`\n- 何が問題か: 同じ判定を行ごとに 2 回計算している。動作は正しいが、同じ式が二箇所に散らばっている。\n- 直し方: `tasks.map((task) => { const dueSoon = isDueSoon(task, now); ... })` の形にして、一度だけ計算して両方で使う。\n- 重要度: **低**\n\n### 5. テストが境界と時刻を十分に覆っていない\n\n- 場所: `tests/due.test.ts`（`now` の固定と `describe(\"isDueSoon\")` の各ケース）\n- 何が問題か: `now` が日本時間 0 時ちょうど 1 点だけで、次の箇所が未検証。\n  - 3 日後の境界（指摘 1）。\n  - 日本時間の日中（指摘 2）。\n  - 不正な日付文字列（`Date.parse` が NaN になる場合。`NaN >= 0` は false なので表示はされないが、テストで固定していない）。\n- 直し方: 指摘 1・2 の修正と合わせて、上記のケースを追加する。\n- 重要度: **低**\n\n## 問題が無いと判断した点\n\n- `tasks.ts` の `isTaskStatus` 等の既存ロジックは変更されていない。判定ロジックは `src/lib/` に置かれ、ページは表示だけを担当している（CLAUDE.md 規約 1）。\n- 「（期限間近）」は日本語で、仕様どおり全角括弧（規約 3）。\n- 新しい外部ライブラリは追加されていない（規約 4）。\n- テストファイルが追加されている（規約 5）。\n- 不正な `dueDate` は `Date.parse` が NaN になり、判定は false になる（クラッシュはしない）。\n\n## レビューの範囲と制約\n\n- この実行では、スキルの多段階レビュー（レビュアーの並列起動、外部モデルによるレビュー）とスコープ判定用のスクリプト（`review-scope.py`、`run-log.py`）は実行できなかった。これらは実行に承認が必要で、無人の実行では承認を得られなかったため。\n- そのため、スコープの判定は `git diff` と `git ls-files` で手作業により行い、レビューは単一のコンテキストで実施した。対象は差分全体、ルートの `CLAUDE.md`（判断基準）、PR の説明の仕様。\n- `.compound-engineering/config.yaml` と `REVIEW.md`（レビューポリシー）は存在しなかった。\n- `npm run typecheck` と `npm test` は、この実行では実行していない。指摘 1・2 の数値は、`Date.parse` の仕様と差分の式から手計算で確かめたもの。\n- 追加のレビューの指摘（セキュリティ、並行性、パフォーマンス）は行っていない。差分の範囲は表示用の判定だけで、認証や永続化には触れていない。\n",
+  "review_chars": 3398,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0616,
+    "tokens": {
+      "input": 62,
+      "output": 22297,
+      "cache_read": 2145221,
+      "cache_creation": 85769
+    },
+    "turns": 31,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"BASE_ARG=\\\"HEAD\\\"; BASE=$(git merge-base HEAD \\\"$BASE_ARG\\\" 2>/dev/null) || BASE=\\\"$BASE_ARG\\\"; echo \\\"BASE:$BASE\\\"; git status --short; echo \\\"FILES:\\\"; git diff --name-only $BASE; echo "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SCRATCH_ROOT=\\\"/tmp/compound-engineering-$(id -u)\\\"; [ ! -L \\\"$SCRATCH_ROOT\\\" ] && (umask 077; mkdir -p \\\"$SCRATCH_ROOT\\\") 2>/dev/null && [ ! -L \\\"$SCRATCH_ROOT\\\" ] && [ -O \\\"$SCRATCH_ROO"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/compound-engineering-$(id -u)/ce-code-review && chmod 700 /tmp/compound-engineering-$(id -u) && date +%Y%m%d-%H%M%S && id -u && echo $TMPDIR && which python3 python py\", \"de"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/compound-engineering-0/ce-code-review && chmod 700 /tmp/compound-engineering-0 && ls -ld /tmp/compound-engineering-0 && date +%Y%m%d-%H%M%S\", \"description\": \"Create scratch "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"RUN_DIR=/tmp/claude-0/-tmp-poc-trials-W22-hk-ce-review-c4-1-app/d2c33c16-8723-4a14-b8b0-7efa66b2a530/scratchpad/ce-code-review/run-1; mkdir -p \\\"$RUN_DIR\\\" && chmod 700 \\\"$RUN_DIR\\\" && ec"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-hk-ce-review-c4-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\", \"description\": \"Run scope signal he"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-hk-ce-review-c4-1/plugins/compound-engineering/skills/ce-code-review/scripts/run-log.py --help\", \"description\": \"Check run-log helper usage\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git --no-pager diff HEAD --stat && git --no-pager diff HEAD -- src/app/tasks/page.tsx src/lib/due.ts\", \"description\": \"Show diff stat and source changes vs HEAD\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"/usr/local/bin/python3 /tmp/poc-trials/W22-hk-ce-review-c4-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\", \"description\": \"Retr"
+      }
+    ],
+    "tool_calls": {
+      "Read": 7,
+      "Bash": 19,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 123,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を最初の依頼の形式（場所・何が問題か・直し方・重要度）に書き直し、`REVIEW.md` だけをコミットしました（`febd6b6`）。\n\n- 指摘は 5 件すべて残しました。新しい指摘は足していません。\n- 各指摘に「重要度」の行を明記しました。高が 2 件（3 日後の境界、日本時間の扱い）、低が 3 件（未使用の `due-soon` クラス、判定の二重呼び出し、テストの不足）です。\n- 指摘の内容と行番号は前回のままです。\n- コードは変更していません。差分の `src/app/tasks/page.tsx`、`src/lib/due.ts`、`tests/due.test.ts` は、ステージ済み・未ステージのまま残してあります。"
+  },
+  "interventions": 0
+}

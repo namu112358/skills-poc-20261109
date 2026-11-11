@@ -1,0 +1,43 @@
+{
+  "trial": "W22-review-pr-full-c2-1",
+  "scenario": "W22",
+  "config": "review-pr-full",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: タスク一覧の「期限の近い順」並べ替え\n\n対象: 未コミットの差分（`src/lib/tasks.ts`、`src/app/api/tasks/route.ts`、`src/app/tasks/page.tsx`、`tests/tasks.test.ts`）。\n`npm test`（23 件）と `npm run typecheck` は通ることを確認済み。5 つの専門エージェント（code-reviewer・pr-test-analyzer・silent-failure-hunter・comment-analyzer・type-design-analyzer）の結果をまとめた。\n\n結論: SQL インジェクションや規約違反といった致命的な問題は無い。`ORDER BY` の列名は `isTaskSort` で検証したうえで固定表 `SORT_COLUMNS` から引いており、規約 8 の例外として妥当。マージ前に直すべきは中 3 件、残りは低。\n\n## 中\n\n### 1. 「期限の近い順」が期限切れ・完了済みのタスクを先頭に並べる\n- 場所: `src/lib/tasks.ts` の `listTasks`（58 行目の `ORDER BY due_date, id`）、`SORT_LABELS.due`\n- 問題: 単純な昇順なので、過去の期限が先頭に来る。seed では完了済みの 2026-11-02・11-05 のタスクが一番上に出る。PR の目的は「締め切りの近いタスクから片付けたい」なのに、片付け済みのタスクが先頭を占める。「近い」の意味（今日以降か、完了を除くか）は PR に書かれていない。\n- 直し方: 仕様を決めてコードかラベルを合わせる。案は (a) `ORDER BY (status = 'done'), due_date, id` で完了済みを末尾に送る、(b) 今日より前の期限を後ろに送る、(c) 仕様を「期限の早い順」とラベルを直して現状維持。どれを選んでも、その並びをテストで固定する。\n\n### 2. 期限の形式がずれた行で並びが黙って崩れる（文字列比較に依存）\n- 場所: `src/lib/tasks.ts` の `SORT_COLUMNS.due = \"due_date\"`、`src/lib/db/migrations.ts` の `due_date TEXT NOT NULL`（制約は NOT NULL のみ）\n- 問題: 並びは文字列比較で、`YYYY-MM-DD` のゼロ詰めを前提にしている。アプリの書き込み経路（seed・`createTask`・`updateTask`）は `DATE_RE` で形式を保証するので、通常は問題ない。ただし DB に直接入った値は保証されない。実測では `''` が先頭、`2026-1-5` が `2026-11-02` より前に並び、エラーも警告も出ない。\n- 直し方: この前提を `SORT_COLUMNS` のコメントに明記する。余裕があれば、新しい番号のマイグレーション（既存は書き換えない）で `CHECK (due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')` を持つテーブルに作り直す。\n\n### 3. 不正な `sort` が黙って登録順になることの検証が無い（API・画面のテスト不在）\n- 場所: `src/app/api/tasks/route.ts` の GET（`isTaskSort(sort) ? sort : undefined`）、`src/app/tasks/page.tsx`（同じ検証を重複して持つ）、`tests/tasks.test.ts`\n- 問題: `isTaskSort` の単体テストはあるが、`?sort=due_date`・`?sort=Due`・`?sort=due&sort=id` などが「指定なし」（登録順の 200）になる流れはテストされていない。`isTaskSort` の呼び忘れや `listTasks` への渡し忘れを検知できない。規約 2 の挙動がコードを読むだけの確認になっている。\n- 加えて、API 利用者から見ると不正な値が黙って無視される。`GET /api/tasks?sort=due_date`（DB の列名で打ち間違えやすい）、`?sort=Due`、`?sort=-due` はすべて登録順の 200 を返し、エラーも警告も無い。利用者は期限順になったと思い込む。画面でも `/tasks?sort=xxx` は選択欄が「登録順」を示すだけで、壊れたリンクに気づけない。`?sort=due&sort=id` は先頭の値しか使われない。\n- 直し方: 検証を `src/lib/` の関数にまとめる（例: `parseTaskListQuery(searchParams)` が `{ status, sort }` を返す）。route と page の両方からこれを使い、不正値・重複・併用を単体テストする（規約 1 にも合う）。規約 2 の「指定なし」扱いを保つ場合は、レスポンスに適用した条件を返す（`{ tasks, applied: { status, sort } }`）など、無視したことが分かる形にする。API だけ 400 を返す案もあるが、規約 2 との整合を先に決める。\n\n## 低\n\n### 4. `TaskSort` と `TASK_SORTS` の二重定義、既定値 `\"id\"` の散在\n- 場所: `src/lib/tasks.ts`（`TaskSort` と `TASK_SORTS`、`filter.sort ?? \"id\"`）、`src/app/tasks/page.tsx`（`defaultValue={sort ?? \"id\"}`）\n- 問題: `TASK_SORTS: readonly TaskSort[]` は要素の漏れをコンパイラが検出できない。`TaskSort` に値を足して `TASK_SORTS` を直し忘れても、型は通り、新しい並びが静かに使えなくなる。既定値 `\"id\"` は lib と page の 2 か所にあり、片方だけ変えると表示と実際の並びがずれる。\n- 直し方: `export const TASK_SORTS = [\"id\", \"due\"] as const; export type TaskSort = (typeof TASK_SORTS)[number];` とし、`export const DEFAULT_TASK_SORT: TaskSort = \"id\"` を両方で使う。`SORT_COLUMNS` の値の型は `\"id\" | \"due_date\"` のリテラル型にする。\n\n### 5. テストの質\n- 場所: `tests/tasks.test.ts:33-43` ほか\n- 問題:\n  - `assert.deepEqual(keys, [...keys].sort())` は実装と同じ文字列比較で期待値を作っている循環的な検証。期待する id の並びを直接書く方がよい。\n  - 同じ期限のタスクを id の昇順で挿入しているため、`, id` の二次キーを外してもたまたま通る可能性がある。同じ期限の 3 件を id が逆順になるように挿入するなど、二次キーが効いていることを確かめる。\n  - `sort: \"id\"` を明示した場合、`isTaskSort` に `null`・数値・配列を渡す場合のテストが無い。\n- 直し方: 上記のケースを追加し、期待値を直接書く。\n\n### 6. 送信ボタンの文言と一部コメントの不足\n- 場所: `src/app/tasks/page.tsx` の「絞り込む」ボタン、`src/lib/tasks.ts` の `SORT_COLUMNS` のコメント\n- 問題: ボタンは並べ替えも送るのに「絞り込む」のまま。`SORT_COLUMNS` のコメントは「isTaskSort で検証した後」と書くが、`listTasks` 自体は検証せず型だけに頼る。検証を省いた呼び出しが入ると `ORDER BY undefined, id` になり、実行時エラーになる（インジェクションにはならない）。\n- 直し方: ボタンは「適用」などに変える。コメントには「呼び出し側が `isTaskSort` で検証済みの値だけを渡すこと」を明記するか、`listTasks` 内で `SORT_COLUMNS[...] ?? \"id\"` にする。\n\n### 7. `TaskFilter` の責務、読み出し時の検証、`NULL` のテスト（記録のみ）\n- 場所: `src/lib/tasks.ts` の `TaskFilter`、`toTask` と `listTasks` の `as TaskRow[]`、`tests/tasks.test.ts`\n- 問題:\n  - `TaskFilter` は絞り込み条件の型なのに、並び順の `sort` を持つ。名前と責務がずれている（今は 2 フィールドで実害は小さい）。並びは昇順だけで方向を持てず、降順が要るときは値を足すか型を変える必要がある。\n  - `toTask` は行の値を検証せず、壊れた `due_date`（空文字など）がそのまま画面と API に出る。\n  - `due_date` は現状 `NOT NULL` で `NULL` は入らないが、これを確認するテストが無い。将来 `NULL` 許容にすると、SQLite は `NULL` を先頭に置くので「期限なし」が一番上に出る。\n- 直し方: フィールドが増える時点で `TaskQuery` への改名か `listTasks(filter, options)` への分離を検討する。入口の検証（指摘 2）を優先し、読み出し側で検証するなら不正な行を記録する。「`NULL` は拒否される」テストを 1 件足し、`NULL` 許容にするときは `ORDER BY due_date IS NULL, due_date, id` とテストを同時に入れる。\n\n### 8. `GET /api/tasks` の冒頭コメントに取りうる値が無い\n- 場所: `src/app/api/tasks/route.ts:1`\n- 問題: コメントは `?status=…&sort=…` と書くだけで、不正な値は無視されて登録順・絞り込みなしになることが読み取れない。\n- 直し方: `// GET /api/tasks?status=…&sort=… — タスク一覧（不正な値は無視して登録順・絞り込みなし）` のように補足する。値の一覧は `TaskSort` を参照する形にして、値が増えたときに古くならないようにする。\n\n### 9. 既存の不備（今回の範囲外、記録のみ）\n- `validateTaskInput` の `Date.parse` は `2026-02-30`・`2026-02-31` を通す。期限順では 02-28 と 03-01 の間に並ぶので今回の機能は壊れないが、日付として不正な値が DB に入る。別件で、往復比較（`new Date(s).toISOString().slice(0, 10) === s`）に直す。\n- `sort=id` のとき SQL は `ORDER BY id, id` になる。無害。\n- `CLAUDE.md` の API 説明に `sort` が載っていない。規約 6 の範囲では省いてもよい。\n\n## 問題なしと判断した点\n- `ORDER BY` への列名の埋め込みは許可リスト経由のみで、`status` は `:status` のプレースホルダのまま（規約 8）。\n- `GET /api/tasks` は先にログインを確認している（規約 9）。\n- 画面の文言は日本語（規約 3）。外部ライブラリの追加は無い（規約 4）。変更はソート機能に限られている（規約 6）。\n",
+  "review_chars": 5102,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.9339,
+    "tokens": {
+      "input": 84,
+      "output": 24843,
+      "cache_read": 1452933,
+      "cache_creation": 141755
+    },
+    "turns": 9,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 20,
+      "Agent": 5,
+      "ReadNotifications": 4,
+      "Write": 1,
+      "Edit": 2
+    },
+    "skills_used": [],
+    "subagents": 5,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:comment-analyzer": 1,
+      "pr-review-toolkit:type-design-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 58,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は最初の依頼の形式（場所・問題・直し方・重要度）になっています。ただ、前回のコミットでエージェントの指摘の一部を書き漏らしていたので、補ってコミットしました。コードは直していません。コミットしたのは `REVIEW.md` だけで、PR の差分は未コミットのままです。\n\n補った内容は次の 3 点です。\n- **指摘 3:** API 利用者から見ると、不正な `sort` が黙って登録順の 200 になる点を加えました。`?sort=due_date` や `?sort=-due` が例です。直し方として、適用した条件をレスポンスに返す案と、API だけ 400 にする案も書きました。\n- **指摘 7（新設）:** `TaskFilter` に並び順が入っていて責務がずれていること、`toTask` が行を検証しないこと、`NULL` の並びのテストが無いことをまとめました。\n- **指摘 8（新設）:** `route.ts` の冒頭コメントに、不正な値が無視される旨が無い点を書きました。\n\n新しい指摘は足していません。「既存の不備」は番号が 7 から 9 に変わりました。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,43 @@
+{
+  "trial": "W22-review-pr-full-c5-2",
+  "scenario": "W22",
+  "config": "review-pr-full",
+  "case": "c5",
+  "rep": 2,
+  "review_md": "# レビュー: 担当者の項目名を `assigneeId` / `assignee_id` にする PR\n\n対象: 未コミットの差分（`git diff HEAD`、8 ファイル）。\n`npm run typecheck`・`npm test`（19 件）は通りますが、下記の高 3 件は検出できていません。\nPR の「画面の表示と API の入出力は変えない」という主張は成り立っていません。\n\nレビューは専門エージェント 5 種（code-reviewer・silent-failure-hunter・pr-test-analyzer・comment-analyzer・type-design-analyzer）で行い、`node:sqlite` での再現も含めて集約しました。\n\n## 指摘一覧\n\n### 1. 【高】一覧で担当者が `undefined` になる（列エイリアスの取り残し）\n\n- **場所**: `src/lib/tasks.ts` の `listTasks`（約 37 行目）の SELECT 文 `assignee_id AS assignee`。\n- **問題**: SELECT は列を `assignee` という名前で返しますが、`toTask` は `row.assignee_id` を読みます。`listTasks({}, db)` の結果は全件 `assigneeId: undefined` になります（再現済み。`getTask` は `\"sato\"` を返すので、一覧と詳細で食い違います）。\n  - `/tasks` の担当者列（`src/app/tasks/page.tsx:47`）が全行で空になります。React はエラーも警告も出しません。\n  - `GET /api/tasks` の JSON から担当者の項目が丸ごと消えます（`undefined` は JSON に出力されません）。\n  - `.all() as TaskRow[]` のキャストがあるため、typecheck では検出できません。\n- **直し方**: `AS assignee` を外して `SELECT id, title, status, assignee_id, due_date FROM tasks ...` にします。列リストは定数（例: `TASK_COLUMNS`）にして `listTasks` と `getTask` で共有すると再発しません。\n\n### 2. 【高】API の入出力のキー名が変わっている（PR の主張と不一致）\n\n- **場所**: `src/lib/tasks.ts` の `Task` 型・`toTask`・`validateTaskInput`。影響する Route は `src/app/api/tasks/route.ts` と `src/app/api/tasks/[id]/route.ts`（差分には含まれず、`Task` をそのまま `NextResponse.json` に渡している）。\n- **問題**: `GET/POST /api/tasks`、`GET/PATCH /api/tasks/:id` のレスポンスで `task.assignee` が `task.assigneeId` に変わります。リクエスト本文も `assignee` ではなく `assigneeId` を要求します。`assignee` を使う既存クライアントは壊れます。Route に変換層がないため、内部名がそのまま外に出ています。\n- **直し方**（どちらかに決める）:\n  - (a) 入出力を変えない: `src/lib/` に API 用の変換関数を置き、レスポンスは `assignee`、入力も `assignee` で受けて内部で `assigneeId` に詰め替えます。変換のテストも追加します。\n  - (b) キー名を変える: PR の説明を「API の破壊的変更」に直し、クライアントの移行を告知します。\n\n### 3. 【高】旧形式のリクエストが誤解を招く結果になる（400 の文言／PATCH が無言で成功）\n\n- **場所**: `src/lib/tasks.ts` の `validateTaskInput`（約 87〜93 行目、`need(\"assigneeId\")`）。\n- **問題**:\n  - `POST /api/tasks` に旧形式 `{\"title\":\"a\",\"status\":\"todo\",\"assignee\":\"sato\",\"dueDate\":\"2026-12-01\"}` を送ると 400「担当者が存在しません」になります。ID は正しいのに原因が分かりません。\n  - `PATCH /api/tasks/1` に `{\"assignee\":\"tanaka\"}` を送ると、partial 検証は `{ ok: true, value: {} }` になり、**何も更新されないまま 200 が返ります**。担当者の変更が気づかれずに失われます。\n- **直し方**: 指摘 2(a) なら `assignee` を読み続けます。(b) なら移行期間は両方のキーを受け付けるか、旧キー `assignee` が来たら「`assigneeId` を使ってください」という 400 を返します。あわせて partial 更新で未知のキーを 400 で拒否する方針も検討してください。\n\n### 4. 【高】テストの穴: `listTasks` の中身と、マイグレーション 3 の適用経路が未検証（規約 5）\n\n- **場所**: `tests/tasks.test.ts` の `describe(\"listTasks\")`、`tests/db.test.ts`。\n- **問題**:\n  - `listTasks` のテストは件数と `status` しか見ておらず、指摘 1 を見逃しました。\n  - `openDb()` は空の DB に全マイグレーションを順に適用するだけです。データのある `user_version=2` の DB に 3 を適用する経路（本番相当の更新）はテストがありません。手元の確認では、行の保持・列名変更・インデックスと外部キーの付け替えは正常でした。\n  - 担当者まわりの `updateTask`（`assigneeId` の変更）、`validateTaskInput` の partial 時の分岐、旧キーの扱いもテストがありません。\n- **直し方**:\n  - `listTasks({}, db)[0]` を `getTask(1, db)` と `deepEqual` で比べる（または全件の `assigneeId` が文字列であることを検証する）テストを追加します。\n  - `new DatabaseSync(\":memory:\")` に `migrate(db, MIGRATIONS.slice(0, 2))` を適用し、ユーザーとタスクを INSERT してから `migrate(db)` を実行します。そのうえで、行が残っていること、`getTask`・`listTasks` が正しい `assigneeId` を返すこと、`PRAGMA foreign_key_list(tasks)` の `from` が `assignee_id` であること、外部キーが効くことを検証します。\n  - `updateTask` で `assigneeId` を変更するテストと、partial で `{ assigneeId: \"nobody\" }` が拒否され `{ assigneeId: \"tanaka\" }` が通るテストを追加します。\n\n### 5. 【中】API Route・ページ表示のテストがない\n\n- **場所**: `tests/` 全体、`src/app/tasks/page.tsx`、`src/app/tasks/[id]/page.tsx`。\n- **問題**: API のレスポンス JSON のキー名や、`data-testid=\"task-assignee\"`・担当者列の表示を固定するテストがなく、指摘 1・2 のような変更を検知できません。\n- **直し方**: 表示や API 出力の整形を `src/lib/` の関数に切り出して単体テストします（規約 1 とも整合）。外部ライブラリは追加しないでください。\n\n### 6. 【中】`as TaskRow` のキャストが実行時の行形状を保証しない\n\n- **場所**: `src/lib/tasks.ts` の `listTasks` / `getTask` の `.all()` / `.get()` 直後の `as TaskRow[]`・`as TaskRow | undefined`。\n- **問題**: `node:sqlite` の戻り値は型が緩く、キャストで上書きしているため、SELECT の列名と `TaskRow` の食い違い（指摘 1）がコンパイラに見えません。\n- **直し方**: 指摘 1 の列リスト共有に加え、`toTask` の入口で `assignee_id` が文字列かどうかを検証します（`isTaskStatus` も `status` に使えます）。手書きのガードで足ります。\n\n### 7. 【低】`need(key: string)` がキー名の型チェックを受けていない\n\n- **場所**: `src/lib/tasks.ts` の `validateTaskInput` 内の `need`。\n- **問題**: 今回の差分では `need(\"assigneeId\")` と `b.assigneeId` は揃っています。ただし `string` 型なので、今回のような改名で取り残しがあってもコンパイルが通ります。\n- **直し方**: `need = (key: keyof TaskInput) => ...` にします。\n\n### 8. 【低】インデックス名 `tasks_assignee` が列名と揃わない・コメントの補足\n\n- **場所**: `src/lib/db/migrations.ts` マイグレーション 1 の `tasks_assignee`、マイグレーション 3 のコメント。\n- **問題**: `RENAME COLUMN` でインデックス名は変わらないため、列 `assignee_id` と名前が揃いません（実害はありません）。マイグレーション 3 のコメント「インデックス・外部キーは SQLite が付け替える」は事実どおりでした（node:sqlite で確認）。ただし対象に CHECK 制約が含まれないことなど、仕組みの書き足しがあると親切です。\n- **直し方**: 揃えたい場合のみ、マイグレーション 4 で `DROP INDEX` と `CREATE INDEX tasks_assignee_id` を追加します（マイグレーション 1 は書き換えないでください。規約 7）。コメントの補足は任意です。\n\n### 9. 【低】`validateTaskInput` の戻り値が `Partial<TaskInput>` のため、POST 側にキャストが必要\n\n- **場所**: `src/lib/tasks.ts` の `TaskInput = Omit<Task, \"id\">` と `validateTaskInput` の戻り値、`src/app/api/tasks/route.ts` の `result.value as TaskInput`。\n- **問題**: 非 partial の検証が通ったことが型に表れず、キャストで補っています。キャストを外すと欠けた項目が `createTask` に渡る恐れがあります。現状は `need()` が全項目を要求するので実害はなく、今回の差分で悪化したものでもありません。\n- **直し方**: オーバーロード（`partial: true` なら `Partial<TaskInput>`、そうでなければ `TaskInput`）にして、キャストを不要にします。\n\n### 10. 【低】詳細ページと一覧ページで担当者の表示が揃っていない\n\n- **場所**: `src/app/tasks/[id]/page.tsx` の `assignee?.name ?? task.assigneeId`、`src/app/tasks/page.tsx:47` の `{task.assigneeId}`。\n- **問題**: 詳細ページは氏名、一覧ページは ID（`sato` など）を表示します。詳細ページのフォールバックは、外部キー制約があるため実際には通りません。元の `task.assignee` のときからある挙動で、今回の差分が原因ではありません。「画面を変えない」という趣旨なら、そのままで問題ありません。\n- **直し方**: 統一したい場合は、一覧でも `getUser` で氏名を引くか、フォールバックを廃止します（取得処理は規約 1 のとおり `src/lib/` に置きます）。\n\n### 11. 【低】`assigneeId` のコメントの書き方\n\n- **場所**: `src/lib/tasks.ts:9` の `assigneeId: string; // users.id`。\n- **問題**: 内容は正確です（外部キーが `users.id` を指すことを確認済み）。ただし、画面の文言が日本語であるのに合わせると、意図がより伝わります。\n- **直し方**: 任意で `// 担当ユーザーの users.id` のように書きます。\n\n## 問題なしと確認した点\n\n- マイグレーション 3 は末尾に追加され、既存のマイグレーションは書き換えられていません（規約 7）。データのある v2 の DB でも、行・インデックス・外部キーは保たれます。\n- SQL はプレースホルダを使っています（規約 8）。\n- `getTask`・`createTask`・`updateTask`・seed・詳細ページは新しい列名と項目名に正しく揃っています。\n\n## マージ前に必要な対応\n\n1. 指摘 1 を直し、`listTasks` の中身を検証するテストを追加する。\n2. 指摘 2・3 の方針（入出力を維持するか、破壊的変更として明記するか）を決めて反映する。\n3. 指摘 4 のマイグレーションと担当者まわりのテストを追加する。\n",
+  "review_chars": 6165,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 1.0807,
+    "tokens": {
+      "input": 78,
+      "output": 29233,
+      "cache_read": 1293272,
+      "cache_creation": 171328
+    },
+    "turns": 7,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 20,
+      "Agent": 5,
+      "Read": 1,
+      "Write": 1,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 5,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:comment-analyzer": 1,
+      "pr-review-toolkit:type-design-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 60,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` に、前回のレビューで出た指摘を漏れなく載せ、コミットしました（f764b33）。コミットしたのは `REVIEW.md` だけで、コードは直していません。\n\n前回の `REVIEW.md` には、すでに高 4 件・中 2 件・低 2 件が入っていました。各エージェントの報告と突き合わせると、低重要度の次の 3 件が抜けていたので追記しました。\n\n- **指摘 9:** `validateTaskInput` の戻り値が `Partial<TaskInput>` のため、POST 側でキャストが必要になっています。\n- **指摘 10:** 詳細ページは氏名、一覧ページは ID を表示していて、担当者の表示が揃っていません。今回の差分が原因ではなく、元からある挙動です。\n- **指摘 11:** `// users.id` のコメントを、日本語で書くと意図が伝わりやすくなります。任意の改善です。\n\n新しい指摘は足していません。各エージェントが「問題なし」「対応不要」とした点（seed の `as const` など）は、前回のとおり載せていません。\n\n`src/` と `tests/` の PR の差分は、これまでどおり未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

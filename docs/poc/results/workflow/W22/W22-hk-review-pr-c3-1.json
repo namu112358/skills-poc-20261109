@@ -1,0 +1,35 @@
+{
+  "trial": "W22-hk-review-pr-c3-1",
+  "scenario": "W22",
+  "config": "hk-review-pr",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: タスク一覧の CSV ダウンロード（`GET /api/tasks/export`）\n\n対象: 未コミットの差分（`src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`）。\n確認: `npm run typecheck` は通過。`npm test` は 22 件すべて通過。下の 1・2 は再現スクリプトで確認した。\n\n## 指摘\n\n### 1. [高] `src/lib/export.ts` `field()`: 値の中の `\"` を二重にしていない\n\n- 何が問題か: 値を `\"...\"` で囲うだけで、値に含まれる `\"` を `\"\"` にエスケープしていない。タイトルが `He said \"hi\"` のとき、出力は `\"He said \"hi\"\"` になり、CSV として壊れる（引用符が閉じる位置がずれ、列やセルが崩れる）。PR の「引用符が含まれても列がずれない」という説明に反する。\n- 再現: `toCsv([{ title: 'He said \"hi\"', ... }])` の出力行は `\"1\",\"He said \"hi\"\",\"未着手\",...` となる。\n- 直し方: `function field(value)` で `` `\"${String(value).replace(/\"/g, '\"\"')}\"` `` を返す。併せて `tests/export.test.ts` に `\"` を含むタイトルのケースを追加する（指摘 4 を参照）。\n\n### 2. [高] `src/app/api/tasks/export/route.ts` `GET`: `?status=` を検証していない\n\n- 何が問題か: `searchParams.get(\"status\") as TaskStatus | null` とキャストしているだけで、`isTaskStatus` で検証していない。`?status=bogus` を渡すと `listTasks` が 0 件を返し、見出しだけの CSV が出る。PR の表に「不正な値は、一覧と同じく『指定なし』」とあり、一覧（`src/app/api/tasks/route.ts`）は `isTaskStatus` で「指定なし」として扱う。CLAUDE.md のコーディング規約 2 にも反する。\n- 再現: `listTasks({ status: \"bogus\" })` は 0 件（シードは 7 件）。\n- 直し方: `isTaskStatus` を import し、一覧と同じく `const status = new URL(request.url).searchParams.get(\"status\"); listTasks({ status: isTaskStatus(status) ? status : undefined })` とする。`as` キャストは削除する。\n\n### 3. [中] `src/lib/export.ts` `field()`: CSV 数式インジェクション\n\n- 何が問題か: タイトルは任意のログインユーザーが入力できる。`=HYPERLINK(...)` や `+`・`-`・`@` で始まるタイトルは、Excel で開くと数式として評価される（外部リンクの実行、データの持ち出しにつながりうる）。報告用に Excel へ貼る用途なので、実害の入口になる。\n- 再現: `toCsv([{ title: '=HYPERLINK(\"http://x\",\"k\")', ... }])` は、そのまま `\"=HYPERLINK(...)\"` を出力する。\n- 直し方: 値が `=`・`+`・`-`・`@`・タブ・改行（`\\r`）で始まるとき、先頭に `'` を付けてから引用符で囲む。どうしても数式を無効化できない場合は、PR の説明に制約として明記する。\n\n### 4. [中] `tests/export.test.ts`: テスト名と内容が合っていない。引用符・改行のテストが無い\n\n- 何が問題か: 2 つ目のテスト名は「escapes quotes and commas in titles」だが、入力の `週次 定例の準備` にはカンマも引用符も含まれない。そのため、指摘 1 のバグがあってもテストは通る。改行を含むタイトルのテストも無い。\n- 直し方: 次のケースを追加する。`\"` を含むタイトル（期待値は `\"\"` に変換されていること）、`,` を含むタイトル、改行を含むタイトル（`\\r\\n` が行の区切りとして混ざらず、1 行の中に収まること）。`=` で始まるタイトルも、指摘 3 を直すなら追加する。\n\n### 5. [中] `src/app/api/tasks/export/route.ts`: ステータスの絞り込みが単体テストされていない\n\n- 何が問題か: 絞り込みは route 内にしか無く、テストは `toCsv` と `listTasks({})` の組み合わせだけを見ている。そのため、指摘 2 の不具合を検出できなかった。CLAUDE.md のコーディング規約 1（データの絞り込みは `src/lib/` の関数に置く）と規約 5（ロジックを変えたら `tests/` に単体テストを追加する）に照らして、絞り込みも lib に置き、テストを付けるのが望ましい。\n- 直し方: `src/lib/` に「クエリの `status` 文字列を `TaskFilter` にする関数」（例: `parseTaskFilter(params)`）を作り、route からはそれを呼ぶ。`tests/` で `?status=todo` は `todo` のみ、`?status=bogus` は指定なし、`null` は指定なし、となることを確認する。\n\n### 6. [低] 担当者の列に ID（`sato`）が出る\n\n- 何が問題か: 列名は「担当者」だが、値は `users.id`（`sato` など）。報告用の Excel では表示名（`佐藤`）の方が読みやすい。\n- 直し方: `users` を結合して `name` を出すか、`listTasks` の結果を名前に変換する。もし ID のままにする意図なら、PR の説明に明記する。\n\n### 7. [低] `tests/export.test.ts` 1 つ目: 件数の `9` がシードの件数に依存している\n\n- 何が問題か: `lines.length === 9` は、シードのタスクが 7 件であることに依存している。シードが変わるとテストが壊れる。\n- 直し方: 期待値を `listTasks({}, db).length + 2` のように DB から求めるか、テスト用の DB に固定の件数を入れる。\n\n## 問題がないと判断した点\n\n- 認証: `requireApiUser()` を最初に呼び、未ログインなら 401 を返している。\n- SQL: `listTasks` はプレースホルダを使っており、文字列連結は無い。\n- BOM: `CSV_BOM` は U+FEFF（UTF-8 の BOM）で、Excel での文字化け対策として正しい。\n- 改行とヘッダ: 行の区切りは CRLF、見出しは 1 行目に出ており、件数の計算も正しい（テストで確認済み）。\n- `Content-Disposition` と `Content-Type`: `attachment; filename=\"tasks.csv\"` と `text/csv; charset=utf-8` で、ダウンロードとして扱われる。\n",
+  "review_chars": 3294,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0215,
+    "tokens": {
+      "input": 24,
+      "output": 11147,
+      "cache_read": 573922,
+      "cache_creation": 50781
+    },
+    "turns": 16,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 10,
+      "TaskStop": 1,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 183,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は前回のコミット `49d7b1c` の時点で、すでにこの依頼の形式を満たしています。新しいコミットは作っていません。内容を変えると「同じ内容を書き写す」という依頼から外れるためです。\n\n現在の `REVIEW.md` には、直前のレビューで出た 7 件がすべて入っています。\n\n- 高: 2 件（引用符のエスケープ漏れ、`?status=` の未検証）\n- 中: 3 件（CSV 数式インジェクション、テストが引用符・改行をカバーしていない、絞り込みが単体テストされていない）\n- 低: 2 件（担当者の列に ID が出る、テストの件数 `9` がシードに依存する）\n\n各指摘には場所、何が問題か、直し方、重要度を書いています。コードは変更していません。作業ツリーには、レビュー対象の 3 ファイル（`A` のステージ状態）だけが残っています。"
+  },
+  "interventions": 0
+}

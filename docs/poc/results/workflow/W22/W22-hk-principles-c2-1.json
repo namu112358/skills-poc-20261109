@@ -1,0 +1,51 @@
+{
+  "trial": "W22-hk-principles-c2-1",
+  "scenario": "W22",
+  "config": "hk-principles",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の「期限の近い順」並べ替え\n\n対象: 未コミットの差分（`git diff HEAD`）。PR の説明（一覧の並べ替え・`GET /api/tasks?sort=` の追加・不正な `sort` は登録順として扱う）に照らして確認した。\n\n## レビューの要約\n\nタスク一覧（画面と API）に `sort=id` / `sort=due` を追加する変更で、目的は PR の説明どおり。ユーザー入力は `isTaskSort` で検証してから使われ、不正な値は既定の登録順になる。`npm run typecheck` と `npm test`（23 件）は通ることを確認した。\n\n全体としては承認できる。ただし `listTasks` の SQL を文字列テンプレートで組み立てている点は、プロジェクトの規約 8（「文字列連結で組み立てない」）に抵触するため、マージ前に直すことを勧める。他は軽微な指摘のみ。\n\n## 良い点\n\n- 利用者の `sort` は `isTaskSort` で検証し、SQL に入るのは `SORT_COLUMNS` の固定値だけになっている。列名の入れ替えに対して安全な形。\n- 画面と API のどちらも、不正な値を「指定なし」（既定の登録順）として扱っている（規約 2）。\n- 同じ期限のタスクは `, id` で登録順になり、絞り込みとの組み合わせもテストされている。\n- `SORT_LABELS` や `SORT_COLUMNS` を `Record<TaskSort, …>` で書いているため、並べ替えの種類を増やしたときに TypeScript が書き漏れを検出する。\n- 差分は依頼された範囲に収まっており、新しいライブラリも追加されていない。\n\n## 指摘\n\n重要度は高・中・低で表す（直前の「推奨」は中、「細かい点」は低に対応）。\n\n### 1. `listTasks` が SQL をテンプレート文字列で組み立てている\n\n- 場所: `src/lib/tasks.ts:55-60`（特に 58 行目の `ORDER BY ${SORT_COLUMNS[filter.sort ?? \"id\"]}, id`）\n- 何が問題か: 現在の入力では安全（列名は `isTaskSort` 通過後の固定表からしか来ない）。ただし、プロジェクトの規約 8 は「SQL に値を埋め込むときは必ずプレースホルダを使い、文字列連結で組み立てない」と定めている。この書き方は規約の文面に反しており、後から `SORT_COLUMNS` に利用者由来の値を通すような変更が入ると、そのまま注入の入口になる。また、レビューする人が毎回「これは安全か」を確かめ直すことになる。\n- 直し方: 並べ替えを `CASE` 式でプレースホルダに置き換える。SQL の形は常に同じになり、値はすべて `:sort` で渡す。`SORT_COLUMNS` は不要になる。\n\n  ```ts\n  export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {\n    const rows = db\n      .prepare(\n        `SELECT id, title, status, assignee, due_date FROM tasks\n         WHERE (:status IS NULL OR status = :status)\n         ORDER BY CASE WHEN :sort = 'due' THEN due_date END, id`,\n      )\n      .all({ status: filter.status ?? null, sort: filter.sort ?? \"id\" }) as TaskRow[];\n    return rows.map(toTask);\n  }\n  ```\n\n  `sort` が `\"id\"` のときは `CASE` が全行で NULL になり、並びは `id` だけで決まる。node:sqlite で、id 順・期限順・絞り込みとの組み合わせの結果が期待どおりになることを確認済み。直したあとも既存の並べ替えテスト 3 件が通ることを確認すること。\n- 重要度: 中\n\n### 2. 並べ替えのテストが、期待値を「文字列としての並び替え」で作り直している\n\n- 場所: `tests/tasks.test.ts:33-43`（\"sorts by due date, then by id\"）\n- 何が問題か: `keys` を `[...keys].sort()` と比べているため、テストが実装と同じ考え方（文字列の辞書順）で並びを判定している。期限の並びが正しくても、テストが読みにくく、テストの名前が示す「期限、次に登録順」の期待値がはっきり見えない。後の変更で壊れたときに、どこが違ったのかが分かりにくい。\n- 直し方: 期待値を具体的な ID の列で書く。例えば、期限の早い順に `[1, 2, 8, ...]` のような配列を `assert.deepEqual` で比べる（既存の `combines the status filter and the sort` と同じ書き方）。\n- 重要度: 低\n\n### 3. 期待値が seed データの値に直接依存している\n\n- 場所: `tests/tasks.test.ts:35-40`（`[2, 8]`）、`tests/tasks.test.ts:45-50`（`[\"2026-11-18\", \"2026-11-20\", \"2026-11-25\"]`）\n- 何が問題か: seed の期限や件数が変わると、並べ替えの仕組みが正しくてもテストが落ちる。既存の `returns all tasks without a filter`（件数 7）も同じ性質だが、今回は期待値が増えている。\n- 直し方: 今の書き方を変える必要はない。テストごとに必要なタスクを `createTask` で作って並べ替えを確かめる形にすると、seed から独立する。この PR で直す必要は薄い。\n- 重要度: 低\n\n### 4. 既定値 `\"id\"` が複数の場所に書かれている\n\n- 場所: `src/lib/tasks.ts:58`（`filter.sort ?? \"id\"`）、`src/app/tasks/page.tsx:32`（`defaultValue={sort ?? \"id\"}`）、`src/app/api/tasks/route.ts`（`sort` 未指定のとき `undefined` を渡す）\n- 何が問題か: 既定の並べ替えを変えるときに、2 か所を直す必要がある。今は値が一致しているので不具合はない。同じ業務の決まり（既定の並べ替え）が複数の場所にあるのは、将来の食い違いの元になる。\n- 直し方: 既定の並べ替えを `DEFAULT_SORT: TaskSort = \"id\"` のように 1 か所で定義し、`listTasks` と画面の両方から参照する。この PR では 2 か所だけなので、直さなくてもマージしてよい。\n- 重要度: 低\n\n### 5. API の `sort` の受け渡しに対応するテストがない\n\n- 場所: `src/app/api/tasks/route.ts:9-15`\n- 何が問題か: `isTaskSort` と `listTasks` は単体テストされているが、`GET` が `sort` の値を `listTasks` に渡すところは、テストされていない。将来、`route.ts` で `sort` を取り違えても検出できない。\n- 直し方: このプロジェクトのテストは `src/lib/` の関数に対するもの（CLAUDE.md の DB・テストの方針）で、API Route のテストは既存にもない。この PR だけで導入する必要はないので、見送ってよい。API の振る舞いを確かめるテストを増やすなら、別の PR で扱う。\n- 重要度: 低\n\n## 判断の要点（問題なしと判断したこと）\n\n- 不正な `sort` を `undefined` にして既定を使うのは、画面の `status` と同じ書き方で、規約 2 に合っている。この小さな「検証して既定に戻す」処理を、画面と API の間で共通化する必要はない（まだ 2 か所で、共通化すると両者の変更が絡む）。\n- `SORT_LABELS`・`SORT_COLUMNS`・`TASK_SORTS` が並べ替えの種類をそれぞれ持つのは、既存のステータスの作り（`STATUS_LABELS`・`TASK_STATUSES`）に揃えた形。`Record` で網羅性を型で確かめているので、指摘しない。\n- 期限の並べ替えは `due_date` の文字列としての並びに頼っているが、`validateTaskInput` の `YYYY-MM-DD` の形式検査と seed の形式によって、形式は揃っている。この PR の問題ではない。\n",
+  "review_chars": 3897,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0326,
+    "tokens": {
+      "input": 38,
+      "output": 18569,
+      "cache_read": 1120213,
+      "cache_creation": 60684
+    },
+    "turns": 24,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run typecheck 2>&1 | tail -5; echo \\\"TC=$?\\\"; npm test 2>&1 | tail -25\", \"description\": \"Run typecheck and unit tests to verify the diff\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"ORDER BY\\\\|SORT_COLUMNS\\\\|export function listTasks\\\\|const SORT_COLUMNS\\\" src/lib/tasks.ts && grep -n \\\"sort\\\" src/app/api/tasks/route.ts src/app/tasks/page.tsx && grep -n \\\"so"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp && node --no-warnings --input-type=module -e '\\nimport { DatabaseSync } from \\\"node:sqlite\\\";\\nconst db = new DatabaseSync(\\\":memory:\\\");\\ndb.exec(\\\"CREATE TABLE tasks (id INTEGER"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -q -m \\\"$(printf 'Add review notes for the due-date sort change\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://cla"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 17,
+      "Write": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 96,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を最初の依頼の形式に書き直し、そのファイルだけをコミットしました（コミット `90dc8e2`）。コードは変更していません。未コミットの 4 ファイルは残ったままです。\n\n- 指摘は 5 件すべて残しました。新しい指摘は足していません。\n- 各指摘に「場所」「何が問題か」「直し方」「重要度」を付けました。\n- 重要度は依頼どおり高・中・低で書きました。直前の「推奨」は「中」、「細かい点」は「低」に対応させています。\n  - 1: 中（`listTasks` の SQL の組み立て方）\n  - 2〜5: 低\n- 「判断の要点」の節（問題なしと判断したこと）はそのまま残しました。"
+  },
+  "interventions": 0
+}
