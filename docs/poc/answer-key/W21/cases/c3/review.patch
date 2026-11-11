@@ -1,0 +1,77 @@
+diff --git a/src/app/api/tasks/export/route.ts b/src/app/api/tasks/export/route.ts
+new file mode 100644
+index 0000000..27a0f3e
+--- /dev/null
++++ b/src/app/api/tasks/export/route.ts
+@@ -0,0 +1,18 @@
++// GET /api/tasks/export?status=… — タスク一覧を CSV でダウンロードする。ログインが必要。
++import { NextResponse } from "next/server";
++import { requireApiUser } from "@/lib/api";
++import { CSV_BOM, toCsv } from "@/lib/export";
++import { listTasks, type TaskStatus } from "@/lib/tasks";
++
++export async function GET(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const status = new URL(request.url).searchParams.get("status") as TaskStatus | null;
++  const csv = toCsv(listTasks({ status: status ?? undefined }));
++  return new NextResponse(CSV_BOM + csv, {
++    headers: {
++      "Content-Type": "text/csv; charset=utf-8",
++      "Content-Disposition": 'attachment; filename="tasks.csv"',
++    },
++  });
++}
+diff --git a/src/lib/export.ts b/src/lib/export.ts
+new file mode 100644
+index 0000000..1479025
+--- /dev/null
++++ b/src/lib/export.ts
+@@ -0,0 +1,18 @@
++// タスクの CSV 出力。
++import { STATUS_LABELS, type Task } from "./tasks.ts";
++
++/** Excel で開いたときに文字化けしないよう、先頭に付ける UTF-8 の BOM。 */
++export const CSV_BOM = "﻿";
++
++const HEADER = ["ID", "タイトル", "ステータス", "担当者", "期限"];
++
++/** 1 つの値を CSV の項目にする。カンマや改行を含んでもよいよう、必ずダブルクォートで囲む。 */
++function field(value: string | number): string {
++  return `"${value}"`;
++}
++
++/** タスクの一覧を CSV（CRLF 区切り）にする。先頭は見出しの行。 */
++export function toCsv(tasks: readonly Task[]): string {
++  const rows = [HEADER, ...tasks.map((t) => [t.id, t.title, STATUS_LABELS[t.status], t.assignee, t.dueDate])];
++  return rows.map((row) => row.map(field).join(",")).join("\r\n") + "\r\n";
++}
+diff --git a/tests/export.test.ts b/tests/export.test.ts
+new file mode 100644
+index 0000000..90302dc
+--- /dev/null
++++ b/tests/export.test.ts
+@@ -0,0 +1,23 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { toCsv } from "../src/lib/export.ts";
++import { listTasks, type Task } from "../src/lib/tasks.ts";
++
++describe("toCsv", () => {
++  it("writes a header and one line per task", () => {
++    const lines = toCsv(listTasks({}, openDb())).split("\r\n");
++    assert.equal(lines[0], '"ID","タイトル","ステータス","担当者","期限"');
++    assert.equal(lines.length, 9); // 見出し + 7 件 + 末尾の空文字列
++    assert.equal(lines[1], '"1","要件定義書のレビュー","完了","sato","2026-11-02"');
++  });
++
++  it("escapes quotes and commas in titles", () => {
++    const task: Task = { id: 9, title: "週次 定例の準備", status: "todo", assignee: "sato", dueDate: "2026-12-01" };
++    assert.equal(toCsv([task]).split("\r\n")[1], '"9","週次 定例の準備","未着手","sato","2026-12-01"');
++  });
++
++  it("returns only the header for an empty list", () => {
++    assert.equal(toCsv([]), '"ID","タイトル","ステータス","担当者","期限"\r\n');
++  });
++});
