@@ -190,7 +190,12 @@ def main():
         b = browser(TASK[-1]) if checks["build"]["pass"] else {"errors": ["build failed"], "checks": {}, "axe": {}}
         result.update({"checks": checks, "deps_same": deps_same, "browser": b, "score": score_build(checks, deps_same, b),
                        "observations": observations(base)})
-        if (RAW / "pre-polish-commit").exists():
+        if (RAW / "pre-polish-commit").exists() and os.environ.get("POC_REGRADE_BASE"):
+            # 作り直して採点し直すときは、仕上げの前のコミットが無いので、前回の採点の結果をそのまま引き継ぐ
+            prev = json.loads(OUT.read_text()) if OUT.exists() else {}
+            result["pre_polish"] = prev.get("pre_polish")
+            msg_pre = " pre=(前回の結果を引き継ぎ)"
+        elif (RAW / "pre-polish-commit").exists():
             pre = pre_polish(TASK[-1])
             pre["score"] = score_build({"build": {"pass": pre["build"]}, "typecheck": {"pass": True}, "test": {"pass": True}}, True, pre["browser"])
             result["pre_polish"] = pre

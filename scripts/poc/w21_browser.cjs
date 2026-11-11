@@ -169,8 +169,9 @@ async function axe(page) {
       const stayed = new URL(page.url()).pathname === "/tasks/new";
       const msg = (await page.locator('[role="alert"], [aria-invalid="true"], :invalid').count()) > 0;
       out.checks.error_on_empty = stayed && msg;
-      await page.getByLabel(/タイトル/).first().fill(title);
-      const due = page.getByLabel(/期限/).first();
+      // ラベルの名前が同じ別の要素（グループや説明）を拾わないよう、入力欄の役割で探す（2026-11-11 採点の誤りを直した）
+      await page.getByRole("textbox", { name: /タイトル/ }).first().fill(title);
+      const due = page.locator("input").and(page.getByLabel(/期限/)).first();
       await due.fill("2026-12-01");
       const who = page.getByLabel(/担当/).first();
       if ((await who.count()) && (await who.evaluate((el) => el.tagName)) === "SELECT") {
