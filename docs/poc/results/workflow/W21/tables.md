@@ -40,6 +40,8 @@
 | Frontend Design + 指示 | 3 | 18.0 | 49.3 | $0.41 | 2.8 | 3 / 3 | frontend-design |
 | Impeccable + 指示 | 3 | 17.0 | 48.7 | $1.06 | 5.0 | 3 / 3 | impeccable:impeccable |
 | 4 つすべて + 役割の指示 | 3 | 14.5 | 48.3 | $1.22 | 5.6 | 3 / 3 | impeccable:impeccable |
+| Frontend Design + 指示 → WDG で仕上げ | 3 | — | 50.0 | $0.73 | 4.6 | 3 / 3 | frontend-design, web-design-guidelines |
+| Frontend Design + 指示 → Impeccable で仕上げ | 3 | — | 50.0 | $0.86 | 4.4 | 3 / 3 | frontend-design |
 
 ### W21e ダッシュボード
 
@@ -53,6 +55,8 @@
 | Frontend Design + 指示 | 3 | 16.2 | 50.0 | $0.42 | 2.3 | 3 / 3 | frontend-design |
 | Impeccable + 指示 | 3 | 15.7 | 50.0 | $0.93 | 4.5 | 3 / 3 | impeccable:impeccable |
 | 4 つすべて + 役割の指示 | 3 | 16.2 | 50.0 | $1.07 | 5.2 | 3 / 3 | impeccable:impeccable, web-design-guidelines |
+| Frontend Design + 指示 → WDG で仕上げ | 3 | — | 50.0 | $0.84 | 4.5 | 3 / 3 | frontend-design, web-design-guidelines |
+| Frontend Design + 指示 → Impeccable で仕上げ | 3 | — | 50.0 | $0.74 | 3.6 | 3 / 3 | frontend-design |
 
 ### W21f 登録フォーム
 
@@ -66,6 +70,17 @@
 | Frontend Design + 指示 | 3 | 15.3 | 50.0 | $0.94 | 5.2 | 3 / 3 | frontend-design |
 | Impeccable + 指示 | 3 | 14.8 | 50.0 | $1.37 | 6.4 | 3 / 3 | impeccable:impeccable |
 | 4 つすべて + 役割の指示 | 3 | 12.5 | 50.0 | $1.30 | 5.4 | 3 / 3 | impeccable:impeccable, web-design-guidelines |
+| Frontend Design + 指示 → WDG で仕上げ | 3 | — | 50.0 | $1.24 | 5.7 | 3 / 3 | frontend-design, web-design-guidelines |
+| Frontend Design + 指示 → Impeccable で仕上げ | 3 | — | 50.0 | $1.15 | 6.7 | 3 / 3 | frontend-design |
+
+### W21g 見つけにくい問題の UI レビュー（W24）
+
+| 構成 | 回数 | 品質 / 100 | 見つけた問題 / 8 | おとり・誤りへの指摘 | 費用（平均） | Skill が呼ばれた回数 |
+|---|---:|---:|---:|---:|---:|---|
+| ツールなし | 3 | 83.3 | 6.7 | 0.7 | $0.17 | 0 / 3 |
+| 4 つすべて | 3 | 93.3 | 7.7 | 0.7 | $0.18 | 0 / 3 |
+| FD + WDG + レビューの指示 | 3 | 80.0 | 6.3 | 0.7 | $0.18 | 3 / 3 |
+| Impeccable + WDG + レビューの指示 | 3 | 88.3 | 7.3 | 1.0 | $0.62 | 3 / 3 |
 
 ### デザインの Skill が呼ばれたかどうかと AI の見た目の判定
 
