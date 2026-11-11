@@ -66,6 +66,7 @@ def frontmatter_check(skill: Path):
     """skill-creator の quick_validate.py を使う（Skills の形式の正本）。"""
     if not (QUICK_VALIDATE / "quick_validate.py").exists():
         return False, "skill-creator（.claude/skills/skill-creator）がないため、形式を検査できません。標準の Skills を入れてください"
+    sys.dont_write_bytecode = True  # vendored Skill の中に __pycache__ を作らない
     sys.path.insert(0, str(QUICK_VALIDATE))
     try:
         from quick_validate import validate_skill  # noqa: PLC0415

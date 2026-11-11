@@ -7,7 +7,7 @@ AI エージェント（主に Claude Code）を使って新規開発を進め�
 | [1. どの Skills・プラグイン・MCP を入れるか](#1-どの-skillsプラグインmcp-を入れるか) | 必須の 11 件と、採用技術ごとの追加分を固定のバージョンで入れる | 決定。追加候補は調査のみ |
 | [2. どのような開発ワークフローを組むか](#2-どのような開発ワークフローを組むか実装レビュー自己改善) | 実装は既定でワークフロー用のプラグインを使わず、難しい作業だけ Compound Engineering を使う。品質を上げる手段は、Issue に運用の事情を書くこと | 暫定（PoC の途中） |
 | [3. どのような GitHub の設定が必要か](#3-どのような-github-の設定が必要か) | Rulesets・Advanced Security・Actions の標準設定と、Issue・PR のテンプレートを入れる | 決定 |
-| [4. AI への指示と管理をどうするか](#4-ai-への指示と管理をどうするか) | 指示ファイルは雛形から始め、プロジェクト固有の罠を理由つきで書く。権限は最小にし、Skills と指示を機械で検査する | 決定。設定ファイルの配り方は未整理 |
+| [4. AI への指示と管理をどうするか](#4-ai-への指示と管理をどうするか) | 指示ファイルと設定は雛形から始め、プロジェクト固有の罠を理由つきで書く。権限は最小にし、Skills と指示を CI で機械的に検査する | 決定 |
 
 全体の設計原則は [開発標準](docs/standards/ai-software-factory-engineering-standard.md)（v1.1 Draft、レビュー記録は [docs/standards/REVIEW.md](docs/standards/REVIEW.md)）にまとめています。
 
@@ -33,7 +33,7 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 
 ### 採用技術・利用サービスに応じて追加するもの
 
-`scripts/add-stack.sh <stack>...` で、該当するプロジェクトにだけ追加します（`.mcp.json`・`.claude/skills/`・`.claude/settings.json` を更新）。
+`scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...` で、該当するプロジェクトにだけ追加します（`.mcp.json`・`.claude/skills/`・`.claude/settings.json` を更新）。`--dest` を省略すると、このリポジトリ自身に追加します。
 
 | stack | 対象 | 種別 | ツール | 提供元 | リポジトリ | 認証 |
 |---|---|---|---|---|---|---|
@@ -49,7 +49,7 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 | `cloudflare` | 〃 | MCP | Cloudflare Docs MCP（`https://docs.mcp.cloudflare.com/mcp`） | Cloudflare | [cloudflare/mcp-server-cloudflare](https://github.com/cloudflare/mcp-server-cloudflare) | 不要 |
 
 ```bash
-scripts/add-stack.sh typescript react-nextjs supabase vercel
+scripts/add-stack.sh --dest ../my-project typescript react-nextjs supabase vercel
 ```
 
 - TypeScript LSP を使うには、`npm install -g typescript-language-server typescript` で言語サーバーを入れておく必要があります。
@@ -128,18 +128,26 @@ scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
 
 ## 4. AI への指示と管理をどうするか
 
-### 指示ファイル
+### 指示ファイルと設定
 
-各プロジェクトに置く `AGENTS.md`・`CLAUDE.md` の雛形と、Skills の検査スクリプトを `templates/agents/` に置いています。
+各プロジェクトに置く標準構成を、`templates/agents/` に置いています。
+
+- 指示ファイル: `AGENTS.md`・`CLAUDE.md`
+- 設定: `.claude/settings.json`（標準のプラグイン・MCP・権限）・`.mcp.json`
+- Skills の検査スクリプトと、それを CI で回すワークフロー
+
+標準の Skills は雛形に複製せず、配るときに固定コミットから取得します。
 
 - `AGENTS.md` の「規約」の節は、どのプロジェクトにも共通の規約です。各プロジェクトが書くのは「このリポジトリについて」と「このプロジェクトの罠」の節だけです。
 - 規約は言い切りの形で書き、罠は理由と、きっかけになった事象の記録とセットで書きます。書き方と根拠は [開発標準 §2.1](docs/standards/ai-software-factory-engineering-standard.md) の「規約の書き方」にあります。
 
 ```bash
-scripts/add-agent-templates.sh <対象リポジトリのパス>
+scripts/add-agent-templates.sh <対象リポジトリのパス> --with-check
+scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...
 ```
 
-- 既存のファイルは上書きしません。
+- `--with-check` を付けると、Skills の検査を CI で回すワークフロー（`.github/workflows/skills-check.yml`）も置きます。`--no-skills` を付けると、標準の Skills を置きません。
+- 既存のファイルは上書きしません。設定ファイルは、雛形の中身をすべて含んでいれば（`add-stack.sh` で足しただけなら）そのままにし、雛形から外れていれば知らせます。
 - ただし `AGENTS.md` に共通規約の印（`<!-- 共通規約ここから -->` 〜 `<!-- 共通規約ここまで -->`）があれば、その間だけを最新の共通規約に置き換えます。共通規約を更新したあとに再実行すると、各プロジェクトに反映できます。
 
 ### 機械的な検査
@@ -153,7 +161,7 @@ scripts/add-agent-templates.sh <対象リポジトリのパス>
     - 参照先のファイルがあるか
     - 評価ケース（`evals/evals.json`）と発火の評価（`evals/trigger.json`）の定義が正しいか
   - 評価ケースを実際のモデルで動かして採点するのは、費用がかかり結果も毎回ぶれるため、この検査には含めません。必要なときに skill-creator の手順で行います。
-- 検査はまだ CI で動かしていません。
+- このリポジトリでは、関係するファイルを変えた PR で、`agent-config-check` が上の検査と雛形の一致の検査（`scripts/check-templates.py`）を回します。失敗してもマージは止まりません。止めたい場合は Ruleset の必須チェックに加えます。
 
 ### 権限と認証情報
 
@@ -173,16 +181,16 @@ scripts/add-agent-templates.sh <対象リポジトリのパス>
 - Supabase MCP は、開発用プロジェクトにだけ接続する。やむを得ず本番プロジェクトにつなぐ場合は、URL に `&read_only=true` を付けて読み取り専用にする。
 - Vercel MCP は OAuth で認証し、必要に応じて `https://mcp.vercel.com/<team-slug>/<project-slug>` で対象プロジェクトを限定する。
 
-### まだ整理していないこと
+### 標準の権限に入っていないもの
 
-- `.claude/settings.json`・`.mcp.json`・`.claude/skills/` は、標準構成の正本でありながら、このリポジトリの作業用の設定も兼ねています。たとえば、`poc-app` 用の SessionStart フックと React 向けの設定が入っています。また、各プロジェクトに配る手段もまだありません。
+- 標準の `permissions.allow` には、規約で実行を求めている `python3 scripts/check-skills.py` がまだ入っていません。そのため、実行のたびに確認が出ます。権限の変更にあたるので、承認を得てから足します。
 
 ## このリポジトリ自身について
 
 このリポジトリも、標準を使う側の 1 つです。
 
 - **適用している設定**: `typescript` と `react-nextjs` を適用済みです（PoC 用アプリが TypeScript + Next.js のため）。Issue・PR のテンプレートも `--with-check` 付きで適用済みです（`.github/`、`docs/github-writing.md`）。
-- **雛形との一致**: ルートの `AGENTS.md` の規約の節、`docs/github-writing.md`、`scripts/check-skills.py` は、雛形と同じ内容に保ちます。一致しているかは `python3 scripts/check-templates.py` で確かめます。
+- **雛形との一致**: ルートの `AGENTS.md` の規約の節、`docs/github-writing.md`、`scripts/check-skills.py` は、雛形と同じ内容に保ちます。ルートの `.claude/settings.json`・`.mcp.json` は、雛形にこのリポジトリだけの設定を足したものにします。この 2 つは、`typescript`・`react-nextjs` の分、`poc-app` 用のフック、PoC と npm のコマンドの許可を足しています。一致しているかは `python3 scripts/check-templates.py` で確かめます。
 - **クラウドのセッション**: Claude Code on the web では、開始時に `poc-app` の依存関係が自動で入ります（`.claude/hooks/session-start.sh`）。
 
 ### 初回セットアップ
