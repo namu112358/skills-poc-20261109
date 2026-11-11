@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "updateInstrument が locationId を選んで保存しても古い列 location に変更前の文字列を書き戻し、経理や前の版のアプリが古い場所を見る",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "location-master.ts の updateLocation で場所の名前を変えても、その場所の計測器の location 列が古い名前のまま残る",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "移行（version 5 の after・linkInstrumentsToLocations）とハンディ端末の確定時に、location 列を場所マスタの正式名に書き換えず元の表記のまま残す",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 4,
+   "summary": "前の版のアプリが location 列だけを書き換えると location_id が古いまま残り、新しい版に戻したときに古い名前が表示されるので、トリガなどで整合させるべき",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 5,
+   "summary": "validateLocation が locationId の枝で locationOriginal を設定しないため、createInstrument が undefined を SQLite にバインドして例外になり、POST /api/instruments が 500 になる",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "validateLocation の else if (\"location\" in b) の枝により、/api/instruments の POST・PATCH が自由入力の location を受け付けて確認中として登録・更新し、要件 3 に反する",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "recordInventory で確定済みの計測器に照合できない文字が来ると、何も残さずログだけ出して 200 を返し、要件 6 の「確認中として文字を残す」に反する",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 8,
+   "summary": "確認中の計測器を LocationForm で開いて未選択のまま保存すると locationId: null が送られ、元の文字列が空になって確認中から未設定に変わる",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "locations.ts の ALIASES で「大阪営」「名古屋営」のような末尾が切れた表記を、確認を取らずに正式な場所へ寄せている",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "場所の作成・名前の変更で、重複の確認と書き込みが別の処理になっており、同時に操作されると正規化後に同じ名前の場所が 2 件できうる",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0916318
+ }
+}

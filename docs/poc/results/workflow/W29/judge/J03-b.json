@@ -1,0 +1,71 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "isNishinihonCsv が BOM 付きなら false を返すため、BOM 付きの西日本 CSV が A 社の取込に回り、見出しに「管理番号」が無いので 400 になる（要件 3 違反）",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "importNishinihonCsv のファイル内重複キーに成績書番号が含まれ、同じ機器・同じ校正日で成績書番号だけ違う行が両方取り込まれ、A 社（機器番号＋校正日）と決まりが違う（要件 7 違反）",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "COND 行で備考が 1000 文字を超えて追記できないと、校正記録そのものが誤りになり取り込まれない（要件 4・8 違反）",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "未来日・成績書番号が空・50 文字超という、要件に無い誤り条件を追加している（要件 8・スコープ違反）",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "normalizeManagementNo と parseCsvLine が A 社の処理の複製で、挙動が揃う保証が無い（開発標準 3）",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 6,
+   "summary": "END 後のデータや END の件数が数字でない場合に 400 にするのは要件外の拡張なので PR に仮定として明記すべき",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "BOM 付き・CRLF の B 社ファイルを route の判別を含めて送るテストが無い",
+   "severity": "なし",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "同じ機器・同じ日で成績書番号だけ違う行のテストが無い",
+   "severity": "なし",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "A 社の BOM 付き CSV が引き続き A 社に回ることのテストが無い",
+   "severity": "なし",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0664238
+ }
+}
