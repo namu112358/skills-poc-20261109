@@ -138,8 +138,8 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 
 - 不具合を見つけるレビュー（W9）では、プラグインなしを含む全試行が満点でした。
 - 設計の観点のレビューには、このリポジトリで作った `design-principles-review` を使います。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
-  - 3 つの評価ケースで試したところ、Skill がなくても設計の問題はほぼ見つけられました。差が出たのは、指摘に重さ（必須・推奨・細かい点）を付けるかどうかと、指摘の書き方がそろうことです。
-  - そのかわり、Skill を使うと時間が約 1.5 倍かかりました。
+  - 6 つの評価ケース（差が出るはずの、間違った共通化・名前の変更に紛れた振る舞いの変更・原則を口実にした作りすぎを含む）で試しました。Skill がなくても、仕込んだ問題はすべて見つけられました。
+  - Skill の効き目は、指摘の重さ（必須・推奨・細かい点）と書き方（害と根拠）がそろうことと、汎用化の案を出さないことでした。そのかわり、時間は約 1.3 倍かかりました。
 - PR レビュー用のツール（Code Review と PR Review Toolkit）の比較と、セキュリティ監査のツール（Claude Security と Cloudflare Security Audit）の比較は、**まだ実施していません**。
 - Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施します。
 - 失敗を検査に反映するときの方針（案）は [docs/standards/testing-and-ci-policy.md](docs/standards/testing-and-ci-policy.md) にあります。要点は次の 3 つです。
