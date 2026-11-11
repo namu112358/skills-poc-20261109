@@ -61,9 +61,9 @@
 | 構成 | 作る課題（20 回中） | 呼ばれた Skill |
 |---|---:|---|
 | 4 つすべて | 11 | Frontend Design・Impeccable（UI/UX Pro Max・Web Design Guidelines は 0 回） |
-| Impeccable（整理案 A） | 17 | Impeccable |
+| Impeccable（整理案 A） | 16 | Impeccable |
 | Frontend Design | 19 | Frontend Design |
-| UI/UX Pro Max | 7 | UI/UX Pro Max |
+| UI/UX Pro Max | 6 | UI/UX Pro Max |
 
 - 呼ばれた試行と呼ばれなかった試行の AI の判定（ツールなしは除く）: 紹介ページ 16.9 / 15.2、一覧画面 15.1 / 15.1、SaaS の LP 15.2 / 14.0、ダッシュボード 15.4 / 14.1、登録フォーム 14.7 / 13.0。
 - Claude Code に最初から入っている `design`・`slides`・`dataviz` などの Skill は、ツールなしを含む全構成に入っていたが、どの試行でも呼ばれなかった。
