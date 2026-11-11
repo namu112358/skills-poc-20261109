@@ -1,0 +1,332 @@
+<title>W21 画面の順位付け</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<style>
+/* 構成: 課題のタブ → 順位の並び（カードの格子）。カードは順位の番号を左上に固定し、上下の移動で並べ替える */
+:root {
+  --bg: #f4f4f1;
+  --surface: #ffffff;
+  --fg: #1d2125;
+  --muted: #5d636a;
+  --line: #d9d9d3;
+  --accent: #23577a;
+  --accent-soft: #e2edf4;
+  --gold: #8a6a12;
+  --new: #9a3d1f;
+  --new-soft: #f7e6de;
+  --shade: rgba(14, 18, 22, .86);
+  --font-display: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --font-body: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141619; --surface: #1d2024; --fg: #e7e7e2; --muted: #a2a8ae; --line: #33373d;
+    --accent: #84b8db; --accent-soft: #1f3241; --gold: #e0bf62; --new: #f0a184; --new-soft: #3b2620;
+    --shade: rgba(0, 0, 0, .9); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141619; --surface: #1d2024; --fg: #e7e7e2; --muted: #a2a8ae; --line: #33373d;
+  --accent: #84b8db; --accent-soft: #1f3241; --gold: #e0bf62; --new: #f0a184; --new-soft: #3b2620;
+  --shade: rgba(0, 0, 0, .9); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.7; margin: 0; }
+.wrap {
+  max-width: 1280px; margin: 0 auto; display: grid; gap: 20px;
+  padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+h1 { font-family: var(--font-display); font-size: clamp(22px, 3.4vw, 28px); margin: 0; line-height: 1.4; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.intro { display: grid; gap: 8px; }
+.intro p { color: var(--muted); }
+.task-brief { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 16px; font-size: 13.5px; }
+.task-brief b { font-family: var(--font-display); }
+
+.bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
+.tabs button { border: 0; background: transparent; color: var(--fg); font: inherit; padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--accent); color: var(--surface); font-weight: 700; }
+.tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.status { font-size: 13px; color: var(--muted); }
+.switch { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; }
+button:focus-visible, input:focus-visible, .shot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: grid; grid-template-rows: auto auto auto; min-width: 0; }
+.card.isnew { border-color: var(--new); }
+.head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.rank { font-family: var(--font-display); font-size: 22px; font-weight: 700; min-width: 2.2ch; font-variant-numeric: tabular-nums; }
+.rank.top { color: var(--gold); }
+.code { font-family: var(--font-display); font-weight: 700; font-size: 15px; }
+.badge { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--new-soft); color: var(--new); font-weight: 700; }
+.cfg { margin-left: auto; font-size: 12.5px; color: var(--accent); font-weight: 700; text-align: right; }
+.shots { display: grid; grid-template-columns: 1fr 88px; gap: 6px; padding: 8px; background: var(--bg); }
+.shot { display: block; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; height: 210px; background: var(--surface); cursor: zoom-in; padding: 0; }
+.shot img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+.meta { font-size: 12px; color: var(--muted); padding: 6px 12px 0; }
+.moves { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 12px; }
+.moves button { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 6px; padding: 4px 10px; cursor: pointer; min-height: 32px; }
+.moves button:hover { border-color: var(--accent); }
+.moves button:disabled { opacity: .4; cursor: default; }
+
+.summary { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 8px; }
+.summary h2 { font-family: var(--font-display); font-size: 16px; margin: 0; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 13.5px; min-width: 420px; width: 100%; }
+th, td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; }
+.before { background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 8px; }
+.before .shots { background: transparent; padding: 0; }
+.empty { padding: 32px; text-align: center; color: var(--muted); background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; }
+
+.viewer { position: fixed; inset: 0; background: var(--shade); z-index: 20; display: grid; grid-template-rows: auto 1fr; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.viewer .vbar { display: flex; gap: 10px; align-items: center; color: #fff; padding: 10px max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); }
+.viewer .vbar b { font-family: var(--font-display); font-size: 16px; }
+.viewer .vbar button { font: inherit; background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.3); border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+.viewer .vbar .spacer { flex: 1; }
+.viewer .vbody { overflow: auto; display: flex; gap: 16px; align-items: flex-start; justify-content: center; padding: 0 max(16px, env(safe-area-inset-right, 0px)) 24px max(16px, env(safe-area-inset-left, 0px)); }
+.viewer figure { margin: 0; display: grid; gap: 6px; color: #ddd; font-size: 12px; min-width: 0; }
+.viewer figure.d img { width: min(1000px, 70vw); }
+.viewer figure.m img { width: 300px; }
+.viewer img { display: block; border-radius: 4px; background: #fff; }
+@media (max-width: 720px) {
+  .viewer .vbody { flex-direction: column; align-items: center; }
+  .viewer figure.d img { width: 100%; }
+  .viewer figure.m img { width: min(300px, 90vw); }
+}
+@media (prefers-reduced-motion: no-preference) { .card { transition: border-color .15s; } }
+</style>
+
+<div class="wrap">
+  <header class="intro">
+    <h1>W21 画面の順位付け</h1>
+    <p>同じ依頼で、UI/UX 系ツールの構成だけを変えて AI に作らせた画面です。案の記号は試行ごとにランダムに付けていて、どの構成で作ったかは「構成を表示」を押すまで出ません。良いと思う順に並べ替えてください。並びは自動で保存されます。</p>
+    <p>画像を押すと、ページ全体（幅 1280px と 375px）を大きく見られます。試行が増えると「新着」の案が末尾に加わります。</p>
+  </header>
+
+  <div class="bar">
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div class="tools">
+      <span class="status" id="status" role="status">保存先に接続しています…</span>
+      <label class="switch"><input type="checkbox" id="reveal"> 構成を表示</label>
+    </div>
+  </div>
+
+  <div class="task-brief" id="brief"></div>
+  <div id="beforeBox"></div>
+  <div class="summary" id="summary" hidden></div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<div class="viewer" id="viewer" hidden role="dialog" aria-modal="true" aria-labelledby="vtitle">
+  <div class="vbar">
+    <b id="vtitle"></b><span id="vrank" style="color:#ccc;font-size:13px"></span>
+    <span class="spacer"></span>
+    <button type="button" id="vprev">前へ</button>
+    <button type="button" id="vnext">次へ</button>
+    <button type="button" id="vclose">閉じる</button>
+  </div>
+  <div class="vbody" id="vbody"></div>
+</div>
+
+<script>
+const ITEMS = /*__DATA__*/[];
+const TASKS = {
+  W21a: { label: "紹介ページ（新規）", brief: "<b>依頼:</b> トップページ（/）を、まだログインしていない社内の人に向けた紹介ページにする。どんなアプリで、何ができて、どう始めればよいか（ログイン画面へ）が分かるように。スマートフォンでも見られるように。見た目はお任せ。" },
+  W21b: { label: "タスク一覧（改善）", brief: "<b>依頼:</b> タスク一覧画面（/tasks）の見た目と使い勝手を良くする。毎日使う画面なので、一覧の見やすさ、絞り込みの使いやすさ、スマートフォンでの使いやすさを改善。今ある機能は残す。見た目はお任せ。" },
+};
+const CONFIGS = ["ui-none", "ui-all", "ui-a", "ui-fd", "ui-pm"];
+let task = "W21a";
+const orders = { W21a: null, W21b: null };   // 保存済みの並び（試行 ID の配列）
+const working = { W21a: null, W21b: null };  // 画面に出している並び
+let db = null, saveTimer = null, saving = false, pendingSave = null;
+let viewerIndex = -1;
+
+try { const t = localStorage.getItem("w21-tab"); if (TASKS[t]) task = t; } catch (e) {}
+try { document.getElementById("reveal").checked = localStorage.getItem("w21-reveal") === "1"; } catch (e) {}
+
+function itemsOf(t) { return ITEMS.filter((i) => i.task === t); }
+function currentOrder(t) {
+  const ids = itemsOf(t).map((i) => i.id);
+  const base = (working[t] || orders[t] || []).filter((id) => ids.includes(id));
+  const rest = itemsOf(t).filter((i) => !base.includes(i.id)).sort((a, b) => a.sort - b.sort).map((i) => i.id);
+  return { list: base.concat(rest), fresh: new Set(orders[t] ? rest : []) };
+}
+const byId = Object.fromEntries(ITEMS.map((i) => [i.id, i]));
+const revealed = () => document.getElementById("reveal").checked;
+function setStatus(s) { document.getElementById("status").textContent = s; }
+
+function renderTabs() {
+  const el = document.getElementById("tabs");
+  el.innerHTML = "";
+  for (const [k, v] of Object.entries(TASKS)) {
+    const b = document.createElement("button");
+    b.type = "button"; b.role = "tab"; b.setAttribute("aria-selected", String(k === task));
+    b.textContent = `${v.label}（${itemsOf(k).length}）`;
+    b.onclick = () => { task = k; try { localStorage.setItem("w21-tab", k); } catch (e) {} render(); };
+    el.appendChild(b);
+  }
+}
+
+function shotButton(item, kind, alt) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "shot"; b.setAttribute("aria-label", `${alt}を大きく見る`);
+  const img = document.createElement("img");
+  img.loading = "lazy"; img.alt = alt; img.src = `shots/${item ? item.code : "before"}-${kind}.jpg`;
+  b.appendChild(img);
+  return b;
+}
+
+function render() {
+  renderTabs();
+  document.getElementById("brief").innerHTML = TASKS[task].brief;
+  const { list, fresh } = currentOrder(task);
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  const bb = document.getElementById("beforeBox");
+  bb.innerHTML = "";
+  if (task === "W21b") {
+    const box = document.createElement("div"); box.className = "before";
+    box.innerHTML = "<div><b>参考: 変更前の画面</b>（順位には入れません）</div>";
+    const s = document.createElement("div"); s.className = "shots"; s.style.maxWidth = "420px";
+    const d = shotButton(null, "desktop", "変更前の画面（幅 1280px）"); d.onclick = () => openViewer(-1);
+    const m = shotButton(null, "mobile", "変更前の画面（幅 375px）"); m.onclick = () => openViewer(-1);
+    s.append(d, m); box.appendChild(s); bb.appendChild(box);
+  }
+  if (!list.length) {
+    grid.innerHTML = '<div class="empty">この課題の画面はまだありません。試行が終わると、ここに加わります。</div>';
+  }
+  list.forEach((id, idx) => {
+    const it = byId[id];
+    const card = document.createElement("article");
+    card.className = "card" + (fresh.has(id) ? " isnew" : "");
+    const head = document.createElement("div"); head.className = "head";
+    head.innerHTML = `<span class="rank${idx < 3 ? " top" : ""}">${idx + 1}</span><span class="code">案 ${it.code}</span>` +
+      (fresh.has(id) ? '<span class="badge">新着</span>' : "") +
+      (revealed() ? `<span class="cfg">${it.configLabel}<br><span style="font-weight:400;color:var(--muted)">#${it.rep}</span></span>` : "");
+    const shots = document.createElement("div"); shots.className = "shots";
+    const d = shotButton(it, "desktop", `案 ${it.code} の画面（幅 1280px）`); d.onclick = () => openViewer(idx);
+    const m = shotButton(it, "mobile", `案 ${it.code} の画面（幅 375px）`); m.onclick = () => openViewer(idx);
+    shots.append(d, m);
+    card.append(head, shots);
+    if (revealed()) {
+      const meta = document.createElement("div"); meta.className = "meta";
+      meta.textContent = `費用 $${it.cost.toFixed(2)}・${it.minutes} 分・呼ばれた Skill: ${it.skills.length ? it.skills.join(", ") : "なし"}・機械の検査 ${it.checks}/50`;
+      card.appendChild(meta);
+    }
+    const mv = document.createElement("div"); mv.className = "moves";
+    const btn = (label, fn, dis) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.disabled = dis; b.onclick = fn; mv.appendChild(b); };
+    btn("1 位へ", () => move(task, idx, 0), idx === 0);
+    btn("▲ 上へ", () => move(task, idx, idx - 1), idx === 0);
+    btn("▼ 下へ", () => move(task, idx, idx + 1), idx === list.length - 1);
+    btn("最下位へ", () => move(task, idx, list.length - 1), idx === list.length - 1);
+    card.appendChild(mv);
+    grid.appendChild(card);
+  });
+  renderSummary(list);
+}
+
+function renderSummary(list) {
+  const el = document.getElementById("summary");
+  if (!revealed() || !list.length) { el.hidden = true; return; }
+  el.hidden = false;
+  const n = list.length;
+  const rows = CONFIGS.map((c) => {
+    const ranks = list.map((id, i) => [byId[id].config, i + 1]).filter(([k]) => k === c).map(([, r]) => r);
+    if (!ranks.length) return null;
+    const avg = ranks.reduce((a, b) => a + b, 0) / ranks.length;
+    const score = n > 1 ? ranks.reduce((a, r) => a + (n - r) / (n - 1), 0) / ranks.length * 100 : 100;
+    return { c, label: ITEMS.find((i) => i.config === c).configLabel, k: ranks.length, avg, score, ranks };
+  }).filter(Boolean).sort((a, b) => a.avg - b.avg);
+  el.innerHTML = `<h2>構成ごとのまとめ（今の並びから）</h2><p style="color:var(--muted);font-size:12.5px">「上位の度合い」は、1 位を 100、最下位を 0 にした平均。試行の数が構成ごとに違っても比べられます。</p>
+  <div class="tbl"><table><thead><tr><th>構成</th><th>案の数</th><th>平均の順位</th><th>上位の度合い</th><th>各案の順位</th></tr></thead><tbody>${
+    rows.map((r) => `<tr><td>${r.label}</td><td class="num">${r.k}</td><td class="num">${r.avg.toFixed(1)}</td><td class="num">${r.score.toFixed(0)}</td><td>${r.ranks.join("・")}</td></tr>`).join("")
+  }</tbody></table></div>`;
+}
+
+function move(t, from, to) {
+  const { list } = currentOrder(t);
+  const [id] = list.splice(from, 1);
+  list.splice(to, 0, id);
+  working[t] = list;
+  render();
+  scheduleSave(t);
+}
+
+function scheduleSave(t) {
+  pendingSave = t;
+  clearTimeout(saveTimer);
+  setStatus(db ? "保存待ち…" : "保存先に接続できないため、この並びは保存されません");
+  saveTimer = setTimeout(flush, 700);
+}
+async function flush() {
+  if (!db || !pendingSave) return;
+  if (saving) { saveTimer = setTimeout(flush, 400); return; }
+  const t = pendingSave; pendingSave = null; saving = true;
+  const order = working[t].slice();
+  try {
+    await db.doc(`rankings/${t}`).set({ order, updatedAt: new Date().toISOString() });
+    orders[t] = order;
+    setStatus(`保存しました（${new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}）`);
+  } catch (e) {
+    setStatus("保存できませんでした。もう一度並べ替えると保存し直します。");
+  } finally { saving = false; }
+}
+
+function viewerList() { return currentOrder(task).list; }
+function openViewer(idx) {
+  viewerIndex = idx;
+  const v = document.getElementById("viewer");
+  const body = document.getElementById("vbody");
+  const list = viewerList();
+  const it = idx >= 0 ? byId[list[idx]] : null;
+  const name = it ? `案 ${it.code}` : "変更前の画面";
+  document.getElementById("vtitle").textContent = name + (it && revealed() ? `（${it.configLabel} #${it.rep}）` : "");
+  document.getElementById("vrank").textContent = it ? `今の順位 ${idx + 1} / ${list.length}` : "";
+  const code = it ? it.code : "before";
+  body.innerHTML = `<figure class="d"><figcaption>幅 1280px</figcaption><img alt="${name}（幅 1280px）" src="shots/${code}-desktop.jpg"></figure>` +
+    `<figure class="m"><figcaption>幅 375px</figcaption><img alt="${name}（幅 375px）" src="shots/${code}-mobile.jpg"></figure>`;
+  body.scrollTop = 0;
+  document.getElementById("vprev").disabled = idx <= 0;
+  document.getElementById("vnext").disabled = idx < 0 || idx >= list.length - 1;
+  v.hidden = false;
+  document.getElementById("vclose").focus();
+}
+function closeViewer() { document.getElementById("viewer").hidden = true; viewerIndex = -1; }
+document.getElementById("vclose").onclick = closeViewer;
+document.getElementById("vprev").onclick = () => viewerIndex > 0 && openViewer(viewerIndex - 1);
+document.getElementById("vnext").onclick = () => viewerIndex >= 0 && viewerIndex < viewerList().length - 1 && openViewer(viewerIndex + 1);
+document.addEventListener("keydown", (e) => {
+  if (document.getElementById("viewer").hidden) return;
+  if (e.key === "Escape") closeViewer();
+  if (e.key === "ArrowLeft") document.getElementById("vprev").click();
+  if (e.key === "ArrowRight") document.getElementById("vnext").click();
+});
+document.getElementById("reveal").onchange = (e) => {
+  try { localStorage.setItem("w21-reveal", e.target.checked ? "1" : "0"); } catch (err) {}
+  render();
+};
+
+render();
+
+(async () => {
+  try { db = await window.claude?.use?.("db"); } catch (e) { db = null; }
+  if (!db) { setStatus("保存先に接続できません。並べ替えはできますが、保存されません。"); return; }
+  for (const t of Object.keys(TASKS)) {
+    let timer = setTimeout(() => setStatus("保存済みの並びをまだ読み込めていません"), 10000);
+    db.doc(`rankings/${t}`).onSnapshot((snap) => {
+      if (!snap.metadata.fromCache) { clearTimeout(timer); }
+      if (snap.metadata.hasPendingWrites) return;
+      const d = snap.exists ? snap.data() : null;
+      orders[t] = d && Array.isArray(d.order) ? d.order.slice() : [];
+      if (!pendingSave || pendingSave !== t) working[t] = null;
+      if (t === task) setStatus(d ? "保存済みの並びを読み込みました" : "まだ並べ替えていません");
+      render();
+    }, () => { clearTimeout(timer); setStatus("保存先との接続が切れました。ページを開き直してください。"); });
+  }
+})();
+</script>

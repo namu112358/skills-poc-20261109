@@ -1,0 +1,147 @@
+{
+  "trial": "W21b-ui-a-1",
+  "scenario": "W21",
+  "task": "W21b",
+  "config": "ui-a",
+  "rep": 1,
+  "transcript": {
+    "cost_usd": 0.5929,
+    "tokens": {
+      "input": 82,
+      "output": 17039,
+      "cache_read": 2329652,
+      "cache_creation": 47337
+    },
+    "turns": 1,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat >> src/lib/tasks.ts <<'EOF'\\n\\n/** 期限切れ（未完了で、期限が today より前）か。today は YYYY-MM-DD。 */\\nexport function isOverdue(task: Pick<Task, \\\"status\\\" | \\\"dueDate\\\">, today: string): boolean {\\n "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat >> tests/tasks.test.ts <<'EOF'\\n\\ndescribe(\\\"isOverdue\\\", () => {\\n  it(\\\"is true only for unfinished tasks past their due date\\\", () => {\\n    assert.equal(isOverdue({ status: \\\"todo"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run typecheck 2>&1 | tail -5; npm test 2>&1 | grep -E \\\"^# (pass|fail)\\\"; (DATABASE_PATH=:memory: npm run dev -- -p 3111 > /tmp/claude-0/dev.log 2>&1 &) ; sleep 8; tail -5 /tmp/claude"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run dev -- -p 3111 > /tmp/claude-0/dev.log 2>&1\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"ss -ltnp 2>/dev/null | grep 3111; for p in $(pgrep -f \\\"next\\\"); do echo $p $(readlink /proc/$p/cwd); done | head\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W21b-ui-a-1 && find . -name \\\"desktop2.png\\\" -o -name \\\"mobile2.png\\\" -o -name mobile-filtered.png | grep -v node_modules\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f \\\"next dev\\\"; rm -f desktop.png mobile.png desktop2.png mobile2.png mobile3.png mobile-filtered.png dev.log dev2.log; git status --short; cat .gitignore 2>/dev/null | head\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 21,
+      "Edit": 4,
+      "Write": 3,
+      "Read": 6,
+      "ToolSearch": 1,
+      "mcp__playwright__browser_navigate": 4,
+      "mcp__playwright__browser_snapshot": 2,
+      "mcp__playwright__browser_fill_form": 4,
+      "mcp__playwright__browser_click": 3,
+      "mcp__playwright__browser_resize": 2,
+      "mcp__playwright__browser_take_screenshot": 2,
+      "mcp__playwright__browser_console_messages": 1,
+      "mcp__playwright__browser_press_key": 1,
+      "mcp__playwright__browser_run_code_unsafe": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 6,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "これは、確認用に起動した開発サーバー（3222 番ポート）が終了したという通知です。終了コード 143 は停止シグナルによるもので、確認作業が終わったあとにサーバーが止まっただけなので、問題ではありません。\n\n作業内容に変更はありません。変更はコミット `a1eed12` に入っていて、作業ツリーはクリーンです。\n\nなお、確認の途中で 3111 番ポートに別のサーバーが起動したままになっていました（私のコードとは別の画面が表示されていました）。私が起動したものではなく、止めていません。"
+  },
+  "elapsed_seconds": 195,
+  "interventions": 0,
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "tail": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "tail": "\n▶ validateTaskInput\n  ✔ accepts a complete input and trims the title (146.670902ms)\n  ✔ reports every invalid field (163.694947ms)\n  ✔ rejects non-object bodies (617.349832ms)\n  ✔ validates only the given fields when partial (285.70421ms)\n✔ validateTaskInput (1214.089112ms)\n▶ createTask / updateTask\n  ✔ creates a task and updates only the given fields (133.812096ms)\n✔ createTask / updateTask (134.7352ms)\n▶ isTaskStatus\n  ✔ accepts known statuses only (0.699623ms)\n✔ isTaskStatus (0.833576ms)\nℹ tests 20\nℹ suites 13\nℹ pass 20\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 1895.971832\n"
+    },
+    "build": {
+      "pass": true,
+      "tail": "/tasks/[id]\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:29077) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:29084) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:29071) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "deps_same": true,
+  "browser": {
+    "kind": "b",
+    "checks": {
+      "no_overflow_375": true,
+      "all_tasks_linked": true,
+      "assignee_and_due": true,
+      "filter_control": true,
+      "filter_done": true
+    },
+    "axe": {
+      "desktop": [],
+      "mobile": []
+    },
+    "overflow": {
+      "desktop": 0,
+      "mobile": 0
+    },
+    "errors": []
+  },
+  "score": {
+    "functional": 20.0,
+    "functional_items": {
+      "all_tasks_linked": true,
+      "assignee_and_due": true,
+      "filter_control": true,
+      "filter_done": true,
+      "no_overflow_375": true
+    },
+    "commands": 5.0,
+    "deps": 5,
+    "a11y": 20,
+    "axe_serious": [],
+    "axe_moderate": [],
+    "subtotal_50": 50.0
+  },
+  "observations": {
+    "hook_outputs": {
+      "PostToolUse:Edit": 1,
+      "impeccable": 4
+    },
+    "hook_samples": [
+      {
+        "hook": "PostToolUse:Edit",
+        "output": "{\"systemMessage\": \"security-guidance: the AI security review of your changes is not running. No Anthropic credentials were passed to the plugin's hooks, so only the pattern warnings on edits are active. See \\\"Credentials\\\" in the plugin README. Set ENABLE_CODE_SECURITY_REVIEW=0 to turn the review off and hide this notice, which is shown at most once a week.\"}"
+      }
+    ],
+    "design_docs": [],
+    "fonts": [
+      "system-ui, \"hiragino sans\", \"noto sans jp\", sans-serif"
+    ],
+    "overused_fonts": [],
+    "files_changed": [
+      "src/app/globals.css",
+      "src/app/layout.tsx",
+      "src/app/tasks/page.tsx",
+      "src/lib/tasks.ts",
+      "tests/tasks.test.ts"
+    ]
+  }
+}
