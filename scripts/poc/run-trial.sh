@@ -80,6 +80,11 @@ fi
 mkdir -p "$APP/.claude/skills"
 cp -a "$ROOT/.claude/skills/." "$APP/.claude/skills/"
 rm -f "$APP/.claude/skills/SOURCES.md"
+# このリポジトリで作った Skill（templates/agents/.claude/skills/ に正本があるもの）は、試行の作業用コピーに入れない。
+# これまでの試行は vendored Skills だけで行っており、条件を変えないため（2026-11-11）
+for own in "$ROOT"/templates/agents/.claude/skills/*/; do
+  [[ -d "$own" ]] && rm -rf "${APP:?}/.claude/skills/$(basename "$own")"
+done
 cat > "$APP/.mcp.json" <<'JSON'
 {"mcpServers":{
   "playwright":{"type":"stdio","command":"npx","args":["-y","@playwright/mcp@0.0.84"]},
