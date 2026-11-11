@@ -88,6 +88,10 @@ scripts/add-stack.sh --dest ../my-project typescript react-nextjs supabase verce
 - 不具合を見つけるレビュー（W9）では、プラグインなしを含む全試行が満点でした。
 - PR レビュー用のツール（Code Review と PR Review Toolkit）の比較と、セキュリティ監査のツール（Claude Security と Cloudflare Security Audit）の比較は、**まだ実施していません**。
 - Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施します。
+- 失敗を検査に反映するときの方針（案）は [docs/standards/testing-and-ci-policy.md](docs/standards/testing-and-ci-policy.md) にあります。要点は次の 3 つです。
+  - 再発防止は、検出できる一番手前の段（型 → Lint → 単体テスト → 結合 → E2E）に置く。
+  - 画面全体の文字やスナップショットをまとめて比べる検査は足さない。
+  - PR では変更に関係する検査だけを回し、全件は main で回す。
 
 ### 自己改善
 
