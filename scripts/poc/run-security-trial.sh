@@ -44,9 +44,9 @@ ALLOWED=(
   "Read" "Grep" "Glob" "Task" "Agent" "Write(/$AUDIT_OUT/**)" "Edit(/$AUDIT_OUT/**)"
   "Bash(node $SKILL/validate-findings.cjs:*)" "Bash(node $SKILL/validate-coverage-ledger.cjs:*)"
   "Bash(node .claude/skills/security-audit/validate-findings.cjs:*)" "Bash(node .claude/skills/security-audit/validate-coverage-ledger.cjs:*)"
-  "Bash(git status:*)" "Bash(git log:*)" "Bash(git rev-parse:*)" "Bash(git diff:*)" "Bash(git show:*)"
-  "Bash(git ls-files:*)" "Bash(git remote:*)" "Bash(git -C:*)"
-  "Bash(ls:*)" "Bash(cat:*)" "Bash(grep:*)" "Bash(find:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(wc:*)"
+  # find（-exec）や git -C（-c で設定を上書きして任意のコマンドを起動できる）は許可しない。ファイルの探索は Glob・Grep で足りる
+  "Bash(git status)" "Bash(git rev-parse HEAD)" "Bash(git log --oneline:*)" "Bash(git ls-files)"
+  "Bash(ls:*)" "Bash(cat:*)" "Bash(grep:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(wc:*)"
   "Bash(cd:*)" "Bash(mkdir:*)" "Bash(mkdir -p $AUDIT_OUT/:*)"
 )
 
