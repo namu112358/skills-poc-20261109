@@ -1,0 +1,67 @@
+{
+  "trial": "W30-baseline-both-c3-1",
+  "scenario": "W30",
+  "config": "baseline-both",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: 設置場所を場所マスタから選べるようにする\n\n確認方法: コードの読み取りに加え、`npm run build` → `npm run start`（ポート 3457）でログインし、画面（`/locations`・`/instruments/2`）と API（`/api/locations`・`/api/instruments`・`PATCH`）を実際に呼んだ。本番の約 5 万件相当（`docs/data/location-values.csv` の件数どおり 48,882 件）の DB に対するマイグレーション 5 を単体で実行し、所要 0.47 秒・ログ `locations.migrated` が出ること（total 48882 / linked 43846 / unset 1491 / unconfirmed 3545）も確かめた。\n※ 起動時に `HANDHELD_TOKEN` を渡せなかったため、ハンディ端末 API は実機では 401 までしか確認できていない（200 側はコードの読み取りによる）。\n\n## 要件ごとの判定\n\n| # | 要件 | 判定 |\n|---|---|---|\n| 1 | 正式 16 か所のマスタ | 満たす（`migrations.ts` の `OFFICIAL_LOCATIONS`） |\n| 2 | 表記ゆれだけ寄せる・確認中・一覧で探せる・空欄は未設定 | 概ね満たす（指摘 5 を除く）。`?location=unconfirmed` / `none` は動作確認済み |\n| 3 | 登録・編集は一覧から選ぶ | 一部反する（指摘 6） |\n| 4 | 追加・改名は誰でも・削除せず使用終了・使用終了は新規に選べない | 満たす（使用終了の場所を新規に選ぶと 400。すでに結び付いている計測器はそのまま表示） |\n| 5 | 改名で計測器の表示も変わる | 画面・API の表示は満たす。**`location` 列は変わらない（指摘 1）** |\n| 6 | ハンディ端末は止めず、分からなければ確認中で文字を残す | **反する（指摘 2）** |\n| 7 | 経理が読む `location` 列に場所の名前が入った状態を保つ | **反する（指摘 1）** |\n| 8 | 前の版に戻しても正しく動く | **反する（指摘 1）** |\n| 9 | 5 万件・再起動 1 回・件数が後で確かめられる | 満たす（0.5 秒、`locations.migrated` ログ） |\n\n## 指摘\n\n### 1. 【高】`instruments.location` 列に「場所の名前」が入らず、改名・選択に追従しない（要件 7・8）\n\n- 場所: `src/lib/instruments.ts` の `createInstrument` / `updateInstrument`（`location` に `input.locationOriginal` を書く）、`validateLocation`（`locationId` 指定のとき `locationOriginal` を更新しない）、`src/lib/location-master.ts` の `updateLocation`（`locations.name` しか更新しない）、`src/lib/db/migrations.ts` マイグレーション 5 の `after`（`location_id` を付けるだけで `location` を正式名に直さない）。\n- 何が起きるか（実際に確認）:\n  - `PATCH /api/locations/3 {\"name\":\"工事部 資材倉庫\"}` の後、`GET /api/instruments/2` は `location: \"工事部 資材倉庫\"` だが `locationOriginal`（= DB の `location` 列）は `\"工事部 倉庫\"` のまま。経理が月末に DB コピーから読む列は古い名前のまま。\n  - 画面（詳細ページの選択）または API の `{\"locationId\":2}` で計測器 3 の場所を変えても、`location` 列は `\"製造部 第1ライン\"` のまま（`locationOriginal` が移動前の値）。経理の読み取りは実際の設置場所と食い違う。\n  - 移行後も `\"品証 測定室\"` `\"製造部第２ライン\"` などの元の書き方のまま。「場所の名前が入った状態」になっていない。\n  - 前の版に戻すと、前の版は `location` 列だけを見るため、上のとおり古い・表記ゆれの値が表示される。逆に前の版で編集しても `location_id` が更新されず、新しい版に戻すと前の版での編集が無視される（`location_id` が優先される）。\n- 直し方: 確定した計測器は `location` 列を常に場所マスタの名称に同期する。(a) 移行で `UPDATE instruments SET location = (SELECT name …) WHERE location_id IS NOT NULL`（元の文字列は別列 `location_original` などに退避。出荷済みの列の意味は変えず、`ADD COLUMN` で足す）、(b) `updateLocation` で名称変更時に同じトランザクションで該当計測器の `location` を更新、(c) `locationId` を選んだときは `location` に名称を書く。確認中は元の文字列、未設定は空のまま。前の版が書き込んだ行（`location_id` が NULL なのに文字が違う）を新しい版が拾えるよう、`location` と名称が食い違う行は起動時に再照合する案も検討する。改名・選択・移行それぞれに「`location` 列の値」を確かめるテストを足す（現在のテストは `location_id` 側しか見ていない）。\n\n### 2. 【高】ハンディ端末: 場所が決まっている計測器に、分からない文字が来ても確認中にしない（要件 6）\n\n- 場所: `src/lib/instruments.ts` の `recordInventory`（`unmatched_kept` の分岐）、`docs/handheld-api.md` の「台帳側の扱い」。\n- 何が起きるか: 要件は「分からなければ確認中として送られた文字を残す」。実装は、すでに場所が確定した計測器に `倉庫` や `不明` などが送られると何も変えず 200 を返す。実際に別の場所に移されていても台帳は古い場所のままで、確認中の一覧にも出ず、端末側は「送信済み」と表示するため棚卸しの結果が失われる（ログ `handheld.inventory.unmatched` が残るだけ）。\n- 直し方: 要件どおり、一致しなければ `location_id = NULL`・`location` に送られた文字として確認中にする。品質保証部の修正を戻したくないという意図があるなら、依頼者に確認して要件を合意し直してから変える（PR で仮定を明記）。\n- 補足: 一致した場合も `locationOriginal` に端末の文字をそのまま入れており、指摘 1 と同じく `location` 列が名称にならない。\n\n### 3. 【中】移行の再照合が「使用中」の場所だけで行われ、使用終了にした場所が移行後に拾われない\n\n- 場所: `src/lib/locations.ts` の `linkInstrumentsToLocations`（`WHERE active = 1`）、`src/lib/db/index.ts` の `seed`。\n- 何が起きるか: 通常の本番移行は一度きりで問題ないが、移行をやり直す（ロールバック後の再リリースなど、指摘 1 の再照合）と、使用終了にした場所に完全一致する計測器が確認中として残る。`validateLocation` は「現在の場所」を候補に足しているが、`linkInstrumentsToLocations` と `recordInventory` には同じ配慮が無い。\n- 直し方: 再実行を前提にするなら、使用終了の場所も照合対象にする（新規に選べないことと、既存の結び付きの照合は別）。\n\n### 4. 【中】使用終了の場所の名前を `location`（文字列）で送ると確認中になる\n\n- 場所: `src/lib/instruments.ts` の `validateLocation`（`location` 文字列の経路）。\n- 確認結果: 使用終了にした `品質保証部 測定室` を、結び付いていない計測器 3 に `{\"location\":\"品質保証部 測定室\"}` で PATCH すると 200 で `locationUnconfirmed: true`（正式名そのものが「確認中」と表示される）。新規に選べないこと自体は要件どおりだが、正式な名前なのに「分からない」扱いで、確認中の一覧が増える。\n- 直し方: 使用終了の場所に一致する場合は 400（「この場所は使用終了のため選べません」）とするか、確認中と表示する理由を画面に出す。\n\n### 5. 【中】`ALIASES`（`大阪営` → `大阪営業所` など）は推測による寄せ\n\n- 場所: `src/lib/locations.ts` の `ALIASES`。\n- 何が起きるか: 要件 2 は「表記ゆれで同じ場所と分かるものだけ」。`大阪営`（CSV で 580 件）、`名古屋営`（245 件）は「営業所」が切れた表記と推測しているだけで、`大阪営業所` 以外の意味（例: 大阪営業部）でないとは台帳から言えない。一括で約 800 件が確認なしに確定する。\n- 直し方: 依頼者（品質保証部）に確認し、合意が取れるまで寄せず確認中にする。合意した場合は根拠を PR に残す。\n\n### 6. 【低】`POST /api/instruments`・`PATCH` が従来どおり自由な `location` 文字列を受け付ける（要件 3）\n\n- 場所: `src/lib/instruments.ts` の `validateLocation`、`src/app/api/instruments/route.ts`。\n- 内容: 画面の変更フォームは一覧から選ぶ形になっているが、API は自由入力を確認中として受け付け続ける。ハンディ端末以外にこの経路を使う必要がなければ、`locationId` のみに限定する（他システムの利用がある場合は互換の期限を決めて運用メモに書く）。\n\n### 7. 【低】テストの穴\n\n- `tests/locations-real-data.test.ts` は照合率（85% 以上）を見るのみで、確認中・未設定・寄せた件数の内訳を CSV の件数と突き合わせていない（上記の実測では linked 43846 / unconfirmed 3545 / unset 1491）。移行の件数が期待からずれたことに気づけるよう、期待値を固定する。\n- 指摘 1・2 のとおり、改名後の `location` 列、前の版との往復、ハンディ端末の「確定済みに分からない文字」の要件どおりの動きを確かめるテストが無い（`tests/handheld.test.ts` は現状の挙動を正としている）。\n",
+  "review_chars": 4853,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.6055,
+    "tokens": {
+      "input": 58,
+      "output": 14658,
+      "cache_read": 1847258,
+      "cache_creation": 68525
+    },
+    "turns": 42,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run build 2>&1 | tail -15); grep -n \\\"HANDHELD\\\\|handheld\\\" -r src/lib/api.ts | head; sed -n 1,40p docs/handheld-api.md; grep -n \\\"id:\\\" src/lib/db/seed.ts | head\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(HANDHELD_TOKEN=tok PORT=3457 nohup npm run start -- -p 3457 > /tmp/claude-0/srv.log 2>&1 &) ; sleep 5; cat /tmp/claude-0/srv.log; grep -n \\\"id:\\\\|userId\\\\|loginId\\\" src/lib/db/seed.ts | "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"HANDHELD_TOKEN=tok nohup npm run start -- -p 3457 > /tmp/claude-0/srv.log 2>&1 &\\nsleep 6; cat /tmp/claude-0/srv.log\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W30-baseline-both-c3-1-app/812ee64a-b382-43ab-b65f-6cf3f83adf2f/scratchpad/start.sh; sleep 6; cat /tmp/claude-0/-tmp-poc-trials-W30-baseline-both-c3-1-a"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W30-baseline-both-c3-1-app/812ee64a-b382-43ab-b65f-6cf3f83adf2f/scratchpad/start.sh\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0; B=localhost:3457; C=\\\"-s -b cj -H content-type:application/json\\\"\\necho \\\"--list unconfirmed\\\"; curl $C \\\"$B/api/instruments?location=unconfirmed\\\" | head -c 600; echo\\n"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"curl -s -b /tmp/claude-0/cj -w ' [%{http_code}]' -X POST -H 'content-type: application/json' localhost:3457/api/locations -d '{\\\"name\\\":\\\"品質保証部　測定室\\\"}'\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 32,
+      "Read": 1,
+      "Write": 3,
+      "ToolSearch": 1,
+      "TaskStop": 1,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 138,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘は、すでに依頼の形式で `REVIEW.md` に書いてあり、コミット済みです（0ccce3e）。そのため、今回は書き直しもコミットもしていません。\n\n`REVIEW.md` には、重要度（高・中・低）を付けた 7 件の指摘があります。各指摘に、場所（ファイルと関数）、何が問題か（どの入力・状況で何が起きるか）、直し方を書いてあります。新しい指摘は足しておらず、削った指摘もありません。`REVIEW.md` に未コミットの変更はありません。コードも直していません。"
+  },
+  "interventions": 0
+}
