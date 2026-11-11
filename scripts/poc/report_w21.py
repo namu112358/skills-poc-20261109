@@ -18,13 +18,14 @@ RES = ROOT / "docs" / "poc" / "results" / "workflow" / SCENARIO
 CONFIGS = {
     "W21": ["baseline", "cr-high", "review-pr", "principles", "ce-review"],
     "W22": ["hk-baseline", "hk-cr-high", "hk-review-pr", "hk-principles", "hk-ce-review", "review-pr-full", "ce-full"],
+    "W23": ["baseline", "hk-baseline", "cr-high", "review-pr", "ce-review"],
 }[SCENARIO]
+CASES = ["d1", "d2", "d3"] if SCENARIO == "W23" else ["c1", "c2", "c3", "c4", "c5", "c6", "c7"]
 LABEL = {"baseline": "baseline（道具なし）", "cr-high": "内蔵 `/code-review high`", "review-pr": "PR Review Toolkit `/review-pr`",
          "principles": "自作 `design-principles-review`", "ce-review": "CE `ce-code-review`",
          "review-pr-full": "`/review-pr`（専門エージェントの起動を明示）", "ce-full": "CE `ce-code-review depth:full`"}
 for _k in ["baseline", "cr-high", "review-pr", "principles", "ce-review"]:
     LABEL["hk-" + _k] = "Haiku: " + LABEL[_k]
-CASES = ["c1", "c2", "c3", "c4", "c5", "c6", "c7"]
 
 
 def main():

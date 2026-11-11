@@ -5,7 +5,7 @@ results/workflow/<W>/<試行ID>.json に書き出す。
 使い方: python3 scripts/poc/grade_w20.py <試行ID> [--cleanup]
   - 試行 ID は <W>-<設定>-<題材>-<繰り返し>（例 W20-cr-low-c2-1・W21-ce-review-c3-1）。
     設定は W20 が cr-low・cr-high・review-pr・combo・sp-review、W21 が baseline・cr-high・review-pr・principles・ce-review、
-    W22 が hk-<W21 の設定>（Haiku）・review-pr-full・ce-full（docs/poc/tasks/wf-W22-design.md）。
+    W22 が hk-<W21 の設定>（Haiku）・review-pr-full・ce-full（docs/poc/tasks/wf-W22-design.md）、W23 は W21・W22 の設定の一部。
   - 費用・ターン数などは grade.py の transcript_stats を使う。W20 はコードを変えないので、型チェック・テスト・ビルドはしない。
   - レビューの指摘（REVIEW.md）の本文を保存する。指摘と正解の突き合わせは judge_w20.py（判定役）で行う。
   --cleanup: 書き出した後、その試行の作業用コピーを片付ける（grade.py の cleanup）
@@ -33,9 +33,9 @@ def git(*args):
 
 
 def parse_id(trial):
-    m = re.fullmatch(r"W2[012]-(" + "|".join(map(re.escape, sorted(CONFIGS, key=len, reverse=True))) + r")-(c\d+)-(\d+)", trial)
+    m = re.fullmatch(r"W2[0-3]-(" + "|".join(map(re.escape, sorted(CONFIGS, key=len, reverse=True))) + r")-(c\d+)-(\d+)", trial)
     if not m:
-        sys.exit(f"W20〜W22 の試行 ID ではない: {trial}")
+        sys.exit(f"W20〜W23 の試行 ID ではない: {trial}")
     return m.group(1), m.group(2), int(m.group(3))
 
 
