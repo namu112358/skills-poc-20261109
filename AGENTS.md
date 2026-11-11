@@ -2,6 +2,8 @@
 
 このリポジトリで作業する AI エージェント（Claude Code・Codex・GitHub Copilot など）に共通の規約です。Claude Code に固有の事項は `CLAUDE.md` に書きます。
 
+「規約」の節は、ほかのプロジェクトに配る雛形（[templates/agents/AGENTS.md](templates/agents/AGENTS.md)）の共通規約と同じ内容です。変えるときは雛形を直してから写し、`python3 scripts/check-templates.py` で一致を確かめます。このリポジトリだけの事項は「このリポジトリの罠」に書きます。
+
 ## このリポジトリについて
 
 新規開発プロジェクト向けの Claude Code 標準構成（Skills / Plugins / MCP）と、比較検討中のツールの PoC をまとめたリポジトリです。作業内容に応じて、次の資料を先に読んでください。
@@ -16,6 +18,7 @@
 | GitHub リポジトリの初期設定 | [docs/github-setup/README.md](docs/github-setup/README.md) |
 | Issue・PR を作る | [docs/github-writing.md](docs/github-writing.md) |
 
+<!-- 共通規約ここから: 正本は skills-poc-20261109 の templates/agents/AGENTS.md。このブロックは直接編集せず、正本を直してから写す。 -->
 ## 規約
 
 - 応答・ドキュメントは日本語で書く。
@@ -35,10 +38,13 @@
   - 理由: 評価の入力と合格条件を Skill の隣に置くと、Skill を変えたときに同じケースで確かめ直せるため（withastro/astro の形）。
 - 警告やテストの失敗は、変更前の状態でも起きるかを再現して確かめてから、もとからあった問題として扱う。
   - 理由: 確かめずに既存の問題として扱うと、自分の変更が起こした不具合を見逃すため。
+<!-- 共通規約ここまで -->
 
-## 注意が必要な場所
+## このリポジトリの罠
 
 - `poc-app/` とその `CLAUDE.md` は、PoC の試行の初期状態です。試行のたびに `scripts/poc/run-trial.sh` がこのフォルダを作業用コピーに写し、`CLAUDE.md` の末尾に条件ごとの規約を足します。採点用のスクリプト（`scripts/poc/blind_*.py` など）も、この `CLAUDE.md` の中身を読みます。ここは、PoC の作業として依頼された変更だけを行う。
   - 理由: 初期状態が変わると、過去の試行の結果と比べられなくなるため。
 - `docs/poc/answer-key/` は採点用の正解です。採点のスクリプトだけが読み、試行の作業用コピーや候補ツールに渡す資料の外に置く。
   - 理由: 正解が見えると、試行の結果が評価として使えなくなるため。
+- 配る雛形（`templates/`）と、このリポジトリで使う版（ルートの `AGENTS.md` の規約の節、`docs/github-writing.md`、`scripts/check-skills.py`）は、雛形を正本にして同じ内容に保つ。PR を出す前に `python3 scripts/check-templates.py` を実行し、エラーを 0 件にする。
+  - 理由: このリポジトリは標準を配る側でもあり、使う側でもある。両方を別々に直すと、配った標準とこのリポジトリの運用がずれるため（`docs/github-writing.md` の写しは、下書き PR のルールが抜けたまま配られていた）。

@@ -36,6 +36,8 @@ MIN_TRIGGER_EACH = 5  # 発火する例・しない例のそれぞれ。skill-cr
 
 
 def skill_dirs():
+    if not SKILLS.is_dir():
+        return []
     return sorted(p for p in SKILLS.iterdir() if p.is_dir())
 
 
@@ -62,6 +64,8 @@ def load_lock() -> dict:
 
 def frontmatter_check(skill: Path):
     """skill-creator の quick_validate.py を使う（Skills の形式の正本）。"""
+    if not (QUICK_VALIDATE / "quick_validate.py").exists():
+        return False, "skill-creator（.claude/skills/skill-creator）がないため、形式を検査できません。標準の Skills を入れてください"
     sys.path.insert(0, str(QUICK_VALIDATE))
     try:
         from quick_validate import validate_skill  # noqa: PLC0415
@@ -203,6 +207,9 @@ def main() -> int:
         print(f"{LOCK.relative_to(ROOT)} を更新しました（{len(lock)} 件）")
         return 0
 
+    if not skill_dirs():
+        print(f"{SKILLS.relative_to(ROOT)} に Skills がありません。検査するものはありません")
+        return 0
     lock = load_lock()
     present = {p.name for p in skill_dirs()}
     total_errors = 0

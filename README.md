@@ -66,7 +66,7 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 
 ### Skills の検査
 
-`python3 scripts/check-skills.py` で、Skills をモデルを呼ばずに機械的に検査します（PyYAML が必要）。
+`python3 scripts/check-skills.py` で、Skills をモデルを呼ばずに機械的に検査します（PyYAML が必要）。正本は `templates/agents/scripts/check-skills.py` で、下の「AI エージェント向け指示ファイルの雛形」と一緒に各プロジェクトへ配ります。
 
 - vendored Skills: 指紋（`scripts/skills.lock.json`）と内容が一致するか（手で編集されていないか）、`SOURCES.md` に載っているか。上流の形式の問題は警告だけにする。
 - 自作の Skills: frontmatter（skill-creator の `quick_validate.py`）、`name` とディレクトリ名の一致、`SKILL.md` が 500 行以内か、参照先のファイルがあるか、評価ケース（`evals/evals.json`）と発火の評価（`evals/trigger.json`）の定義が正しいか。
@@ -124,3 +124,14 @@ scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
 - Supabase MCP は開発用プロジェクトにだけ接続する。やむを得ず本番プロジェクトにつなぐ場合は、URL に `&read_only=true` を付けて読み取り専用にする。
 - Vercel MCP は OAuth で認証し、必要に応じて `https://mcp.vercel.com/<team-slug>/<project-slug>` で対象プロジェクトを限定する。
 - Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施する。
+
+## AI エージェント向け指示ファイルの雛形
+
+各プロジェクトに置く `AGENTS.md`・`CLAUDE.md` の雛形と、Skills の検査スクリプトを `templates/agents/` に置いています。`AGENTS.md` の「規約」の節が、どのプロジェクトにも共通の規約です。各プロジェクトは「このリポジトリについて」と「このプロジェクトの罠」だけを書きます。書き方の根拠は [開発標準 §2.1](docs/standards/ai-software-factory-engineering-standard.md) の「規約の書き方」にあります。
+
+```bash
+scripts/add-agent-templates.sh <対象リポジトリのパス>
+```
+
+- 既存のファイルは上書きしません。ただし `AGENTS.md` に共通規約の印（`<!-- 共通規約ここから -->` 〜 `<!-- 共通規約ここまで -->`）があれば、その間だけを最新の共通規約に置き換えます。共通規約を更新したあとに再実行すると、各プロジェクトに反映できます。
+- このリポジトリも雛形を使う側の 1 つです。ルートの `AGENTS.md` の規約の節、`docs/github-writing.md`、`scripts/check-skills.py` は雛形と同じ内容に保ち、`python3 scripts/check-templates.py` で一致を確かめます。
