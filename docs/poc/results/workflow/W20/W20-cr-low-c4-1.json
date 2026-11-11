@@ -1,0 +1,51 @@
+{
+  "trial": "W20-cr-low-c4-1",
+  "scenario": "W20",
+  "config": "cr-low",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# コードレビュー: 西日本校正センター CSV の取込\n\n対象: 未コミット差分（`src/app/api/calibrations/import/route.ts`、`src/lib/calib-import-nishinihon.ts`、`src/lib/csv.ts`、`src/lib/calibrations.ts`、`docs/calibration-import.md`、`tests/calib-import-nishinihon.test.ts`）。\n重要度は 高（マージ前に必須）・中・低 の 3 段階。\n\n## 高\n\n### 1. BOM 付きの西日本 CSV が取り込めない（要件 3 違反）\n- 場所: `src/lib/calib-import-nishinihon.ts` の `isNishinihonCsv`（先頭の BOM 判定で `return false`）、`importNishinihonCsv`（`TextDecoder(\"utf-8\").decode(data)` で BOM を外していない）。`tests/calib-import-nishinihon.test.ts` の `isNishinihonCsv` のテスト（BOM 付きが `false` になることを確認している）。`docs/calibration-import.md`（「BOM なし」と書いてある）。\n- 問題: 要件は「BOM の有無・改行コードの違いで取り込めなくならない」こと。実際には BOM 付き UTF-8 の B 社 CSV（Excel で開いて保存し直したファイルなど）を東日本側の取込に回してしまう。東日本側は BOM 付きを UTF-8 として読み、1 行目に「管理番号」が無いので 400「CSV の形式が違います」になる。月初のスクリプト送信が失敗する。BOM を外さずに処理を続けた場合も、1 行目が `﻿# ...` になってコメントとして読み飛ばされず、見出しの判別が狂う。\n- 直し方: 判別と取込の両方で、先頭の BOM（EF BB BF）があれば外してから UTF-8 としてデコードする。BOM 付き・BOM なし、CRLF・LF の組み合わせで判別と取込のテストを足す。BOM 付きが `false` になるテストは要件に反するので、`true` に直す。docs の「BOM なし」の記述も直す。\n\n## 中\n\n### 2. ファイル内の重複の判定が A 社と同じ決まりになっていない（要件 7）\n- 場所: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv`（`const key = \\`${no}|${date}|${cert}\\``）。比較元は `src/lib/legacy/calib-import.ts` の `seen[no + \"|\" + d]`。\n- 問題: A 社は「機器番号＋校正日」が同じなら、成績書番号が違っても後の行を読み飛ばす。B 社の実装は成績書番号まで含めているので、同じ機器・同じ日で成績書番号だけ違う行が両方取り込まれる。要件は「A 社と同じ決まりで後の行を読み飛ばす」で、結果が食い違う。なお、DB に対する「取込済み」の判定（機器・校正日・成績書番号）は A 社と同じなので、そこは変えない。\n- 直し方: ファイル内の重複キーを `機器番号（正規化後）|校正日` にそろえる。成績書番号だけが違う 2 行のテストを足す。\n\n### 3. 合意していない行の誤り判定を足している（要件 8・10 の範囲を超える）\n- 場所: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv`（校正実施日が未来、成績書番号が空、成績書番号が 50 文字超の各チェック）。`docs/calibration-import.md` の同じ内容の記述。`tests/calib-import-nishinihon.test.ts` の \"guards\" のテスト。\n- 問題: 要件 8 で行の誤りにするのは「台帳に無い機器番号」と「読めない判定」だけ。成績書番号が空の行は A 社では取り込める（DB の既定値は空文字）。B 社だけ errors に入ると、現場の期待とずれる。未来日のチェックは、サーバーの日付がずれたときや B 社の日付が日本時間の当日より進んでいたときに、正しい行まで止めてしまう。CLAUDE.md の「変更は依頼された範囲にとどめる」にも反する。\n- 直し方: 依頼者に確認が取れていないなら、この 3 つは外す。必要なら、仮定として PR に書いて確認する。成績書番号 50 文字超は、DB の取込時の制約（`validateCalibrationInput` と同じ上限）として残すかどうかを、同じ確認で決める。\n\n## 低\n\n### 4. 引用符の中に改行があるコメントで行数がずれる\n- 場所: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv`（先に全体を改行で分割し、1 行ずつ `parseCsvLine` に渡している）。\n- 問題: コメントに `\"...\"` で囲まれた改行が入ると 1 つのデータが 2 行に分かれる。その結果、END の件数と合わず 1 件も取り込まれなくなるか、誤った行が errors に入る。仕様書は改行を禁止していないので、起こりうる。\n- 直し方: 引用符の中の改行を考慮して行を組み立てる（`csv.ts` に、複数行にまたがる行をまとめる関数を置く）。それが重いなら、制約を `docs/calibration-import.md` に書き、改行を含む行は件数の不一致ではなく分かりやすいエラーにする。\n\n### 5. ファイル全体を止めたときのログが出ない\n- 場所: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv`（`ok: false` で返す経路。`logger.info` は最後の成功経路だけ）。\n- 問題: END の欠落・件数の不一致・END の後ろのデータで取込を止めても、ログに何も残らない。「転送が途中で切れた」ことの原因調査ができない（開発標準 15）。\n- 直し方: 止めた理由と、宣言された件数・実際の件数をログに出す（`logger.warn` など、既存のロガーの形式で）。\n\n### 6. 重複する処理が増えている\n- 場所: `src/lib/calib-import-nishinihon.ts` の `normalizeManagementNo` と `src/lib/legacy/calib-import.ts` の同じ正規化処理。`src/lib/csv.ts` の `parseCsvLine` とレガシー側の行分割。\n- 問題: 同じ処理が 2 か所にあり、片方だけ直すと A 社と B 社で機器番号の読み方が食い違う（開発標準 3）。ただし、レガシー側は「動いているので触らない」方針なので、直接のバグではない。\n- 直し方: 少なくとも `normalizeManagementNo` は共通の置き場所にまとめて、両方から使う。レガシー側を触らない場合は、PR にその理由を書く。\n",
+  "review_chars": 3147,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4218,
+    "tokens": {
+      "input": 34,
+      "output": 8639,
+      "cache_read": 763580,
+      "cache_creation": 74234
+    },
+    "turns": 15,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W20-cr-low-c4-1/app; git diff @{upstream}...HEAD 2>/dev/null; git diff HEAD; git status --short | head\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"test(\\\\|it(\\\" tests/calib-import-nishinihon.test.ts; cat docs/agencies/nishinihon-sample.csv | od -c | head -5; cat > /tmp/claude-0/t.ts <<'EOF'\\nimport { isNishinihonCsv } from"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"test(\\\\|it(\\\" tests/calib-import-nishinihon.test.ts; node --experimental-strip-types -e '\\nimport(\\\"./src/lib/calib-import-nishinihon.ts\\\").then(m=>{const s=\\\"# x\\\\r\\\\n機器番号,品名,校"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --experimental-strip-types /tmp/claude-0/-tmp-poc-trials-W20-cr-low-c4-1-app/02f8d741-02fc-4070-a261-2f43203cfc29/scratchpad/t.ts 2>&1 | tail -3; grep -n \\\"test(\\\\|it(\\\" tests/calib-"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 98,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "差分をレビューして、指摘を `REVIEW.md` に書き、`REVIEW.md` だけをコミットしました（`0b5e9d4`）。コードは直しておらず、ほかのファイルは未コミットのままです。レビューは差分を読んで行いました。BOM 付きの判別だけは実行して確かめようとしましたが、コマンドの承認が得られませんでした。この指摘はコードとテストの記述から判断しています。\n\n指摘は 6 件です。\n\n**高**\n1. **BOM 付きの西日本 CSV が取り込めません（要件 3 違反）。** `isNishinihonCsv` が BOM 付きを `false` にするため、東日本側の取込に回って 400 になります。テストも「BOM 付きは `false`」を正としているので、直す必要があります。\n\n**中**\n2. **ファイル内の重複の判定が東日本と違います（要件 7）。** 東日本は「機器番号＋校正日」ですが、西日本は成績書番号まで含めています。同じ機器・同じ日で成績書番号だけ違う行が、両方取り込まれます。\n3. **合意していない誤り判定を足しています。** 校正実施日が未来、成績書番号が空、成績書番号が 50 文字超の 3 つです。要件 8 の範囲を超えており、東日本では取り込める「成績書番号が空」の行が、西日本では取り込めません。\n\n**低**\n4. 引用符の中に改行があるコメントで、行数がずれます。\n5. END の欠落・件数の不一致でファイル全体を止めたとき、ログが出ません。\n6. 機器番号の正規化などが、東日本側の実装と重複しています。\n\n問題が無いと判断した点は書いていません。"
+  },
+  "interventions": 1
+}

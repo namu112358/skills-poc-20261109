@@ -1,0 +1,39 @@
+{
+  "trial": "W20-cr-low-c1-0",
+  "scenario": "W20",
+  "config": "cr-low",
+  "case": "c1",
+  "rep": 0,
+  "review_md": "# コードレビュー結果\n\n## 1. 【高】検索クエリが SQL に文字列連結されている（SQL インジェクション）\n\n- 場所: `src/lib/tasks.ts` の `searchTasks`（83 行目付近）、および `src/app/api/tasks/search/route.ts` の `catch`\n- 問題: `title LIKE '%${query}%'` と `query` を直接埋め込んでいる。`q` に `' OR 1=1 --` を渡すと全タスクが返り、細工した入力で任意の SQL を実行できる。検索 route の `catch` がエラーを握りつぶすため、失敗にも気づけない。CLAUDE.md の規約 8（プレースホルダ必須）にも反する。\n- 直し方: `title LIKE ?` とし、値は `%${query}%` を束縛パラメータとして渡す（`%` `_` を部分一致の文字として扱いたくないならエスケープして `ESCAPE` を指定する）。route の `catch` はエラーを握りつぶさず、500 などで返すかログに残す。\n\n## 2. 【高】ページネーションの offset が 1 ページ分ずれている\n\n- 場所: `src/lib/tasks.ts`（87 行目付近）\n- 問題: offset を `page * limit` で計算しているが、`page` は 1 始まり。1 ページ目が `limit` 件ぶん飛ばされ、先頭ページの結果が一切返らない。\n- 直し方: `(page - 1) * limit` にする。1 ページ目・2 ページ目を確認するテストを追加する。\n\n## 3. 【高】`limit` の検証がなく、上限も適用されていない\n\n- 場所: `src/app/api/tasks/search/route.ts` 14 行目（`catch` は 17 行目）\n- 問題: `Number(params.get(\"limit\"))` を検証せずに使っており、`SEARCH_LIMIT_MAX` も使われていない。`limit=abc` は NaN になり、`limit=-1` は SQLite で「無制限」となって全件が返る。発生したエラーも `catch` により空の 200 応答にされる。仕様（`limit` は 1〜50、既定 20、範囲外は 400）と食い違う。\n- 直し方: `limit`（と `page`）を `src/lib/` の検証関数で、整数かつ `limit` は 1〜50、`page` は 1 以上かを確認し、不正なら 400 を返す。未指定時は既定値を使う。`catch` で握りつぶさない。境界値（0、51、-1、abc）のテストを追加する。\n\n## 4. 【高】既存のマイグレーション 1 を書き換えて列を追加している\n\n- 場所: `src/lib/db/migrations.ts` 23 行目\n- 問題: `created_by` と `version` をマイグレーション 1 に直接足している。すでに `user_version` が 1 のDBはマイグレーションが再実行されず、列が作られない。そのため `SELECT ... created_by, version` が失敗する。CLAUDE.md の規約 7（既存マイグレーションは書き換えない）にも反する。\n- 直し方: マイグレーション 1 を元に戻し、末尾に新しい番号のマイグレーションを追加して `ALTER TABLE tasks ADD COLUMN created_by ...` と `ADD COLUMN version INTEGER NOT NULL DEFAULT 1` を行う。既存行（作成者なし）を許容し、`user_version` が 1 のDBからの移行テストを追加する。\n",
+  "review_chars": 1653,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2645,
+    "tokens": {
+      "input": 12,
+      "output": 2668,
+      "cache_read": 169400,
+      "cache_creation": 71582
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W20-cr-low-c1-0/app; git diff @{upstream}...HEAD 2>/dev/null; git diff HEAD; git status --short | head\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 3,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 41,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューで出た4件の指摘を `REVIEW.md` に書き、`REVIEW.md` だけをコミットしました。コードは直していません。新しい指摘は足しておらず、出た指摘も削っていません。\n\n重要度は、レビュー出力に付いていなかったので私が付けました。4件とも「高」にしています。\n\n1. **SQL インジェクション**: `searchTasks`（`src/lib/tasks.ts` 83行目付近）が検索語を SQL に文字列連結している。直し方はプレースホルダに変えること。\n2. **offset のずれ**: `src/lib/tasks.ts` 87行目付近で offset が `page * limit` になっていて、1ページ目が返らない。直し方は `(page - 1) * limit` にすること。\n3. **`limit` の検証漏れ**: `src/app/api/tasks/search/route.ts` 14行目で `limit` を検証しておらず、上限も使っていない。直し方は検証関数を通して範囲外を 400 にすること。17行目の `catch` が出たエラーを握りつぶす問題も同じ項目にまとめた。\n4. **既存マイグレーションの書き換え**: `src/lib/db/migrations.ts` 23行目で、マイグレーション 1 に列を足している。直し方は元に戻して、末尾に新しい番号のマイグレーションを追加すること。\n\n指摘1と3にまたがる `catch` の握りつぶしは、指摘1にも一言入れています。"
+  },
+  "interventions": 0
+}

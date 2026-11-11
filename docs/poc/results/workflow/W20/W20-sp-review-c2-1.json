@@ -1,0 +1,47 @@
+{
+  "trial": "W20-sp-review-c2-1",
+  "scenario": "W20",
+  "config": "sp-review",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: 計測器ごとの定期点検（担当者・周期・点検記録）\n\n対象: `git diff HEAD`（未コミットの差分）。PR の説明の「合意した要件」に照らして確認した。\n結論: **マージ前に直す必要あり**（高 1〜3 と、中 4・5 を直したうえで、5 万件の DB で再確認する）。\n\n重要度は 高（要件の欠け・データを黙って失う）／中（要件を満たしきれない・運用で困る）／低（品質・保守）。\n\n確認したこと: 差分とその周辺のコードを読んだ。`npm test` は通る（45 件）。\n確認できていないこと: 5 万件の DB での実測（実行計画・表示時間）、`npm run typecheck`・`npm run build`、実行時のタイムゾーン。性能の指摘（中 5）はコードを読んだ上での判断である。\n\n---\n\n## 高\n\n### 1. 担当者での絞り込み・並べ替えと、担当者ごとの遅れ台数が無い\n- 場所: `src/app/instruments/page.tsx`（`InstrumentsPage` の `searchParams` は `status` / `dept` だけ）、`src/lib/instruments.ts` の `listInstruments`。`src/app/api/jobs/` 以下にも集計やジョブが無い。`docs/operations.md` も未更新。\n- 問題: 要件の「担当者で絞り込み・並べ替えができる」「担当者ごとに、点検が遅れている台数を毎朝知りたい」が実装されていない。担当者列を表示しているだけで、クエリパラメータも型ガードも並べ替えも集計も無い。担当者が「自分の遅れている計測器」だけを見ることも、毎朝の遅れ台数を知ることもできない。\n- 直し方: `src/lib/` に担当者の絞り込み（`inspectorId`。「未設定」も選べるようにする）と並べ替えを足し、ページでは URL のクエリを型ガードで検証して使う（規約 2）。担当者ごとの遅れ台数は SQL で集計する関数を作り、画面の集計部分に出すか、既存のジョブ（`POST /api/jobs/overdue-loans` など）と同じ形のジョブを足して `docs/operations.md` に実行時刻と手順を書く（ジョブは何度動いても同じ結果になるようにする。規約 13）。「未点検」を遅れに数えるかを決めて画面に明記する。テストも足す。\n\n### 2. 周期や担当者を変えるだけで、旧データの点検者の書き方が消える（「黙って捨てない」に反する）\n- 場所: `src/lib/inspections.ts` の `updateInspectionPlan`（`UPDATE instruments SET inspector_id = ?, legacy_inspector = NULL`）、`src/app/instruments/[id]/inspection-forms.tsx`（フォームは常に `inspectorId` を送る）、`src/app/instruments/[id]/page.tsx`（`extra.inspector` を表示しない）\n- 問題: 移行で「外部委託」のように利用者と一致しなかった計測器は、`inspector_id` が NULL で `legacy_inspector` に元の書き方が残る。この計測器で周期だけを変えて保存すると、フォームの選択肢は「未設定」なので `inspectorId: null` が送られ、`legacy_inspector` が NULL になる。点検日が無い計測器では移行時に点検記録が作られていないため、元の書き方がどこにも残らず、画面からも見えなくなる。\n- 直し方: `legacy_inspector` を消すのは、担当者を実際に利用者へ変えたときだけにする。フォームは変更した項目だけを送る。消す場合も、消す前の値を点検記録のメモか履歴に残す。確認が済むまでは、元の書き方を画面に出し続ける。\n\n### 3. 文字列でない・読めない形の旧データが、画面から消える\n- 場所: `src/lib/inspections-legacy.ts` の `importLegacyInspections`（`typeof extra.inspector === \"string\"` でないものを空として扱う。壊れた JSON は `continue`）、`src/app/instruments/[id]/page.tsx`（`extra` の `inspector` / `last_inspected` を表示から外している）、`src/app/instruments/page.tsx`（旧点検列を削除）\n- 問題: `extra.inspector` が数値やオブジェクト、`last_inspected` が数値（Excel のシリアル値など）のとき、移行で何も作られない。`extra` には残るが、一覧にも詳細にも出ないため、見えない形で捨てたのと同じになる。`extra` が壊れた JSON の行も黙って飛ばされる。\n- 直し方: 文字列でない値は `String(...)` や `JSON.stringify` などで文字にして `legacy_*` に残す。移行しなかった行は件数と ID をログに出す。画面は、移行されなかった `extra` の値を表示する（隠すキーは、移行できたものだけにする）。\n\n---\n\n## 中\n\n### 4. 間違えた点検記録を、訂正の記録を足しても直せない\n- 場所: `src/lib/inspections.ts` の `PLAN_SELECT`（最後の点検日 = `MAX(inspected_on)`）、`recordInspection`、`tests/inspections.test.ts`（要修理のあとも使用停止のままであることを確認するテスト）\n- 問題: 要件は「記録は消さない。間違えたら訂正の記録を足す」。しかし訂正の仕組みが無い。日付を誤って未来寄りに入れた記録（例: 2025-11-09 のつもりで 2026-11-09）は、後から別の記録を足しても `MAX` が変わらず、次の点検予定日が直らない。要修理を誤って入れても、点検の側から使用停止を戻す方法が無い。\n- 直し方: 訂正の記録（訂正元の記録 ID を持つ。元の記録は残す）を足せるようにし、「最後の点検日」は訂正で置き換えられた記録を除いて計算する。誤った要修理を取り消したときの計測器の状態の扱いも決めて、画面に書く。\n\n### 5. 5 万件の一覧が重くなりそう（実測はしていない）\n- 場所: `src/lib/inspections.ts` の `listInspectionPlans`（全計測器の計画を毎回作る）、`src/app/instruments/page.tsx`\n- 問題: 一覧を開くたびに 5 万件ぶんの `PLAN_SELECT`（行ごとの `MAX` の副問い合わせ。`inspection_records_instrument` の索引で 1 件ずつは速い見込み）を実行し、全件を JS の `Map` にして、全行を描画している。`listInstruments` は元からあった作りで、すでに全件を読んで `dept` を JS で絞っているところに、計画ぶんの処理が上乗せされる。ページ分割も無い。\n- 直し方: 絞り込み・並べ替え・件数の集計・ページ分割を SQL にまとめる（`instruments` への `LEFT JOIN`、または最後の点検日を持つ列）。担当者と遅れの絞り込みが速くなる索引を足し、5 万件の DB で `EXPLAIN QUERY PLAN` と表示時間を確かめる。\n\n### 6. 旧データの名前の一致で、名前の途中に空白がある場合に外れる\n- 場所: `src/lib/inspections-legacy.ts` の `normalizeInspectorName` と `importLegacyInspections`（`SELECT id FROM users WHERE name = ?`）\n- 問題: 入力側だけ空白と敬称を除く。「鈴木 一郎様」→「鈴木一郎」になり、利用者が「鈴木 一郎」で登録されていると一致しない。元の書き方は残るが、担当者にできるはずのものが未設定になる。\n- 直し方: 利用者名側も同じ正規化をしてから比べる。複数に一致した場合は担当者にせず元の書き方を残す（今の動きのまま）。空白違い・敬称・同姓同名のテストを足す。\n\n### 7. 「点検した人」の選択肢に、退職・休職中の現担当者が出る\n- 場所: `src/app/instruments/[id]/page.tsx`（`planChoices`。「（在籍していません）」を付けた選択肢を、記録フォームにも渡している）、`src/app/instruments/[id]/inspection-forms.tsx`\n- 問題: 担当者の選択肢は、現担当者が無効でも残す仕様で正しい。しかし同じ一覧を点検記録の「点検した人」にも使っているため、その人を選ぶと API が 400 を返す。\n- 直し方: 記録フォームには在籍中の利用者だけを渡す。\n\n### 8. 前の版に戻した場合の注意が書かれていない\n- 場所: `docs/operations.md`、PR の説明\n- 問題: DB はそのまま使う前提。旧版は新しい列・テーブルを無視して動く見込み（`extra` を書き換えず、追加列に既定値があるため）。ただし旧版で `extra` の点検者・最終点検日を編集しても、新版に戻したとき移行はもう走らない（`user_version = 6`）ので、新しい画面に反映されない。\n- 直し方: 戻す手順と、戻した間の編集を新版へ取り込む方法（または取り込まないこと）を `docs/operations.md` と PR に書く。\n\n---\n\n## 低\n\n### 9. `PATCH /api/instruments/:id` が、画面で使わなくなった `extra.inspector` / `extra.last_inspected` を引き続き書ける\n- 場所: `src/lib/instruments.ts`（`extra` の更新、206〜214 行付近）\n- 問題: 新しい列・記録に反映されない書き込み口が残る。\n- 直し方: 旧版との互換のため残すなら、その旨をドキュメントに書く。残さないなら、書き込みを新しい API へ寄せる。\n\n### 10. マイグレーションが、アプリ側の関数（`importLegacyInspections` / `parseLegacyDate`）に依存している\n- 場所: `src/lib/db/migrations.ts` の `apply`、`src/lib/inspections-legacy.ts`\n- 問題: あとで日付の読み方を変えると、出荷済みのマイグレーション 6 の結果が変わる（新しい DB だけ違う結果になる）。\n- 直し方: 移行用のコードを固定して専用に持つ（マイグレーション用に凍結する）。\n\n### 11. 読めない日付の書き方がある\n- 場所: `src/lib/inspections-legacy.ts` の `parseLegacyDate`\n- 問題: 「2026年9月1日」「R元.9.1」「全角ハイフン」などは読めず、`legacy_date` に残り、計測器は「未点検」と表示される（元の書き方は残るので、要件には反しない）。\n- 直し方: 読める形を足す。「未点検」の横に、元の書き方があることを示す。\n\n### 12. 登録時の細かい検査\n- 場所: `src/lib/inspections.ts` の `recordInspection`\n- 問題: 廃棄済みの計測器にも点検記録が入る。点検した人が在籍中かの検査は検証関数の段階だけで、登録のトランザクション内では再確認しない。\n- 直し方: 仕様として許すか決める。必要ならトランザクション内で確認する。\n\n### 13. 「未点検」の目立たせ方が弱い\n- 場所: `src/app/instruments/page.tsx`（`<strong>` だけ）\n- 問題: 色もバッジも無く、「期限切れ」と見分けにくい。要件は「目立たせる」。\n- 直し方: 既存の画面の書き方に合わせて、色以外（文字・アイコン）でも分かる表示にする。\n\n### 14. テストの不足\n- 場所: `tests/inspections.test.ts`\n- 足りないもの: API ルートのテスト（401・400・404）、legacy 点検者が消えるケース（高 2）、同姓同名・空白違い（中 6）、数値の `extra`（高 3）、貸出中・校正中での要修理、5 万件でのマイグレーションと一覧の性能（実行計画の確認）。\n\n---\n\n## 判断を保留した点（指摘ではない）\n\nレビュー担当が、要件に書かれていないため判断しなかったもの。\n\n- 担当者・部署ごとの権限（誰が誰の計測器の担当者を変えられるか）: 要件に無く、既存の校正・貸出 API も同じ作り。\n- 貸出中の計測器に要修理を記録したときの扱い: 要件は「使用停止にする」だけ。返却の処理（`src/lib/loans.ts`）は貸出中の計測器だけを使用中へ戻すので、使用停止のままになる。\n- 要修理が校正中の状態を上書きしてよいか: 校正の不合格と同じ扱いとして問題にしなかった。\n- 次の点検予定日を暦の区切りに丸めるか: 要件は「最後の点検日 + 周期」で、今の実装で妥当。\n\n## 問題なしと判断した点（参考）\n\n- マイグレーション 1〜5 は書き換えていない。6 は末尾に追加され、1 つのトランザクションで動き、何度動かしても同じ結果になる（移行済みの計測器は飛ばす）。列追加は既定値付きで、旧版の `INSERT` を壊さない。\n- `extra` は書き換えていないので、`dept`（別システムが読む）の持ち方は変わらない。\n- 点検記録の更新・削除の経路は無い。要修理の登録は、記録の追加と使用停止を同じトランザクションで行い、廃棄済みは変えない。\n- 担当者・点検した人の在籍チェックは API の検証関数で行っている（現担当者が無効でも、変えなければそのまま残る）。\n- SQL はプレースホルダーのみ。API は最初にログインを確認している。\n- 月末の加算（1/31 + 1 か月 = 2/28）は正しく、日本時間の「今日」を使っている。\n",
+  "review_chars": 6228,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.7988,
+    "tokens": {
+      "input": 42,
+      "output": 27082,
+      "cache_read": 1021789,
+      "cache_creation": 130181
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -n 1,50p src/lib/db/index.ts; grep -n \\\"inspector\\\\|last_inspected\\\\|extra\\\" src/lib/db/seed.ts | head -40; grep -n \\\"suspended\\\\|on_loan\\\\|status\\\" src/lib/calibrations.ts src/lib/lo"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W20-sp-review-c2-1-app/7bfb4744-30b4-43ec-bcdd-282b4b93ce98/scratchpad && cat > $S/p.ts <<'EOF'\\nimport { DatabaseSync } from \\\"node:sqlite\\\";\\nimport { mi"
+      }
+    ],
+    "tool_calls": {
+      "Read": 5,
+      "Bash": 14,
+      "Agent": 1,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 1,
+    "subagent_types": {
+      "general-purpose": 1
+    },
+    "questions": 0,
+    "active_seconds": 115,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き直して、`REVIEW.md` だけをコミットしました（`f142bc8`）。コードは直していません。指摘は、レビュー担当が出した 14 件の並びと重要度のままで、場所・問題・直し方を付けています。\n\n- **重要度の直し**: 前のコミットでは、私が重要度を付け替えていました。レビュー担当の「Critical」を「高」、「Important」を「中」、「Minor」を「低」に戻しました。\n  - 高は 3 件で、担当者の絞り込み・並べ替え・遅れ台数、旧データの点検者が消える問題、数値や壊れた形の旧データが画面から消える問題です。\n  - 中は 5 件で、訂正の記録を足しても直せない問題、5 万件での性能、名前の一致、「点検した人」の選択肢、前の版に戻す手順です。\n  - 低は 6 件で、テストの不足も含みます。\n- **まとめた指摘**: 担当者の絞り込み・並べ替えと、担当者ごとの遅れ台数は、同じ項目にまとめました。レビュー担当は 1 件として出していました。\n- **外した項目**: 前のコミットには、私が足した指摘が 1 件ありました。貸出中の計測器に要修理を記録すると状態が使用停止になる、というものです。レビュー担当は指摘として出さず、判断を保留した点として挙げていました。新しい指摘は足さない決まりなので、番号付きの指摘から外し、「判断を保留した点」の節に移しました。\n- **新しく書いた節**: 「判断を保留した点（指摘ではない）」と「問題なしと判断した点」を付けました。\n\n5 万件での実測と、`npm run typecheck`・`npm run build` は確認できていません。性能の指摘（中 5）は、コードを読んだ上での判断です。"
+  },
+  "interventions": 0
+}

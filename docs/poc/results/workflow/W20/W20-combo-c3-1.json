@@ -1,0 +1,61 @@
+{
+  "trial": "W20-combo-c3-1",
+  "scenario": "W20",
+  "config": "combo",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: 設置場所を場所マスタから選べるようにする\n\n対象: 未コミットの差分（`git diff HEAD`）。コードは直していない。\n下の ★ は、実際にスクリプトで動かして再現を確かめたもの。\nこのファイルは 2 つのレビュー（`/code-review high` の 10 件と、`review-pr` の観点で行ったレビュー）の指摘を統合したもの。同じ指摘は 1 つにまとめ、どちらかにしか無い指摘も残している。\n\n## 高（マージ前に必ず直す）\n\n### 1. ★ `locationId` を指定した計測器の登録（POST）が 500 になる\n- 場所: `src/lib/instruments.ts` `validateLocation`（`\"locationId\" in b` の分岐）→ `createInstrument`（`input.locationOriginal` を INSERT）\n- 問題: `locationId` に有効な ID を送ると、`value.locationId` だけが設定され `value.locationOriginal` は `undefined` のまま。`createInstrument` が `undefined` を SQLite に渡し、`TypeError: Provided value cannot be bound to SQLite parameter 4.` で落ちる。`POST /api/instruments` に `{ ..., \"locationId\": 1 }` を送ると再現した。要件 3「場所を一覧から選んで登録」の主経路が動かない。`validateInstrumentInput` の検証は通るので、400 でもなく 500 になる。\n- 直し方: 後述 2 の方針で `location` 列の値を、場所を選んだ時点で確定する（選んだ場所の名称）。`createInstrument` の INSERT で `undefined` を渡さない。`locationId` で登録するテストを追加する（既存テストに無い）。\n\n### 2. ★ `location` 列に「場所の名前が入った状態」が保たれない（要件 7・8 に違反）\n経理部は DB のコピーから `instruments.location` を直接読む。前の版のアプリも `location` 列だけを読む。次の 3 つの経路で、`location` 列が正式な名称にならない。\n\n- **a. 移行**: `src/lib/locations.ts` `linkInstrumentsToLocations` は `location_id` だけを設定し、`location` は「変えない」とある。`製造部第１ライン` や `品証 測定室` のような表記ゆれの値が、寄せた後も元の綴りのまま残る。経理部は正式な名称（`製造部 第 1 ライン`）を期待しているので、集計が分裂する。移行の時点で、結び付けた行の `location` を場所の名称に更新する。元の綴りの記録先は別に確保する（下の 3 を参照）。\n- **b. 場所を選んだとき**: `validateLocation` の `locationId` 分岐は `location` 列を更新しない。★ 詳細画面から `locationId: 2` に変更したところ、`location_id = 2` なのに `location` は `品質保証部 測定室`（ID 1 の名称）のまま。画面の表示は `location_id` 側を参照するので気づけないが、経理のコピーと前の版では別の場所に見える。\n- **c. 名称変更**: `src/lib/location-master.ts` `updateLocation` は `locations.name` しか更新しない。名前を変えても、その場所の計測器の `location` 列は旧名称のまま（要件 5・7）。同じトランザクションで `UPDATE instruments SET location = ? WHERE location_id = ?` を行う。5 万件規模でも `instruments_location` インデックスがあるので問題ない。\n- **d. 選んだときに元の文字列が残る**（`src/lib/instruments.ts:224` 付近）: `validateLocation` は `locationId` で選んだとき `locationOriginal` に触らない。確認中（`location` = `倉庫`・`location_id` NULL）の計測器を `工事部 倉庫` に選ぶと、`location_id` は設定されるが `location` は `倉庫` のまま残り、API は `locationOriginal` として返す。後でその場所が使用終了になる、またはハンディ端末の不一致でリンクが外れると、無関係な古い文字列が「確認中」として表示される。選んだ時点で `location` を場所の名称に更新する（a〜c と同じ直し方）。\n- ハンディ端末の確定（`recordInventory` の `linked`）も、`location` 列に正規化前の端末の文字をそのまま入れている。正式な名称を入れる。\n- 前の版に戻した場合: 前の版は `location` だけを更新し `location_id` は触らない。再度この版に戻すと、`location_id` が古いまま `location_name` が優先表示されて、前の版での修正が見えなくなる。`location` 列を常に最新の名称にしておき、さらに表示時に `location_id` と `location` の食い違いをどう扱うかを決めて運用メモに書く。\n\n### 3. 確認中の計測器の元の文字列が、画面の保存で消える\n- 場所: `src/lib/instruments.ts` `validateLocation`（`b.locationId === null` で `locationOriginal = \"\"`）、`src/app/instruments/[id]/LocationForm.tsx`\n- 問題: 確認中（`location_id` NULL・`location` = `倉庫`）の計測器の詳細画面を開くと、フォームは「未設定」が選ばれた状態で出る。そのまま「保存する」を押すと `{locationId:null}` が送られ、元の文字列が `\"\"` で上書きされて、確認中から未設定になる。要件 2「元の書き方を残す」と `docs/operations.md` の「元の文字列は消さない」に反する。品質保証部が手がかりを失う。\n- 直し方: `locationId: null` では `location` を空にする場合を「利用者が明示的に未設定にした」ときだけに限る（確認中の計測器に対して、選択が変わっていなければ送らない／変えない）。フォームは確認中の状態を表せない（選択肢に無く、元の文字列も見せない）ことが同じ原因なので、あわせて直し、確認中の状態と元の文字列を表示する。元の綴りは移行時に別の列（例: `location_original`）か監査用のテーブルへ残すと、上の 2 とも両立する。\n\n## 中\n\n### 4. 古い形式の `location` 文字列の PATCH で、確定済みの計測器が確認中に戻る\n- 場所: `src/lib/instruments.ts` `validateLocation`（`\"location\" in b` の分岐）\n- 問題: クライアントが読んだ `location`（旧名称）をそのまま PATCH に添えて送ると、その間に場所名が変更されていた場合は現在の名称と一致せず、`locationId = null` に落ちて確認中に戻る。ハンディ端末の経路は `unmatched_kept` で守られているが、API の PATCH は守られていない（要件 6 の考え方と不整合）。\n- 直し方: 確定済み（`currentLocationId` あり）で一致しない文字列は、ハンディ端末と同じく変えないか、400 を返す。\n\n### 5. ハンディ端末で、分からない文字が確定済みの計測器では捨てられる\n- 場所: `src/lib/instruments.ts` `recordInventory`（`unmatched_kept`）\n- 問題: 確定済みの計測器に、マスタに無い場所（新しい場所・誤字）が送られても、DB は変わらず 200 を返す。送られた文字はログ `handheld.inventory.unmatched` にしか残らない。実際の移動が記録に残らず、確認中の一覧からも探せない。要件 6 は「分からなければ確認中として送られた文字を残す」であり、確定済みでも例外とは書かれていない。品質保証部の修正を戻さない配慮は理解できるが、少なくとも保持した旨を検索できる形で残す必要がある。\n- 直し方: 仕様をどちらにするか依頼者に確認する。確認できない場合は、置いた仮定を PR に書く。確定済みを守るなら、送られた文字を保存する場所（例: `instruments` の備考、棚卸しの履歴テーブル）を設ける。\n\n### 6. 空白の定義が 3 か所で食い違う\n- 場所: `src/lib/instruments.ts` `toInstrument`（JS の `trim()`）、同 `BLANK`（SQL の `TRIM` に文字集合）、`src/lib/locations.ts` `linkInstrumentsToLocations`（別の `TRIM` リテラル）\n- 問題: JS の `trim()` はノーブレークスペース（U+00A0）や `\\f`・`\\v` も空白とみなすが、SQL の `TRIM` は取り除かない。`location = ' '` の行は、画面では「未設定」と出るのに、`?location=unconfirmed` に出て `none` には出ない。移行ログの `unconfirmed` にも数えられる。\n- 直し方: 判定を 1 か所にまとめる。移行時に空白だけの値を `''` に正規化するか、`normalizeLocationKey(text) === \"\"` を唯一の基準にして、SQL 側も同じ集合にそろえる。\n\n### 7. `ALIASES` とプレフィックス展開が「推測で寄せない」に反し、`Object.prototype` に当たる\n- 場所: `src/lib/locations.ts` `ALIASES`・`DEPARTMENTS`・`normalizeLocationKey`\n- 問題 a: ★ `ALIASES` は素のオブジェクトで、`ALIASES[key]` を任意の文字列で引いている。`constructor`・`toString` が `function` を返す（`__proto__` は `object`）。ハンディ端末の自由入力や場所名にこれらが来ると、文字列でない値が返る。`Map` か `Object.hasOwn` に変える。\n- 問題 b（件数）: 切れた表記の補完（`大阪営` ほか）で約 1,200 件、`工事倉庫` の接頭辞展開で約 580 件（`docs/data/location-values.csv`）が推測で結び付く。誤った結び付きは気づかれにくく、品質保証部が頼る「確認中」の印も失われる。\n- 問題 b: `大阪営` → `大阪営業所` のような切れた表記の補完は、合意した「表記ゆれ（全角・半角、第1／第一、空白、品証・品保、号車など）」の範囲を超える推測にあたる可能性がある。`docs/data/location-values.csv` で何件に効いているか確認し、依頼者に確認する。確認できないなら、確認中に残す側に倒す。\n- 問題 c: 部署名の接頭辞（`工事` → `工事部`）の展開が、部署名＋場所の組み合わせ以外にも効くため、意図しない一致が起きないかテストで確かめる（`工事倉庫` のような値）。\n\n### 8. 場所マスタの変更が誰にでもでき、誰が何を変えたかもログに残らない\n- 場所: `src/app/api/locations/route.ts` `POST`、`src/app/api/locations/[id]/route.ts` `PATCH`\n- 問題: ログイン済みなら誰でも `PATCH /api/locations/:id` で名称変更・使用終了ができ、`POST /api/locations` も同様（要件 4 で「誰でも」と合意済みだが、開発標準 7「認可は API ごとに確認する」に照らして、品質保証部などに限らなくてよいか依頼者に再確認する）。たとえば `工事部 倉庫`（約 2.8k 件）を使用終了にすると、全計測器の表示が変わり、選択肢から消え、ハンディ端末の照合も止まる。さらに、名称変更や使用終了は、紐づく全計測器の表示（約 2.8k 件の場所もある）・経理のコピー・ハンディ端末の照合に即座に影響する。開発標準 15 の「何が・どの対象で・どうなったか」を満たすログ（場所 ID・旧名称・新名称・`active`・ユーザー）が無い。\n- 直し方: 権限の扱いを依頼者に確認する（合意どおり誰でも可とするなら、PR に仮定として書く）。あわせて `logger.info(\"locations.updated\", { id, from, to, active, userId })` のように出す。\n\n### 9. 使用終了にした場所を、ハンディ端末と古い形式の `location` が照合しない件の文書化\n- 場所: `src/lib/instruments.ts` `recordInventory`（`active = 1` のみ照合）\n- 問題: 使用終了の場所の名称が端末から送られると、確認中になる（確定済みなら無視される）。要件 4 は「新しく選べない」としているだけなので、挙動としては許容できるが、`docs/handheld-api.md` と運用メモに明記されていない。\n- 直し方: ドキュメントに追記する。\n\n## 低\n\n### 10. 保存成功のメッセージがすぐ消え、フォーカスも失われる\n- 場所: `src/app/instruments/[id]/LocationForm.tsx` `save`\n- 問題: `setMessage` の直後に `window.location.reload()` を呼ぶので、「保存しました」は表示される前に消える。開発標準 19（結果を画面で分かるように）・20（キーボード操作）に反する。\n- 直し方: `router.refresh()` を使い、メッセージを保ったまま、フォーカスをメッセージ（`role=\"status\"`）に移す。\n\n### 11. 場所の検証で毎回、全場所の計測器件数を数えている\n- 場所: `src/lib/location-master.ts` `validateLocationInput` → `listLocations()`\n- 問題: 重複確認のために名前だけが必要なのに、場所ごとに `COUNT(*)` の副問い合わせが走る（`instruments_location` があるので致命的ではない）。\n- 直し方: `SELECT id, name FROM locations` を使う。\n\n### 12. 移行の 1 行ごとの照合と、4 回の全件 COUNT\n- 場所: `src/lib/locations.ts` `linkInstrumentsToLocations`\n- 問題: 行ごとに 16 か所の名称を正規化し直し（約 80 万回）、結果の内訳のために全件の `COUNT` を 4 回走らせている。★ 5 万件 × 16 回の正規化は約 0.5 秒で、再起動の許容時間（要件 9）には収まる。ただし、本番と同じ約 5 万件の DB で、移行にかかった時間を測った記録が無い。\n- 直し方: 名称のキーを先に `Map` に作る。異なる値ごとに結果をキャッシュする（CSV では約 170 種類）。移行ログ `locations.migrated` に所要時間（ミリ秒）を足す。\n\n### 13. テストの不足\n- `locationId` を指定した `POST` と `PATCH`（上の 1・2b）。\n- 名称変更後の `location` 列（2c）。\n- 確認中の計測器に対する `{locationId:null}` の PATCH（3）。\n- 移行後に `location` 列が正式な名称になっていること（2a）と、前の版のアプリを想定した `location` のみの読み書き（要件 8）。\n",
+  "review_chars": 7207,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.9102,
+    "tokens": {
+      "input": 58,
+      "output": 30403,
+      "cache_read": 1679820,
+      "cache_creation": 133907
+    },
+    "turns": 20,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; git diff HEAD --stat\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/-tmp-poc-trials-W20-combo-c3-1-app/110b7490-77b0-4269-8cd9-82cef15e8fe4/scratchpad/m.ts <<'EOF'\\nimport { readFileSync } from \\\"node:fs\\\";\\nimport { normalizeLocationK"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W20-combo-c3-1-app/110b7490-77b0-4269-8cd9-82cef15e8fe4/scratchpad; node --experimental-strip-types $S/m.ts 2>&1 | grep -v \\\"^(node\\\" | sed -n 1,175p | awk"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --experimental-strip-types /tmp/claude-0/-tmp-poc-trials-W20-combo-c3-1-app/110b7490-77b0-4269-8cd9-82cef15e8fe4/scratchpad/m.ts 2>&1 | grep -v ExperimentalWarning | head -150\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --experimental-strip-types /tmp/claude-0/-tmp-poc-trials-W20-combo-c3-1-app/110b7490-77b0-4269-8cd9-82cef15e8fe4/scratchpad/m.ts\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='REVIEW.md'\\ns=open(p,encoding='utf-8').read()\\ndef rep(a,b):\\n    global s\\n    assert s.count(a)==1,a\\n    s=s.replace(a,b)\\nrep(\\\"下の ★ は、実際にスクリプトで動かして再現を確かめたもの。\\\","
+      }
+    ],
+    "tool_calls": {
+      "Bash": 20,
+      "Read": 2,
+      "Write": 2,
+      "Edit": 8
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 318,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` に2つのレビューの指摘をまとめ、そのファイルだけをコミットしました。コードは直していません。\n\n`/code-review high` の10件は、すべて残っています。同じ指摘は1つにまとめました。\n\n- **統合した点:**\n  - 確認中を表せないフォームの指摘は、元の文字列が消える指摘（3）に統合しました。\n  - `locationId` で選んでも `location` 列が古いまま残る指摘は、`location` 列に場所の名前が入らない指摘（2）に「d」として加えました。\n- **前回の `REVIEW.md` で削っていた分:**\n  - 約80万回の正規化と、全件の `COUNT` 4回の指摘を戻しました（12）。\n  - 「誰でも場所マスタを変更できる」指摘を戻しました（8）。要件4で合意済みなので、依頼者への再確認を促す書き方にしています。\n  - 「推測で寄せる」件数（約1,200件と約580件）を戻しました（7）。\n- **前回の `REVIEW.md` だけにあった指摘:** 新規登録の500エラー、移行時と名称変更時に `location` 列が更新されないこと、使用終了の場所の文書化も、そのまま残っています。\n\n新しい指摘は足していません。"
+  },
+  "interventions": 0
+}

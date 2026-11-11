@@ -1,0 +1,1028 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 0e90b55..502b5af 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -27,6 +27,7 @@ Next.js（App Router）+ TypeScript + SQLite（Node 標準の `node:sqlite`）
+ - 初期ユーザーは `src/lib/db/seed.ts`（パスワードは共通で `password`。PoC の検証用）。`/login` からログインする。
+ - セッションは DB の `sessions` テーブルと Cookie `poc_session`（`src/lib/auth.ts`）。ページでは `requireUser()`、API Route では `requireApiUser()`（`src/lib/session.ts`・`src/lib/api.ts`）でログインを確認する。
+ - API: `POST /api/login`、`POST /api/logout`、`GET/POST /api/instruments`、`GET/PATCH /api/instruments/:id`、`GET/POST /api/instruments/:id/loans`、`POST /api/instruments/:id/loans/:loanId/return`、`GET/POST /api/instruments/:id/calibrations`。エラーは `{ error, details? }` の JSON で返す。
++- 定期点検: 計測器ごとに点検の担当者（在籍中の利用者・1 人）と点検周期（月・既定 3）を持ち、点検記録（点検日・点検した人・結果 良好 `good` / 要修理 `repair`・メモ）を履歴で残す。要修理なら使用停止。次の点検予定日 = 最後の点検日 + 周期。記録が無ければ「未点検」。API: `GET/PATCH /api/instruments/:id/inspection`、`GET/POST /api/instruments/:id/inspections`（`src/lib/inspections.ts`）。旧 `extra` の `inspector` / `last_inspected` はマイグレーション 6 で移行済み（`src/lib/inspections-legacy.ts`。元の書き方は残す）。
+ - 定期実行のジョブ: `POST /api/jobs/overdue-loans` など（`docs/operations.md`）。
+ 
+ ## コーディング規約
+diff --git a/src/app/api/instruments/[id]/inspection/route.ts b/src/app/api/instruments/[id]/inspection/route.ts
+new file mode 100644
+index 0000000..feb3d1a
+--- /dev/null
++++ b/src/app/api/instruments/[id]/inspection/route.ts
+@@ -0,0 +1,28 @@
++// GET /api/instruments/:id/inspection — 点検の担当者・周期・次の点検予定日
++// PATCH — 担当者（inspectorId。null で未設定）と周期（intervalMonths）を、送った項目だけ更新する。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { parseId } from "@/lib/instruments";
++import { getInspectionPlan, updateInspectionPlan, validatePlanInput } from "@/lib/inspections";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  const plan = id === undefined ? undefined : getInspectionPlan(id);
++  if (!plan) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ plan });
++}
++
++export async function PATCH(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  const current = id === undefined ? undefined : getInspectionPlan(id);
++  if (id === undefined || !current) return jsonError(404, "計測器が見つかりません");
++  const changes = validatePlanInput(await readJson(request), current.inspectorId);
++  if (!changes.ok) return jsonError(400, "入力内容に誤りがあります", changes.errors);
++  return NextResponse.json({ plan: updateInspectionPlan(id, changes.value) });
++}
+diff --git a/src/app/api/instruments/[id]/inspections/route.ts b/src/app/api/instruments/[id]/inspections/route.ts
+new file mode 100644
+index 0000000..1ec67ca
+--- /dev/null
++++ b/src/app/api/instruments/[id]/inspections/route.ts
+@@ -0,0 +1,28 @@
++// GET /api/instruments/:id/inspections — 点検記録（新しい順） / POST — 点検記録を登録する
++//（本文 { inspectedOn, inspectorId, result: "good" | "repair", memo? }）。要修理なら計測器は使用停止になる。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { getInstrument, parseId } from "@/lib/instruments";
++import { listInspections, recordInspection, validateInspectionInput } from "@/lib/inspections";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ inspections: listInspections(id) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseId((await params).id);
++  if (id === undefined || !getInstrument(id)) return jsonError(404, "計測器が見つかりません");
++  const input = validateInspectionInput(await readJson(request));
++  if (!input.ok) return jsonError(400, "入力内容に誤りがあります", input.errors);
++  const result = recordInspection(id, input.value, user.id);
++  if (!result) return jsonError(404, "計測器が見つかりません");
++  return NextResponse.json({ inspection: result.record, instrument: result.instrument, plan: result.plan }, { status: 201 });
++}
+diff --git a/src/app/instruments/[id]/inspection-forms.tsx b/src/app/instruments/[id]/inspection-forms.tsx
+new file mode 100644
+index 0000000..1accf29
+--- /dev/null
++++ b/src/app/instruments/[id]/inspection-forms.tsx
+@@ -0,0 +1,135 @@
++"use client";
++// 点検の担当者・周期の変更と、点検記録の登録。API を呼び、結果を画面に出す。
++import { useRouter } from "next/navigation";
++import { useState, type FormEvent } from "react";
++
++type UserOption = { id: string; name: string };
++
++type Props = {
++  instrumentId: number;
++  users: UserOption[]; // 選べる利用者（在籍中。現在の担当者は退職・休職でも含める）
++  inspectorId: string | null;
++  intervalMonths: number;
++  currentUserId: string;
++  today: string; // 日本時間の今日 YYYY-MM-DD
++};
++
++type Message = { kind: "ok" | "error"; text: string };
++
++async function send(url: string, method: string, body: unknown): Promise<Message> {
++  try {
++    const res = await fetch(url, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
++    if (res.ok) return { kind: "ok", text: "保存しました" };
++    const data = (await res.json().catch(() => ({}))) as { error?: string; details?: string[] };
++    return { kind: "error", text: [data.error ?? "保存できませんでした", ...(data.details ?? [])].join(" / ") };
++  } catch {
++    return { kind: "error", text: "通信に失敗しました。もう一度お試しください" };
++  }
++}
++
++export function InspectionForms({ instrumentId, users, inspectorId, intervalMonths, currentUserId, today }: Props) {
++  const router = useRouter();
++  const [planMessage, setPlanMessage] = useState<Message>();
++  const [recordMessage, setRecordMessage] = useState<Message>();
++
++  async function submitPlan(e: FormEvent<HTMLFormElement>) {
++    e.preventDefault();
++    const form = new FormData(e.currentTarget);
++    const inspector = String(form.get("inspectorId") ?? "");
++    const msg = await send(`/api/instruments/${instrumentId}/inspection`, "PATCH", {
++      inspectorId: inspector === "" ? null : inspector,
++      intervalMonths: Number(form.get("intervalMonths")),
++    });
++    setPlanMessage(msg);
++    if (msg.kind === "ok") router.refresh();
++  }
++
++  async function submitRecord(e: FormEvent<HTMLFormElement>) {
++    e.preventDefault();
++    const formEl = e.currentTarget;
++    const form = new FormData(formEl);
++    const msg = await send(`/api/instruments/${instrumentId}/inspections`, "POST", {
++      inspectedOn: form.get("inspectedOn"),
++      inspectorId: form.get("inspectorId"),
++      result: form.get("result"),
++      memo: form.get("memo"),
++    });
++    setRecordMessage(
++      msg.kind === "ok" && form.get("result") === "repair"
++        ? { kind: "ok", text: "保存しました。要修理のため、この計測器を使用停止にしました" }
++        : msg,
++    );
++    if (msg.kind === "ok") {
++      formEl.reset();
++      router.refresh();
++    }
++  }
++
++  return (
++    <>
++      <form onSubmit={submitPlan} aria-label="点検の担当者と周期">
++        <p>
++          <label>
++            担当者{" "}
++            <select name="inspectorId" defaultValue={inspectorId ?? ""}>
++              <option value="">未設定</option>
++              {users.map((u) => (
++                <option key={u.id} value={u.id}>
++                  {u.name}
++                </option>
++              ))}
++            </select>
++          </label>{" "}
++          <label>
++            点検周期（月）{" "}
++            <input name="intervalMonths" type="number" min={1} max={120} defaultValue={intervalMonths} required />
++          </label>{" "}
++          <button type="submit">担当者と周期を保存</button>
++        </p>
++        {planMessage && (
++          <p role={planMessage.kind === "error" ? "alert" : "status"} data-testid="plan-message">
++            {planMessage.text}
++          </p>
++        )}
++      </form>
++
++      <form onSubmit={submitRecord} aria-label="点検の記録">
++        <p>
++          <label>
++            点検日{" "}
++            <input name="inspectedOn" type="date" defaultValue={today} max={today} required />
++          </label>{" "}
++          <label>
++            点検した人{" "}
++            <select name="inspectorId" defaultValue={users.some((u) => u.id === currentUserId) ? currentUserId : ""} required>
++              <option value="" disabled>
++                選択してください
++              </option>
++              {users.map((u) => (
++                <option key={u.id} value={u.id}>
++                  {u.name}
++                </option>
++              ))}
++            </select>
++          </label>{" "}
++          <label>
++            結果{" "}
++            <select name="result" defaultValue="good">
++              <option value="good">良好</option>
++              <option value="repair">要修理（使用停止になります）</option>
++            </select>
++          </label>{" "}
++          <label>
++            メモ <input name="memo" maxLength={1000} size={30} />
++          </label>{" "}
++          <button type="submit">点検を記録</button>
++        </p>
++        {recordMessage && (
++          <p role={recordMessage.kind === "error" ? "alert" : "status"} data-testid="record-message">
++            {recordMessage.text}
++          </p>
++        )}
++      </form>
++    </>
++  );
++}
+diff --git a/src/app/instruments/[id]/page.tsx b/src/app/instruments/[id]/page.tsx
+index eaf4736..84253ec 100644
+--- a/src/app/instruments/[id]/page.tsx
++++ b/src/app/instruments/[id]/page.tsx
+@@ -2,15 +2,18 @@ import { notFound } from "next/navigation";
+ import { RESULT_LABELS, listCalibrations } from "@/lib/calibrations";
+ import { STATUS_LABELS, getInstrument, parseId } from "@/lib/instruments";
+ import { listLoans } from "@/lib/loans";
++import { todayJst } from "@/lib/dates";
++import { DUE_STATUS_LABELS, INSPECTION_RESULT_LABELS, getInspectionPlan, listInspections } from "@/lib/inspections";
+ import { requireUser } from "@/lib/session";
+-import { getUser } from "@/lib/users";
++import { getUser, listActiveUsers } from "@/lib/users";
++import { InspectionForms } from "./inspection-forms";
+ 
+ type Props = {
+   params: Promise<{ id: string }>;
+ };
+ 
+ export default async function InstrumentDetailPage({ params }: Props) {
+-  await requireUser();
++  const currentUser = await requireUser();
+   const id = parseId((await params).id);
+   const instrument = id === undefined ? undefined : getInstrument(id);
+   if (!instrument) notFound();
+@@ -18,6 +21,14 @@ export default async function InstrumentDetailPage({ params }: Props) {
+   const loans = listLoans(instrument.id);
+   const calibrations = listCalibrations(instrument.id);
+   const nameOf = (userId: string) => getUser(userId)?.name ?? userId;
++  const plan = getInspectionPlan(instrument.id)!;
++  const inspections = listInspections(instrument.id);
++  const choices = listActiveUsers();
++  // すでに担当になっている人は、退職・休職でも選択肢に残す（新しく選べるのは在籍中の人だけ）
++  const planChoices =
++    plan.inspectorId && !choices.some((u) => u.id === plan.inspectorId)
++      ? [...choices, { id: plan.inspectorId, name: `${nameOf(plan.inspectorId)}（在籍していません）` }]
++      : choices;
+ 
+   return (
+     <main>
+@@ -46,12 +57,13 @@ export default async function InstrumentDetailPage({ params }: Props) {
+             <dd>{instrument.note}</dd>
+           </>
+         )}
+-        {Object.entries(instrument.extra).map(([key, value]) => {
++        {Object.entries(instrument.extra)
++          // 点検者・最終点検日は、点検の担当者・点検記録に移行した（下の「定期点検」に出す）
++          .filter(([key]) => key !== "inspector" && key !== "last_inspected")
++          .map(([key, value]) => {
+           // その他の項目。よく使うものだけ名前を付けて出す
+           let label = key;
+           if (key === "dept") label = "担当部署";
+-          else if (key === "inspector") label = "点検者";
+-          else if (key === "last_inspected") label = "最終点検日";
+           else if (key === "memo") label = "メモ";
+           return (
+             <span key={key}>
+@@ -62,6 +74,63 @@ export default async function InstrumentDetailPage({ params }: Props) {
+         })}
+       </dl>
+ 
++      <h2>定期点検</h2>
++      <dl>
++        <dt>担当者</dt>
++        <dd data-testid="inspection-inspector">
++          {plan.inspectorId ? nameOf(plan.inspectorId) : "未設定"}
++          {plan.legacyInspector && `（旧データの記載: ${plan.legacyInspector}）`}
++        </dd>
++        <dt>点検周期</dt>
++        <dd>{plan.intervalMonths} か月</dd>
++        <dt>最後の点検日</dt>
++        <dd>{plan.lastInspectedOn ?? "—"}</dd>
++        <dt>次の点検予定日</dt>
++        <dd data-testid="inspection-next-due">{plan.nextDueOn ?? "—"}</dd>
++        <dt>点検の状況</dt>
++        <dd data-testid="inspection-due-status">
++          {plan.dueStatus === "ok" ? DUE_STATUS_LABELS.ok : <strong>{DUE_STATUS_LABELS[plan.dueStatus]}</strong>}
++        </dd>
++      </dl>
++      <InspectionForms
++        instrumentId={instrument.id}
++        users={planChoices}
++        inspectorId={plan.inspectorId}
++        intervalMonths={plan.intervalMonths}
++        currentUserId={currentUser.id}
++        today={todayJst()}
++      />
++      <h3>点検の記録</h3>
++      {inspections.length === 0 ? (
++        <p>点検の記録はありません。</p>
++      ) : (
++        <table>
++          <thead>
++            <tr>
++              <th>点検日</th>
++              <th>点検した人</th>
++              <th>結果</th>
++              <th>メモ</th>
++              <th>登録者</th>
++            </tr>
++          </thead>
++          <tbody>
++            {inspections.map((r) => (
++              <tr key={r.id} data-testid="inspection-row">
++                <td>{r.inspectedOn ?? `日付を読み取れません（旧データの記載: ${r.legacyDate}）`}</td>
++                <td>
++                  {r.inspectorId ? nameOf(r.inspectorId) : (r.legacyInspector ?? "—")}
++                  {!r.inspectorId && r.legacyInspector && "（旧データの記載）"}
++                </td>
++                <td>{INSPECTION_RESULT_LABELS[r.result]}</td>
++                <td>{r.memo || "—"}</td>
++                <td>{r.recordedBy ? nameOf(r.recordedBy) : "旧データから移行"}</td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++      )}
++
+       <h2>校正記録</h2>
+       {calibrations.length === 0 ? (
+         <p>校正記録はありません。</p>
+diff --git a/src/app/instruments/page.tsx b/src/app/instruments/page.tsx
+index 4ca3802..f0dcafd 100644
+--- a/src/app/instruments/page.tsx
++++ b/src/app/instruments/page.tsx
+@@ -1,5 +1,6 @@
+ import { requireUser } from "@/lib/session";
+ import { INSTRUMENT_STATUSES, STATUS_LABELS, extraText, isInstrumentStatus, listInstruments } from "@/lib/instruments";
++import { DUE_STATUS_LABELS, listInspectionPlans } from "@/lib/inspections";
+ import { listUsers } from "@/lib/users";
+ 
+ type Props = {
+@@ -13,6 +14,7 @@ export default async function InstrumentsPage({ searchParams }: Props) {
+   const dept = params.dept || undefined;
+   const instruments = listInstruments({ status, dept });
+   const names = new Map(listUsers().map((u) => [u.id, u.name]));
++  const plans = listInspectionPlans();
+ 
+   return (
+     <main>
+@@ -46,7 +48,10 @@ export default async function InstrumentsPage({ searchParams }: Props) {
+             <th>前回校正日</th>
+             <th>状態</th>
+             <th>担当部署</th>
+-            <th>点検</th>
++            <th>点検の担当者</th>
++            <th>最後の点検日</th>
++            <th>次の点検予定日</th>
++            <th>点検の状況</th>
+           </tr>
+         </thead>
+         <tbody>
+@@ -63,9 +68,19 @@ export default async function InstrumentsPage({ searchParams }: Props) {
+               <td>{i.lastCalibratedOn}</td>
+               <td>{STATUS_LABELS[i.status]}</td>
+               <td>{extraText(i, "dept") || "—"}</td>
+-              <td>
+-                {extraText(i, "inspector") ? `${extraText(i, "inspector")}（${extraText(i, "last_inspected") || "日付なし"}）` : "—"}
+-              </td>
++              {(() => {
++                const plan = plans.get(i.id)!;
++                return (
++                  <>
++                    <td>{plan.inspectorId ? (names.get(plan.inspectorId) ?? plan.inspectorId) : (plan.legacyInspector ?? "未設定")}</td>
++                    <td>{plan.lastInspectedOn ?? "—"}</td>
++                    <td>{plan.nextDueOn ?? "—"}</td>
++                    <td data-testid="inspection-due-status">
++                      {plan.dueStatus === "ok" ? DUE_STATUS_LABELS.ok : <strong>{DUE_STATUS_LABELS[plan.dueStatus]}</strong>}
++                    </td>
++                  </>
++                );
++              })()}
+             </tr>
+           ))}
+         </tbody>
+diff --git a/src/lib/dates.ts b/src/lib/dates.ts
+index 9a73424..3601bad 100644
+--- a/src/lib/dates.ts
++++ b/src/lib/dates.ts
+@@ -14,3 +14,13 @@ export function isValidDate(value: unknown): value is string {
+ export function todayJst(now: Date = new Date()): string {
+   return new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+ }
++
++/** 日付（YYYY-MM-DD）に月数を足す。移動先に同じ日が無ければ月末にする（1/31 + 1 か月 = 2/28）。 */
++export function addMonths(date: string, months: number): string {
++  const [y, m, d] = date.split("-").map(Number);
++  const index = y * 12 + (m - 1) + months;
++  const year = Math.floor(index / 12);
++  const month = index % 12;
++  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
++  return new Date(Date.UTC(year, month, Math.min(d, lastDay))).toISOString().slice(0, 10);
++}
+diff --git a/src/lib/db/index.ts b/src/lib/db/index.ts
+index 92d91dd..eb50bf9 100644
+--- a/src/lib/db/index.ts
++++ b/src/lib/db/index.ts
+@@ -5,6 +5,7 @@
+ import { DatabaseSync } from "node:sqlite";
+ import { MIGRATIONS, type Migration } from "./migrations.ts";
+ import { hashPassword } from "../password.ts";
++import { importLegacyInspections } from "../inspections-legacy.ts";
+ import {
+   SEED_CALIBRATIONS,
+   SEED_DEPARTMENTS,
+@@ -22,6 +23,7 @@ export function migrate(db: Db, migrations: readonly Migration[] = MIGRATIONS):
+     if (m.version <= current) continue;
+     transaction(db, () => {
+       db.exec(m.sql);
++      m.apply?.(db);
+       db.exec(`PRAGMA user_version = ${Number(m.version)}`);
+     });
+   }
+@@ -58,6 +60,8 @@ export function seed(db: Db): void {
+     for (const c of SEED_CALIBRATIONS) {
+       insertCal.run(idOf(c.managementNo), c.calibratedOn, c.result, c.agency, c.certificateNo, c.recordedBy, c.recordedAt);
+     }
++    // 初期データの計測器は旧い書き方（extra の inspector / last_inspected）のままなので、マイグレーションと同じ移行を通す
++    importLegacyInspections(db);
+   });
+ }
+ 
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index b4bb1e4..d8990cf 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -1,10 +1,15 @@
+ // スキーマのマイグレーション。PRAGMA user_version で適用済みの番号を管理する。
+ // 本番の DB（DATABASE_PATH のファイル）には適用済みの番号が残っているため、
+ // 既存のマイグレーションは書き換えず、変更は末尾に新しい番号で追加する。
++import type { Db } from "./index.ts";
++import { importLegacyInspections } from "../inspections-legacy.ts";
++
+ export type Migration = {
+   version: number;
+   name: string;
+   sql: string;
++  /** sql のあとに、同じトランザクションで実行するデータ移行。 */
++  apply?: (db: Db) => void;
+ };
+ 
+ export const MIGRATIONS: readonly Migration[] = [
+@@ -91,4 +96,31 @@ export const MIGRATIONS: readonly Migration[] = [
+     name: "instrument_extra",
+     sql: `ALTER TABLE instruments ADD COLUMN extra TEXT NOT NULL DEFAULT '{}';`,
+   },
++  {
++    // 2026-11 追加。点検の担当者・周期・記録。旧 extra の inspector / last_inspected は apply で移行する（extra は消さない）。
++    version: 6,
++    name: "inspections",
++    sql: `
++      ALTER TABLE instruments ADD COLUMN inspector_id TEXT REFERENCES users(id); -- 点検の担当者。未設定は NULL
++      ALTER TABLE instruments ADD COLUMN inspection_interval_months INTEGER NOT NULL DEFAULT 3
++        CHECK (inspection_interval_months BETWEEN 1 AND 120);
++      ALTER TABLE instruments ADD COLUMN legacy_inspector TEXT; -- 旧データの点検者の書き方（担当者にできなかったもの）
++      CREATE INDEX instruments_inspector ON instruments(inspector_id);
++      CREATE TABLE inspection_records (
++        id               INTEGER PRIMARY KEY AUTOINCREMENT,
++        instrument_id    INTEGER NOT NULL REFERENCES instruments(id),
++        inspected_on     TEXT,                      -- YYYY-MM-DD。旧データで読めなかったときは NULL
++        inspector_id     TEXT REFERENCES users(id), -- 点検した人。旧データで分からないときは NULL
++        result           TEXT NOT NULL CHECK (result IN ('good', 'repair')), -- 良好 / 要修理
++        memo             TEXT NOT NULL DEFAULT '',
++        legacy_inspector TEXT,                      -- 旧データの点検者の書き方
++        legacy_date      TEXT,                      -- 旧データの点検日の書き方（読めなかったときだけ）
++        recorded_by      TEXT REFERENCES users(id), -- 登録者。旧データからの移行分は NULL
++        recorded_at      TEXT NOT NULL,             -- ISO 8601（UTC）
++        CHECK (inspected_on IS NOT NULL OR legacy_date IS NOT NULL)
++      );
++      CREATE INDEX inspection_records_instrument ON inspection_records(instrument_id, inspected_on);
++    `,
++    apply: (db) => importLegacyInspections(db),
++  },
+ ];
+diff --git a/src/lib/inspections-legacy.ts b/src/lib/inspections-legacy.ts
+new file mode 100644
+index 0000000..cd442a2
+--- /dev/null
++++ b/src/lib/inspections-legacy.ts
+@@ -0,0 +1,81 @@
++// 旧データ（instruments.extra の inspector / last_inspected）を、点検の担当者・点検記録へ移行する。
++// - 名前が利用者と一致するもの（「鈴木さん」のような敬称つきも）は、その人を担当者にする。
++// - 一致しないもの（「外部委託」など）は、元の書き方を legacy_inspector に残し、担当者は未設定にする。
++// - 日付が読めないものも、元の書き方を legacy_date に残す。黙って捨てない。
++// - extra は消さない。何度実行しても同じ結果になる（移行済みの計測器は飛ばす）。
++import type { Db } from "./db/index.ts";
++import { isValidDate } from "./dates.ts";
++
++/** 旧データの点検日を YYYY-MM-DD にする。読めなければ undefined。例: 2026-09-01 / 2026/8/20 / R8.9.10 */
++export function parseLegacyDate(text: string): string | undefined {
++  const t = text.trim().replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
++  let y: number, m: number, d: number;
++  const western = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(t);
++  const era = /^(令和|平成|R|H)\s*(\d{1,2})[-/.年]\s*(\d{1,2})[-/.月]\s*(\d{1,2})日?$/i.exec(t);
++  if (western) {
++    [y, m, d] = [Number(western[1]), Number(western[2]), Number(western[3])];
++  } else if (era) {
++    const base = era[1] === "令和" || era[1].toUpperCase() === "R" ? 2018 : 1988;
++    [y, m, d] = [base + Number(era[2]), Number(era[3]), Number(era[4])];
++  } else {
++    return undefined;
++  }
++  const iso = `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
++  return isValidDate(iso) ? iso : undefined;
++}
++
++/** 点検者の書き方から、空白と敬称を除いた名前を返す。 */
++export function normalizeInspectorName(text: string): string {
++  return text.trim().replace(/[\s　]+/g, "").replace(/(さん|様|殿|氏)$/, "");
++}
++
++export function importLegacyInspections(db: Db, now: Date = new Date()): void {
++  const rows = db
++    .prepare(
++      `SELECT i.id, i.extra FROM instruments i
++       WHERE i.inspector_id IS NULL AND i.legacy_inspector IS NULL
++         AND NOT EXISTS (SELECT 1 FROM inspection_records r WHERE r.instrument_id = i.id)`,
++    )
++    .all() as { id: number; extra: string }[];
++  const findUsers = db.prepare("SELECT id FROM users WHERE name = ?");
++  const setInspector = db.prepare("UPDATE instruments SET inspector_id = ?, legacy_inspector = ? WHERE id = ?");
++  const insertRecord = db.prepare(
++    `INSERT INTO inspection_records (instrument_id, inspected_on, inspector_id, result, memo, legacy_inspector, legacy_date, recorded_by, recorded_at)
++     VALUES (?, ?, ?, 'good', ?, ?, ?, NULL, ?)`,
++  );
++  for (const row of rows) {
++    let extra: Record<string, unknown> = {};
++    try {
++      const v = JSON.parse(row.extra);
++      if (v && typeof v === "object" && !Array.isArray(v)) extra = v;
++    } catch {
++      continue;
++    }
++    const inspectorText = typeof extra.inspector === "string" ? extra.inspector.trim() : "";
++    const dateText = typeof extra.last_inspected === "string" ? extra.last_inspected.trim() : "";
++    if (inspectorText === "" && dateText === "") continue;
++
++    let inspectorId: string | null = null;
++    let legacyInspector: string | null = null;
++    if (inspectorText !== "") {
++      const matches = findUsers.all(normalizeInspectorName(inspectorText)) as { id: string }[];
++      if (matches.length === 1) inspectorId = matches[0].id;
++      else legacyInspector = inspectorText;
++    }
++    setInspector.run(inspectorId, legacyInspector, row.id);
++
++    if (dateText !== "") {
++      const date = parseLegacyDate(dateText);
++      // 旧データには結果が無いので「良好」で移行し、メモに移行したことを残す
++      insertRecord.run(
++        row.id,
++        date ?? null,
++        inspectorId,
++        "旧データから移行（結果の記載なし）",
++        inspectorText !== "" ? inspectorText : null,
++        date ? null : dateText,
++        now.toISOString(),
++      );
++    }
++  }
++}
+diff --git a/src/lib/inspections.ts b/src/lib/inspections.ts
+new file mode 100644
+index 0000000..80a8866
+--- /dev/null
++++ b/src/lib/inspections.ts
+@@ -0,0 +1,249 @@
++// 定期点検。計測器ごとに点検の担当者と周期（月）を持ち、点検の記録を履歴として残す。
++// - 結果は良好（good）か要修理（repair）。要修理なら計測器は使用停止になる（校正の不合格と同じ扱い）。
++// - 次の点検予定日 = 最後の点検日 + 周期。点検日の分かる記録が 1 件も無ければ「未点検」。
++import { getDb, transaction, type Db } from "./db/index.ts";
++import { addMonths, isValidDate, todayJst } from "./dates.ts";
++import { getInstrument, type ValidationResult } from "./instruments.ts";
++import { logger } from "./logger.ts";
++import { isActiveUser } from "./users.ts";
++
++export type InspectionResult = "good" | "repair";
++
++export const INSPECTION_RESULT_LABELS: Record<InspectionResult, string> = { good: "良好", repair: "要修理" };
++
++export const DEFAULT_INSPECTION_INTERVAL_MONTHS = 3;
++
++export type InspectionRecord = {
++  id: number;
++  instrumentId: number;
++  inspectedOn: string | null; // YYYY-MM-DD。旧データで読めなかったときは null
++  inspectorId: string | null; // 点検した人。旧データで分からないときは null
++  result: InspectionResult;
++  memo: string;
++  legacyInspector: string | null; // 旧データの点検者の書き方
++  legacyDate: string | null; // 旧データの点検日の書き方（読めなかったときだけ）
++  recordedBy: string | null;
++  recordedAt: string; // ISO 8601（UTC）
++};
++
++type RecordRow = {
++  id: number;
++  instrument_id: number;
++  inspected_on: string | null;
++  inspector_id: string | null;
++  result: InspectionResult;
++  memo: string;
++  legacy_inspector: string | null;
++  legacy_date: string | null;
++  recorded_by: string | null;
++  recorded_at: string;
++};
++
++const RECORD_COLUMNS =
++  "id, instrument_id, inspected_on, inspector_id, result, memo, legacy_inspector, legacy_date, recorded_by, recorded_at";
++
++function toRecord(r: RecordRow): InspectionRecord {
++  return {
++    id: r.id,
++    instrumentId: r.instrument_id,
++    inspectedOn: r.inspected_on,
++    inspectorId: r.inspector_id,
++    result: r.result,
++    memo: r.memo,
++    legacyInspector: r.legacy_inspector,
++    legacyDate: r.legacy_date,
++    recordedBy: r.recorded_by,
++    recordedAt: r.recorded_at,
++  };
++}
++
++/** 計測器の点検記録を、点検日の新しい順に返す（日付の読めない旧データは最後）。 */
++export function listInspections(instrumentId: number, db: Db = getDb()): InspectionRecord[] {
++  const rows = db
++    .prepare(
++      `SELECT ${RECORD_COLUMNS} FROM inspection_records WHERE instrument_id = ?
++       ORDER BY inspected_on IS NULL, inspected_on DESC, id DESC`,
++    )
++    .all(instrumentId) as RecordRow[];
++  return rows.map(toRecord);
++}
++
++export type InspectionDueStatus = "never" | "overdue" | "ok";
++
++export const DUE_STATUS_LABELS: Record<InspectionDueStatus, string> = {
++  never: "未点検",
++  overdue: "期限切れ",
++  ok: "期限内",
++};
++
++export type InspectionPlan = {
++  instrumentId: number;
++  inspectorId: string | null; // 担当者。未設定は null
++  legacyInspector: string | null; // 担当者にできなかった旧データの点検者の書き方
++  intervalMonths: number; // 点検周期（月）
++  lastInspectedOn: string | null; // 最後の点検日
++  nextDueOn: string | null; // 次の点検予定日。未点検なら null
++  dueStatus: InspectionDueStatus;
++};
++
++/** 最後の点検日と周期から、次の点検予定日と状況を決める。today は日本時間の今日。 */
++export function judgeDue(
++  lastInspectedOn: string | null,
++  intervalMonths: number,
++  today: string,
++): { nextDueOn: string | null; dueStatus: InspectionDueStatus } {
++  if (lastInspectedOn === null) return { nextDueOn: null, dueStatus: "never" };
++  const nextDueOn = addMonths(lastInspectedOn, intervalMonths);
++  // 予定日当日までは期限内
++  return { nextDueOn, dueStatus: nextDueOn < today ? "overdue" : "ok" };
++}
++
++type PlanRow = {
++  id: number;
++  inspector_id: string | null;
++  legacy_inspector: string | null;
++  inspection_interval_months: number;
++  last_inspected_on: string | null;
++};
++
++function toPlan(r: PlanRow, today: string): InspectionPlan {
++  return {
++    instrumentId: r.id,
++    inspectorId: r.inspector_id,
++    legacyInspector: r.legacy_inspector,
++    intervalMonths: r.inspection_interval_months,
++    lastInspectedOn: r.last_inspected_on,
++    ...judgeDue(r.last_inspected_on, r.inspection_interval_months, today),
++  };
++}
++
++const PLAN_SELECT = `SELECT i.id, i.inspector_id, i.legacy_inspector, i.inspection_interval_months,
++    (SELECT MAX(r.inspected_on) FROM inspection_records r WHERE r.instrument_id = i.id) AS last_inspected_on
++  FROM instruments i`;
++
++export function getInspectionPlan(instrumentId: number, db: Db = getDb(), now: Date = new Date()): InspectionPlan | undefined {
++  const row = db.prepare(`${PLAN_SELECT} WHERE i.id = ?`).get(instrumentId) as PlanRow | undefined;
++  return row && toPlan(row, todayJst(now));
++}
++
++/** 全計測器の点検の状況を、計測器の ID をキーにして返す（一覧用）。 */
++export function listInspectionPlans(db: Db = getDb(), now: Date = new Date()): Map<number, InspectionPlan> {
++  const today = todayJst(now);
++  const rows = db.prepare(PLAN_SELECT).all() as PlanRow[];
++  return new Map(rows.map((r) => [r.id, toPlan(r, today)]));
++}
++
++// ---- 担当者・周期の変更 ----
++
++export type PlanChanges = { inspectorId?: string | null; intervalMonths?: number };
++
++/**
++ * 担当者・周期の変更を検証する。送られた項目だけを検証する。
++ * 担当者は在籍中の利用者だけ選べる（すでに担当になっている人を変えないときは、退職・休職でもそのまま）。
++ */
++export function validatePlanInput(body: unknown, currentInspectorId: string | null, db: Db = getDb()): ValidationResult<PlanChanges> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  const value: PlanChanges = {};
++  if ("inspectorId" in b) {
++    if (b.inspectorId === null) value.inspectorId = null;
++    else if (typeof b.inspectorId === "string" && (b.inspectorId === currentInspectorId || isActiveUser(b.inspectorId, db))) {
++      value.inspectorId = b.inspectorId;
++    } else errors.push("担当者は、在籍中の利用者から選んでください");
++  }
++  if ("intervalMonths" in b) {
++    if (!Number.isInteger(b.intervalMonths) || (b.intervalMonths as number) < 1 || (b.intervalMonths as number) > 120) {
++      errors.push("点検周期は 1〜120 か月の整数で入力してください");
++    } else value.intervalMonths = b.intervalMonths as number;
++  }
++  if (!("inspectorId" in b) && !("intervalMonths" in b)) errors.push("変更する項目（inspectorId / intervalMonths）を指定してください");
++  return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
++}
++
++/** 担当者・周期を更新する。計測器が無ければ undefined。担当者を変えたら旧データの書き方は消す。 */
++export function updateInspectionPlan(
++  instrumentId: number,
++  changes: PlanChanges,
++  db: Db = getDb(),
++  now: Date = new Date(),
++): InspectionPlan | undefined {
++  return transaction(db, () => {
++    if (!getInstrument(instrumentId, db)) return undefined;
++    if (changes.inspectorId !== undefined) {
++      // 担当者を決め直したら、移行時に残した元の書き方は役目を終える（点検記録の側には残る）
++      db.prepare("UPDATE instruments SET inspector_id = ?, legacy_inspector = NULL WHERE id = ?").run(changes.inspectorId, instrumentId);
++    }
++    if (changes.intervalMonths !== undefined) {
++      db.prepare("UPDATE instruments SET inspection_interval_months = ? WHERE id = ?").run(changes.intervalMonths, instrumentId);
++    }
++    return getInspectionPlan(instrumentId, db, now);
++  });
++}
++
++// ---- 点検記録の登録 ----
++
++export type InspectionInput = { inspectedOn: string; inspectorId: string; result: InspectionResult; memo: string };
++
++/** 点検記録の入力を検証する。点検した人は在籍中の利用者（担当者以外でもよい）。点検日は今日以前。 */
++export function validateInspectionInput(body: unknown, db: Db = getDb(), now: Date = new Date()): ValidationResult<InspectionInput> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  if (!isValidDate(b.inspectedOn)) errors.push("点検日は YYYY-MM-DD 形式で入力してください");
++  else if (b.inspectedOn > todayJst(now)) errors.push("点検日に未来の日付は指定できません");
++  if (typeof b.inspectorId !== "string" || !isActiveUser(b.inspectorId, db)) {
++    errors.push("点検した人は、在籍中の利用者から選んでください");
++  }
++  if (b.result !== "good" && b.result !== "repair") errors.push("結果は good（良好）か repair（要修理）で指定してください");
++  const memo = b.memo ?? "";
++  if (typeof memo !== "string" || memo.length > 1000) errors.push("メモは 1000 文字以内で入力してください");
++  if (errors.length > 0) return { ok: false, errors };
++  return {
++    ok: true,
++    value: {
++      inspectedOn: b.inspectedOn as string,
++      inspectorId: b.inspectorId as string,
++      result: b.result as InspectionResult,
++      memo: (memo as string).trim(),
++    },
++  };
++}
++
++/** 点検記録を登録する。要修理なら計測器を使用停止にする（廃棄済みは変えない）。計測器が無ければ undefined。 */
++export function recordInspection(
++  instrumentId: number,
++  input: InspectionInput,
++  recordedBy: string,
++  db: Db = getDb(),
++  now: Date = new Date(),
++) {
++  const result = transaction(db, () => {
++    const instrument = getInstrument(instrumentId, db);
++    if (!instrument) return undefined;
++    const { lastInsertRowid } = db
++      .prepare(
++        `INSERT INTO inspection_records (instrument_id, inspected_on, inspector_id, result, memo, recorded_by, recorded_at)
++         VALUES (?, ?, ?, ?, ?, ?, ?)`,
++      )
++      .run(instrumentId, input.inspectedOn, input.inspectorId, input.result, input.memo, recordedBy, now.toISOString());
++    if (input.result === "repair") {
++      db.prepare("UPDATE instruments SET status = 'suspended' WHERE id = ? AND status <> 'disposed'").run(instrumentId);
++    }
++    const record = toRecord(db.prepare(`SELECT ${RECORD_COLUMNS} FROM inspection_records WHERE id = ?`).get(Number(lastInsertRowid)) as RecordRow);
++    return { record, instrument: getInstrument(instrumentId, db)!, plan: getInspectionPlan(instrumentId, db, now)! };
++  });
++  if (result?.record.result === "repair") {
++    logger.warn("inspection.repair_needed", {
++      instrumentId,
++      managementNo: result.instrument.managementNo,
++      recordId: result.record.id,
++      status: result.instrument.status,
++    });
++  }
++  return result;
++}
+diff --git a/src/lib/users.ts b/src/lib/users.ts
+index 5012452..954743e 100644
+--- a/src/lib/users.ts
++++ b/src/lib/users.ts
+@@ -14,6 +14,11 @@ export function listUsers(db: Db = getDb()): User[] {
+   return db.prepare("SELECT id, name FROM users ORDER BY id").all() as User[];
+ }
+ 
++/** 在籍中（active = 1）の利用者を返す。担当者などの選択肢に使う。 */
++export function listActiveUsers(db: Db = getDb()): User[] {
++  return db.prepare("SELECT id, name FROM users WHERE active = 1 ORDER BY id").all() as User[];
++}
++
+ export function getUser(id: string, db: Db = getDb()): User | undefined {
+   return db.prepare("SELECT id, name FROM users WHERE id = ?").get(id) as User | undefined;
+ }
+diff --git a/tests/inspections.test.ts b/tests/inspections.test.ts
+new file mode 100644
+index 0000000..5ca25d3
+--- /dev/null
++++ b/tests/inspections.test.ts
+@@ -0,0 +1,169 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { DatabaseSync } from "node:sqlite";
++import { addMonths } from "../src/lib/dates.ts";
++import { migrate, openDb } from "../src/lib/db/index.ts";
++import { MIGRATIONS } from "../src/lib/db/migrations.ts";
++import {
++  getInspectionPlan,
++  judgeDue,
++  listInspectionPlans,
++  listInspections,
++  recordInspection,
++  updateInspectionPlan,
++  validateInspectionInput,
++  validatePlanInput,
++} from "../src/lib/inspections.ts";
++import { normalizeInspectorName, parseLegacyDate } from "../src/lib/inspections-legacy.ts";
++import { getInstrument, listInstruments } from "../src/lib/instruments.ts";
++
++const idOf = (db: ReturnType<typeof openDb>, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!.id;
++const NOW = new Date("2026-11-10T03:00:00.000Z"); // 日本時間 2026-11-10 12:00
++const GOOD = { inspectedOn: "2026-11-09", inspectorId: "sato", result: "good", memo: "" } as const;
++
++describe("addMonths / judgeDue", () => {
++  it("clamps to the end of the month", () => {
++    assert.equal(addMonths("2026-01-31", 1), "2026-02-28");
++    assert.equal(addMonths("2026-11-30", 3), "2027-02-28");
++    assert.equal(addMonths("2026-10-15", 3), "2027-01-15");
++  });
++
++  it("is never inspected without a date, ok until the due date, overdue after", () => {
++    assert.deepEqual(judgeDue(null, 3, "2026-11-10"), { nextDueOn: null, dueStatus: "never" });
++    assert.deepEqual(judgeDue("2026-08-10", 3, "2026-11-10"), { nextDueOn: "2026-11-10", dueStatus: "ok" });
++    assert.deepEqual(judgeDue("2026-08-09", 3, "2026-11-10"), { nextDueOn: "2026-11-09", dueStatus: "overdue" });
++  });
++});
++
++describe("旧データの読み取り", () => {
++  it("parses western, slash and era dates, and rejects the rest", () => {
++    assert.equal(parseLegacyDate("2026-09-01"), "2026-09-01");
++    assert.equal(parseLegacyDate("2026/8/20"), "2026-08-20");
++    assert.equal(parseLegacyDate("R8.9.10"), "2026-09-10");
++    assert.equal(parseLegacyDate("令和8年9月10日"), "2026-09-10");
++    assert.equal(parseLegacyDate("2026/2/30"), undefined);
++    assert.equal(parseLegacyDate("先月"), undefined);
++  });
++
++  it("strips honorifics", () => {
++    assert.equal(normalizeInspectorName(" 鈴木さん "), "鈴木");
++    assert.equal(normalizeInspectorName("外部委託"), "外部委託");
++  });
++});
++
++describe("初期データの移行", () => {
++  it("maps names to users, keeps unmatched text, and keeps unreadable dates", () => {
++    const db = openDb();
++    const plan = (no: string) => getInspectionPlan(idOf(db, no), db, NOW)!;
++    assert.equal(plan("MI-0001").inspectorId, "sato");
++    assert.equal(plan("MI-0001").lastInspectedOn, "2026-09-01");
++    assert.equal(plan("MI-0003").inspectorId, "suzuki"); // 「鈴木さん」
++    assert.equal(plan("MI-0003").lastInspectedOn, "2026-08-20"); // 2026/8/20
++    assert.equal(plan("MI-0006").lastInspectedOn, "2026-09-10"); // R8.9.10
++    assert.equal(plan("MI-0004").inspectorId, "inoue"); // 退職者でも担当のまま
++    assert.equal(plan("MI-0009").inspectorId, null); // 外部委託
++    assert.equal(plan("MI-0009").legacyInspector, "外部委託");
++    assert.equal(plan("MI-0009").lastInspectedOn, "2026-10-02");
++    assert.equal(plan("MI-0002").dueStatus, "never");
++    assert.equal(plan("MI-0002").intervalMonths, 3);
++    assert.equal(listInspections(idOf(db, "MI-0009"), db)[0].legacyInspector, "外部委託");
++  });
++
++  it("keeps the original text when the date cannot be read, and is idempotent", () => {
++    const db = new DatabaseSync(":memory:");
++    db.exec("PRAGMA foreign_keys = ON");
++    migrate(db, MIGRATIONS.filter((m) => m.version <= 5));
++    db.exec("INSERT INTO departments (id, name) VALUES ('d', 'd')");
++    db.exec("INSERT INTO users (id, name, department_id) VALUES ('u1', '佐藤', 'd')");
++    db.exec(`INSERT INTO instruments (management_no, name, manager_id, interval_months, last_calibrated_on, extra)
++      VALUES ('MI-1000', 'x', 'u1', 12, '2026-01-01', '{"inspector":"佐藤様","last_inspected":"先月末"}')`);
++    migrate(db);
++    migrate(db);
++    const rows = db.prepare("SELECT * FROM inspection_records").all() as Record<string, unknown>[];
++    assert.equal(rows.length, 1);
++    assert.equal(rows[0].inspected_on, null);
++    assert.equal(rows[0].legacy_date, "先月末");
++    assert.equal(rows[0].inspector_id, "u1");
++    const plan = getInspectionPlan(1, db, NOW)!;
++    assert.equal(plan.dueStatus, "never");
++    assert.equal((db.prepare("SELECT extra FROM instruments").get() as { extra: string }).extra.includes("先月末"), true);
++  });
++});
++
++describe("recordInspection", () => {
++  it("keeps history and uses the latest date for the next due date", () => {
++    const db = openDb();
++    const id = idOf(db, "MI-0002");
++    recordInspection(id, { ...GOOD, inspectedOn: "2026-08-01" }, "sato", db, NOW);
++    const r = recordInspection(id, { ...GOOD, inspectedOn: "2026-06-01" }, "sato", db, NOW)!; // 古い日付を後から登録
++    assert.equal(listInspections(id, db).length, 2);
++    assert.equal(r.plan.lastInspectedOn, "2026-08-01");
++    assert.equal(r.plan.nextDueOn, "2026-11-01");
++    assert.equal(r.plan.dueStatus, "overdue");
++  });
++
++  it("suspends the instrument when repair is needed, but not a disposed one", () => {
++    const db = openDb();
++    const id = idOf(db, "MI-0001");
++    const r = recordInspection(id, { ...GOOD, result: "repair" }, "sato", db, NOW)!;
++    assert.equal(r.instrument.status, "suspended");
++    recordInspection(id, GOOD, "sato", db, NOW);
++    assert.equal(getInstrument(id, db)!.status, "suspended"); // 良好でも自動では戻さない
++    const disposed = idOf(db, "MI-0008");
++    recordInspection(disposed, { ...GOOD, result: "repair" }, "sato", db, NOW);
++    assert.equal(getInstrument(disposed, db)!.status, "disposed");
++  });
++
++  it("returns undefined for unknown instruments", () => {
++    assert.equal(recordInspection(9999, GOOD, "sato", openDb(), NOW), undefined);
++  });
++
++  it("lists plans for all instruments", () => {
++    const db = openDb();
++    assert.equal(listInspectionPlans(db, NOW).size, 10);
++  });
++});
++
++describe("validateInspectionInput", () => {
++  it("accepts today and rejects future dates, bad results and inactive inspectors", () => {
++    const db = openDb();
++    assert.equal(validateInspectionInput({ ...GOOD, inspectedOn: "2026-11-10" }, db, NOW).ok, true);
++    assert.equal(validateInspectionInput({ ...GOOD, inspectedOn: "2026-11-11" }, db, NOW).ok, false);
++    assert.equal(validateInspectionInput({ ...GOOD, inspectedOn: "2026-02-30" }, db, NOW).ok, false);
++    assert.equal(validateInspectionInput({ ...GOOD, result: "pass" }, db, NOW).ok, false);
++    assert.equal(validateInspectionInput({ ...GOOD, inspectorId: "inoue" }, db, NOW).ok, false); // 退職
++    assert.equal(validateInspectionInput({ ...GOOD, inspectorId: "kondo" }, db, NOW).ok, false); // 休職
++    assert.equal(validateInspectionInput({ ...GOOD, inspectorId: "nobody" }, db, NOW).ok, false);
++    assert.equal(validateInspectionInput({ ...GOOD, memo: "a".repeat(1001) }, db, NOW).ok, false);
++    assert.equal(validateInspectionInput(null, db, NOW).ok, false);
++  });
++});
++
++describe("担当者・周期の変更", () => {
++  it("allows only active users as a new inspector, but lets the current one stay", () => {
++    const db = openDb();
++    assert.equal(validatePlanInput({ inspectorId: "inoue" }, null, db).ok, false);
++    assert.equal(validatePlanInput({ inspectorId: "inoue" }, "inoue", db).ok, true);
++    assert.equal(validatePlanInput({ inspectorId: "suzuki" }, "inoue", db).ok, true);
++    assert.equal(validatePlanInput({ inspectorId: null }, "inoue", db).ok, true);
++  });
++
++  it("checks the interval boundaries", () => {
++    const db = openDb();
++    for (const [v, ok] of [[0, false], [1, true], [120, true], [121, false], [1.5, false], ["3", false]] as const) {
++      assert.equal(validatePlanInput({ intervalMonths: v }, null, db).ok, ok, String(v));
++    }
++    assert.equal(validatePlanInput({}, null, db).ok, false);
++  });
++
++  it("updates the inspector and interval, and clears the legacy text", () => {
++    const db = openDb();
++    const id = idOf(db, "MI-0009");
++    const plan = updateInspectionPlan(id, { inspectorId: "takahashi", intervalMonths: 6 }, db, NOW)!;
++    assert.equal(plan.inspectorId, "takahashi");
++    assert.equal(plan.legacyInspector, null);
++    assert.equal(plan.intervalMonths, 6);
++    assert.equal(plan.nextDueOn, "2027-04-02");
++    assert.equal(updateInspectionPlan(9999, { intervalMonths: 6 }, db), undefined);
++  });
++});
