@@ -39,8 +39,10 @@ ALLOWED=(
   "Bash(python3 $PLUG/scripts/render_report.py:*)" "Bash(python3 $PLUG/scripts/save_result.py:*)"
   "Bash(python3 $PLUG/scripts/write_scan_meta.py:*)" "Bash(python3 $PLUG/scripts/patch_artifacts.py:*)"
   "Bash(bash $PLUG/scripts/keep-waiting.sh:*)" "Bash(date:*)" "Bash(sleep:*)"
-  # プロジェクトのテストと型チェック（修正の検証役が動かす）
-  "Bash(npm test)" "Bash(npm test:*)" "Bash(npm run typecheck)" "Bash(npm run typecheck:*)"
+  # プロジェクトのテストと型チェック（修正の検証役が動かす）。引数は付けられない形だけを許す。
+  # 修正提案は、結果の置き場の中の作業用コピーでコードを書き換え、そこでテストを動かす作りなので、そのコピーの中の
+  # コード（package.json を含む）は子セッションが書き換えられる。自分で作った題材にだけ使う（他人のリポジトリには使わない）
+  "Bash(npm test)" "Bash(npm run typecheck)"
 )
 TASK="/claude-security:claude-security suggest patches for $IDS from the newest report ($REPORT)
 
