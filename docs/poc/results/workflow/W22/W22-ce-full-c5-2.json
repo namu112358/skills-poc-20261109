@@ -1,0 +1,59 @@
+{
+  "trial": "W22-ce-full-c5-2",
+  "scenario": "W22",
+  "config": "ce-full",
+  "case": "c5",
+  "rep": 2,
+  "review_md": "# コードレビュー: 担当者の項目名を `assigneeId` / `assignee_id` にする変更\n\n判定: **マージ不可**（高 2 件を直してから）。\n\n対象は未コミットの差分（`git diff HEAD`）の 8 ファイルです。次の 2 点を実際に確認しました。\n\n- インメモリ DB で `listTasks({})[0]` を呼ぶと `assigneeId: undefined` になる。\n- PATCH のコードを読むと、旧キー `assignee` を送っても 200 で何も変わらない。\n\n## 指摘\n\n### 1. [重要度: 高] 一覧（`listTasks`）の担当者が空になる\n\n- **場所**: `src/lib/tasks.ts` の `listTasks`（37 行目付近）\n- **問題**: SQL が `assignee_id AS assignee` と別名を付けている一方、`toTask` は `row.assignee_id` を読みます。別名のせいで `assignee_id` というキーが行に存在せず、`Task.assigneeId` が `undefined` になります。`getTask` は別名を付けていないため正しく動きます。\n- **起きること**:\n  - `/tasks` 画面の「担当者」列（`src/app/tasks/page.tsx` の `{task.assigneeId}`）が全行で空になります。\n  - `GET /api/tasks` の JSON から担当者が消えます。`undefined` は JSON に出ないため、`assigneeId` キー自体が無くなります。\n  - 詳細画面（`getTask` 経由）は正常なので、一覧と詳細で食い違います。\n  - 「画面の表示は変えない」という PR の前提に反します。\n- **なぜ通ったか**: `TaskRow` は型キャストなので `npm run typecheck` では検出できません。テストにも `listTasks` の担当者を確かめるものがありません（指摘 3）。\n- **直し方**: `listTasks` の SQL を `SELECT id, title, status, assignee_id, due_date FROM tasks ...` にして別名を外します（`getTask` と同じ形）。`listTasks` の戻り値の `assigneeId` を確かめるテストも足します。\n\n### 2. [重要度: 高] API の入出力の項目名が変わっている（PR の「API は変えない」に反する）\n\n- **場所**: `src/lib/tasks.ts` の `validateTaskInput`（87〜92 行目付近。`need(\"assigneeId\")` / `b.assigneeId`）と `toTask`。これを使う `src/app/api/tasks/route.ts` と `src/app/api/tasks/[id]/route.ts`。\n- **問題**: リクエスト本文の検証が `assignee` から `assigneeId` に変わりました。`Task` をそのまま `NextResponse.json` で返しているため、レスポンスの項目名も `assignee` から `assigneeId` に変わります。\n- **起きること**:\n  - **`POST /api/tasks`**: 既存クライアントが `{\"assignee\":\"sato\", ...}` を送ると、400「担当者が存在しません」になります。\n  - **`PATCH /api/tasks/:id`**: 旧キー `assignee` だけを送ると、部分更新なので未知のキーとして無視されます。**200 が返るのに担当者は変わりません。** 気づきにくい不具合です。\n  - **`GET /api/tasks`・`GET /api/tasks/:id`・POST/PATCH の応答**: `assignee` を読んでいるクライアントは値を得られなくなります。\n- **直し方**: PR の説明どおり API を変えないなら、内部の名前（`Task.assigneeId`・`assignee_id`）はそのまま、API の境界で名前を変換します。\n  - `validateTaskInput` は `b.assignee` を読み、`value.assigneeId` に入れる（`need(\"assignee\")`）。\n  - API Route では、レスポンスに `assignee: task.assigneeId` を出力する小さなシリアライザーを通す。\n  - 逆に API も変えるつもりなら、PR の説明と呼び出し側の対応を直す必要があります（この場合は人が決めること）。\n  - どちらの場合も、API の JSON の形を確かめるテストを足します（指摘 3）。\n\n### 3. [重要度: 中] 不具合を捕まえるテストが無く、既存テストの改名が契約変更を隠している\n\n- **場所**: `tests/tasks.test.ts`、`tests/db.test.ts`\n- **問題**:\n  - `listTasks` が返す担当者の値を確かめるテストが無い（指摘 1 がテストをすり抜けた原因）。\n  - API の入出力の形を確かめるテストが無い。既存テストの入力 `assignee` を `assigneeId` に書き換えたため、契約変更（指摘 2）が「テストが通る」ことで見えなくなっています。\n  - マイグレーション 3 のテストが無い。CLAUDE.md の規約 5（ロジックを変えたら `tests/` にテストを足す）に当たります。\n- **直し方**:\n  - `listTasks` が担当者 ID（例: `sato`）を返すことを確かめる。\n  - マイグレーション 1〜2 まで適用して行を入れ、`migrate()` で 3 まで上げたあと、`assignee_id` に値が残ることと、外部キーが無効な ID を拒否することを確かめる。\n  - API を変えない方針なら、`validateTaskInput` が `assignee` を受け付けることと、レスポンスのシリアライズを確かめるテストを足す。\n\n### 4. [重要度: 低] 切り戻しの手順が無い（運用上の注意）\n\n- **場所**: `src/lib/db/migrations.ts` のマイグレーション 3（42 行目付近）\n- **問題**: `RENAME COLUMN` 自体は問題ありません。node:sqlite で、データ保持・外部キー・インデックス定義の付け替えを確認しました（インデックス名 `tasks_assignee` は変わらず）。ただし戻すマイグレーションがありません。`DATABASE_PATH` でファイルの DB を使う環境では、移行後に旧コードへ戻すと `assignee` 列が無くて全クエリが失敗します。\n- **直し方**: コードの修正は不要です。ファイル DB を使う環境では、デプロイ前にバックアップを取り、新旧のバージョンを同時に動かさないことをリリース手順に書いてください。\n\n## 確認した範囲\n\n- 規約 1〜9 のうち、スキーマ変更はマイグレーションの末尾に追加（規約 7）、SQL はプレースホルダ（規約 8）を守れています。\n- API Route は変更されていません。その結果、規約 9 の「検証関数を通す」構造は保たれています。\n- 画面の文言は変わっていません。\n- この環境ではスコープ判定の補助スクリプトの実行に承認が下りず使えませんでした。差分と変更ファイルは `git diff HEAD` で直接確認しました。\n",
+  "review_chars": 3380,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 1.7089,
+    "tokens": {
+      "input": 102,
+      "output": 33813,
+      "cache_read": 3216904,
+      "cache_creation": 350070
+    },
+    "turns": 32,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"ls src/app/api/tasks src/app/api/tasks/*; cat src/app/api/tasks/route.ts; cat > /tmp/claude-0/t.test.ts <<'EOF'\\nEOF\\nnode --experimental-strip-types -e '\\nimport(\\\"./src/lib/tasks.ts\\\")."
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W22-ce-full-c5-2/plugins/compound-engineering/skills/ce-code-review\\ncat .compound-engineering/config.yaml 2>/dev/null; ls docs 2>/dev/null\\nPY=python3\\nBASE=$(g"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-ce-full-c5-2/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs; git branch --show-current; git rev-parse "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-ce-full-c5-2/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"R=/tmp/claude-0/-tmp-poc-trials-W22-ce-full-c5-2-app/f237c71f-2128-4962-bf54-689e3140053d/scratchpad/run1 && mkdir -p $R && git diff --name-only HEAD > $R/files.txt && git diff -U10 --irr"
+      }
+    ],
+    "tool_calls": {
+      "Read": 40,
+      "Bash": 22,
+      "Agent": 5,
+      "Write": 6
+    },
+    "skills_used": [],
+    "subagents": 5,
+    "subagent_types": {
+      "general-purpose": 5
+    },
+    "questions": 0,
+    "active_seconds": 152,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "追加の作業はありません。前回の指摘 4 件は、すでに依頼の形式で `REVIEW.md` に書いてあり、コミット済み（5c11535）です。`REVIEW.md` に未コミットの変更は残っていません。\n\n- **形式:** 各指摘に、場所、何が問題か（どういう入力で何が起きるか）、直し方、重要度（高・中・低）を書いています。\n- **内容:** 出た指摘は 4 件のままです。高 2 件、中 1 件、低 1 件で、新しい指摘は足しておらず、削ってもいません。観点ごとに重複して出た指摘は、1 件にまとめてあります。\n- **コード:** 直していません。\n\n最後に、同じ内容を書き直して再コミットすると、中身が同じコミットが増えるだけなので、しませんでした。"
+  },
+  "interventions": 0
+}

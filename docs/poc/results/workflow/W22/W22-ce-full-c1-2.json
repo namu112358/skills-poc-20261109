@@ -1,0 +1,52 @@
+{
+  "trial": "W22-ce-full-c1-2",
+  "scenario": "W22",
+  "config": "ce-full",
+  "case": "c1",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスクに「保留」(on_hold) ステータスを追加\n\n対象: 未コミットの差分（`src/lib/tasks.ts`、`tests/tasks.test.ts`）\n\n**結論: Not ready（マージ前に 1 件の修正が必須）**\n\n## 指摘\n\n### 1. [高] DB の CHECK 制約とマイグレーションが更新されておらず、`on_hold` の作成・更新が 500 になる\n\n- 場所: `src/lib/db/migrations.ts` のバージョン 1 `users_and_tasks`（`tasks.status` の `CHECK (status IN ('todo', 'in_progress', 'done'))`）。この PR は `src/lib/tasks.ts` の `TaskStatus` / `TASK_STATUSES` / `STATUS_LABELS` だけを変更しており、スキーマ側が未対応。\n- 問題: アプリ側の検証（`validateTaskInput` → `isTaskStatus`）は `on_hold` を通すが、DB の CHECK 制約が `on_hold` を拒否する。次を実際に実行して確認した。\n  - `POST /api/tasks` に `status: \"on_hold\"` → `createTask` が `CHECK constraint failed: status IN ('todo', 'in_progress', 'done')` を投げる。\n  - `PATCH /api/tasks/:id` に `status: \"on_hold\"` → `updateTask` が同じエラーを投げる。\n  - どちらの API Route も `createTask` / `updateTask` の例外を捕捉していないため、クライアントには 400 ではなく 500 が返る。PR の「API で `on_hold` を受け付ける」という目的が果たせていない。\n  - 一覧の絞り込みは「保留」を選べるが、保留のタスクを作れないので常に 0 件になる。\n- 直し方: `src/lib/db/migrations.ts` の末尾にバージョン 3 を追加する（規約 7: 既存のバージョン 1 は書き換えない）。SQLite は CHECK 制約を `ALTER` で変更できないので、テーブルを作り直す。\n  1. 新しい CHECK（`'todo','in_progress','on_hold','done'`）を持つ `tasks_new` を作る。\n  2. `INSERT INTO tasks_new SELECT ... FROM tasks` で既存データを移す。\n  3. `DROP TABLE tasks` → `ALTER TABLE tasks_new RENAME TO tasks`。\n  4. `tasks_assignee` インデックスを再作成する。\n  - `AUTOINCREMENT` の採番を引き継ぐよう、`id` を明示してコピーする。`sqlite_sequence` も確認すること。\n  - `DATABASE_PATH` で永続化した既存 DB が `user_version` 2 からアップグレードされる経路も考慮する。\n\n### 2. [中] テストが DB 層を通っておらず、指摘 1 を検出できない\n\n- 場所: `tests/tasks.test.ts` の追加テスト（`validateTaskInput` の `accepts the on_hold status` と `isTaskStatus` の `on_hold`）。\n- 問題: どちらも型ガードと入力検証だけを見ており、`createTask` / `updateTask` が `on_hold` を DB に書けるかは検証していない。PR の「typecheck と test が通った」は、DB 制約の不整合を保証しない。\n- 直し方: `openDb()` のインメモリ DB に対して、次のテストを追加する（規約 5）。\n  - `createTask` で `status: \"on_hold\"` を作成でき、`getTask` で `on_hold` が返る。\n  - `updateTask` で `on_hold` に更新できる。\n  - `listTasks({ status: \"on_hold\" })` が保留のタスクだけを返す。\n  - `tests/db.test.ts` に、既存データ（バージョン 2 の DB）を持つ状態でバージョン 3 を適用してもデータが保持されるテストを追加する。\n\n## 確認した範囲と制限\n\n- `npm test`（20 件）が通ることを確認した。差分の範囲では、指摘 1 の問題はこのテストでは見つからない。\n- 指摘 1 は、一時的な検証スクリプトで `createTask` / `updateTask` が CHECK 制約違反を投げることを再現した（リポジトリには追加していない）。\n- 画面側（`src/app/tasks/page.tsx`、`src/app/tasks/[id]/page.tsx`）は `TASK_STATUSES` と `STATUS_LABELS` を参照しているので、「保留」の表示と絞り込みの選択肢は追加される。`Record<TaskStatus, string>` により、ラベルの定義漏れは型チェックで検出される。\n- 今回は無人実行で、スコープ判定のヘルパースクリプトが承認待ちで実行できなかった。専用レビュアーを並列で起動する工程と、別モデルによる追加レビューは実行していない。レビューは差分と周辺コード（マイグレーション、API Route、`tasks.ts`）を直接読んで行った。\n",
+  "review_chars": 2532,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4094,
+    "tokens": {
+      "input": 34,
+      "output": 6543,
+      "cache_read": 954973,
+      "cache_creation": 62103
+    },
+    "turns": 18,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W22-ce-full-c1-2/plugins/compound-engineering/skills/ce-code-review; cat .compound-engineering/config.yaml 2>/dev/null; BASE=$(git merge-base HEAD HEAD); PY=pyth"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W22-ce-full-c1-2/app\\nSKILL_DIR=/tmp/poc-trials/W22-ce-full-c1-2/plugins/compound-engineering/skills/ce-code-review\\nBASE=$(git rev-parse HEAD)\\nSCRATCH_ROOT=\\\"/tmp/com"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-ce-full-c1-2/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 ../plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 2,
+      "Bash": 11,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 66,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、前回のレビューで出た指摘が最初の依頼の形式（重要度・場所・何が問題か・直し方）で、すでに全部入っています。新しくコミットするものはありません。\n\n- **指摘は 2 件で、増減なし:**\n  - **[高]** DB の CHECK 制約とマイグレーションが `on_hold` に未対応のため、作成・更新が 500 になる。\n  - **[中]** 追加テストが DB を通っておらず、上の問題を検出できない。\n- **コミット:** `REVIEW.md` は `f27c1d3` でコミット済みで、その後の変更はありません。\n- **コード:** PR の差分（`src/lib/tasks.ts`、`tests/tasks.test.ts`）は未コミットのままで、手を入れていません。"
+  },
+  "interventions": 0
+}
