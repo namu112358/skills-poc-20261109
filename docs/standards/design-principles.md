@@ -1,0 +1,86 @@
+# 実装とレビューで使う設計の原則
+
+- 状態: 案（2026-11-11 作成）
+- 使っている場所: レビュー用の Skill `design-principles-review`（正本は [templates/agents/.claude/skills/design-principles-review/SKILL.md](../../templates/agents/.claude/skills/design-principles-review/SKILL.md)）
+- 関連: [失敗を検査に反映するときの方針](testing-and-ci-policy.md)（テストの書き方の部分は、この方針と同じ内容）
+
+## 1. この文書の目的
+
+各プロジェクトのレビューで使う Skill `design-principles-review` は、この文書に挙げた原則を基に作っています。この文書では、次の 3 つを記録します。
+
+- Skill に入れた原則と、その出典
+- 原則をどう書いたか（書き方の方針）
+- Skill をどう確かめたか
+
+Skill の本文には、原則の名前だけでなく、中身・レビューで見る兆候・当てはめすぎの注意を書いています。名前だけを渡すと、レビューする側も受け取る側も、何を直せばよいか分からないためです。原則の中身を変えるときは、この文書と Skill の本文を同じ PR で直します。
+
+## 2. Skill に入れた原則と出典
+
+| 原則 | Skill に書いた中身（要約） | 主な出典 |
+|---|---|---|
+| KISS | 同じ要件なら、仕組みの少ない、読んで分かる方を選ぶ | 広く使われている格言（特定の原典はない） |
+| YAGNI | 予想した機能は必要になるまで作らない。作る費用・遅れ・抱え続ける費用がかかる。変更しやすく保つ作業は対象外 | Martin Fowler「[Yagni](https://martinfowler.com/bliki/Yagni.html)」、Kent Beck『Extreme Programming Explained』 |
+| DRY | 同じ「知識」を 1 か所にだけ書く。見た目の似たコードをまとめることではない。3 回目の法則。間違った共通化は重複より高くつく | Andrew Hunt・David Thomas『The Pragmatic Programmer』、Martin Fowler『Refactoring』（3 回目の法則）、Sandi Metz「The Wrong Abstraction」 |
+| 単一責任の原則 | 変わる理由（変更を求める人・役割）を 1 つにする | Robert C. Martin『Agile Software Development』『Clean Architecture』 |
+| 開放閉鎖の原則 | よく増える種類は、既存を書き換えずに足すだけで増やせる形にする | Bertrand Meyer『Object-Oriented Software Construction』、Robert C. Martin |
+| リスコフの置換原則 | 子の型は親の約束を守る（入力を狭めず、結果の保証を弱めない） | Barbara Liskov・Jeannette Wing「A Behavioral Notion of Subtyping」 |
+| インターフェース分離の原則 | 使わないメソッドに依存させない | Robert C. Martin |
+| 依存性逆転の原則 | 業務の中心は具体的な仕組みに依存せず、中心の側で決めた抽象に外側が合わせる | Robert C. Martin |
+| 関心の分離（高い凝集、低い結合） | 一緒に変わるものは近くに、別々に変わるものは互いに知らないように | Edsger W. Dijkstra「On the role of scientific thought」、Larry Constantine・Edward Yourdon『Structured Design』 |
+| デメテルの法則 | 直接の知り合いのメソッドだけを呼ぶ。「聞かずに頼む」 | Karl Lieberherr ほか（ノースイースタン大学、Demeter プロジェクト） |
+| 継承より合成 | 振る舞いの使い回しは、部品を持たせる方を先に考える | Gamma ほか『Design Patterns』 |
+| 早く失敗する、不正な状態を作れなくする | 誤りは起きた近くで止める。外からの値は境界で検証する。型で取りうる値を絞る | Jim Shore「Fail Fast」（IEEE Software）、Yaron Minsky「Effective ML」 |
+| 驚き最小の原則 | 名前・引数・振る舞いを、読む人の予想どおりにする | 広く使われている設計の原則（特定の原典はない） |
+| TDD | テストの一覧 → 失敗するテスト → 通す最小のコード → 構造の整理、を繰り返す | Kent Beck『Test-Driven Development: By Example』 |
+| テストの書き方 | 公開された入口を通して状態・結果を確かめる。振る舞いごとに確かめる。時刻・外部に依存しない | 『Software Engineering at Google』第 12 章（[Unit Testing](https://abseil.io/resources/swe-book/html/ch12.html)）、このリポジトリの[テストと CI の方針](testing-and-ci-policy.md) |
+| 変更の分け方 | 構造の変更と振る舞いの変更を分け、先に構造を整える | Kent Beck『Tidy First?』、Martin Fowler『Refactoring』 |
+| レビューの進め方 | 全体の設計から見る。完璧を求めず、コードベースの状態を良くする変更なら承認する。指摘に重さを付ける | Google「[What to look for in a code review](https://google.github.io/eng-practices/review/reviewer/looking-for.html)」「[The Standard of Code Review](https://google.github.io/eng-practices/review/reviewer/standard.html)」 |
+
+出典の確かめ方:
+
+- Web で中身を確かめたもの: Google の Engineering Practices、Fowler の Yagni、『Software Engineering at Google』第 12 章（いずれも 2026-11-11 時点）。
+- 書籍・論文は、一般に知られている内容を基に書いた。今回は原文を読み直していない。正確な言い回しを引用するときは、原文で確かめること。
+
+## 3. 書き方の方針
+
+- **原則ごとに 3 つを書く**: 「中身」「レビューで見る兆候」「当てはめすぎの注意」。原則は守ること自体が目的ではない。今の変更で害（読みにくさ、変更のしにくさ、不具合の起きやすさ）が出ているときだけ指摘させるためである。
+- **原則どうしの綱引きを書く**: DRY と単一責任、開放閉鎖と YAGNI のように、片方を強く当てはめるともう片方に反する組み合わせには、どちらを優先するかの目安を書く。
+- **指摘には害を書かせる**: 指摘には「何が起きるか（害）」と「判断の根拠（原則の中身を 1 文で）」を書かせる。原則の名前だけの指摘を防ぐため。
+- **書式の細部は扱わない**: フォーマッターと Lint で直せるものは扱わない（[テストと CI の方針](testing-and-ci-policy.md) の「検出できる一番手前の段に置く」）。
+
+## 4. 確かめた方法と結果
+
+skill-creator の手順で、3 つの評価ケースを、Skill ありと Skill なしで比べた。評価ケースの定義は、Skill のディレクトリの `evals/evals.json` にある。
+
+| ケース | ねらい |
+|---|---|
+| 1. 作りすぎの書き出し機能 | 1 種類の出力のための汎用の仕組みと、業務の知識の重複を指摘できるか。さらに抽象を足せと言わないか |
+| 2. 責務の混ざった完了処理 | 責務の混在、規則の重複、外部 API の直接呼び出し、エラーの握りつぶし、内部の呼び出し順を確かめる壊れやすいテストを指摘できるか |
+| 3. 問題のない小さな変更 | 指摘を作りすぎず、承認できるか（原則の当てはめすぎを防げるか） |
+
+結果（2026-11-11、各条件 1 回）:
+
+| | Skill あり | Skill なし |
+|---|---|---|
+| 確かめる内容の合格（全 14 項目） | 14 | 13 |
+| 平均の時間 | 約 80 秒 | 約 53 秒 |
+| 平均のトークン数 | 約 8.9 万 | 約 7.8 万 |
+
+- **Skill なしでも十分に強い**: Skill なしでも、作りすぎ・責務の混在・規則の重複・壊れやすいテストは見つけた。問題のない変更も、正しく承認した。設計の不具合を見つける力では、差は出なかった。
+- **差が出たのは指摘の重さだけ**: Skill なしは、指摘に「直さないとマージできないか」の重さを付けなかった。
+- **書き方の違い**: Skill ありは、指摘ごとに「何が起きるか」と「判断の根拠（原則の中身）」を書いた。この形式は確かめる内容に入れていないので、合格の数には表れていない。
+- **時間とトークン**: Skill ありは、約 1.5 倍の時間と約 1.15 倍のトークンを使った。
+- **この結果の限界**:
+  - 各条件 1 回だけで、評価ケースも 3 件しかない。
+  - 確かめる内容の多くは、Skill なしでも満たせた（差を見分けられない）。
+  - Skill なしの試行にも、この Skill がセッションの一覧として見えていた可能性がある。ただし、Skill なしの出力は形式が違ったので、使ってはいないとみられる。
+- **次に確かめること**: 差を見分けられる評価ケースを足す。たとえば、原則を当てはめすぎた変更（細かく分けすぎたクラス、不要な抽象）を、そのまま承認してしまわないか。
+
+## 5. 変えるとき
+
+1. 雛形（`templates/agents/.claude/skills/design-principles-review/`）を直す。
+2. ルートの `.claude/skills/design-principles-review/` に写す。
+3. この文書の表も直す。
+4. `python3 scripts/check-templates.py` と `python3 scripts/check-skills.py` でエラーが 0 件であることを確かめる。
+
+この Skill は、PoC の試行の作業用コピーには入れていない（`scripts/poc/run-trial.sh`）。これまでの試行と条件を変えないため。

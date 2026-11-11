@@ -48,9 +48,11 @@ AI エージェントを使った新規開発の標準（入れる Skills、開�
 
 ## このリポジトリの罠
 
+- このリポジトリで作った Skill は、PoC の試行の作業用コピーに入れない（`scripts/poc/run-trial.sh` が除く）。新しく作った Skill の正本は `templates/agents/.claude/skills/` に置く。
+  - 理由: これまでの試行は vendored Skills だけで行っており、Skill が増えると試行の条件が変わるため。
 - `poc-app/` とその `CLAUDE.md` は、PoC の試行の初期状態です。試行のたびに `scripts/poc/run-trial.sh` がこのフォルダを作業用コピーに写し、`CLAUDE.md` の末尾に条件ごとの規約を足します。採点用のスクリプト（`scripts/poc/blind_*.py` など）も、この `CLAUDE.md` の中身を読みます。ここは、PoC の作業として依頼された変更だけを行う。
   - 理由: 初期状態が変わると、過去の試行の結果と比べられなくなるため。
 - `docs/poc/answer-key/` は採点用の正解です。採点のスクリプトだけが読み、試行の作業用コピーや候補ツールに渡す資料の外に置く。
   - 理由: 正解が見えると、試行の結果が評価として使えなくなるため。
-- 配る雛形（`templates/`）を正本にし、このリポジトリで使う版をそれに合わせる。ルートの `AGENTS.md` の規約の節、`docs/github-writing.md`、`scripts/check-skills.py` は同じ内容に保ち、ルートの `.claude/settings.json`・`.mcp.json` は雛形の中身をすべて含めたうえで、このリポジトリだけの設定を足す。PR を出す前に `python3 scripts/check-templates.py` を実行し、エラーを 0 件にする。
+- 配る雛形（`templates/`）を正本にし、このリポジトリで使う版をそれに合わせる。ルートの `AGENTS.md` の規約の節、`docs/github-writing.md`、`scripts/check-skills.py`、このリポジトリで作った Skill（`.claude/skills/design-principles-review` など）は同じ内容に保ち、ルートの `.claude/settings.json`・`.mcp.json` は雛形の中身をすべて含めたうえで、このリポジトリだけの設定を足す。PR を出す前に `python3 scripts/check-templates.py` を実行し、エラーを 0 件にする。
   - 理由: このリポジトリは標準を配る側でもあり、使う側でもある。両方を別々に直すと、配った標準とこのリポジトリの運用がずれるため（`docs/github-writing.md` の写しは、下書き PR のルールが抜けたまま配られていた）。

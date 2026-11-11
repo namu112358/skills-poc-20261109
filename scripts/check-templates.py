@@ -24,6 +24,14 @@ PAIRS = [
     ("templates/github/docs/github-writing.md", "docs/github-writing.md", "全体"),
     ("templates/agents/scripts/check-skills.py", "scripts/check-skills.py", "全体"),
 ]
+# このリポジトリで作った Skill。雛形（templates/agents/.claude/skills/）が正本で、ルートの .claude/skills/ に同じものを置く
+for _d in sorted((ROOT / "templates/agents/.claude/skills").glob("*/")):
+    PAIRS.append((f"templates/agents/.claude/skills/{_d.name}", f".claude/skills/{_d.name}", "ディレクトリ全体"))
+
+
+def tree(path: Path) -> dict:
+    return {f.relative_to(path).as_posix(): f.read_bytes() for f in sorted(path.rglob("*"))
+            if f.is_file() and "__pycache__" not in f.parts}
 
 
 def missing_items(tmpl, local, where="") -> list:
@@ -61,6 +69,18 @@ def main() -> int:
         if missing:
             print(f"[NG] {local}: {', '.join(str(p.relative_to(ROOT)) for p in missing)} がありません")
             errors += 1
+            continue
+        if scope == "ディレクトリ全体":
+            ta, tb = tree(a), tree(b)
+            diff = sorted(k for k in set(ta) | set(tb) if ta.get(k) != tb.get(k))
+            if diff:
+                print(f"[NG] {local}（{tmpl} と食い違う。雛形を正本にして写し直してください）")
+                for k in diff[:20]:
+                    state = "雛形にだけある" if k not in tb else "このリポジトリにだけある" if k not in ta else "内容が違う"
+                    print(f"    {k}: {state}")
+                errors += 1
+            else:
+                print(f"[OK] {local}（{tmpl} と同じ）")
             continue
         if scope == "雛形を含む":
             problems = missing_items(json.loads(a.read_text(encoding="utf-8")), json.loads(b.read_text(encoding="utf-8")))

@@ -3,7 +3,8 @@
 # 使い方: scripts/add-agent-templates.sh <対象リポジトリのパス> [--with-check] [--no-skills]
 #   --with-check : Skills の検査を CI で回す GitHub Actions（.github/workflows/skills-check.yml）も配置する
 #   --no-skills  : 標準の Skills（.claude/skills/）を配置しない
-# - 置くもの: AGENTS.md、CLAUDE.md、.claude/settings.json、.mcp.json、scripts/check-skills.py（正本は templates/agents/）と、
+# - 置くもの: AGENTS.md、CLAUDE.md、.claude/settings.json、.mcp.json、scripts/check-skills.py、
+#   このリポジトリで作った Skill（.claude/skills/ の下。正本は templates/agents/）と、
 #   標準の Skills（scripts/sync-skills.sh で固定コミットから取得し、指紋 scripts/skills.lock.json も作る）
 # - 既存のファイルは上書きしない。ただし AGENTS.md に「共通規約ここから」「共通規約ここまで」の印があれば、その間だけを最新の共通規約に置き換える。
 # - 何度実行しても同じ結果になる。採用技術ごとの追加は scripts/add-stack.sh --dest <対象> <stack>...、
@@ -78,6 +79,19 @@ PY
     continue
   fi
   skipped+=("$f")
+done
+
+# このリポジトリで作った Skill（templates/agents/.claude/skills/）を配る。既存の内容と違えば上書きしない
+for own in "$SRC"/.claude/skills/*/; do
+  [[ -d "$own" ]] || continue
+  name="$(basename "$own")"
+  if [[ ! -e "$DEST/.claude/skills/$name" ]]; then
+    mkdir -p "$DEST/.claude/skills"
+    cp -R "$own" "$DEST/.claude/skills/$name"
+    echo "配置: .claude/skills/$name"
+  elif ! diff -rq "$own" "$DEST/.claude/skills/$name" >/dev/null; then
+    skipped+=(".claude/skills/$name")
+  fi
 done
 
 # 標準の Skills を固定コミットから取得する（既にあれば同じ内容で上書きされる。手での編集は check-skills.py が検出する）

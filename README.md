@@ -63,6 +63,14 @@ Issue・PR の操作や、stacked PR（小さな PR を積み重ねる開発）�
 |---|---|---|---|---|---|
 | Skill | Skill Creator | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/skill-creator) | 固定コミットから vendoring | `.claude/skills/skill-creator` |
 
+#### このリポジトリで作った Skill
+
+正本は `templates/agents/.claude/skills/` にあり、`scripts/add-agent-templates.sh` で各プロジェクトに配ります。
+
+| 種別 | ツール | 用途 | 基にした原則 | 設定箇所 |
+|---|---|---|---|---|
+| Skill | Design Principles Review（`design-principles-review`） | 変更を、設計・実装の原則（KISS、YAGNI、DRY、SOLID、関心の分離、TDD とテストの書き方など）に照らしてレビューする。原則の中身・見る兆候・当てはめすぎの注意を、Skill の本文に書いている | [docs/standards/design-principles.md](docs/standards/design-principles.md) | `.claude/skills/design-principles-review` |
+
 ### 採用技術に応じて追加するもの
 
 `scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...` で、該当するプロジェクトにだけ追加します（`.mcp.json`・`.claude/skills/`・`.claude/settings.json` を更新）。`--dest` を省略すると、このリポジトリ自身に追加します。
@@ -129,6 +137,9 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 ### レビュー
 
 - 不具合を見つけるレビュー（W9）では、プラグインなしを含む全試行が満点でした。
+- 設計の観点のレビューには、このリポジトリで作った `design-principles-review` を使います。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
+  - 3 つの評価ケースで試したところ、Skill がなくても設計の問題はほぼ見つけられました。差が出たのは、指摘に重さ（必須・推奨・細かい点）を付けるかどうかと、指摘の書き方がそろうことです。
+  - そのかわり、Skill を使うと時間が約 1.5 倍かかりました。
 - PR レビュー用のツール（Code Review と PR Review Toolkit）の比較と、セキュリティ監査のツール（Claude Security と Cloudflare Security Audit）の比較は、**まだ実施していません**。
 - Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施します。
 - 失敗を検査に反映するときの方針（案）は [docs/standards/testing-and-ci-policy.md](docs/standards/testing-and-ci-policy.md) にあります。要点は次の 3 つです。
