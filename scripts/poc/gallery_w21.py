@@ -30,23 +30,21 @@ def main(out):
     out = Path(out)
     (out / "shots").mkdir(parents=True, exist_ok=True)
     items = []
-    for f in sorted(RESULTS.glob("W21[ab]-ui-*.json")):
+    for f in sorted(RESULTS.glob("W21[abdef]-ui-*.json")):
         r = json.loads(f.read_text())
         t = r["trial"]
         if r["rep"] == 0 or not (SHOTS / f"{t}-desktop.jpg").exists():
             continue
         c, h = code(t)
-        for v in ("desktop", "mobile"):
-            shutil.copy(SHOTS / f"{t}-{v}.jpg", out / "shots" / f"{c}-{v}.jpg")
+        shutil.copy(SHOTS / f"{t}-desktop.jpg", out / "shots" / f"{c}-desktop.jpg")  # 依頼者の指示でパソコンの幅だけ見せる
         s = r.get("score", {})
         items.append({"id": t, "code": c, "sort": h % 100000, "task": r["task"], "config": r["config"],
                       "configLabel": CONFIG_LABEL[r["config"]], "rep": r["rep"],
                       "cost": r["transcript"]["cost_usd"], "minutes": round((r.get("elapsed_seconds") or 0) / 60, 1),
                       "skills": r["transcript"]["skills_used"], "checks": s.get("subtotal_50"),
                       "axe": s.get("axe_serious", []) + s.get("axe_moderate", [])})
-    for v in ("desktop", "mobile"):
-        if (SHOTS / f"W21b-before-{v}.jpg").exists():
-            shutil.copy(SHOTS / f"W21b-before-{v}.jpg", out / "shots" / f"before-{v}.jpg")
+    if (SHOTS / "W21b-before-desktop.jpg").exists():
+        shutil.copy(SHOTS / "W21b-before-desktop.jpg", out / "shots" / "before-desktop.jpg")
     html = TEMPLATE.read_text().replace("/*__DATA__*/[]", json.dumps(items, ensure_ascii=False))
     (out / "index.html").write_text(html)
     print(f"{len(items)} 案を書いた: {out}/index.html")

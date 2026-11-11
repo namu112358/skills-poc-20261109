@@ -47,7 +47,7 @@ p { margin: 0; max-width: 72ch; }
 .task-brief b { font-family: var(--font-display); }
 
 .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
-.tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
 .tabs button { border: 0; background: transparent; color: var(--fg); font: inherit; padding: 6px 14px; border-radius: 6px; cursor: pointer; }
 .tabs button[aria-selected="true"] { background: var(--accent); color: var(--surface); font-weight: 700; }
 .tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
@@ -55,7 +55,7 @@ p { margin: 0; max-width: 72ch; }
 .switch { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; }
 button:focus-visible, input:focus-visible, .shot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 14px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: grid; grid-template-rows: auto auto auto; min-width: 0; }
 .card.isnew { border-color: var(--new); }
 .head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
@@ -64,8 +64,8 @@ button:focus-visible, input:focus-visible, .shot:focus-visible { outline: 2px so
 .code { font-family: var(--font-display); font-weight: 700; font-size: 15px; }
 .badge { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--new-soft); color: var(--new); font-weight: 700; }
 .cfg { margin-left: auto; font-size: 12.5px; color: var(--accent); font-weight: 700; text-align: right; }
-.shots { display: grid; grid-template-columns: 1fr 88px; gap: 6px; padding: 8px; background: var(--bg); }
-.shot { display: block; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; height: 210px; background: var(--surface); cursor: zoom-in; padding: 0; }
+.shots { display: grid; grid-template-columns: 1fr; gap: 6px; padding: 8px; background: var(--bg); }
+.shot { display: block; width: 100%; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; height: 300px; background: var(--surface); cursor: zoom-in; padding: 0; }
 .shot img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
 .meta { font-size: 12px; color: var(--muted); padding: 6px 12px 0; }
 .moves { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 12px; }
@@ -90,7 +90,7 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; }
 .viewer .vbar .spacer { flex: 1; }
 .viewer .vbody { overflow: auto; display: flex; gap: 16px; align-items: flex-start; justify-content: center; padding: 0 max(16px, env(safe-area-inset-right, 0px)) 24px max(16px, env(safe-area-inset-left, 0px)); }
 .viewer figure { margin: 0; display: grid; gap: 6px; color: #ddd; font-size: 12px; min-width: 0; }
-.viewer figure.d img { width: min(1000px, 70vw); }
+.viewer figure.d img { width: min(1280px, 94vw); }
 .viewer figure.m img { width: 300px; }
 .viewer img { display: block; border-radius: 4px; background: #fff; }
 @media (max-width: 720px) {
@@ -105,7 +105,7 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; }
   <header class="intro">
     <h1>W21 画面の順位付け</h1>
     <p>同じ依頼で、UI/UX 系ツールの構成だけを変えて AI に作らせた画面です。案の記号は試行ごとにランダムに付けていて、どの構成で作ったかは「構成を表示」を押すまで出ません。良いと思う順に並べ替えてください。並びは自動で保存されます。</p>
-    <p>画像を押すと、ページ全体（幅 1280px と 375px）を大きく見られます。試行が増えると「新着」の案が末尾に加わります。</p>
+    <p>画像を押すと、パソコンの幅（1280px）でのページ全体を大きく見られます。試行が増えると「新着」の案が末尾に加わります。</p>
   </header>
 
   <div class="bar">
@@ -138,11 +138,14 @@ const ITEMS = /*__DATA__*/[];
 const TASKS = {
   W21a: { label: "紹介ページ（新規）", brief: "<b>依頼:</b> トップページ（/）を、まだログインしていない社内の人に向けた紹介ページにする。どんなアプリで、何ができて、どう始めればよいか（ログイン画面へ）が分かるように。スマートフォンでも見られるように。見た目はお任せ。" },
   W21b: { label: "タスク一覧（改善）", brief: "<b>依頼:</b> タスク一覧画面（/tasks）の見た目と使い勝手を良くする。毎日使う画面なので、一覧の見やすさ、絞り込みの使いやすさ、スマートフォンでの使いやすさを改善。今ある機能は残す。見た目はお任せ。" },
+  W21d: { label: "SaaS の LP", brief: "<b>依頼:</b> このタスク管理アプリを社外の中小企業向けに SaaS として販売する。製品紹介のランディングページ（/lp）を作る。対象はチームのリーダー。機能、使い始めるまでの流れ、料金（フリー 0 円・チーム 1 人月 600 円・ビジネス 要問い合わせ）、よくある質問。見た目はお任せ。" },
+  W21e: { label: "ダッシュボード", brief: "<b>依頼:</b> チームのリーダーが毎朝見るダッシュボード（/dashboard）を作る。ステータスごとの件数、期限切れと今週期限のタスク、担当者ごとの件数が一目で分かるように。新しいライブラリは足さない。見た目はお任せ。" },
+  W21f: { label: "登録フォーム", brief: "<b>依頼:</b> タスクの新規登録画面（/tasks/new）を作る。タイトル・担当者・期限・ステータスを入力。現場の人が毎日使う入力画面なので入力しやすさを重視し、入力の誤りは直し方が分かるように。見た目はお任せ。" },
 };
 const CONFIGS = ["ui-none", "ui-all", "ui-a", "ui-fd", "ui-pm"];
 let task = "W21a";
-const orders = { W21a: null, W21b: null };   // 保存済みの並び（試行 ID の配列）
-const working = { W21a: null, W21b: null };  // 画面に出している並び
+const orders = { W21a: null, W21b: null, W21d: null, W21e: null, W21f: null };   // 保存済みの並び（試行 ID の配列）
+const working = { W21a: null, W21b: null, W21d: null, W21e: null, W21f: null };  // 画面に出している並び
 let db = null, saveTimer = null, saving = false, pendingSave = null;
 let viewerIndex = -1;
 
@@ -194,8 +197,7 @@ function render() {
     box.innerHTML = "<div><b>参考: 変更前の画面</b>（順位には入れません）</div>";
     const s = document.createElement("div"); s.className = "shots"; s.style.maxWidth = "420px";
     const d = shotButton(null, "desktop", "変更前の画面（幅 1280px）"); d.onclick = () => openViewer(-1);
-    const m = shotButton(null, "mobile", "変更前の画面（幅 375px）"); m.onclick = () => openViewer(-1);
-    s.append(d, m); box.appendChild(s); bb.appendChild(box);
+    s.append(d); box.appendChild(s); bb.appendChild(box);
   }
   if (!list.length) {
     grid.innerHTML = '<div class="empty">この課題の画面はまだありません。試行が終わると、ここに加わります。</div>';
@@ -210,8 +212,7 @@ function render() {
       (revealed() ? `<span class="cfg">${it.configLabel}<br><span style="font-weight:400;color:var(--muted)">#${it.rep}</span></span>` : "");
     const shots = document.createElement("div"); shots.className = "shots";
     const d = shotButton(it, "desktop", `案 ${it.code} の画面（幅 1280px）`); d.onclick = () => openViewer(idx);
-    const m = shotButton(it, "mobile", `案 ${it.code} の画面（幅 375px）`); m.onclick = () => openViewer(idx);
-    shots.append(d, m);
+    shots.append(d);
     card.append(head, shots);
     if (revealed()) {
       const meta = document.createElement("div"); meta.className = "meta";
@@ -289,7 +290,7 @@ function openViewer(idx) {
   document.getElementById("vrank").textContent = it ? `今の順位 ${idx + 1} / ${list.length}` : "";
   const code = it ? it.code : "before";
   body.innerHTML = `<figure class="d"><figcaption>幅 1280px</figcaption><img alt="${name}（幅 1280px）" src="shots/${code}-desktop.jpg"></figure>` +
-    `<figure class="m"><figcaption>幅 375px</figcaption><img alt="${name}（幅 375px）" src="shots/${code}-mobile.jpg"></figure>`;
+    "";
   body.scrollTop = 0;
   document.getElementById("vprev").disabled = idx <= 0;
   document.getElementById("vnext").disabled = idx < 0 || idx >= list.length - 1;

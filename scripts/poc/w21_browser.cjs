@@ -1,5 +1,5 @@
 // W21a・W21b の隠しの検査・アクセシビリティの自動検査・スクリーンショット（docs/poc/tasks/wf-W21-design.md の「採点」）。
-// 使い方: node scripts/poc/w21_browser.cjs <a|b> <起動済みのアプリの URL> <スクリーンショットの出力先の接頭辞>
+// 使い方: node scripts/poc/w21_browser.cjs <a|b|d|e|f> <起動済みのアプリの URL> <スクリーンショットの出力先の接頭辞>
 //   結果を JSON で標準出力に書く。axe-core は採点側だけで使う（POC_AXE に axe.min.js のパス。npm i axe-core@4.10.3 で入れたもの）。
 const { chromium } = require("playwright");
 const fs = require("fs");
@@ -42,10 +42,12 @@ async function axe(page) {
 (async () => {
   const browser = await chromium.launch();
   const out = { kind, checks: {}, axe: {}, overflow: {}, errors: [] };
-  const target = kind === "a" ? "/" : "/tasks";
+  const TARGET = { a: "/", b: "/tasks", d: "/lp", e: "/dashboard", f: "/tasks/new" };
+  const NEEDS_LOGIN = { a: false, b: true, d: false, e: true, f: true };
+  const target = TARGET[kind];
   for (const [label, width] of [["desktop", 1280], ["mobile", 375]]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, deviceScaleFactor: 1, locale: "ja-JP" });
-    if (kind === "b") await login(context);
+    if (NEEDS_LOGIN[kind]) await login(context);
     const page = await context.newPage();
     try {
       await page.goto(base + target, { waitUntil: "networkidle", timeout: 30000 });
@@ -97,6 +99,92 @@ async function axe(page) {
       out.errors.push("login: " + e.message.slice(0, 200));
     }
     await ctx2.close();
+  } else if (kind === "d") {
+    // SaaS の LP: 未ログインで /lp に h1 と料金（600 円）が出て、申し込みからログイン画面へ行ける
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await ctx.newPage();
+    try {
+      await page.goto(base + "/lp", { waitUntil: "networkidle" });
+      const text = norm(await page.locator("body").innerText());
+      out.checks.page_shown = new URL(page.url()).pathname === "/lp" && (await page.locator("h1").first().isVisible().catch(() => false));
+      out.checks.pricing = /600/.test(text) && text.includes("フリー") && text.includes("ビジネス");
+      out.checks.faq = /よくある(ご)?質問|FAQ/i.test(text);
+      const n = await page.locator('a[href*="/login"]').count();
+      out.checks.cta_to_login = n > 0;
+      if (n > 0) {
+        await page.locator('a[href*="/login"]').first().click();
+        await page.waitForLoadState("networkidle");
+        out.checks.cta_to_login = new URL(page.url()).pathname === "/login";
+      }
+    } catch (e) {
+      out.errors.push("lp: " + e.message.slice(0, 200));
+    }
+    await ctx.close();
+  } else if (kind === "e") {
+    // ダッシュボード: 未ログインは /login へ。ログイン後、ステータスの名前と件数（未着手 3・進行中 2・完了 2）、担当者の名前が出る
+    const c0 = await browser.newContext();
+    const p0 = await c0.newPage();
+    try {
+      await p0.goto(base + "/dashboard", { waitUntil: "networkidle" });
+      out.checks.requires_login = new URL(p0.url()).pathname.startsWith("/login");
+    } catch (e) { out.errors.push("dash-anon: " + e.message.slice(0, 200)); }
+    await c0.close();
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await login(ctx);
+    const page = await ctx.newPage();
+    try {
+      await page.goto(base + "/dashboard", { waitUntil: "networkidle" });
+      const text = norm(await page.locator("body").innerText());
+      out.checks.page_shown = new URL(page.url()).pathname === "/dashboard" && (await page.locator("h1").first().isVisible().catch(() => false));
+      out.checks.status_counts = ["未着手", "進行中", "完了"].every((s) => text.includes(s)) && /3/.test(text) && /2/.test(text);
+      out.checks.assignees = ["佐藤", "鈴木", "田中"].every((n) => text.includes(n)) || ["sato", "suzuki", "tanaka"].every((n) => text.includes(n));
+      await page.goto(base + "/tasks", { waitUntil: "networkidle" });
+      out.checks.header_link = (await page.locator('a[href="/dashboard"], a[href^="/dashboard?"]').count()) > 0;
+    } catch (e) {
+      out.errors.push("dash: " + e.message.slice(0, 200));
+    }
+    await ctx.close();
+  } else if (kind === "f") {
+    // 登録画面: 未ログインは /login へ。ラベルで入力して登録すると /tasks に戻り、一覧に出る。空のタイトルでは登録されずエラーが出る
+    const c0 = await browser.newContext();
+    const p0 = await c0.newPage();
+    try {
+      await p0.goto(base + "/tasks/new", { waitUntil: "networkidle" });
+      out.checks.requires_login = new URL(p0.url()).pathname.startsWith("/login");
+    } catch (e) { out.errors.push("new-anon: " + e.message.slice(0, 200)); }
+    await c0.close();
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await login(ctx);
+    const page = await ctx.newPage();
+    const title = "採点用の登録テスト " + Date.now();
+    try {
+      await page.goto(base + "/tasks", { waitUntil: "networkidle" });
+      out.checks.link_from_list = (await page.locator('a[href="/tasks/new"]').count()) > 0;
+      await page.goto(base + "/tasks/new", { waitUntil: "networkidle" });
+      const submit = page.locator('form button[type="submit"], form button:not([type]), form input[type="submit"]').last();
+      // 空のまま送ると、登録されずにエラーが出る（ブラウザの required による止め方も可）
+      await submit.click().catch(() => {});
+      await page.waitForTimeout(800);
+      const stayed = new URL(page.url()).pathname === "/tasks/new";
+      const msg = (await page.locator('[role="alert"], [aria-invalid="true"], :invalid').count()) > 0;
+      out.checks.error_on_empty = stayed && msg;
+      await page.getByLabel(/タイトル/).first().fill(title);
+      const due = page.getByLabel(/期限/).first();
+      await due.fill("2026-12-01");
+      const who = page.getByLabel(/担当/).first();
+      if ((await who.count()) && (await who.evaluate((el) => el.tagName)) === "SELECT") {
+        await who.selectOption({ value: "tanaka" }).catch(() => who.selectOption({ label: "田中" }).catch(() => {}));
+      } else if (await who.count()) {
+        await who.fill("tanaka").catch(() => {});
+      }
+      await Promise.all([page.waitForURL((u) => u.pathname === "/tasks", { timeout: 15000 }), submit.click()]);
+      const text = norm(await page.locator("body").innerText());
+      out.checks.create_works = text.includes(title);
+    } catch (e) {
+      out.checks.create_works = false;
+      out.errors.push("new: " + e.message.slice(0, 200));
+    }
+    await ctx.close();
   } else {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     await login(ctx);

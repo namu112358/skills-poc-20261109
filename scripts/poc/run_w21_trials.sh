@@ -9,10 +9,10 @@ export POC_MAX_NUDGES=2
 export POC_AXE="${POC_AXE:-/tmp/claude-0/grader-deps/node_modules/axe-core/axe.min.js}"
 # W21a・W21b は 4 回、W21c は 2 回（設計書 §4）。回ごとに実行順を逆にする
 LIST=()
-# W21_ROUNDS で回を指定できる（既定 "1 2 3 4"）。5 回目以降は作る課題だけ（依頼者の指示で、戻るまで作り続ける追加の試行）
+# W21_TASKS で課題を指定できる（既定 "W21a W21b W21c"）。W21_ROUNDS で回を指定できる（既定 "1 2 3 4"）。5 回目以降は作る課題だけ（依頼者の指示で、戻るまで作り続ける追加の試行）
 for r in ${W21_ROUNDS:-1 2 3 4}; do
   ROUND=()
-  for t in W21a W21b W21c; do
+  for t in ${W21_TASKS:-W21a W21b W21c}; do
     [[ "$t" == W21c && "$r" -gt 2 ]] && continue
     for c in ui-none ui-all ui-a ui-fd ui-pm; do ROUND+=("$t $c $r"); done
   done

@@ -3,8 +3,8 @@
 docs/poc/tasks/wf-W21-design.md の「採点」。
 
 使い方: python3 scripts/poc/grade_w21.py <試行ID> [--cleanup]
-  - 試行 ID は W21<a|b|c>-<構成>-<回>（例 W21a-ui-all-1）。構成は ui-none・ui-all・ui-a・ui-fd・ui-pm。
-  - W21a・W21b: 型チェック・単体テスト・ビルド、依存の追加の有無、本番ビルドを起動して隠しの検査・axe-core・スクリーンショット
+  - 試行 ID は W21<a〜f>-<構成>-<回>（d・e・f は依頼者の指示で足した題材: SaaS の LP・ダッシュボード・登録フォーム）（例 W21a-ui-all-1）。構成は ui-none・ui-all・ui-a・ui-fd・ui-pm。
+  - W21a・W21b・W21d〜f: 型チェック・単体テスト・ビルド、依存の追加の有無、本番ビルドを起動して隠しの検査・axe-core・スクリーンショット
     （scripts/poc/w21_browser.cjs。POC_AXE に axe.min.js のパス）。スクリーンショットは results/workflow/W21/shots/ に置く。
   - W21c: REVIEW.md の本文を保存する（正解との突き合わせは judge_w21.py の判定役）。
   - 観察: 呼ばれた Skill、Impeccable のフックの出力、設計の文書、使った書体。
@@ -20,7 +20,7 @@ from pathlib import Path
 
 TRIAL = sys.argv[1]
 FLAGS = set(sys.argv[2:])
-m = re.fullmatch(r"(W21[abc])-(ui-(?:none|all|a|fd|pm))-(\d+)", TRIAL)
+m = re.fullmatch(r"(W21[a-f])-(ui-(?:none|all|a|fd|pm))-(\d+)", TRIAL)
 if not m:
     sys.exit(f"W21 の試行 ID ではない: {TRIAL}")
 TASK, CONFIG, REP = m.group(1), m.group(2), int(m.group(3))
@@ -119,8 +119,13 @@ def browser(kind):
 
 def score_build(checks, deps_same, b):
     func_items = b.get("checks", {})
-    keys = ["landing_shown", "link_to_login", "login_works", "logged_in_redirect", "no_overflow_375"] if TASK == "W21a" else \
-           ["all_tasks_linked", "assignee_and_due", "filter_control", "filter_done", "no_overflow_375"]
+    keys = {
+        "W21a": ["landing_shown", "link_to_login", "login_works", "logged_in_redirect", "no_overflow_375"],
+        "W21b": ["all_tasks_linked", "assignee_and_due", "filter_control", "filter_done", "no_overflow_375"],
+        "W21d": ["page_shown", "pricing", "faq", "cta_to_login", "no_overflow_375"],
+        "W21e": ["requires_login", "page_shown", "status_counts", "assignees", "header_link", "no_overflow_375"],
+        "W21f": ["requires_login", "link_from_list", "error_on_empty", "create_works", "no_overflow_375"],
+    }[TASK]
     func = 20 * sum(bool(func_items.get(k)) for k in keys) / len(keys)
     cmds = 5 * sum(checks[k]["pass"] for k in checks) / 3
     deps = 5 if deps_same else 0
@@ -150,7 +155,7 @@ def main():
         msg = f"REVIEW.md={len(result['review_md'])} chars"
     else:
         checks, deps_same = build_checks(base)
-        b = browser("a" if TASK == "W21a" else "b") if checks["build"]["pass"] else {"errors": ["build failed"], "checks": {}, "axe": {}}
+        b = browser(TASK[-1]) if checks["build"]["pass"] else {"errors": ["build failed"], "checks": {}, "axe": {}}
         result.update({"checks": checks, "deps_same": deps_same, "browser": b, "score": score_build(checks, deps_same, b),
                        "observations": observations(base)})
         msg = f"subtotal={result['score']['subtotal_50']}/50 axe={result['score']['axe_serious']}"
