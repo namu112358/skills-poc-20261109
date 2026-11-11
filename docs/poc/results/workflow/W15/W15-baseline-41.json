@@ -1,0 +1,973 @@
+{
+  "scenario": "W15",
+  "trial": "W15-baseline-41",
+  "candidate": "baseline",
+  "run": 41,
+  "elapsed_seconds": 102,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "Instrument / returnLoan\n  ---\n  duration_ms: 71.556908\n  type: 'suite'\n  ...\n# Subtest: validateLoanInput\n    # Subtest: requires an active borrower and a real date\n    ok 1 - requires an active borrower and a real date\n      ---\n      duration_ms: 29.60673\n      type: 'test'\n      ...\n    1..1\nok 18 - validateLoanInput\n  ---\n  duration_ms: 29.769517\n  type: 'suite'\n  ...\n# Subtest: listOverdueLoans\n    # Subtest: lists unreturned loans whose due date is before today\n    ok 1 - lists unreturned loans whose due date is before today\n      ---\n      duration_ms: 29.499207\n      type: 'test'\n      ...\n    1..1\nok 19 - listOverdueLoans\n  ---\n  duration_ms: 29.601821\n  type: 'suite'\n  ...\n1..19\n# tests 34\n# suites 19\n# pass 34\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 730.340496\n"
+    },
+    "build": {
+      "pass": true,
+      "log": " ƒ /api/instruments/[id]\n├ ƒ /api/instruments/[id]/calibrations\n├ ƒ /api/instruments/[id]/loans\n├ ƒ /api/instruments/[id]/loans/[loanId]/return\n├ ƒ /api/jobs/overdue-loans\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /instruments\n├ ƒ /instruments/[id]\n└ ƒ /login\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:5636) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:5648) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:5642) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [],
+  "diff": {
+    "files": [
+      {
+        "path": "docs/calibration-import.md",
+        "added": 8,
+        "deleted": 0,
+        "kind": "doc"
+      },
+      {
+        "path": "src/app/api/calibrations/import/route.ts",
+        "added": 3,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/calibration-import-nishinihon.ts",
+        "added": 183,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "tests/calibration-import-nishinihon.test.ts",
+        "added": 76,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/lib/calibration-import-nishinihon.ts",
+      "tests/calibration-import-nishinihon.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": [
+      "fe72936 西日本校正センターの校正結果 CSV の取込に対応"
+    ]
+  },
+  "transcript": {
+    "cost_usd": 0.3461,
+    "tokens": {
+      "input": 22,
+      "output": 13828,
+      "cache_read": 537959,
+      "cache_creation": 38498
+    },
+    "turns": 15,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > src/lib/calibration-import-nishinihon.ts <<'EOF'\\n// 西日本校正センターの校正結果 CSV の取込（仕様: docs/agencies/nishinihon-csv-spec.md）。\\n// - 判定 PASS → 合格、FAIL → 不合格、COND（条件付き合格）→ 合格として取り込み、計測器の備考に経"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 10,
+      "Write": 2,
+      "Edit": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 93,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "B 社（西日本校正センター）の CSV を、`POST /api/calibrations/import` で取り込めるようになりました。型チェックと全テスト（34 件）は通っています。変更は git にコミット済みです（`fe72936`）。画面やサーバーを起動しての動作確認はしていません。\n\n- **形式の判別**: UTF-8 で、見出し行に「機器番号」がある CSV を B 社形式とみなします。それ以外は従来どおり東日本の取込に回すので、既存の取込は変更していません。\n- **判定の扱い**: 依頼者に確認した内容に沿って実装しました。\n  - `PASS` は合格、`FAIL` は不合格（計測器は使用停止）です。\n  - `COND`（条件付き合格）は合格として取り込み、計測器の備考の末尾に「条件付き合格（校正日）: コメント」を書き足します。\n  - 校正機関は「西日本校正センター」で記録します。\n- **有効期限の列**: 使いません。\n- **欠けたファイル**: 最終行の `END,<件数>` が無い、またはデータ行の数と合わないファイルは、1 件も取り込まずに 400 を返します。\n- **再送**: 同じ計測器・校正日・成績書番号は「取込済み」として読み飛ばします。備考も二重には追記しません。\n- **管理番号**: `MI0003` のようにハイフンが無い表記は、`MI-0003` にそろえて照合します。\n- **取込の単位**: 取込は 1 行ずつ確定します。台帳に無い管理番号や日付の誤りの行は、エラーとして返しつつ残りを取り込みます。\n\n新しい処理は `src/lib/calibration-import-nishinihon.ts` に置き、`docs/calibration-import.md` に取込の扱いを追記しました。テストは `tests/calibration-import-nishinihon.test.ts` に追加しています。\n\n校正記録の登録と備考の追記は、別々の書き込みです。途中で失敗すると、記録だけが残って備考が付かないことがあります。",
+    "turns_last_result_only": 15,
+    "active_seconds_last_result_only": 93
+  },
+  "w15": {
+    "checks": {
+      "typecheck": true,
+      "test": true,
+      "build": true
+    },
+    "routes": [
+      {
+        "path": "/api/calibrations/import",
+        "methods": [
+          "POST"
+        ]
+      }
+    ],
+    "static": {
+      "legacy_file_changed": false,
+      "legacy_file_exists": true,
+      "changed_src_files": [
+        "src/app/api/calibrations/import/route.ts",
+        "src/lib/calibration-import-nishinihon.ts"
+      ],
+      "logger_used": true,
+      "new_deps": false,
+      "docs_changed": true
+    },
+    "golden": [
+      {
+        "id": "a01-basic",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a02-numbers",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a03-dates",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a04-judgement",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a05-duplicates",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a06-quotes",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a07-bom",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a08-badheader",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a09-blanklines",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      },
+      {
+        "id": "a10-order",
+        "pass": true,
+        "diff": [],
+        "detail": ""
+      }
+    ],
+    "public": [
+      {
+        "id": "P1",
+        "name": "B 社の仕様書どおりの CSV（同じ取込の送り先）を取り込める",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "hidden": [
+      {
+        "id": "B02",
+        "name": "ハイフン無しの機器番号（MI0003）を同じ計測器として扱う",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B03",
+        "name": "COND（条件付き合格）は合格として取り込み、計測器の備考に「条件付き合格（校正日）: コメント」を書き足す",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B04",
+        "name": "B 社の校正記録の校正機関は「西日本校正センター」",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B05",
+        "name": "END の件数と行数が合わないファイルは 1 件も取り込まず、誤りを返す",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B06",
+        "name": "同じ B 社のファイルを 2 回取り込んでも二重にならない",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B07",
+        "name": "同じファイルの中の重複（同じ機器・同じ校正日）は後の行を読み飛ばす",
+        "pass": false,
+        "detail": "同じファイルの中の重複（同じ機器・同じ日）が 1 件にならない: [{'no': 'MI-0009', 'date': '2026-12-06', 'result': 'pass', 'agency': '西日本校正センター', 'cert': 'WN2612-0010'}, {'no': 'MI-0009', 'date': '2026-12-06', 'result': 'pass', 'agency': '西日本校正センター', 'cert': 'WN2612-0011'}]"
+      },
+      {
+        "id": "B08",
+        "name": "B 社のファイルの形式を自動で見分ける（BOM・CRLF の場合も）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B09",
+        "name": "台帳に無い機器番号・読めない判定の行は誤りにして、ほかの行は取り込む",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "B10",
+        "name": "取込の応答の形（imported・skipped・errors と各要素の line）が変わっていない",
+        "pass": true,
+        "detail": ""
+      }
+    ],
+    "characterization": {
+      "legacy_mutants": 60,
+      "found_in_candidate": 60,
+      "killed": 1,
+      "mutants": 60,
+      "survivors": [
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 15,
+          "old": "0",
+          "new": "1",
+          "snippet": "const res: ImportResult = { imported: 0, skipped: [], errors: [] };"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 17,
+          "old": "===",
+          "new": "!==",
+          "snippet": "if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 17,
+          "old": " >= ",
+          "new": " > ",
+          "snippet": "if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 17,
+          "old": "&&",
+          "new": "||",
+          "snippet": "if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 17,
+          "old": "0",
+          "new": "1",
+          "snippet": "if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 18,
+          "old": "3",
+          "new": "4",
+          "snippet": "text = new TextDecoder(\"utf-8\").decode(data.subarray(3));"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 25,
+          "old": "0",
+          "new": "1",
+          "snippet": "for (let n = 0; n < lines.length; n++) {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 28,
+          "old": ".trim()",
+          "new": "",
+          "snippet": "if (raw.trim() === \"\") continue;"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 33,
+          "old": " < ",
+          "new": " <= ",
+          "snippet": "for (let i = 0; i < raw.length; i++) {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 37,
+          "old": "===",
+          "new": "!==",
+          "snippet": "if (raw[i + 1] === '\"') {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 40,
+          "old": "false",
+          "new": "true",
+          "snippet": "} else q = false;"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 43,
+          "old": "===",
+          "new": "!==",
+          "snippet": "else if (ch === \",\") {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 49,
+          "old": ".trim()",
+          "new": "",
+          "snippet": "for (let i = 0; i < cols.length; i++) cols[i] = cols[i].trim();"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 51,
+          "old": " < ",
+          "new": " <= ",
+          "snippet": "if (cols.indexOf(\"管理番号\") < 0) {"
+        },
+        {
+          "file": "src/lib/legacy/calib-import.ts",
+          "line": 60,
+          "old": " >= ",
+          "new": " > ",
+          "snippet": "return i >= 0 && i < cols.length ? cols[i] : \"\";"
+        }
+      ],
+      "baseline_tests_pass": true,
+      "commits": 1,
+      "first_characterization_commit": 0,
+      "first_importer_change_commit": 0,
+      "order_by": "transcript",
+      "transcript": {
+        "tool_calls": 14,
+        "first_characterization_call": 7,
+        "first_importer_change_call": 7
+      },
+      "order": "same"
+    },
+    "mutation": {
+      "baseline_tests_pass": true,
+      "baseline_fails": 0,
+      "baseline_log": "",
+      "mutants": 60,
+      "killed": 36,
+      "kill_rate": 0.6,
+      "files": [
+        "src/lib/calibration-import-nishinihon.ts"
+      ],
+      "survivors": [
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 20,
+          "old": "true",
+          "new": "false",
+          "snippet": "return new TextDecoder(\"utf-8\", { fatal: true }).decode(data);"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 33,
+          "old": "0",
+          "new": "1",
+          "snippet": ".slice(0, 2)"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 33,
+          "old": "2",
+          "new": "3",
+          "snippet": ".slice(0, 2)"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 34,
+          "old": ".trim()",
+          "new": "",
+          "snippet": ".some((l) => l.split(\",\")[0].trim() === \"機器番号\");"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 44,
+          "old": "===",
+          "new": "!==",
+          "snippet": "if (ch === '\"') {"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 45,
+          "old": "===",
+          "new": "!==",
+          "snippet": "if (raw[i + 1] === '\"') {"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 45,
+          "old": "1",
+          "new": "2",
+          "snippet": "if (raw[i + 1] === '\"') {"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 48,
+          "old": "false",
+          "new": "true",
+          "snippet": "} else quoted = false;"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 50,
+          "old": "true",
+          "new": "false",
+          "snippet": "} else if (ch === '\"') quoted = true;"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 57,
+          "old": ".trim()",
+          "new": "",
+          "snippet": "return cols.map((c) => c.trim());"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 75,
+          "old": "1",
+          "new": "2",
+          "snippet": "res.errors.push({ line: 1, message: \"CSV の文字コードが UTF-8 ではありません\" });"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 82,
+          "old": " < ",
+          "new": " <= ",
+          "snippet": "while (n < lines.length && (lines[n].trim() === \"\" || lines[n].startsWith(\"#\"))) n++;"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 82,
+          "old": ".trim()",
+          "new": "",
+          "snippet": "while (n < lines.length && (lines[n].trim() === \"\" || lines[n].startsWith(\"#\"))) n++;"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 83,
+          "old": " < ",
+          "new": " <= ",
+          "snippet": "const header = n < lines.length ? splitCsvLine(lines[n]) : [];"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 85,
+          "old": "1",
+          "new": "2",
+          "snippet": "res.errors.push({ line: 1, message: \"CSV の形式が違います（見出し行に「機器番号」の列がありません）\" });"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 90,
+          "old": "&&",
+          "new": "||",
+          "snippet": "return i >= 0 && i < cols.length ? cols[i] : \"\";"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 96,
+          "old": ".trim()",
+          "new": "",
+          "snippet": "if (lines[i].trim() === \"\") continue;"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 102,
+          "old": "1",
+          "new": "2",
+          "snippet": "rows.push({ line: i + 1, cols });"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 105,
+          "old": "1",
+          "new": "2",
+          "snippet": "res.errors.push({ line: 1, message: \"最終行（END,<件数>）がありません。ファイルが途中で欠けている恐れがあるため取り込みませんでした\" });"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 110,
+          "old": "1",
+          "new": "2",
+          "snippet": "line: 1,"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 136,
+          "old": " > ",
+          "new": " >= ",
+          "snippet": "if (cert.length > 50) {"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 136,
+          "old": "50",
+          "new": "51",
+          "snippet": "if (cert.length > 50) {"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 152,
+          "old": " AND ",
+          "new": " OR ",
+          "snippet": ".prepare(\"SELECT 1 FROM calibration_records WHERE instrument_id = ? AND calibrated_on = ? AND certificate_no = ?\")"
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 152,
+          "old": " AND ",
+          "new": " OR ",
+          "snippet": ".prepare(\"SELECT 1 FROM calibration_records WHERE instrument_id = ? AND calibrated_on = ? AND certificate_no = ?\")"
+        }
+      ],
+      "details": [
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 20,
+          "old": "true",
+          "new": "false",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 29,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 29,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 33,
+          "old": "0",
+          "new": "1",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 33,
+          "old": "2",
+          "new": "3",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 34,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 34,
+          "old": ".trim()",
+          "new": "",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 34,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 40,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 41,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 44,
+          "old": "===",
+          "new": "!==",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 45,
+          "old": "===",
+          "new": "!==",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 45,
+          "old": "1",
+          "new": "2",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 48,
+          "old": "false",
+          "new": "true",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 50,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 50,
+          "old": "true",
+          "new": "false",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 51,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 57,
+          "old": ".trim()",
+          "new": "",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 63,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 63,
+          "old": "4",
+          "new": "5",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 63,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 63,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 63,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 72,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 74,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 75,
+          "old": "1",
+          "new": "2",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 82,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 82,
+          "old": " < ",
+          "new": " <= ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 82,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 82,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 82,
+          "old": ".trim()",
+          "new": "",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 83,
+          "old": " < ",
+          "new": " <= ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 84,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 85,
+          "old": "1",
+          "new": "2",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 90,
+          "old": " >= ",
+          "new": " > ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 90,
+          "old": "&&",
+          "new": "||",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 90,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 95,
+          "old": " < ",
+          "new": " <= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 95,
+          "old": "1",
+          "new": "2",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 96,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 96,
+          "old": ".trim()",
+          "new": "",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 98,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 98,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 102,
+          "old": "1",
+          "new": "2",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 104,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 105,
+          "old": "1",
+          "new": "2",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 108,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 110,
+          "old": "1",
+          "new": "2",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 124,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 128,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 132,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 132,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 132,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 132,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 136,
+          "old": " > ",
+          "new": " >= ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 136,
+          "old": "50",
+          "new": "51",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 147,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 152,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 152,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/calibration-import-nishinihon.ts",
+          "line": 160,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        }
+      ]
+    }
+  }
+}
