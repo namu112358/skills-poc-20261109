@@ -9,6 +9,8 @@
 # 監査の出力先は、Skill の決まり（対象の外）どおり $WORK/out に置く。
 # 子セッションには対象のコードの実行（npm など）を許可しない。この環境では Skill が求める OS の隔離を用意できないため。
 set -euo pipefail
+# 全体を { } で包み、実行の前にすべて読み込ませる（実行中にこのファイルを書き換えても、動いている試行が壊れないように）
+{
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PROFILE="$1"; RUN="$2"
 case "$PROFILE" in quick|standard|deep) ;; *) echo "profile は quick・standard・deep のいずれか: $PROFILE" >&2; exit 1 ;; esac
@@ -72,3 +74,5 @@ echo $(( $(date +%s) - START )) > "$OUT/wall-seconds"
 cp -R "$AUDIT_OUT" "$OUT/audit-out"
 python3 "$ROOT/scripts/poc/security_summary.py" "$OUT" > "$OUT/summary.json"
 cat "$OUT/summary.json"
+exit
+}
