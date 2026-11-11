@@ -1,0 +1,39 @@
+{
+  "trial": "W20-cr-high-c4-1",
+  "scenario": "W20",
+  "config": "cr-high",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# コードレビュー: 西日本校正センターの CSV 取込\n\n指摘は 9 件（重要度順）。\n\n## 1. 【高】BOM 付き・非 UTF-8 の西日本 CSV が旧取込に回り、誤ったエラーになる\n\n- 場所: `src/lib/calib-import-nishinihon.ts:18`（`isNishinihonCsv`）\n- 問題: BOM 付きや Shift_JIS の西日本 CSV では `isNishinihonCsv` が false を返し、東日本向けの旧取込に回る。例えば Excel で開いて保存し直したファイルを送ると、「CSV の形式が違います（1 行目に「管理番号」の列がありません）」と返る。西日本の CSV には無い列を指すメッセージで、原因が文字コードだとは分からない。新形式側の「UTF-8 必須・BOM 無し」のエラー経路には到達しない。要件 3（BOM の有無・改行コードの違いで取り込めなくならない）にも反する。\n- 直し方: 判定の前に BOM を取り除き、改行コードを正規化する。見出しが西日本形式なら、文字コードが不正でも西日本側で「UTF-8 で保存してください」と返す。判定できないときのエラー文も、両形式の見出しを示す内容にする。\n\n## 2. 【高】FAIL 行が計測器の状態に関係なく使用停止にする\n\n- 場所: `src/lib/calibrations.ts:121`（`recordCalibration`）。呼び出し側は `src/lib/calib-import-nishinihon.ts`。\n- 問題: FAIL 行を取り込むと、現在の状態に関係なく `UPDATE ... status='suspended'` が実行される。MI-0004 が貸出中（`on_loan`）のときに FAIL 行を取り込むと、返却の操作なしに貸出中でなくなり、未返却の貸出が使用停止の計測器を指したままになる。廃棄（`disposed`）の計測器は使用停止として復活する。「貸出中は貸出・返却の操作でだけ変わる」という業務ルールに反する。この規則自体は `recordCalibration` に元からあるが、一括取込が全行に無条件で適用する。\n- 直し方: 取込では `on_loan` / `disposed` の計測器の FAIL 行を行の誤りにする（または状態を変えず記録だけ残す）。扱いを決めて `recordCalibration` 側のルールとして一箇所に書き、テストを足す。\n\n## 3. 【高】`recordCalibration` の例外で取込が途中で止まり、一部だけが確定する\n\n- 場所: `src/lib/calib-import-nishinihon.ts:158`（行ごとのループ）\n- 問題: 備考に収まるかの確認がトランザクションの外と、`recordCalibration` の内側で二重にある。内側が投げる例外（備考の長さ超過や DB エラー）をループで受けていないため、その例外が route まで伝わって 500 になる。前の行は確定済みで、応答に imported / skipped / errors の集計が無く、`calibration.imported` のログも出ない。再送すると前の行は「取込済み」と出るので、何が起きたか分からない。要件 8（誤りの行は誤りにして、ほかの行は取り込む）と要件 9（応答の形）に反する。\n- 直し方: 行ごとに try/catch し、失敗はその行の `errors`（`line` 付き）に入れて次の行へ進む。想定外の例外はログに出し、応答は集計付きで返す。\n\n## 4. 【中】備考が収まるかの確認が二重に実装されている\n\n- 場所: `src/lib/calib-import-nishinihon.ts:143`（`appendToNote` の事前確認）と `src/lib/calibrations.ts`（`recordCalibration` 内の同じ確認）\n- 問題: 取込側が備考を読んで `appendToNote` を呼び、結果を捨てる。`recordCalibration` も備考を読み直して同じ処理をする。二つの実装とエラー文言が食い違うおそれがある。`recordCalibration` の例外を投げる分岐にはテストが無い。\n- 直し方: 確認はトランザクション内の一箇所だけにして、成功か失敗かを返す形（判別可能な結果）にする。取込側の事前確認は消す（指摘 3 の対応と一緒に）。\n\n## 5. 【中】CSV 1 行のパーサが旧取込と重複している\n\n- 場所: `src/lib/csv.ts:2`（`parseCsvLine`）と `src/lib/legacy/calib-import.ts`\n- 問題: 引用符つき項目のパーサが新しいファイルにも旧取込の中にも存在する。旧取込は新しい部品に切り替えていない。片方だけ直すと（引用符の中の改行や trim の扱いなど）もう片方に反映されない。開発標準「同じ処理を複製しない」に反する。\n- 直し方: 旧取込も `src/lib/csv.ts` を使う。A 社の取込は挙動を変えないので、切り替え前後で既存テストが通ることを確認する。\n\n## 6. 【中】備考の上限 1000 が二重に定義されている\n\n- 場所: `src/lib/calibrations.ts:85`（`NOTE_MAX = 1000`）。元の定義は `src/lib/instruments.ts` の `text(b, 'note', 1000, ...)`。\n- 問題: コメントでは「同じ値にする」とあるが、守らせる仕組みが無い。`instruments.ts` の上限を変えても取込側は古い値のまま動く。その結果、PATCH の上限を超える備考を取込が書いたり、正しい追記を断ったりする。\n- 直し方: 上限を `instruments.ts` から一箇所で export し、両方で使う。\n\n## 7. 【中】機器番号の正規化が旧取込のコピーで、全角ハイフン（－）しか扱わない\n\n- 場所: `src/lib/calib-import-nishinihon.ts:31`（`normalizeManagementNo`）\n- 問題: 旧取込の全角変換とハイフン補完をそのままコピーしていて、同じ処理が二箇所に存在する。ハイフンに似た別の文字（‐ – ー など。別の出力ツールで混ざる）は直らず、「管理番号が台帳にありません」になる。ドキュメントは「ハイフンの有無・幅を問わず」と書いているので、実装がそれより狭い。\n- 直し方: 正規化を共通の関数にして両方から使う。扱うハイフン類を決めてテストを書く。A 社の取込の挙動は変えない。\n\n## 8. 【中】テストが足りない\n\n- 場所: `tests/calib-import-nishinihon.test.ts:1`\n- 問題: 次の振る舞いにテストが無い。route での両形式の振り分け、CRLF の入力、`recordCalibration` 内の失敗時のロールバック、前回校正日より前の日付の COND 行、貸出中の計測器への FAIL 行。共通関数 `recordCalibration` の追加引数 `appendNote` は、手動の校正 API も使うのに間接的にしか確認されていない。形式判定やロールバックが壊れてもテストが通る。開発標準「変更した振る舞いにはテストを書く（境界値・失敗時）」に反する。\n- 直し方: 上の各ケースと、A 社の取込が変わらないこと（和暦・○×・保留・参考）を確かめるテストを足す。\n\n## 9. 【低】ファイルを二回デコード・行分割している\n\n- 場所: `src/lib/calib-import-nishinihon.ts:18`（`isNishinihonCsv`）と `importNishinihonCsv`\n- 問題: 形式を判定するためだけに、東日本の CSV を含む全アップロードで本文全体を UTF-8 でデコードして全行に分割し、取込でもう一度同じことをする。大きなファイルでは無駄な処理が二倍になる。\n- 直し方: 一度だけデコードして結果を渡す。または判定は先頭部分だけを調べる。\n",
+  "review_chars": 3514,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4096,
+    "tokens": {
+      "input": 18,
+      "output": 10928,
+      "cache_read": 329137,
+      "cache_creation": 90039
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -50; echo ---; git diff HEAD --stat\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 123,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` に 9 件の指摘を書き、`REVIEW.md` だけをコミットしました。コードは直していません。ほかの変更は未コミットのままです。\n\n各指摘に、場所、何が問題か、直し方、重要度を付けています。\n\n| 重要度 | 件数 | 内容 |\n|---|---|---|\n| 高 | 3 | BOM 付き・非 UTF-8 の西日本 CSV が旧取込に回る／FAIL 行が貸出中・廃棄の状態を壊す／`recordCalibration` の例外で取込が途中で止まる |\n| 中 | 5 | 備考の確認が二重／CSV パーサの重複／備考の上限 1000 の重複／機器番号の正規化の重複とハイフン類の取りこぼし／テスト不足 |\n| 低 | 1 | ファイルを二回デコード・行分割している |\n\n直前のレビューの指摘は削っていません。レビューにあった「重要度」はこちらで付けました。"
+  },
+  "interventions": 0
+}

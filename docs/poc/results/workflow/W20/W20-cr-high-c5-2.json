@@ -1,0 +1,48 @@
+{
+  "trial": "W20-cr-high-c5-2",
+  "scenario": "W20",
+  "config": "cr-high",
+  "case": "c5",
+  "rep": 2,
+  "review_md": "# コードレビュー: 西日本校正センターの CSV 取込\n\n指摘は重要度順（高・中・低）です。\n\n## 1. 【高】備考が満杯に近いとき、既存の備考を余計に削ってしまう\n\n- 場所: `src/lib/calibrations.ts:90` `appendToNote`\n- 問題: 追記の見出しの長さとして固定値 30 文字（`ADDENDUM_HEAD_LENGTH`）を確保している。実際の見出し「条件付き合格（YYYY-MM-DD）」は 18 文字しかない。備考が約 970〜981 文字のときに COND 行（長いコメント付き）を取り込むと、`note.slice(0, 1000 - 1 - 30)` で利用者の既存の備考の末尾 6 文字ほどが消える。見出しに使える余地は 24 文字あり、追記する側を短くすれば足りた。手順書の「新しい文章の側を先に短くする」にも反する。テストは 995 文字と 1000 文字の備考だけで、この範囲を確かめていない。\n- 直し方: 固定値をやめ、実際の見出し（`条件付き合格（日付）`）の長さから切り詰める量を計算する。既存の備考は、追記の見出しすら入らないときだけ切り詰める。970〜981 文字付近の境界値のテストを足す。\n\n## 2. 【高】同じファイル内の重複判定に証明書番号が入っておらず、別の校正記録が読み飛ばされる\n\n- 場所: `src/lib/calibration-import/index.ts:45`（ファイル内の重複キー `managementNo|calibratedOn`）\n- 問題: 同じ計測器・同じ校正日で証明書番号が違う 2 行（例: `MI0004,...,2026-11-04,PASS,WN-1` の次に `MI0004,...,2026-11-04,FAIL,WN-2`）を「同じファイルの中で重複」として後の行を読み飛ばす。FAIL が記録されず、計測器が使用停止にならない。DB 側の重複判定は証明書番号を使うので、2 つの判定が食い違う。END の件数には読み飛ばした行も数えるため、不一致にもならず気づけない。COND 行とその備考の追記でも同じことが起きる。\n- 直し方: ファイル内の重複キーを DB 側の判定と同じ項目（証明書番号を含む）にそろえる。A 社の決まりと変わらないか確認し、同じ計測器・同日・別証明書のテストを足す。\n\n## 3. 【中】recordCalibration の戻り値を見ておらず、保存されていない行を取込済みと数える\n\n- 場所: `src/lib/calibration-import/index.ts:63`\n- 問題: 計測器の検索と `recordCalibration` の間で計測器が無くなる（並行する要求による削除など）と、`recordCalibration` は `undefined` を返す。しかしコードはそのまま `res.imported++` し、条件付き合格のログも出す。API は保存されていない記録を取り込んだと報告する。行ごとの処理は一括のトランザクションでもない。\n- 直し方: 戻り値を確かめ、`undefined` のときはその行を誤り（errors）にして `imported` に数えない。必要なら取込全体、または 1 行の処理をトランザクションにする。テストを足す。\n\n## 4. 【中】形式の見分けが「最初の空でない行が `#` か」だけで、外れたときの案内がない\n\n- 場所: `src/lib/calibration-import/index.ts:20`\n- 問題: 西日本の注意書き行が変わる・無くなる、またはメールゲートウェイやエディタが先頭に行を足すと、西日本のファイルが東日本の解析に回り、「1 行目に「管理番号」の列がありません」と出る。担当者には原因が分からない。逆に、先頭にコメント行のある東日本のファイルは西日本の解析に回り、2 行目を見出しとして読む。最初の空でない行は 1 行目とは限らないのに、手順書は「1 行目が #」と書いている。\n- 直し方: 見出し行そのもの（列名）でも見分け、どちらにも当てはまらない場合は「どちらの形式でもない」と利用者が直せる言葉で 400 を返す。手順書の記述を実装に合わせる。テストを足す。\n\n## 5. 【中】東日本の見出し不正をファイル全体の拒否として扱う判定が、結果の形に頼っている\n\n- 場所: `src/lib/calibration-import/index.ts:94` `importRejection`\n- 問題: 東日本のファイルは「line 1 の誤りがちょうど 1 件だけ」のときだけ 400 になる。先頭が空行だと見出しの誤りが 2 行目に付き、見出しが不正でも 200 と `errors: [{line: 2}]` が返る。今回 `fileError` を足したが、東日本は古い判定のまま残っている。\n- 直し方: 東日本の解析でも、見出しが読めないときに `fileError` を立て、`importRejection` は `fileError` だけで判断する。応答の形（imported・skipped・errors と line）は変えない。空行始まりのテストを足す。\n\n## 6. 【中】BOM 無しの文字コード判定の変更で、東日本の取込の振る舞いが変わる\n\n- 場所: `src/lib/calibration-import/csv.ts:11` `decodeCsv`\n- 問題: BOM が無いファイルを、今までは Shift_JIS として読んでいたが、まず厳密な UTF-8 として読むようになった。Shift_JIS のバイト列にはたまたま正しい UTF-8 にもなるものがあり、その場合は誤りにならずに文字化けしたまま読まれる。見出しの確認で多くは防げるが、値が誤って読まれる恐れが残る。過去 3 年分の取り直し（要件 10）で既存の東日本の取込を変えてはいけない。\n- 直し方: 東日本のファイルは従来どおり Shift_JIS で読む（形式を見分けてから文字コードを決める、または UTF-8 の判定を西日本らしいファイルだけに限る）。東日本の Shift_JIS のサンプルで、変更前と同じ結果になることを確かめるテストを足す。\n\n## 7. 【低】行ごとに SQL 文を準備し直している\n\n- 場所: `src/lib/calibration-import/index.ts:51`\n- 問題: 行ごとに 2 つの文（計測器の検索・重複の確認）を準備し直す。数百行のファイルでは無駄が出る。月初のスクリプトでは影響は小さい。\n- 直し方: ループの外で一度だけ準備して使い回す。\n",
+  "review_chars": 2847,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3825,
+    "tokens": {
+      "input": 24,
+      "output": 10561,
+      "cache_read": 499210,
+      "cache_creation": 71448
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -50; echo ---; git diff HEAD --stat\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W20-cr-high-c5-2/app; cat docs/agencies/nishinihon-csv-spec.md; cat docs/agencies/nishinihon-sample.csv | head -20; for f in index types csv nishinihon higashi-nihon; d"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W20-cr-high-c5-2/app/src/lib/calibration-import; for f in index types csv nishinihon higashi-nihon; do echo \\\"=== $f\\\"; cat -n $f.ts; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Read": 5,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 120,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "レビューの 7 件を `REVIEW.md` に、場所・問題・直し方・重要度を付けて書き写しました。コミットしたのは `REVIEW.md` だけです。コードは直していません。PR の未コミットの差分はそのまま残っています。\n\n重要度は、1 と 2 を高、3 から 6 を中、7 を低としました。\n\n1. **高**: 備考が満杯に近いときに、既存の備考を余計に削る（`calibrations.ts:90`）。\n2. **高**: ファイル内の重複判定に証明書番号がなく、別の校正記録が読み飛ばされる（`index.ts:45`）。\n3. **中**: `recordCalibration` の戻り値を見ておらず、保存されていない行を取込済みと数える（`index.ts:63`）。\n4. **中**: 形式の見分けが先頭行の `#` だけで、外れたときの案内がない（`index.ts:20`）。\n5. **中**: 東日本の見出し不正の拒否判定が、結果の形に頼っている（`index.ts:94`）。\n6. **中**: BOM 無しの文字コード判定の変更で、東日本の取込の振る舞いが変わる（`csv.ts:11`）。\n7. **低**: 行ごとに SQL 文を準備し直している（`index.ts:51`）。"
+  },
+  "interventions": 0
+}

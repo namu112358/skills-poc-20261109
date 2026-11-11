@@ -1,0 +1,39 @@
+{
+  "trial": "W20-review-pr-c1-1",
+  "scenario": "W20",
+  "config": "review-pr",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# コードレビュー: 検索・削除・一括ステータス変更・期限切れ一覧・同時編集検知\n\n結論: **このままではマージできません。** 重要度「高」が 8 件あります。`npm test` は 26 件通りますが、下の問題はどれも既存のテストでは検出されません（実際に `src/lib/` の関数へ再現入力を渡して確認したものを含みます）。\n\n## 高\n\n### 1. 検索で SQL インジェクション（`src/lib/tasks.ts` `searchTasks`）\n- 問題: ``const where = `title LIKE '%${query}%'` `` で `q` を SQL に直接埋め込んでいる（CLAUDE.md 規約 8 違反）。ログイン済みなら誰でも任意の SQL を実行でき、`users.password_hash` や `sessions.token` を推測して読み出せる。`q=%' OR 1=1 OR title LIKE '` で全件が返り、`q='` は構文エラーになる。`%` `_` もワイルドカードのまま効く。\n- 直し方: `title LIKE ? ESCAPE '\\'` とし、`%` `_` `\\` をエスケープした `` `%${escaped}%` `` をバインドする。COUNT と SELECT の両方に同じ方法を使う。\n\n### 2. 検索のオフセットが 1 ページ分ずれている（`searchTasks` の `.all(limit, page * limit)`）\n- 問題: `page` は 1 始まりなのに `page * limit` を OFFSET にしている。`page=1` で最初の `limit` 件が飛ばされ、その件は取得できなくなる（例: `searchTasks(\"の\", 1, 2)` が `[5, 6]` を返し、`total` は 4）。\n- 直し方: OFFSET を `(page - 1) * limit` にする。ページングのテストを追加する。\n\n### 3. `limit` を検証していない（`src/app/api/tasks/search/route.ts`）\n- 問題: 仕様は「`limit` は 1〜50、範囲外は 400」だが、`Number(params.get(\"limit\") ?? 20)` をそのまま使っている。`limit=-1` は SQLite で無制限になり全件を返す。`limit=1000` はそのまま通る。`limit=0` は 0 件の 200。`limit=abc` は NaN になり、下の 4 で握りつぶされて 200 で空を返す。小数も通る。\n- 直し方: `parsePageParam` と同様の `parseLimitParam` を `src/lib/tasks.ts` に作り（整数かつ 1〜`SEARCH_LIMIT_MAX` のみ）、不正なら 400 を返す。テストを追加する。\n\n### 4. 検索ルートの `catch` がエラーを握りつぶす（`search/route.ts` の `try/catch`）\n- 問題: あらゆる例外を「0 件の 200」にしてしまう。1 の攻撃で出る SQL エラーや DB 障害・不正な `limit` が、正常な空結果に見えて検知も調査もできない。\n- 直し方: `try/catch` を削除する（入力検証を先に済ませれば例外は想定外のものだけになるので、500 としてログに残す）。\n\n### 5. 既存のマイグレーションを書き換えている（`src/lib/db/migrations.ts` version 1）\n- 問題: 規約 7 違反。`created_by` / `version` 列を version 1 の `CREATE TABLE` に足したため、すでに `user_version = 2` になっている DB（`DATABASE_PATH` で永続化したもの）には列が追加されない。新コードは常に `SELECT id, …, created_by, version` を実行するので、そのような DB では `no such column` で全タスク API とページが 500 になる。\n- 直し方: version 1 を元に戻し、末尾に `version: 3` を追加する（`ALTER TABLE tasks ADD COLUMN created_by TEXT REFERENCES users(id);` と `ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1;`）。\n\n### 6. 一括ステータス変更が「どれも変えない」になっていない（`bulkUpdateStatus` / `bulk-status/route.ts`）\n- 問題: トランザクションも事前確認も無く、存在する ID から順に UPDATE してから `missing` を返し、ルートが 404 を返す。`{\"ids\":[4,999],\"status\":\"done\"}` は 404 だがタスク 4 は `done` になり `version` も増える。PR の説明（1 件でも無ければ何も変えない）に反する。\n- 直し方: `db/index.ts` のトランザクション機構で全体を囲み、先に全 ID の存在を確認して 1 件でも無ければ更新せず返す（または `missing` があれば例外で巻き戻す）。404 後にデータが変わっていないことのテストを追加する。\n\n### 7. 作成者のいないタスクを誰でも削除できる（`src/app/api/tasks/[id]/route.ts` `DELETE`）\n- 問題: `if (task.createdBy && task.createdBy !== user.id && task.assignee !== user.id)` は `createdBy` が null だと権限チェック全体をスキップする。この PR より前に作られたタスク（初期データ 7 件を含む）は全部 null なので、`tanaka` が担当者 `sato` の `DELETE /api/tasks/1` で 204 を得て消せる。仕様は「作成者か担当者だけ」。\n- 直し方: `task.createdBy !== user.id && task.assignee !== user.id` なら 403 にする（null の旧タスクは担当者のみ削除可）。判定を `src/lib/` の関数（例 `canDeleteTask`）にしてテストする（規約 1・5）。\n\n### 8. 同時編集の検知が競合に対して効かない（`[id]/route.ts` `PATCH` と `updateTask`）\n- 問題: `current` を `await readJson(request)` の**前**に読み、版の比較もその時点の値で行い、`UPDATE` は `WHERE id = ?` だけで版を条件にしていない。同じ `version` を付けた 2 つの PATCH が同時に来ると両方が 200 になり、後の更新が先の更新を黙って上書きする（この PR が防ぐと言っている状況そのもの）。\n- 直し方: `UPDATE … SET …, version = version + 1 WHERE id = ? AND version = ?` とし、`changes === 0` なら 409（タスクが無い場合は 404）を返す。`updateTask` に期待する版を渡せるようにし、比較は `src/lib/` に置く。テストを追加する。\n\n## 中\n\n### 9. 期限切れの「今日」が UTC になっている（`src/lib/tasks.ts` `listOverdueTasks`）\n- 問題: `now.toISOString().slice(0, 10)` は UTC の日付。日本時間 0:00〜9:00 は前日になり、昨日が期限のタスクが一覧に出ない（`now = 2026-11-14T16:00Z`＝日本時間 11/15 01:00 で、期限 11/14 のタスク 3 が漏れる）。\n- 直し方: `new Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" }).format(now)` などで日本時間の日付を求める。境界（`14:59:59Z` / `15:00:00Z`）のテストを追加する。\n\n### 10. `version` と一括変更の本文が `src/lib/` の検証を通っていない（規約 9）\n- 問題: PATCH の `version` は型検証が無く、`{\"version\":\"1\"}` は 400 ではなく 409 になる。`version` だけの本文は検証を通り、内容の変更なしで版だけ上がる。bulk-status の `ids` / `status` の検証はルートファイル内にあり、単体テストできない。\n- 直し方: `version` は正の整数のみ許す検証を `src/lib/` に置く。bulk-status の検証も `src/lib/`（例 `validateBulkStatusInput`）に移し、テストする。\n\n### 11. 追加したテストが問題を検出できない（`tests/tasks-search.test.ts`、規約 5）\n- `deleteTask` のテスト: `deleteTask(1, db) !== undefined` は戻り値が boolean なので常に真。`tasks` は削除前に取得した配列で、`length === 7` は削除しなくても通る。→ `deleteTask(1, db) === true`、`getTask(1, db) === undefined`、`listTasks` が 6 件、を確認する。\n- 期限切れのテスト: `2026-11-15T03:00:00Z` は UTC でも日本時間でも 11/15 なので 9 を検出できない。\n- 検索のテストは `total` だけで、`tasks` の中身・ページング・`limit`・特殊文字（2・3・1）を見ていない。\n- 未テスト: DELETE の 403（7）、bulk の 404 後の無変更（6）、PATCH の 409（8）、`createdBy` 無指定の既定。\n- そのほか足りないテスト: `parsePageParam` の境界（`\"01\"`・7 桁以上・前後の空白）、複数件ヒット・大文字小文字・日本語の部分一致、`bulkUpdateStatus` の重複 ID・空配列・100 件超、API ルート（401・400・404・403・409・204）。ルートに置いたロジックは `src/lib/` に移すと単体テストできる。\n- あわせて、ファイル名が `tasks-search` なのに delete / bulk / overdue も入っているので整理する。\n\n## 低\n\n### 12. `createTask(input, undefined, user.id)` の呼び出しが読みにくい（`src/app/api/tasks/route.ts`、`createTask` のシグネチャ）\n- `db` の既定値のために `undefined` を渡している。`createdBy` を `input` 側に含めるか、オプション引数にまとめると取り違えにくい。\n\n### 13. 状態が変わらない更新でも `version` が上がる（`bulkUpdateStatus`）\n- すでに同じステータスのタスクも `version` が増え、無関係な編集者に不要な 409 を出させる。`WHERE id = ? AND status != ?` にして変更が無いものは増やさない案を検討する（仕様として決めておく）。\n",
+  "review_chars": 5137,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.8534,
+    "tokens": {
+      "input": 36,
+      "output": 17886,
+      "cache_read": 698829,
+      "cache_creation": 127924
+    },
+    "turns": 11,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 11,
+      "Agent": 2,
+      "Write": 1,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 2,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 144,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘は、すでに `REVIEW.md` に書いてありました。場所・問題・直し方・重要度の形式で、高 8 件・中 3 件・低 2 件です。今回は、書き漏れていたテストの不足点を指摘 11 に1行足しました。足したのは `parsePageParam` の境界値、部分一致の種類、`bulkUpdateStatus` の重複 ID・空配列・100 件超、API ルートのステータス別テストです。これを `REVIEW.md` だけのコミットにしました。\n\n新しい指摘は足しておらず、削った指摘もありません。コードも変えていません。重要度は、各指摘の見出し（高・中・低）で示しています。"
+  },
+  "interventions": 0
+}

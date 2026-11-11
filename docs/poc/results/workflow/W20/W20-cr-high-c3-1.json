@@ -1,0 +1,43 @@
+{
+  "trial": "W20-cr-high-c3-1",
+  "scenario": "W20",
+  "config": "cr-high",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# コードレビュー: 設置場所を場所マスタから選べるようにする\n\n指摘は 9 件（重要度順）。\n\n## 1. 【高】確認中の計測器の編集フォームが元の文字を出さず、保存すると元の文字が消える\n\n- 場所: `src/app/instruments/[id]/LocationForm.tsx:17`\n- 問題: 場所が「確認中」の計測器（`location_id` が NULL で `location` に文字がある）でも、選択欄は「未設定」が初期値になり、元の文字は画面に出ない。場所を選ばずに保存すると `locationId: null` が PATCH される。`validateLocation` が `locationOriginal=''` にするため、元の文字が消える。\n  - 例: MI-0007 は `location='名古屋営業所 倉庫'`、`location_id` NULL で「確認中」。品質保証部が詳細ページを開くと選択欄は「未設定」。誤って「保存する」を押すと、元の文字が消えて「未設定」になり、`?location=unconfirmed` の一覧からも外れる。手がかりが失われる。\n  - `docs/operations.md` の「元の文字は消さない」という記載とも食い違う。画面に元の文字が出ないので、どの場所を選ぶべきかも分からない。\n- 直し方: 確認中のときは元の文字を画面に表示し、選択欄は「確認中（未選択）」のような値を初期値にする。場所を変更しない保存では `locationId` を送らない（または変更なしとして扱う）。`locationId: null` を明示して未設定にする操作のときだけ元の文字を消す。テストを追加する。\n\n## 2. 【高】場所マスタの変更（名称変更・使用終了）に、権限の確認も操作の記録も無い\n\n指摘 2 と 9 をまとめた。\n\n- 場所: `src/app/api/locations/[id]/route.ts:12`（PATCH）、`src/lib/location-master.ts:84`（`updateLocation`）\n- 問題: ログインしていれば誰でも名称変更・使用終了ができ、役割や部署の確認が無い。変更の記録（ログ）も残らない。\n  - 例: 一般の利用者が `PATCH /api/locations/3` に `{name:'x'}` や `{active:false}` を送る。紐づく全計測器（数千件になりうる）の表示が一度に変わり、その場所は選べなくなる。誰が・いつ・どの名前から変えたかも後から分からない。\n  - 要件 4 は「ログインしている人なら誰でも」としているため、権限の制限は要件の確認が必要。ただし、開発標準 3.7（認可は API ごとに確認）と 3.15（何が・どの対象で・どうなったか分かるログ）は満たしていない。移行や ハンディ端末の経路は記録しているのに、この経路だけ記録が無い。\n- 直し方:\n  - 権限は、要件を依頼者に確認する。品質保証部に限るなら、API 側で部署や役割を確認し、403 を返す。要件どおり誰でもよいなら、その判断を PR に書く。\n  - 権限の扱いにかかわらず、`updateLocation` と `createLocation` で、操作したユーザー・対象の場所 ID・変更前後の名称と有効状態を既存のログの仕組みで出す。テストを追加する。\n\n## 3. 【中】「場所が空」の判定が 3 か所でずれている\n\n- 場所: `src/lib/instruments.ts:82`（`toInstrument`）、同ファイルの SQL `BLANK`、`src/lib/locations.ts` の件数集計\n- 問題: SQL の `BLANK` と `locations.ts` の件数集計は、空白として半角スペース・タブ・LF・CR・U+3000 だけを取り除く。JS の `toInstrument` は `String.trim()` を使うため、NBSP・VT・FF・BOM も取り除く。\n  - 例: 場所が `' '` や `'\\f'` のとき、`toInstrument` は空と判定し、詳細ページは「未設定」で `locationUnconfirmed` は false になる。一方、SQL では空でないため、`?location=unconfirmed` の一覧に出て `none` には出ない。移行の件数（未設定・確認中）も、画面の表示と合わなくなる。\n- 直し方: 「空」の定義を 1 か所に決め、SQL と JS の両方で同じ規則にする。たとえば保存時に正規化して空にそろえる、または SQL 側の条件を JS の `trim` と同じ文字集合にそろえる。ずれを確かめるテストを追加する。\n\n## 4. 【中】古い形式の `location` で更新すると、確認済みの計測器が「確認中」に戻る\n\n- 場所: `src/lib/instruments.ts:240`（`validateLocation` を通る PATCH）\n- 問題: 一致しない `location` 文字列を PATCH すると、確認済みの計測器が「確認中」に落ちる。ハンディ端末の経路（`recordInventory`）は確認済みの場所を守るが、API の経路は守らない。\n  - 例: 品質保証部が MI-0001 を「製造部 第 1 ライン」として確認済みにする。その後、既存のクライアントが古い名前や、決まった場所に合わない `'倉庫'` を PATCH する。`locationId=null` と `locationOriginal='倉庫'` になり、確認済みの紐づけが外れて「確認中」に戻る。`recordInventory` が `unmatched_kept` で防いでいる「品質保証部の確認が上書きされる」問題と同じ。\n- 直し方: 古い形式の `location` で、既に `location_id` がある計測器を更新するときは、一致しなければ紐づけを維持して拒否するか、無視する。経路ごとに扱いがずれないよう、保護の規則を共通の関数にする。テストを追加する。\n\n## 5. 【低】場所の新規作成で `active` を受け付けるのに、無視される\n\n- 場所: `src/lib/location-master.ts:78`（`createLocation`）、`src/app/api/locations/route.ts`（POST）\n- 問題: `validateLocationInput`（部分更新でない場合）は `active` を検証して結果に入れるが、ルートは `result.value.name` だけを `createLocation` に渡す。\n  - 例: `{name:'X', active:false}` を送ると、使用終了にしたつもりの場所が、有効な場所として登録される。応答にも注意がなく、PATCH の契約と食い違う。\n- 直し方: `active` を `createLocation` に渡して反映する。または、作成では受け付けないことにして、`active` が指定されたら 400 を返す。テストを追加する。\n\n## 6. 【中】移行で表記ゆれの正規化を行ごとにやり直し、無駄が大きい\n\n- 場所: `src/lib/locations.ts:150`（`matchLocationName`）、`linkInstrumentsToLocations`、`validateLocation`、`recordInventory`\n- 問題: `matchLocationName` が呼ばれるたびに、全マスタ名を正規化（正規表現と NFKC）し直す。`linkInstrumentsToLocations` は未確定の行ごとに呼ぶ。\n  - 例: 本番は約 5 万件、場所は 16 か所なので、約 80 万回の余分な `normalizeLocationKey` が、移行のトランザクションの中で実行される。要件 9（起動して使えるまで何分も止めない）の時間の余裕を削る。`validateLocation` と `recordInventory` でも同じ繰り返しが起きる。\n- 直し方: `linkInstrumentsToLocations` の 1 回の呼び出しの先頭で、正規化したキーから ID への Map を 1 度だけ作り、行ごとはその Map を引く。照合に使うキーは、同じ名前の別の場所が出るときの扱い（曖昧なら寄せない）を保ったままにする。5 万件規模の時間を計るテストを追加すると確かめやすい。\n\n## 7. 【低】名前の検証のためにマスタ全体と件数の集計を読んでいる\n\n- 場所: `src/lib/location-master.ts:70`（`validateLocationInput`）、`updateLocation`、`PATCH` ルートの `getLocation` の繰り返し\n- 問題: 名前の重複確認のために `listLocations` を呼ぶと、場所ごとに計測器の件数を数える副問い合わせ（`instrument_count`）が約 5 万行に対して走る。必要なのは ID と名前だけ。計測器の一覧・詳細の表示のたびにも同じ集計が走る。\n- 直し方: ID と名前だけを返す軽い問い合わせを用意して検証に使う。件数が必要な画面だけ集計付きの関数を使う。`getLocation` の重複呼び出しも 1 回にまとめる。\n\n## 8. 【低】競合（409）と入力誤り（400）の応答への変換が、2 つのルートに複製されている\n\n- 場所: `src/app/api/locations/route.ts:18`、`src/app/api/locations/[id]/route.ts`\n- 問題: `LocationValidation` を 409（独自の文言）または 400（details 付き）の応答にする長い三項演算子が、POST と PATCH にそれぞれ書かれている。検証関数が HTTP の都合を `conflict` フラグとして持っている点も、責務の分け方として望ましくない。\n  - 例: エラーの形式を変えるとき、片方を直し忘れると 2 つのエンドポイントで応答の形が食い違う。開発標準 3.3（同じ処理を複製しない）に反する。\n- 直し方: `LocationValidation` から応答への変換を共通の関数にし、両方のルートから使う。\n\n## 補足\n\n- 重要度は、依頼の要件（特に 4・7・8・9）と開発標準への影響で付けた。1 と 2 は、データを失う、または権限と記録が足りないため「高」にした。\n- 2 は、権限をどうするかを依頼者に確認する必要がある。要件どおり「誰でもよい」なら、少なくとも記録は必要。\n",
+  "review_chars": 4629,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4898,
+    "tokens": {
+      "input": 26,
+      "output": 15590,
+      "cache_read": 578429,
+      "cache_creation": 90081
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; git diff HEAD --stat\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W20-cr-high-c3-1/app; git diff HEAD -- src docs CLAUDE.md; for f in src/app/api/locations/route.ts \\\"src/app/api/locations/[id]/route.ts\\\" src/lib/location-master.ts sr"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 155,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き、`REVIEW.md` だけをコミットしました(4a9b5c9)。コードは直していません。\n\nレビューの 9 件は、同じ内容の 2 件をまとめたため、`REVIEW.md` では 8 項目です。\n\n- **まとめた 2 件:** 元の指摘 2(場所マスタの変更に権限確認が無い)と 9(その変更のログが無い)は、同じ更新処理の話なので 1 項目にしました。\n- **書き方:** 各項目に、場所、何が問題か、直し方、重要度を付けています。\n- **重要度の付け方:** レビューの出力には重要度が書かれていなかったので、こちらで付けました。\n  - 高: 1(確認中の元の文字が消える)と 2(権限とログ)\n  - 中: 3(空の判定のずれ)、4(確認済みが確認中に戻る)、6(移行が遅い)\n  - 低: 5、7、8\n- **要確認(項目 2):** 要件 4 は「ログインしていれば誰でも」なので、権限の制限は依頼者に確認が必要だと書き添えました。そのため、ログが無い点を高の中心にしています。"
+  },
+  "interventions": 0
+}

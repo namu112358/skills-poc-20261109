@@ -1,0 +1,449 @@
+diff --git a/docs/calibration-import.md b/docs/calibration-import.md
+index 695c365..592cb49 100644
+--- a/docs/calibration-import.md
++++ b/docs/calibration-import.md
+@@ -17,3 +17,12 @@ MI-0007,マイクロメータ,R8.10.30,不合格,EJ-26-01876,外側測定面の
+ ## 西日本校正センターの CSV（2026-12 から。新しい契約）
+ 
+ 形式は先方の仕様書 `docs/agencies/nishinihon-csv-spec.md` のとおり。サンプルは `docs/agencies/nishinihon-sample.csv`。
++
++- 形式は見出しで自動判別する（UTF-8・BOM なしで見出しに「機器番号」がある CSV）。取込先は同じ `POST /api/calibrations/import`。
++- 判定結果: `PASS` は合格、`FAIL` は不合格。`COND`（条件付き合格）は **合格として取り込み**、その計測器の備考の末尾に `条件付き合格（校正日）: コメント` を書き足す（品質保証部の決定）。
++- 「有効期限」の列は使わない。次の校正は台帳の校正周期で決める。
++- 管理番号はハイフンの有無・全角を問わず `MI-0003` の形にそろえて台帳と照合する。
++- 最終行 `END,件数` が無い、または件数がデータの行数と合わないときは、ファイルが欠けている可能性があるため **1 件も取り込まず** 400 を返す。
++- `END` の行数が数字でない、または `END` のあとにデータがある場合も、同じく 1 件も取り込まず 400 を返す。
++- 次の行は取り込まずに errors に入れる（他の行は取り込む）: 校正実施日が今日（日本時間）より未来、成績書番号が空・51 文字以上、`COND` で計測器の備考が 1000 文字を超えて追記できない（備考は切り捨てない。備考を整理して取り込み直す）。
++- 同じ機器・校正日・成績書番号は「取込済み」として読み飛ばす（同じファイルを 2 回送っても結果は同じ）。
+diff --git a/src/app/api/calibrations/import/route.ts b/src/app/api/calibrations/import/route.ts
+index 775ae25..4793f6e 100644
+--- a/src/app/api/calibrations/import/route.ts
++++ b/src/app/api/calibrations/import/route.ts
+@@ -2,6 +2,7 @@
+ // 取り込めた件数・読み飛ばした行・誤りのある行を返す。CSV の形式が違うときは 400。
+ import { NextResponse } from "next/server";
+ import { jsonError, requireApiUser } from "@/lib/api";
++import { importNishinihonCsv, isNishinihonCsv } from "@/lib/calib-import-nishinihon";
+ import { importCalibrationCsv } from "@/lib/legacy/calib-import";
+ 
+ export async function POST(request: Request) {
+@@ -9,6 +10,11 @@ export async function POST(request: Request) {
+   if (user instanceof NextResponse) return user;
+   const data = new Uint8Array(await request.arrayBuffer());
+   if (data.length === 0) return jsonError(400, "CSV が空です");
++  if (isNishinihonCsv(data)) {
++    const imported = importNishinihonCsv(data, user.id);
++    if (!imported.ok) return jsonError(400, imported.message);
++    return NextResponse.json(imported.result);
++  }
+   const result = importCalibrationCsv(data, user.id);
+   if (result.imported === 0 && result.errors.length === 1 && result.errors[0].line === 1 && result.skipped.length === 0) {
+     return jsonError(400, result.errors[0].message);
+diff --git a/src/lib/calib-import-nishinihon.ts b/src/lib/calib-import-nishinihon.ts
+new file mode 100644
+index 0000000..2f20599
+--- /dev/null
++++ b/src/lib/calib-import-nishinihon.ts
+@@ -0,0 +1,173 @@
++// 西日本校正センターの校正結果 CSV の取込（2026-12 から。仕様は docs/agencies/nishinihon-csv-spec.md）。
++// 東日本計測サービスの CSV は src/lib/legacy/calib-import.ts が受け持つ。
++import { getDb, type Db } from "./db/index.ts";
++import { appendToNote, recordCalibration, type CalibrationResult } from "./calibrations.ts";
++import { parseCsvLine } from "./csv.ts";
++import { isValidDate, todayJst } from "./dates.ts";
++import { logger } from "./logger.ts";
++import type { ImportResult } from "./legacy/calib-import.ts";
++
++export const NISHINIHON_AGENCY = "西日本校正センター";
++
++const REQUIRED_COLUMNS = ["機器番号", "校正実施日", "判定結果", "成績書番号"] as const;
++
++/** 西日本校正センターの CSV（UTF-8・BOM なし・見出しに「機器番号」）かどうか。BOM 付きや Shift_JIS は別の形式。 */
++export function isNishinihonCsv(data: Uint8Array): boolean {
++  if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) return false;
++  let text: string;
++  try {
++    text = new TextDecoder("utf-8", { fatal: true }).decode(data);
++  } catch {
++    return false;
++  }
++  const first = text.split(/\r\n|\n|\r/).find((l) => l.trim() !== "" && !l.startsWith("#"));
++  return first !== undefined && parseCsvLine(first).includes("機器番号");
++}
++
++/** 管理番号の表記ゆれ（全角・小文字・ハイフン無し）を台帳の形式（MI-0001）にそろえる。 */
++export function normalizeManagementNo(value: string): string {
++  let no = value
++    .replace(/[Ａ-Ｚａ-ｚ０-９－]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
++    .toUpperCase();
++  if (/^[A-Z]{2}\d{4}$/.test(no)) no = no.substring(0, 2) + "-" + no.substring(2);
++  return no;
++}
++
++const RESULTS: Record<string, { result: CalibrationResult; conditional: boolean }> = {
++  PASS: { result: "pass", conditional: false },
++  FAIL: { result: "fail", conditional: false },
++  COND: { result: "pass", conditional: true }, // 条件付き合格は合格として取り込み、備考に残す（品質保証部の決定）
++};
++
++/** CSV 全体の誤り（途中で欠けている・見出しが違う）。1 件も取り込まない。 */
++export type ImportFailure = { ok: false; message: string };
++
++/**
++ * 取り込む。有効期限の列は使わない（次の校正は台帳の校正周期で決める）。
++ * 何度取り込んでも同じ結果になる（同じ機器・校正日・成績書番号は「取込済み」で読み飛ばす）。
++ */
++export function importNishinihonCsv(
++  data: Uint8Array,
++  recordedBy: string,
++  db: Db = getDb(),
++  now: Date = new Date(),
++): { ok: true; result: ImportResult } | ImportFailure {
++  const lines = new TextDecoder("utf-8").decode(data).split(/\r\n|\n|\r/);
++  let header: string[] | null = null;
++  const rows: { lineNo: number; cols: string[] }[] = [];
++  let declared: number | null = null;
++  for (let n = 0; n < lines.length; n++) {
++    const raw = lines[n];
++    if (raw.trim() === "" || raw.startsWith("#")) continue;
++    const cols = parseCsvLine(raw);
++    if (header === null) {
++      const missing = REQUIRED_COLUMNS.filter((c) => !cols.includes(c));
++      if (missing.length > 0) {
++        return { ok: false, message: `CSV の形式が違います（見出しに「${missing.join("」「")}」の列がありません）` };
++      }
++      header = cols;
++      continue;
++    }
++    if (declared !== null) {
++      return { ok: false, message: `最終行「END,行数」のあとにデータがあります（${n + 1} 行目）。ファイルが重なっている可能性があります` };
++    }
++    if (cols[0] === "END") {
++      declared = /^\d+$/.test(cols[1] ?? "") ? Number(cols[1]) : NaN;
++      continue;
++    }
++    rows.push({ lineNo: n + 1, cols });
++  }
++  if (header === null) return { ok: false, message: "CSV に見出しの行がありません" };
++  if (declared === null || !Number.isInteger(declared)) {
++    return { ok: false, message: "最終行「END,行数」がありません（または行数が数字ではありません）。ファイルが途中で切れている可能性があります" };
++  }
++  if (declared !== rows.length) {
++    return {
++      ok: false,
++      message: `データの行数が合いません（END の行数 ${declared}、実際 ${rows.length}）。ファイルが途中で欠けている可能性があります`,
++    };
++  }
++
++  const columns = header;
++  const col = (cols: string[], name: string) => {
++    const i = columns.indexOf(name);
++    return i >= 0 && i < cols.length ? cols[i] : "";
++  };
++  const res: ImportResult = { imported: 0, skipped: [], errors: [] };
++  const seen = new Set<string>();
++  const today = todayJst(now);
++  for (const { lineNo, cols } of rows) {
++    const no = normalizeManagementNo(col(cols, "機器番号"));
++    const date = col(cols, "校正実施日");
++    const judged = RESULTS[col(cols, "判定結果").toUpperCase()];
++    const cert = col(cols, "成績書番号");
++    if (no === "") {
++      res.errors.push({ line: lineNo, message: "機器番号が空です" });
++      continue;
++    }
++    if (!isValidDate(date)) {
++      res.errors.push({ line: lineNo, message: `校正実施日が正しくありません（YYYY-MM-DD）: ${date}` });
++      continue;
++    }
++    if (date > today) {
++      // 誤記の未来日を取り込むと前回校正日が戻せなくなり、期限切れが見えなくなる
++      res.errors.push({ line: lineNo, message: `校正実施日が未来の日付です: ${date}` });
++      continue;
++    }
++    if (!judged) {
++      res.errors.push({ line: lineNo, message: `判定結果が読めません（PASS・FAIL・COND）: ${col(cols, "判定結果")}` });
++      continue;
++    }
++    if (cert === "") {
++      res.errors.push({ line: lineNo, message: "成績書番号が空です" });
++      continue;
++    }
++    if (cert.length > 50) {
++      res.errors.push({ line: lineNo, message: "成績書番号は 50 文字以内にしてください" });
++      continue;
++    }
++    const key = `${no}|${date}|${cert}`;
++    if (seen.has(key)) {
++      res.skipped.push({ line: lineNo, reason: "同じファイルの中で重複" });
++      continue;
++    }
++    seen.add(key);
++    const inst = db.prepare("SELECT id FROM instruments WHERE management_no = ?").get(no) as { id: number } | undefined;
++    if (!inst) {
++      res.errors.push({ line: lineNo, message: `管理番号が台帳にありません: ${no}` });
++      continue;
++    }
++    const dup = db
++      .prepare("SELECT 1 FROM calibration_records WHERE instrument_id = ? AND calibrated_on = ? AND certificate_no = ?")
++      .get(inst.id, date, cert);
++    if (dup) {
++      res.skipped.push({ line: lineNo, reason: "取込済み" });
++      continue;
++    }
++    const comment = col(cols, "コメント");
++    const appendNote = judged.conditional ? `条件付き合格（${date}）${comment ? `: ${comment}` : ""}` : undefined;
++    if (appendNote !== undefined) {
++      const current = db.prepare("SELECT note FROM instruments WHERE id = ?").get(inst.id) as { note: string };
++      if (appendToNote(current.note, appendNote) === undefined) {
++        res.errors.push({ line: lineNo, message: `備考に追記できません（1000 文字を超えます）。${no} の備考を整理してから取り込み直してください` });
++        continue;
++      }
++    }
++    recordCalibration(
++      inst.id,
++      { calibratedOn: date, result: judged.result, agency: NISHINIHON_AGENCY, certificateNo: cert },
++      recordedBy,
++      db,
++      now,
++      appendNote,
++    );
++    res.imported++;
++  }
++  logger.info("calibration.imported", {
++    agency: NISHINIHON_AGENCY,
++    imported: res.imported,
++    skipped: res.skipped.length,
++    errors: res.errors.length,
++  });
++  return { ok: true, result: res };
++}
+diff --git a/src/lib/calibrations.ts b/src/lib/calibrations.ts
+index 68049fb..dbc0402 100644
+--- a/src/lib/calibrations.ts
++++ b/src/lib/calibrations.ts
+@@ -82,13 +82,25 @@ export function validateCalibrationInput(body: unknown): ValidationResult<Calibr
+   };
+ }
+ 
+-/** 校正記録を登録し、計測器の前回校正日・状態を更新する。計測器が無ければ undefined。 */
++const NOTE_MAX = 1000; // 計測器の備考の上限（validateInstrumentInput と同じ）
++
++/** 備考の末尾に 1 行書き足す。上限を超えて入りきらないときは undefined（既存の備考も書き足す内容も切らない）。 */
++export function appendToNote(note: string, entry: string): string | undefined {
++  const combined = note === "" ? entry : `${note}\n${entry}`;
++  return combined.length <= NOTE_MAX ? combined : undefined;
++}
++
++/**
++ * 校正記録を登録し、計測器の前回校正日・状態を更新する。計測器が無ければ undefined。
++ * appendNote を渡すと、同じトランザクションで計測器の備考の末尾に書き足す（入りきらないときは例外で全体を取り消す）。
++ */
+ export function recordCalibration(
+   instrumentId: number,
+   input: CalibrationInput,
+   recordedBy: string,
+   db: Db = getDb(),
+   now: Date = new Date(),
++  appendNote?: string,
+ ): { record: CalibrationRecord; instrument: Instrument } | undefined {
+   const result = transaction(db, () => {
+     const instrument = getInstrument(instrumentId, db);
+@@ -109,6 +121,12 @@ export function recordCalibration(
+     } else {
+       db.prepare("UPDATE instruments SET status = 'suspended' WHERE id = ?").run(instrumentId);
+     }
++    if (appendNote) {
++      const note = appendToNote(instrument.note, appendNote);
++      // 入りきらないときは記録ごと取り消す（備考を黙って切り捨てない）
++      if (note === undefined) throw new Error("備考に追記できません（1000 文字を超えます）");
++      db.prepare("UPDATE instruments SET note = ? WHERE id = ?").run(note, instrumentId);
++    }
+     const record = toRecord(db.prepare(`SELECT ${COLUMNS} FROM calibration_records WHERE id = ?`).get(Number(lastInsertRowid)) as Row);
+     return { record, instrument: getInstrument(instrumentId, db)! };
+   });
+diff --git a/src/lib/csv.ts b/src/lib/csv.ts
+new file mode 100644
+index 0000000..90f893e
+--- /dev/null
++++ b/src/lib/csv.ts
+@@ -0,0 +1,23 @@
++// CSV の 1 行をカンマで区切る（"..." の中のカンマと "" に対応）。各項目の前後の空白は取り除く。
++export function parseCsvLine(raw: string): string[] {
++  const cols: string[] = [];
++  let cur = "";
++  let quoted = false;
++  for (let i = 0; i < raw.length; i++) {
++    const ch = raw[i];
++    if (quoted) {
++      if (ch === '"') {
++        if (raw[i + 1] === '"') {
++          cur += '"';
++          i++;
++        } else quoted = false;
++      } else cur += ch;
++    } else if (ch === '"') quoted = true;
++    else if (ch === ",") {
++      cols.push(cur.trim());
++      cur = "";
++    } else cur += ch;
++  }
++  cols.push(cur.trim());
++  return cols;
++}
+diff --git a/tests/calib-import-nishinihon.test.ts b/tests/calib-import-nishinihon.test.ts
+new file mode 100644
+index 0000000..f55fbe0
+--- /dev/null
++++ b/tests/calib-import-nishinihon.test.ts
+@@ -0,0 +1,150 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++import { importNishinihonCsv, isNishinihonCsv, normalizeManagementNo } from "../src/lib/calib-import-nishinihon.ts";
++import { appendToNote, listCalibrations } from "../src/lib/calibrations.ts";
++import { openDb } from "../src/lib/db/index.ts";
++import { listInstruments } from "../src/lib/instruments.ts";
++
++const enc = (s: string) => new TextEncoder().encode(s);
++const byNo = (db: ReturnType<typeof openDb>, no: string) => listInstruments({}, db).find((i) => i.managementNo === no)!;
++const NOW = new Date("2026-11-10T01:00:00.000Z");
++const HEAD = "# 案内\n機器番号,品名,校正実施日,判定結果,成績書番号,有効期限,コメント\n";
++
++function run(db: ReturnType<typeof openDb>, body: string) {
++  const r = importNishinihonCsv(enc(body), "sato", db, NOW);
++  assert.ok(r.ok, r.ok ? "" : r.message);
++  return r.result;
++}
++
++describe("isNishinihonCsv", () => {
++  it("detects the sample file and rejects other formats", () => {
++    assert.equal(isNishinihonCsv(readFileSync("docs/agencies/nishinihon-sample.csv")), true);
++    assert.equal(isNishinihonCsv(enc("管理番号,機器名,校正日,判定,証明書番号,備考\r\n")), false);
++    assert.equal(isNishinihonCsv(new Uint8Array([0xef, 0xbb, 0xbf, ...enc(HEAD)])), false);
++    assert.equal(isNishinihonCsv(new Uint8Array([0x8a, 0x6f, 0x92, 0x4d])), false); // Shift_JIS
++  });
++});
++
++describe("normalizeManagementNo", () => {
++  it("adds the hyphen and unifies width and case", () => {
++    assert.equal(normalizeManagementNo("MI0003"), "MI-0003");
++    assert.equal(normalizeManagementNo("ＭＩ－０００３"), "MI-0003");
++    assert.equal(normalizeManagementNo("mi-0003"), "MI-0003");
++  });
++});
++
++describe("importNishinihonCsv", () => {
++  it("imports the sample: PASS as pass, COND as pass with a note on the instrument", () => {
++    const db = openDb();
++    const r = run(db, readFileSync("docs/agencies/nishinihon-sample.csv", "utf-8"));
++    assert.equal(r.imported, 3);
++    assert.deepEqual(r.errors, []);
++    assert.equal(byNo(db, "MI-0004").status, "suspended");
++    const torque = byNo(db, "MI-0003");
++    assert.equal(torque.lastCalibratedOn, "2026-11-04");
++    assert.equal(listCalibrations(torque.id, db)[0].agency, "西日本校正センター");
++    const hygro = byNo(db, "MI-0010");
++    assert.equal(hygro.lastCalibratedOn, "2026-11-05");
++    assert.equal(hygro.status, "in_use");
++    assert.equal(hygro.note, "条件付き合格（2026-11-05）: 湿度 90%RH のレンジで許容差外");
++    assert.equal(listCalibrations(hygro.id, db)[0].result, "pass");
++  });
++
++  it("appends to an existing note and does not repeat it on re-import", () => {
++    const db = openDb();
++    db.prepare("UPDATE instruments SET note = '既存' WHERE management_no = 'MI-0010'").run();
++    const body = `${HEAD}MI0010,温湿度計,2026-11-05,COND,WN-1,2027-11-04,\nEND,1\n`;
++    run(db, body);
++    assert.equal(byNo(db, "MI-0010").note, "既存\n条件付き合格（2026-11-05）");
++    const again = run(db, body);
++    assert.equal(again.imported, 0);
++    assert.deepEqual(again.skipped, [{ line: 3, reason: "取込済み" }]);
++    assert.equal(byNo(db, "MI-0010").note, "既存\n条件付き合格（2026-11-05）");
++  });
++
++  it("suspends the instrument on FAIL and ignores the expiry column", () => {
++    const db = openDb();
++    const r = run(db, `${HEAD}MI-0001,DMM,2026-11-05,FAIL,WN-2,2099-01-01,\nEND,1\n`);
++    assert.equal(r.imported, 1);
++    const inst = byNo(db, "MI-0001");
++    assert.equal(inst.status, "suspended");
++    assert.equal(inst.lastCalibratedOn, "2026-01-20");
++    assert.equal(inst.note, "");
++  });
++
++  it("reports row errors and keeps importing the other rows", () => {
++    const db = openDb();
++    const r = run(
++      db,
++      `${HEAD}MI0003,a,2026-02-30,PASS,W1,,\nMI0003,a,2026-11-04,MAYBE,W2,,\nMI9999,a,2026-11-04,PASS,W3,,\n,a,2026-11-04,PASS,W4,,\nMI0003,a,2026-11-04,PASS,W5,,\nEND,5\n`,
++    );
++    assert.equal(r.imported, 1);
++    assert.deepEqual(r.errors.map((e) => e.line), [3, 4, 5, 6]);
++  });
++
++  it("skips a duplicate row in the same file", () => {
++    const db = openDb();
++    const r = run(db, `${HEAD}MI0003,a,2026-11-04,PASS,W1,,\nMI0003,a,2026-11-04,PASS,W1,,\nEND,2\n`);
++    assert.equal(r.imported, 1);
++    assert.deepEqual(r.skipped, [{ line: 4, reason: "同じファイルの中で重複" }]);
++  });
++
++  it("rejects the whole file when END is missing or the count does not match", () => {
++    const db = openDb();
++    const row = "MI0003,a,2026-11-04,PASS,W1,,\n";
++    const noEnd = importNishinihonCsv(enc(HEAD + row), "sato", db);
++    assert.equal(noEnd.ok, false);
++    const mismatch = importNishinihonCsv(enc(`${HEAD}${row}END,2\n`), "sato", db);
++    assert.equal(mismatch.ok, false);
++    assert.equal(listCalibrations(byNo(db, "MI-0003").id, db).length, 0);
++  });
++
++  it("rejects a header without the required columns", () => {
++    const r = importNishinihonCsv(enc("機器番号,品名\nEND,0\n"), "sato", openDb());
++    assert.equal(r.ok, false);
++  });
++});
++
++describe("importNishinihonCsv: guards", () => {
++  it("rejects future dates and empty or too long certificate numbers per row", () => {
++    const db = openDb();
++    const r = run(
++      db,
++      `${HEAD}MI0003,a,2026-11-11,PASS,W1,,\nMI0003,a,2026-11-10,PASS,,,\nMI0003,a,2026-11-10,PASS,${"W".repeat(51)},,\nMI0003,a,2026-11-10,PASS,W4,,\nEND,4\n`,
++    );
++    assert.equal(r.imported, 1); // 当日の日付は取り込める
++    assert.deepEqual(r.errors.map((e) => e.line), [3, 4, 5]);
++    assert.equal(byNo(db, "MI-0003").lastCalibratedOn, "2026-11-10");
++  });
++
++  it("does not import a COND row whose note would not fit, and leaves the note untouched", () => {
++    const db = openDb();
++    const note = "x".repeat(990);
++    db.prepare("UPDATE instruments SET note = ? WHERE management_no = 'MI-0010'").run(note);
++    const r = run(db, `${HEAD}MI0010,a,2026-11-05,COND,W1,,許容差外の詳細\nEND,1\n`);
++    assert.equal(r.imported, 0);
++    assert.equal(r.errors.length, 1);
++    const inst = byNo(db, "MI-0010");
++    assert.equal(inst.note, note);
++    assert.equal(inst.lastCalibratedOn, "2025-12-25");
++    assert.equal(listCalibrations(inst.id, db).length, 0); // 初期データに MI-0010 の校正記録は無い
++  });
++
++  it("rejects the file when END is not a number or data follows END", () => {
++    const db = openDb();
++    const row = "MI0003,a,2026-11-04,PASS,W1,,\n";
++    assert.equal(importNishinihonCsv(enc(`${HEAD}${row}END,\n`), "sato", db, NOW).ok, false);
++    assert.equal(importNishinihonCsv(enc(`${HEAD}${row}END,1\n${row}`), "sato", db, NOW).ok, false);
++    assert.equal(listCalibrations(byNo(db, "MI-0003").id, db).length, 0);
++  });
++});
++
++describe("appendToNote", () => {
++  it("starts a note, appends a line, and refuses to cut when over 1000 characters", () => {
++    assert.equal(appendToNote("", "a"), "a");
++    assert.equal(appendToNote("x", "a"), "x\na");
++    assert.equal(appendToNote("x".repeat(998), "ab"), undefined);
++    assert.equal(appendToNote("x".repeat(997), "ab")?.length, 1000);
++  });
++});

@@ -1,0 +1,39 @@
+{
+  "trial": "W20-cr-high-c4-2",
+  "scenario": "W20",
+  "config": "cr-high",
+  "case": "c4",
+  "rep": 2,
+  "review_md": "# コードレビュー: 西日本校正センター CSV の取込\n\n`/code-review high` の指摘 9 件を、重要度の高い順に記載する。\n\n## 指摘一覧\n\n| # | 重要度 | 場所 | 概要 |\n|---|--------|------|------|\n| 1 | 高 | `src/lib/calib-import-nishinihon.ts:15` | BOM 付き・Shift_JIS の西日本ファイルが検出されない |\n| 2 | 高 | `src/lib/calib-import-nishinihon.ts:156` | 行ごとの `recordCalibration` の例外で半端に取り込まれ、500 になる |\n| 7 | 高 | `src/lib/calib-import-nishinihon.ts:156` | 古い日付の FAIL 行で、新しく合格した計測器が使用停止になる |\n| 5 | 中 | `src/lib/calib-import-nishinihon.ts:82` | ファイル全体の拒否がログに残らない |\n| 9 | 中 | `src/app/api/calibrations/import/route.ts:13` | 取込の例外が `{ error }` 形式にならない。他形式のファイルが西日本扱いになる |\n| 3 | 中 | `src/lib/calib-import-nishinihon.ts:28` | 正規化・CSV 分割の処理が旧取込と重複している |\n| 4 | 中 | `src/lib/calibrations.ts:124` | 備考の長さチェックが二重で、引数の足し方も不自然 |\n| 6 | 低 | `src/lib/calib-import-nishinihon.ts:55` | 二重デコード・二重の行分割。引用符内の改行に未対応 |\n| 8 | 低 | `tests/calib-import-nishinihon.test.ts:119` | 境界値・経路のテストが足りない |\n\n---\n\n## 1. BOM 付き・Shift_JIS の西日本ファイルが検出されない【高】\n\n- 場所: `src/lib/calib-import-nishinihon.ts:15`（`isNishinihonCsv`）\n- 問題: Excel で保存し直すなどして BOM が付く、または Shift_JIS に変わると、「機器番号」を含む見出しを認識できない。西日本形式として扱われず、旧（東日本）取込に回る。旧取込は「1 行目に「管理番号」の列がありません」という 400 を返す。利用者は存在すべきでない列を足すよう案内され、文字コードが原因だとは分からない。\n- 要件との関係: 合意要件 3（BOM の有無・改行コードの違いで取り込めなくならない）に反する。開発標準 6（利用者が直せる言葉のエラー）にも反する。\n- 直し方: 見出し判定の前に BOM を取り除き、改行コードを正規化する。Shift_JIS などで読めない場合は、文字コードが原因だと分かる 400 を返す。\n\n## 2. 行ごとの `recordCalibration` の例外で半端に取り込まれ、500 になる【高】\n\n- 場所: `src/lib/calib-import-nishinihon.ts:156`（行ごとの `recordCalibration` 呼び出し）\n- 問題: 例外を捕まえていない。10 行のうち 3 行目で SQLite の制約エラーや備考の長さ超過が起きると、1〜2 行目は確定済みのまま、利用者には中身のない 500 が返る。行ごとの `errors` の形（要件 8・9）は使われず、ログも残らない（開発標準 14・15）。再実行すれば重複判定で復旧するが、原因が分からない。\n- 直し方: 呼び出しを try/catch で囲み、例外を `res.errors`（`line` 付き）に変換する。あわせて `logger.error` を出す。または、ファイル全体を 1 つのトランザクションにするかどうかを決めて明記する。\n\n## 3. 正規化・CSV 分割の処理が旧取込と重複している【中】\n\n- 場所: `src/lib/calib-import-nishinihon.ts:28`（`normalizeManagementNo`・`parseCsvLine`）。元の処理は `src/lib/legacy/calib-import.ts`\n- 問題: 全角から半角への変換、`XX9999` から `XX-9999` へのハイフン補完、引用符を考慮したカンマ分割が 2 か所にある。将来、片方だけ直すと（例: ハイフンの種類を増やす）、会社ごとに照合される管理番号の書き方が食い違う。開発標準 3 に反する。\n- 直し方: 共通のモジュールに移し、旧取込と新取込の両方から使う。\n\n## 4. 備考の長さチェックが二重で、引数の足し方も不自然【中】\n\n- 場所: `src/lib/calibrations.ts:124`（`recordCalibration` の `appendNote`）。呼び出し側は `calib-import-nishinihon.ts`（`appendToNote`）\n- 問題: 取込側が備考を追加の SELECT で読んで `appendToNote` で事前に検査し、`recordCalibration` も同じ備考を読んで同じ検査をして throw する。ルールが 2 か所にあり、ずれるおそれがある。取込側からは到達しない throw で、テストもない。ほかの呼び出し元が長すぎる `appendNote` を渡すと、構造化されていない例外になる。引数も 6 番目の位置引数として足されている。\n- 直し方: 検査を 1 か所にまとめる。`recordCalibration` が溢れを結果として返す（判別可能な結果型）ようにし、取込側はそれを使う。引数はオプションオブジェクトにする。\n\n## 5. ファイル全体の拒否がログに残らない【中】\n\n- 場所: `src/lib/calib-import-nishinihon.ts:82`（END なし・件数不一致・END より後のデータ・見出し違いの 400 返却）\n- 問題: 転送が途中で切れたファイルを拒否しても、運用ログに何も出ない。ログは成功時の `calibration.imported` だけで、それも誰が・どのファイルかが分からない。何が・どの対象で・どうなったかを調べられず、開発標準 15 に反する。\n- 直し方: `logger.warn('calibration.import_rejected', { agency, reason, recordedBy })` のように、拒否の理由・機関・実行者を出す。成功時のログにも実行者を足す。\n\n## 6. 二重デコード・二重の行分割。引用符内の改行に未対応【低】\n\n- 場所: `src/lib/calib-import-nishinihon.ts:55`（`isNishinihonCsv` と `importNishinihonCsv`）\n- 問題: 検出と取込でそれぞれ全体を UTF-8 デコードして行に分割している。1 行目を見るだけの検出に全体の処理は要らない。また、行の分割は引用符を考慮しないため、引用符内に改行を含むコメントが 2 行に割れ、END の件数確認で全体が「ファイルが欠けている可能性」として拒否される。`parseCsvLine` は引用符に対応しており、分割側と食い違っている。\n- 直し方: デコードと分割を 1 回にまとめて渡す。引用符を考慮した分割にするか、引用符内の改行を許さないと仕様に書き、専用のエラーにする。\n\n## 7. 古い日付の FAIL 行で、新しく合格した計測器が使用停止になる【高】\n\n- 場所: `src/lib/calib-import-nishinihon.ts:156`（FAIL 行の処理）\n- 問題: 前回校正日が戻らないようにする保護は PASS にしかない。MI-0003 が 2026-11-04 に合格した後で、同じ計測器の 2026-05-10 付き FAIL（別の成績書番号）を含む古いファイルや再送ファイルを取り込むと、重複扱いにならず、計測器が使用停止になる。未来日は弾いているのに、古い FAIL は弾いていない。現場で使えるはずの計測器が止まる。\n- 直し方: 現在の前回校正日より古い FAIL の扱いを決める。例: 記録は残すが状態は変えない、または行の誤りとして知らせる。決めた内容を要件・仕様書に書き、テストを足す。\n\n## 8. 境界値・経路のテストが足りない【低】\n\n- 場所: `tests/calib-import-nishinihon.test.ts:119` 付近\n- 問題: 次のケースがない。成績書番号がちょうど 50 文字（51 文字と空だけ）。備考がちょうど 1000 文字で収まる場合。`appendNote` 付きの `recordCalibration` のロールバック。ルートが新取込と旧取込のどちらに振り分けるか。BOM 付きまたは Shift_JIS の西日本ファイル。CRLF の入力。見出しより列数が少ない行。50 文字・1000 文字の境界がずれても気づけない（開発標準 16）。\n- 直し方: 上のケースを追加する。指摘 1・2・7 を直すときは、それぞれの回帰テストも入れる。\n\n## 9. 取込の例外が `{ error }` 形式にならない。他形式のファイルが西日本扱いになる【中】\n\n- 場所: `src/app/api/calibrations/import/route.ts:13`\n- 問題: `importNishinihonCsv` が DB エラーなどで throw すると、CLAUDE.md の `{ error }` JSON ではない、未処理の 500 になる。形式の判定は内容の推測だけで、「機器番号」列を持つ別会社のファイルも西日本センターの校正記録として取り込まれる。\n- 直し方: ルートで例外を捕まえて `{ error }` を返し、ログに残す。見出しの列を厳密に確認し、合わないときは形式の違いを知らせる 400 を返す。\n",
+  "review_chars": 4393,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4283,
+    "tokens": {
+      "input": 22,
+      "output": 13263,
+      "cache_read": 475264,
+      "cache_creation": 79083
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; git diff main...HEAD --stat 2>&1 | tail -20; git diff HEAD --stat\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 8,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 153,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を作成し、`REVIEW.md` だけをコミットしました（2fbe2f8）。レビューの 9 件をすべて書き写しています。指摘の追加や削除はしていません。コードも直していません。PR の未コミットの差分はそのまま残っています。\n\n各指摘に、場所、何が問題か、直し方、重要度（高・中・低）を書きました。重要度は、元のレビューが並べた順ではなく、影響の大きさで私が付けました。\n\n- **高（3 件）:** 1（BOM 付き・Shift_JIS のファイルが検出されない）、2（行ごとの例外で半端に取り込まれ、500 になる）、7（古い日付の FAIL 行で、新しく合格した計測器が使用停止になる）\n- **中（4 件）:** 3（旧取込との処理の重複）、4（備考の長さチェックが二重）、5（ファイル全体の拒否がログに残らない）、9（ルートの例外が `{ error }` 形式にならない）\n- **低（2 件）:** 6（二重デコード・引用符内の改行）、8（テスト不足）\n\n元のレビューの指摘 2 と 7 は、どちらも `src/lib/calib-import-nishinihon.ts:156` を指しています。ただし内容は別なので、まとめずに別々の指摘として書いています。\n\n直し方は、元のレビューにある提案を基本にしています。指摘 2（ファイル全体を 1 つのトランザクションにするかどうか）と指摘 7（古い FAIL の扱い）は、元のレビューが決めていない部分です。そこは「決めて仕様に書く」という書き方にしています。"
+  },
+  "interventions": 0
+}

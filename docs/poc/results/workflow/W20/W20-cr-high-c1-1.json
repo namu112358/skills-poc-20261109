@@ -1,0 +1,39 @@
+{
+  "trial": "W20-cr-high-c1-1",
+  "scenario": "W20",
+  "config": "cr-high",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# コードレビュー結果\n\n対象: タスクの検索・削除・一括ステータス変更・期限切れ一覧の追加と、同時編集の検知（未コミット差分）\n\n指摘は 10 件（高 5・中 3・低 2）。\n\n---\n\n## 1. 【高】検索で SQL インジェクション\n\n- 場所: `src/lib/tasks.ts:83`（`searchTasks`）\n- 問題: ユーザー入力の検索語を `title LIKE '%${query}%'` のように文字列連結で SQL に埋め込んでいる。\n  - 例: `GET /api/tasks/search?q=x%' UNION SELECT token,user_id,expires_at,1,1,1,1 FROM sessions--` で、ログイン済みの任意のユーザーがセッショントークンやパスワードハッシュなど他テーブルを読め、アカウント乗っ取りにつながる。\n  - `q` に `'` を含めると構文エラーになるが、ルートの catch が空の 200 にしてしまう（指摘 4）。\n  - CLAUDE.md 規約 8（プレースホルダ必須）に違反。\n- 直し方: `title LIKE ? ESCAPE '\\'` とし、検索語は `%` `_` `\\` をエスケープしたうえでパラメータとして渡す。\n\n## 2. 【高】ページ送りのオフセットが誤っていて 1 ページ目が飛ばされる\n\n- 場所: `src/lib/tasks.ts:87`（`searchTasks`）\n- 問題: オフセットが `page * limit` だが、`page` は 1 始まり。`page=1`（既定）・`limit=20` だと OFFSET 20 になり、先頭 20 件が返らない。一致が 15 件なら `page=1` は `tasks` が空なのに `total=15` になる。テストは `.total` しか見ていないので検知できない。\n- 直し方: `(page - 1) * limit` にする。1 ページ目・2 ページ目・範囲外ページの中身を検証するテストを足す。\n\n## 3. 【高】既存マイグレーション 1 を書き換えている\n\n- 場所: `src/lib/db/migrations.ts:23`（マイグレーション 1）\n- 問題: `created_by` と `version` 列を、新しい番号のマイグレーションではなく既存の 1 番に追加している。`user_version` がすでに 1 以上のファイル DB（`DATABASE_PATH` 指定）では 1 番が再実行されず、列が追加されない。以後 `created_by, version` を SELECT するクエリが `no such column` で失敗し、タスク関連の API・ページがすべて 500 になる。新規のインメモリ DB でしか動かない。CLAUDE.md 規約 7 に違反。\n- 直し方: マイグレーション 1 を元に戻し、末尾に新しい番号（3）のマイグレーションを追加して `ALTER TABLE tasks ADD COLUMN created_by ...` / `ADD COLUMN version INTEGER NOT NULL DEFAULT 1` を行う。既存 DB を移行するテストを足す。\n\n## 4. 【高】`limit` が未検証で、エラーが空の 200 に隠される\n\n- 場所: `src/app/api/tasks/search/route.ts:15`\n- 問題: `limit` を検証しておらず、定義済みの `SEARCH_LIMIT_MAX` も使われていない。\n  - `limit=-1` は SQLite では無制限で、テーブル全件が返る。\n  - `limit=abc` は NaN になりクエリが例外になる。\n  - `limit=1000000` は全件を 1 回で返す。\n  - 全体を包む catch が DB エラーも壊れたクエリも `{tasks: [], total: 0}` の 200 にするので、障害や指摘 1 のインジェクションに気づけない。\n  - PR 説明の「範囲外は 400」とも食い違う。CLAUDE.md 規約 2・9 に違反。\n- 直し方: `page` は 1 以上の整数、`limit` は 1〜50 の整数かどうかを `src/lib/` の型ガード／検証関数で確認し、不正なら 400 を返す。想定外の例外は握りつぶさず 500 として扱う。\n\n## 5. 【高】作成者なしのタスクは誰でも削除できる\n\n- 場所: `src/app/api/tasks/[id]/route.ts:38`（`DELETE`）\n- 問題: 権限チェックが `task.createdBy && ...` の形で、`createdBy` が null だとチェックごと飛ばされる。この PR より前に作られたタスク（初期データ全件を含む）は作成者なしなので、作成者でも担当者でもない `suzuki` が、担当が `sato` の `DELETE /api/tasks/1` を実行して 204 を得られる。PR 説明の「作成者か担当者だけ」に反する。\n- 直し方: `createdBy` が null でも検査をスキップしない。「作成者または担当者のいずれかに一致する場合だけ許可」とし、作成者なしなら担当者のみで判定する（例: `const owner = task.createdBy ?? task.assignee` や、`user.id` が作成者または担当者のどちらにも一致しなければ 403）。作成者なしタスクでの 403 のテストを足す。\n\n## 6. 【中】一括ステータス変更がトランザクションになっていない\n\n- 場所: `src/lib/tasks.ts:189`（`bulkUpdateStatus`）と、それを呼ぶ bulk-status のルート\n- 問題: 1 件ずつ更新し、存在しない ID があったかを後で判定して 404 を返す。`ids=[4, 5, 999]`、`status=done` だと、4 と 5 は更新・版番号加算済みのまま 404 になる。クライアントは「何も変わっていない」と受け取るが、実際は 2 件変わっており、PR 説明の「1 件でも無ければどのタスクも変えない」に反する。同時の PATCH とも版番号が食い違う。\n- 直し方: 先に全 ID の存在を確認するか、`BEGIN`/`COMMIT` で囲み、不足があれば `ROLLBACK` して 404 を返す。「存在しない ID を混ぜると何も変わらない」ことのテストを足す。\n\n## 7. 【中】期限切れの「今日」が UTC で計算されている\n\n- 場所: `src/lib/tasks.ts:96`（`listOverdueTasks`）\n- 問題: `toISOString().slice(0,10)` で今日を求めており UTC になっている。仕様とコメントは日本時間。`2026-11-15T16:00Z` は JST ではすでに 11/16 01:00 だが、コードは 11/15 として扱うため、期限が 11/15 のタスクの期限切れ判定が 9 時間遅れる。テストは UTC と JST の日付が同じ 03:00Z で行っているので気づけない。\n- 直し方: Asia/Tokyo の日付を使う（例: `now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })`）。15:00Z 以降の時刻のテストを足す。\n\n## 8. 【中】テストが実質何も検証していない／不足している\n\n- 場所: `tests/tasks-search.test.ts:46`（`deleteTask` のテスト）ほか\n- 問題: 削除の前に `tasks` を取得しているため `tasks.length` は常に 7。`deleteTask(1, db) !== undefined` は関数が真偽値を返すので常に真。`deleteTask` が壊れていても通る。ほかに、存在しない ID の削除、削除の権限チェック、PATCH の 409（版番号の競合）、2 ページ目以降、LIKE の特殊文字（`%` `_`）、作成者なしタスクのテストが無い。規約 5 は形式的にしか満たされていない。\n- 直し方: 削除後に再取得して件数と存在を確認する。存在しない ID（false／404）、権限（403）、409、ページ送り、特殊文字、作成者なしの削除をテストに加える。\n\n## 9. 【中】`version` が検証を通っておらず、比較と更新が分かれている\n\n- 場所: `src/app/api/tasks/[id]/route.ts:29`（`PATCH`）、`src/lib/tasks.ts` の `updateTask`\n- 問題: `version` を生の本文から取り、厳密等価で比べている。\n  - `version: \"1\"`（文字列）や `1.0` を文字列で送ると常に 409 になる。\n  - `null` や数値でない値は、400 ではなく「他の人が更新した」という 409 になるか、通ってしまう。\n  - 規約 9（本文は `src/lib/` の検証関数を通す）に違反。\n  - 比較と UPDATE がルートと `updateTask` に分かれ、UPDATE に `AND version = ?` が無い。確認から更新までの間に別の更新が入ると上書きされ、同時編集の検知が成り立たない。\n- 直し方: `version` を正の整数として検証関数で検査し（不正は 400）、`UPDATE ... WHERE id = ? AND version = ?` で更新する。変更行数が 0 なら、タスクが無ければ 404、あれば 409 を返す。競合のテストを足す。\n\n## 10. 【低】`createTask` の引数の順序が扱いにくい\n\n- 場所: `src/app/api/tasks/route.ts:18`（`createTask(result.value as TaskInput, undefined, user.id)`）\n- 問題: `createdBy` を `db` の後ろに足したため、呼び出し側が `undefined` を `db` に渡す形になる。最後の 2 引数を取り違えるとユーザー ID が `db` として渡るが、型で気づけないことがある。`db` を省略した呼び出しでは作成者を渡せない。\n- 直し方: `createdBy` を `db` より前にするか、オプションオブジェクトにまとめる。\n\n## 11. 【低】依頼範囲の確認\n\n- 場所: 差分全体（DELETE・bulk-status・search・overdue の各 API）\n- 問題: 既存の API 仕様（CLAUDE.md）を超える機能追加が多い。規約 6（変更は依頼された範囲にとどめる）に照らし、PR の依頼どおりであることを確認したい。PR の説明には要望として書かれているので、確認で足りる。\n- 直し方: 依頼内容と照合する。CLAUDE.md の API 一覧も新しいエンドポイントに合わせて更新する。\n",
+  "review_chars": 4823,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3058,
+    "tokens": {
+      "input": 16,
+      "output": 8322,
+      "cache_read": 279246,
+      "cache_creation": 58373
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -50; echo ----; git diff HEAD\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 78,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を作成し、それだけをコミットしました。コードは変えていません。\n\n直前のレビューの 10 件をすべて書き写しました。10 件目が 2 つの内容を含んでいたので、見出しは 11 件になっています。\n\n- **10 番:** 引数の順序の問題です。\n- **11 番:** 依頼範囲の確認です。重要度は低にしています。\n- **重要度:** 高は 1〜5 番、中は 6〜9 番、低は 10〜11 番です。\n- **高の中身:** SQL インジェクション、ページ送りのずれ、マイグレーション 1 の書き換え、`limit` 未検証と空の 200、作成者なしタスクが誰でも削除できる、の 5 件です。\n- **重要度の付け方:** 重要度はレビュー結果に付いていなかったので、私が付けました。\n\n新しい指摘は足していません。"
+  },
+  "interventions": 0
+}
