@@ -20,6 +20,12 @@ def load(path):
         return None
 
 
+def sev(r):
+    """Cloudflare の深刻度。文字列のときと、overall_severity を持つ形のときがある。"""
+    v = r.get("severity")
+    return v.get("overall_severity") if isinstance(v, dict) else v
+
+
 def main(out):
     result, agents, tools = None, 0, Counter()
     with open(os.path.join(out, "step1.jsonl")) as f:
@@ -59,7 +65,7 @@ def main(out):
             for r in recs
         ]
         s["severity"] = dict(Counter(str(r.get("severity")).lower() for r in recs))
-    runs = sorted(d for d in glob.glob(os.path.join(out, "audit-out", "*")) if not os.path.basename(d).startswith("CLAUDE-SECURITY-"))
+    runs = sorted(d for d in glob.glob(os.path.join(out, "audit-out", "run-*")))
     run = runs[-1] if runs else None
     if run:
         meta = load(os.path.join(run, "run-metadata.json")) or {}
@@ -70,12 +76,12 @@ def main(out):
         recs = findings.get("findings", findings) if isinstance(findings, dict) else findings
         if isinstance(recs, list) and recs:
             s["verdicts"] = dict(Counter(r.get("verdict") for r in recs))
-            s["severity"] = dict(Counter(r.get("severity") for r in recs if r.get("verdict") == "confirmed"))
+            s["severity"] = dict(Counter(sev(r) for r in recs if r.get("verdict") == "confirmed"))
             s["findings"] = [
                 {
                     "verdict": r.get("verdict"),
                     "title": r.get("title"),
-                    "severity": r.get("severity"),
+                    "severity": sev(r),
                     "files": sorted({t.get("file") for t in r.get("trace", []) + r.get("evidence", []) if t.get("file")}),
                 }
                 for r in recs

@@ -18,6 +18,8 @@
 # すべて止められ、監査が終わらなかったため（2026-11-11。docs/poc/results/security/README.md）。
 # POC_SBX=1: 対象のコードを隔離して動かすコマンド（scripts/poc/sbx.sh）を sbx として渡す（SEC-6。Cloudflare の確認のため）。
 #   試行 ID の末尾に -sbx が付く。
+# POC_PRIOR=<試行 ID>: Cloudflare に、その試行の監査の記録（run-1）を前回の記録として渡し、今回は run-2 に出力させる（SEC-6）。
+#   同じ題材の試行を指定する。試行 ID の末尾に -prior が付く。
 # 子セッションからは /home/user の下（このリポジトリと採点用の正解）を Read・Grep・Glob で読めないようにする。
 # 記録: docs/poc/results/security/raw/<ID>/（git には入れない）。集計は summary.json。
 set -euo pipefail
@@ -34,7 +36,7 @@ case "$TARGET" in clean|vulns|diff|diff2|diff3|infra) ;; *) echo "題材は clea
 MODEL="${POC_MODEL:-claude-opus-5-5}"
 CACHE="${POC_CACHE:-$ROOT/.poc-cache}"
 KEY="$ROOT/docs/poc/answer-key/SEC"
-ID="SEC-$TOOL-$TARGET-$LEVEL-$RUN${POC_SBX:+-sbx}"
+ID="SEC-$TOOL-$TARGET-$LEVEL-$RUN${POC_SBX:+-sbx}${POC_PRIOR:+-prior}"
 WORK="${POC_TRIAL_ROOT:-/tmp/poc-trials}/$ID"
 APP="$WORK/app"; HOME_DIR="$WORK/home"; AUDIT_OUT="$WORK/out"
 OUT="$ROOT/docs/poc/results/security/raw/$ID"
@@ -101,6 +103,15 @@ if [[ "$TOOL" == cloudflare ]]; then
     "Bash(node $SKILL/validate-findings.cjs:*)" "Bash(node $SKILL/validate-coverage-ledger.cjs:*)"
     "Bash(node .claude/skills/security-audit/validate-findings.cjs:*)" "Bash(node .claude/skills/security-audit/validate-coverage-ledger.cjs:*)"
   )
+  RUN_DIR=run-1; PRIOR_LINE="- 前回の監査の記録はありません"
+  if [[ -n "${POC_PRIOR:-}" ]]; then
+    PRIOR_OUT="$ROOT/docs/poc/results/security/raw/$POC_PRIOR/audit-out/run-1"
+    [[ -f "$PRIOR_OUT/findings.json" ]] || { echo "前回の記録が無い: $PRIOR_OUT" >&2; exit 1; }
+    cp -R "$PRIOR_OUT" "$AUDIT_OUT/run-1"
+    rm -rf "$AUDIT_OUT/run-1/agents"
+    echo "$POC_PRIOR" > "$OUT/prior"
+    RUN_DIR=run-2; PRIOR_LINE="- 前回の監査の記録: $AUDIT_OUT/run-1（同じソースに対する 1 回前の監査。Skill の手順どおりに読み込んでください）"
+  fi
   if [[ "$TARGET" == diff* ]]; then
     SCOPE="- 範囲（scoped run）: 2 つのコミットの差分（$BASE..HEAD。ブランチ $BRANCH の変更）
 - 差分を調べるために git diff $BASE..HEAD と git show HEAD を使ってかまいません"
@@ -112,9 +123,9 @@ if [[ "$TOOL" == cloudflare ]]; then
 
 - profile: $LEVEL
 $SCOPE
-- 出力先（output directory）: $AUDIT_OUT/run-1 （対象リポジトリの外。作ってから使ってください）
+- 出力先（output directory）: $AUDIT_OUT/$RUN_DIR （対象リポジトリの外。作ってから使ってください）
 - 予算（budget）: 指定しません
-- 前回の監査の記録はありません
+$PRIOR_LINE
 
 この作業は無人で実行しています。確認の質問には答えられないので、上に書いていないことの判断はお任せしますが、Skill の手順にある工程は省かずに、6 つの段階を最後まで進めてください。対象のソースは変更しないでください。"
 elif [[ "$TOOL" == security-review ]]; then
@@ -163,16 +174,16 @@ TASK="$TASK
 権限の都合で、Bash は 1 回に 1 つのコマンドだけを実行してください（; && || | やループでつながない。ファイルの探索と読み取りは Glob・Grep・Read を使う）。"
 if [[ "${POC_SBX:-}" == 1 ]]; then
   # 隔離して動かすコマンド。root の持ち物として作業用コピーの外に置き、子セッションの PATH に入れる
-  mkdir -p "$WORK/bin" "$AUDIT_OUT/run-1/agents"
+  mkdir -p "$WORK/bin" "$AUDIT_OUT/${RUN_DIR:-run-1}/agents"
   install -m 0755 "$ROOT/scripts/poc/sbx.sh" "$WORK/bin/sbx"
   chmod -R a+rX "$APP"
-  CHILD_ENV+=(SBX_ROOT="$AUDIT_OUT/run-1/agents" SBX_TARGET="$APP" PATH="$WORK/bin:$PATH")
+  CHILD_ENV+=(SBX_ROOT="$AUDIT_OUT/${RUN_DIR:-run-1}/agents" SBX_TARGET="$APP" PATH="$WORK/bin:$PATH")
   ALLOWED+=("Bash(sbx:*)" "Bash($WORK/bin/sbx:*)")
   echo 1 > "$OUT/sbx"
   TASK="$TASK
 
 この環境には、対象のコードを隔離して動かすコマンド sbx があります（使い方: sbx <作業用ディレクトリ> <コマンド> [引数...]）。
-- 作業用ディレクトリは $AUDIT_OUT/run-1/agents/<エージェント ID>/scratch のように、$AUDIT_OUT/run-1/agents の下の新しいパスを指定します。書き込めるのはそこだけです。
+- 作業用ディレクトリは $AUDIT_OUT/${RUN_DIR:-run-1}/agents/<エージェント ID>/scratch のように、$AUDIT_OUT/${RUN_DIR:-run-1}/agents の下の新しいパスを指定します。書き込めるのはそこだけです。
 - 中では、ネットワーク（ループバック以外）が切れ、権限のない利用者で動き、対象のリポジトリは読み取り専用になり、環境変数は PATH・HOME・TMPDIR だけになります。
 - CPU 60 秒・仮想メモリ 16 GiB・プロセス 64・ファイル 64 MiB・実時間 120 秒の上限があります。
 - 依存パッケージは入っていません（node_modules はありません）。Node.js の標準の機能（node:test、node:sqlite など）は使えます。"
