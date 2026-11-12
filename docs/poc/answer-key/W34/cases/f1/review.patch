@@ -1,0 +1,303 @@
+diff --git a/src/app/api/tasks/route.ts b/src/app/api/tasks/route.ts
+index 687d509..8e6824b 100644
+--- a/src/app/api/tasks/route.ts
++++ b/src/app/api/tasks/route.ts
+@@ -6,8 +6,16 @@ import { createTask, isTaskStatus, listTasks, validateTaskInput, type TaskInput
+ export async function GET(request: Request) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
+-  const status = new URL(request.url).searchParams.get("status");
+-  return NextResponse.json({ tasks: listTasks({ status: isTaskStatus(status) ? status : undefined }) });
++  const params = new URL(request.url).searchParams;
++  const status = params.get("status");
++  const priority = params.get("priority");
++  const PRIORITIES = ["high", "medium", "low"];
++  return NextResponse.json({
++    tasks: listTasks({
++      status: isTaskStatus(status) ? status : undefined,
++      priority: priority !== null && PRIORITIES.includes(priority) ? priority : undefined,
++    }),
++  });
+ }
+ 
+ export async function POST(request: Request) {
+diff --git a/src/app/tasks/page.tsx b/src/app/tasks/page.tsx
+index 1da2fed..6652ea9 100644
+--- a/src/app/tasks/page.tsx
++++ b/src/app/tasks/page.tsx
+@@ -2,14 +2,16 @@ import { requireUser } from "@/lib/session";
+ import { STATUS_LABELS, TASK_STATUSES, isTaskStatus, listTasks } from "@/lib/tasks";
+ 
+ type Props = {
+-  searchParams: Promise<{ status?: string }>;
++  searchParams: Promise<{ status?: string; priority?: string }>;
+ };
+ 
+ export default async function TasksPage({ searchParams }: Props) {
+   await requireUser();
+   const params = await searchParams;
+   const status = isTaskStatus(params.status) ? params.status : undefined;
+-  const tasks = listTasks({ status });
++  const PRIORITY_LABELS: Record<string, string> = { high: "高", medium: "中", low: "低" };
++  const priority = params.priority && params.priority in PRIORITY_LABELS ? params.priority : undefined;
++  const tasks = listTasks({ status, priority });
+ 
+   return (
+     <main>
+@@ -26,6 +28,17 @@ export default async function TasksPage({ searchParams }: Props) {
+             ))}
+           </select>
+         </label>{" "}
++        <label>
++          優先度{" "}
++          <select name="priority" defaultValue={priority ?? ""}>
++            <option value="">すべて</option>
++            {Object.entries(PRIORITY_LABELS).map(([value, label]) => (
++              <option key={value} value={value}>
++                {label}
++              </option>
++            ))}
++          </select>
++        </label>{" "}
+         <button type="submit">絞り込む</button>
+       </form>
+       <table>
+@@ -35,6 +48,7 @@ export default async function TasksPage({ searchParams }: Props) {
+             <th>ステータス</th>
+             <th>担当者</th>
+             <th>期限</th>
++            <th>優先度</th>
+           </tr>
+         </thead>
+         <tbody>
+@@ -46,6 +60,7 @@ export default async function TasksPage({ searchParams }: Props) {
+               <td>{STATUS_LABELS[task.status]}</td>
+               <td>{task.assignee}</td>
+               <td>{task.dueDate}</td>
++              <td>{PRIORITY_LABELS[task.priority]}</td>
+             </tr>
+           ))}
+         </tbody>
+diff --git a/src/lib/attributes/priority.ts b/src/lib/attributes/priority.ts
+new file mode 100644
+index 0000000..3b53ee6
+--- /dev/null
++++ b/src/lib/attributes/priority.ts
+@@ -0,0 +1,14 @@
++// 優先度の属性の定義。
++import { attributeRegistry, type AttributeDefinition } from "./registry.ts";
++
++export type TaskPriority = "high" | "medium" | "low";
++
++export const priorityAttribute: AttributeDefinition<TaskPriority> = {
++  key: "priority",
++  column: "priority",
++  values: ["high", "medium", "low"],
++  labels: { high: "高", medium: "中", low: "低" },
++  defaultValue: "medium",
++};
++
++attributeRegistry.register(priorityAttribute);
+diff --git a/src/lib/attributes/registry.ts b/src/lib/attributes/registry.ts
+new file mode 100644
+index 0000000..398c19c
+--- /dev/null
++++ b/src/lib/attributes/registry.ts
+@@ -0,0 +1,53 @@
++// タスクの属性（列）の定義を登録する仕組み。属性を足すときは、定義を作って registry に登録するだけでよい。
++export type AttributeDefinition<T extends string = string> = {
++  /** API・画面での項目名 */
++  key: string;
++  /** DB の列名 */
++  column: string;
++  /** 取りうる値（並び順は表示順） */
++  values: readonly T[];
++  /** 表示名 */
++  labels: Record<T, string>;
++  /** 未指定のときの値 */
++  defaultValue: T;
++};
++
++export class AttributeRegistry {
++  private readonly definitions = new Map<string, AttributeDefinition>();
++
++  register<T extends string>(definition: AttributeDefinition<T>): void {
++    if (this.definitions.has(definition.key)) throw new Error(`属性 ${definition.key} は登録済みです`);
++    this.definitions.set(definition.key, definition as unknown as AttributeDefinition);
++  }
++
++  get(key: string): AttributeDefinition | undefined {
++    return this.definitions.get(key);
++  }
++
++  all(): AttributeDefinition[] {
++    return [...this.definitions.values()];
++  }
++
++  /** 値が属性の取りうる値かを確かめる。 */
++  isValid(key: string, value: unknown): boolean {
++    const d = this.get(key);
++    return d !== undefined && typeof value === "string" && (d.values as readonly string[]).includes(value);
++  }
++
++  /** 絞り込みの条件（登録した属性のうち、filter に値があるもの）を SQL の断片とパラメータにする。 */
++  whereClause(filter: Record<string, string | undefined>): { sql: string; params: Record<string, string> } {
++    const parts: string[] = [];
++    const params: Record<string, string> = {};
++    for (const d of this.all()) {
++      const v = filter[d.key];
++      if (v !== undefined && this.isValid(d.key, v)) {
++        parts.push(`${d.column} = :attr_${d.key}`);
++        params[`attr_${d.key}`] = v;
++      }
++    }
++    return { sql: parts.length > 0 ? ` AND ${parts.join(" AND ")}` : "", params };
++  }
++}
++
++/** アプリ全体で 1 つの登録先。 */
++export const attributeRegistry = new AttributeRegistry();
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 4e1b0a4..6ad8665 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -38,4 +38,11 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX sessions_user ON sessions(user_id);
+     `,
+   },
++  {
++    version: 3,
++    name: "task_priority",
++    sql: `
++      ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('high', 'medium', 'low'));
++    `,
++  },
+ ];
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+index b533ce9..fd59a78 100644
+--- a/src/lib/tasks.ts
++++ b/src/lib/tasks.ts
+@@ -1,4 +1,6 @@
+ import { getDb, type Db } from "./db/index.ts";
++import { attributeRegistry } from "./attributes/registry.ts";
++import { priorityAttribute, type TaskPriority } from "./attributes/priority.ts";
+ 
+ export type TaskStatus = "todo" | "in_progress" | "done";
+ 
+@@ -8,6 +10,7 @@ export type Task = {
+   status: TaskStatus;
+   assignee: string;
+   dueDate: string; // YYYY-MM-DD
++  priority: TaskPriority;
+ };
+ 
+ export const TASK_STATUSES: readonly TaskStatus[] = ["todo", "in_progress", "done"];
+@@ -24,23 +27,34 @@ export function isTaskStatus(value: unknown): value is TaskStatus {
+ 
+ export type TaskFilter = {
+   status?: TaskStatus;
++  priority?: string;
+ };
+ 
+-type TaskRow = { id: number; title: string; status: TaskStatus; assignee: string; due_date: string };
++type TaskRow = { id: number; title: string; status: TaskStatus; assignee: string; due_date: string; priority: TaskPriority };
+ 
+ function toTask(row: TaskRow): Task {
+-  return { id: row.id, title: row.title, status: row.status, assignee: row.assignee, dueDate: row.due_date };
++  return {
++    id: row.id,
++    title: row.title,
++    status: row.status,
++    assignee: row.assignee,
++    dueDate: row.due_date,
++    priority: row.priority,
++  };
+ }
+ 
+ export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
++  const attrs = attributeRegistry.whereClause({ priority: filter.priority });
+   const rows = db
+-    .prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id")
+-    .all({ status: filter.status ?? null }) as TaskRow[];
++    .prepare(
++      `SELECT id, title, status, assignee, due_date, priority FROM tasks WHERE (:status IS NULL OR status = :status)${attrs.sql} ORDER BY id`,
++    )
++    .all({ status: filter.status ?? null, ...attrs.params }) as TaskRow[];
+   return rows.map(toTask);
+ }
+ 
+ export function getTask(id: number, db: Db = getDb()): Task | undefined {
+-  const row = db.prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE id = ?").get(id) as
++  const row = db.prepare("SELECT id, title, status, assignee, due_date, priority FROM tasks WHERE id = ?").get(id) as
+     | TaskRow
+     | undefined;
+   return row && toTask(row);
+@@ -52,7 +66,7 @@ export function parseTaskId(value: unknown): number | undefined {
+   return Number(value);
+ }
+ 
+-export type TaskInput = Omit<Task, "id">;
++export type TaskInput = Omit<Task, "id" | "priority"> & { priority?: TaskPriority };
+ 
+ export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
+ 
+@@ -90,6 +104,10 @@ export function validateTaskInput(
+     if (!exists) errors.push("担当者が存在しません");
+     else value.assignee = b.assignee as string;
+   }
++  if ("priority" in b) {
++    if (!attributeRegistry.isValid("priority", b.priority)) errors.push("優先度は high・medium・low のどれかで指定してください");
++    else value.priority = b.priority as TaskPriority;
++  }
+   if (need("dueDate")) {
+     if (typeof b.dueDate !== "string" || !DATE_RE.test(b.dueDate) || Number.isNaN(Date.parse(b.dueDate))) {
+       errors.push("期限は YYYY-MM-DD 形式で入力してください");
+@@ -100,8 +118,8 @@ export function validateTaskInput(
+ 
+ export function createTask(input: TaskInput, db: Db = getDb()): Task {
+   const { lastInsertRowid } = db
+-    .prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES (?, ?, ?, ?)")
+-    .run(input.title, input.status, input.assignee, input.dueDate);
++    .prepare("INSERT INTO tasks (title, status, assignee, due_date, priority) VALUES (?, ?, ?, ?, ?)")
++    .run(input.title, input.status, input.assignee, input.dueDate, input.priority ?? priorityAttribute.defaultValue);
+   return getTask(Number(lastInsertRowid), db)!;
+ }
+ 
+diff --git a/tests/tasks.test.ts b/tests/tasks.test.ts
+index 66029e6..b8a8ff7 100644
+--- a/tests/tasks.test.ts
++++ b/tests/tasks.test.ts
+@@ -32,6 +32,7 @@ describe("getTask", () => {
+       status: "done",
+       assignee: "sato",
+       dueDate: "2026-11-02",
++      priority: "medium",
+     });
+     assert.equal(getTask(999, db), undefined);
+   });
+@@ -90,3 +91,25 @@ describe("isTaskStatus", () => {
+     assert.equal(isTaskStatus(undefined), false);
+   });
+ });
++
++describe("priority", () => {
++  it("defaults to medium and can be set on create", () => {
++    const db = openDb();
++    assert.equal(getTask(1, db)?.priority, "medium");
++    const t = createTask({ title: "急ぎ", status: "todo", assignee: "sato", dueDate: "2026-12-01", priority: "high" }, db);
++    assert.equal(t.priority, "high");
++  });
++
++  it("filters the list by priority", () => {
++    const db = openDb();
++    createTask({ title: "急ぎ", status: "todo", assignee: "sato", dueDate: "2026-12-01", priority: "high" }, db);
++    const tasks = listTasks({ priority: "high" }, db);
++    assert.deepEqual(tasks.map((t) => t.title), ["急ぎ"]);
++    assert.equal(listTasks({ priority: "unknown" }, db).length, 8);
++  });
++
++  it("validates the priority", () => {
++    assert.equal(validateTaskInput({ priority: "urgent" }, { partial: true }, openDb()).ok, false);
++    assert.deepEqual(validateTaskInput({ priority: "low" }, { partial: true }, openDb()), { ok: true, value: { priority: "low" } });
++  });
++});

@@ -20,6 +20,7 @@ for spec in "$@"; do
   echo "$(date -u +%FT%TZ) start $id" >> "$LOG"
   POC_MAX_NUDGES=1 bash "$ROOT/scripts/poc/run-trial.sh" "$SCN" "$cand" "$run" >> "$LOG" 2>&1
   echo "$(date -u +%FT%TZ) trial-exit $id $?" >> "$LOG"
-  python3 "$ROOT/scripts/poc/grade_w20.py" "$id" --cleanup >> "$LOG" 2>&1
+  GRADER=grade_w20.py; [[ "$SCN" == W34 ]] && GRADER=grade_w34.py
+  python3 "$ROOT/scripts/poc/$GRADER" "$id" --cleanup >> "$LOG" 2>&1
   echo "$(date -u +%FT%TZ) graded $id $?" >> "$LOG"
 done
