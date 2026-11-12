@@ -18,7 +18,7 @@ AI エージェント（主に Claude Code）を使って新規開発を進め�
 | `README.md`（この文書） | 4 つの問いへの今の答え |
 | [templates/](templates/) | **各プロジェクトに配るもの**の正本。`agents/` は AI 向けの指示・設定・Skill・検査、`github/` は Issue・PR のテンプレートと記述ルール |
 | [scripts/](scripts/) | 配るスクリプト（`add-*.sh`）と、このリポジトリを保つスクリプト（`check-*.py`、`sync-skills.sh`） |
-| [docs/](docs/) | 標準の説明と調査。[standards/](docs/standards/)（開発標準・設計原則・テストの方針）、[github-setup/](docs/github-setup/README.md)（リポジトリの初期設定）、[github-templates/](docs/github-templates/README.md)（テンプレートで決めたことと調査）、[tool-candidates/](docs/tool-candidates/README.md)（追加候補） |
+| [docs/](docs/) | 標準の説明と調査。[standards/](docs/standards/)（開発標準・設計原則・テストの方針）、[github/](docs/github/README.md)（GitHub の初期設定、Issue・PR のテンプレート）、[github-writing.md](docs/github-writing.md)（Issue・PR の書き方。配る雛形と同じ場所に置く）、[tool-candidates/](docs/tool-candidates/README.md)（追加候補） |
 | [poc/](poc/README.md) | **PoC の一式**。評価用のアプリ、課題文、採点用の正解、スクリプト、結果 |
 | `.claude/`・`.mcp.json`・`.github/`・`AGENTS.md`・`CLAUDE.md` | このリポジトリ自身に適用している標準（雛形と同じ内容に、このリポジトリだけの設定を足したもの） |
 
@@ -203,10 +203,10 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 
 ## 3. どのような GitHub の設定が必要か
 
-- **リポジトリの設定**: 新規リポジトリの標準設定（Rulesets、Advanced Security、Actions、Environments、標準ファイル）と、AI エージェントが品質ゲートを迂回できないようにする権限設計は、[docs/github-setup/README.md](docs/github-setup/README.md) にまとめています。
+- **リポジトリの設定**: 新規リポジトリの標準設定（Rulesets、Advanced Security、Actions、Environments、標準ファイル）と、AI エージェントが品質ゲートを迂回できないようにする権限設計は、[docs/github/setup/README.md](docs/github/setup/README.md) にまとめています。
 - **Issue・PR のテンプレート**: 各プロジェクト共通の Issue Forms（機能要望 / 不具合報告 / 技術的負債）と PR テンプレート、AI エージェント向けの Issue・PR 記述ルールを、`templates/github/` に置いています。
-  - 決めたこと・導入手順（ラベル作成を含む）・記入済みサンプル: [docs/github-templates/README.md](docs/github-templates/README.md)
-  - 調査結果と出典: [docs/github-templates/research.md](docs/github-templates/research.md)
+  - 決めたこと・導入手順（ラベル作成を含む）・記入済みサンプル: [docs/github/templates/README.md](docs/github/templates/README.md)
+  - 調査結果と出典: [docs/github/templates/research.md](docs/github/templates/research.md)
 
 ```bash
 scripts/add-github-templates.sh <対象リポジトリのパス> [--with-check]
@@ -256,16 +256,21 @@ scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...
 - MCP の認証情報やトークンを Git にコミットしない（`.env*` と `.claude/settings.local.json` は `.gitignore` 済み）。
 - GitHub MCP には、業務上必要な最小限の権限だけを付与する。マージ・ファイル削除・リポジトリ作成は、`.claude/settings.json` で毎回確認する設定にしている。
 - `.claude/settings.json` の `permissions.allow` で、確認なしで実行してよい操作を決めている。
-  - 許可している操作:
+  - 配る雛形（`templates/agents/.claude/settings.json`）で許可している操作:
     - git の読み取り。`git diff --stat` などよく使う決まった形だけで、引数を自由に付けられる形は許可しない（`--output` や `--no-index` などで、ファイルの書き込みや `.env` の読み取りができるため）
     - コミットと、`agent/*` ブランチへの push
-    - `npm ci` / `npm test` / `npm run typecheck` / `npm run build`（このリポジトリだけ）
-    - Skills の検査と雛形の一致の検査（`python3 scripts/check-skills.py`・`python3 scripts/check-templates.py`。このリポジトリだけ）。配る雛形では許可しない。エージェントが検査スクリプトを書き換えてから実行すると、任意のコードが確認なしで動くため。配布先では CI（`skills-check`）で必ず検査する。
-    - PoC のスクリプト（このリポジトリだけ）
     - GitHub の読み取りと、PR の作成・更新
-  - `cat` や `grep` などファイルを読むコマンドは、`.env` を読めてしまうため許可していない。
+  - 雛形では、`cat` や `grep` などファイルを読むコマンドを許可していない。`.env` を読めてしまうため。
+  - 雛形では、Skills の検査（`python3 scripts/check-skills.py`）も許可していない。エージェントが検査スクリプトを書き換えてから実行すると、任意のコードが確認なしで動くため。配布先では CI（`skills-check`）で必ず検査する。
+  - このリポジトリだけ、PoC を無人で回すために次を足している（2026-11-11 ユーザー承認。雛形には入れない）。
+    - PoC のスクリプト（`poc/scripts/`）の実行と、`claude/*` ブランチへの push
+    - 進み具合を見る読み取りのコマンド（`cat`・`head`・`tail`・`grep`・`wc`・`ls`・`du`・`df`・`free`・`pgrep`）と `mkdir -p`
+    - 結果の確認用の Artifact の更新
+    - `npm ci` / `npm test` / `npm run typecheck` / `npm run build` / `npx tsc --noEmit`
+    - Skills の検査と雛形の一致の検査（`python3 scripts/check-skills.py`・`python3 scripts/check-templates.py`）
+  - このリポジトリでは `cat` や `grep` を許可しているので、`.env`・`*.pem`・`*.key` を読む形と、リポジトリの外（`../`）を指す形を `deny` で止めている（`deny` は `allow` より優先される）。ただし、ファイル名を書かずに読む形（`grep -r <語> .` など）までは止められない。このリポジトリには、実際の認証情報を置かない。
 - 次の push は `ask` で毎回確認する（`ask` は `allow` より優先される）: force push、`main` を含む push、削除やまとめて送る push（`--delete` / `-d` / `--mirror` / `--all` / `--tags` / `--prune`）。
-- `git push origin agent/x :other` のような「空の送り元」による削除は、書式の上で確認に回せない。そのため、`main` の削除と force push は GitHub の Ruleset（`docs/github-setup/rulesets/`）で防ぐ。
+- `git push origin agent/x :other` のような「空の送り元」による削除は、書式の上で確認に回せない。そのため、`main` の削除と force push は GitHub の Ruleset（`docs/github/setup/rulesets/`）で防ぐ。
 - Sentry MCP と Cloudflare MCP は、トークンをファイルに書かず OAuth で認証する。Cloudflare API MCP は Cloudflare の API をほぼすべて操作できるため、開発用アカウントで、必要な権限だけを許可する。
 - Supabase MCP は、開発用プロジェクトにだけ接続する。やむを得ず本番プロジェクトにつなぐ場合は、URL に `&read_only=true` を付けて読み取り専用にする。
 - Vercel MCP は OAuth で認証し、必要に応じて `https://mcp.vercel.com/<team-slug>/<project-slug>` で対象プロジェクトを限定する。

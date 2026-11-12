@@ -17,7 +17,8 @@ AI エージェントを使った新規開発の標準（入れる Skills、開�
 | PoC の結果 | [poc/results/workflow/summary.md](poc/results/workflow/summary.md) |
 | セキュリティ監査の PoC の結果と、定期実行の案 | [poc/results/security/README.md](poc/results/security/README.md)、[docs/tool-candidates/security-audit-schedule.md](docs/tool-candidates/security-audit-schedule.md) |
 | 標準ツールの追加候補 | [docs/tool-candidates/README.md](docs/tool-candidates/README.md) |
-| GitHub リポジトリの初期設定 | [docs/github-setup/README.md](docs/github-setup/README.md) |
+| GitHub リポジトリの初期設定 | [docs/github/setup/README.md](docs/github/setup/README.md) |
+| Issue・PR のテンプレートで決めたこと・調査 | [docs/github/templates/README.md](docs/github/templates/README.md) |
 | Issue・PR を作る | [docs/github-writing.md](docs/github-writing.md) |
 
 <!-- 共通規約ここから: 正本は skills-poc-20261109 の templates/agents/AGENTS.md。このブロックは直接編集せず、正本を直してから写す。 -->
