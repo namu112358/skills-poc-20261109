@@ -15,6 +15,9 @@
 # 子セッションには対象のコードの実行（npm など）を許可しない。この環境では Skill が求める OS の隔離を用意できないため。
 # 既定のモデルは Opus 5.5。Sonnet 5.5 では、Cloudflare の探索役のエージェントが安全機構（general_harms）に
 # すべて止められ、監査が終わらなかったため（2026-11-11。docs/poc/results/security/README.md）。
+# POC_SBX=1: 対象のコードを隔離して動かすコマンド（scripts/poc/sbx.sh）を sbx として渡す（SEC-6。Cloudflare の確認のため）。
+#   試行 ID の末尾に -sbx が付く。
+# 子セッションからは /home/user の下（このリポジトリと採点用の正解）を Read・Grep・Glob で読めないようにする。
 # 記録: docs/poc/results/security/raw/<ID>/（git には入れない）。集計は summary.json。
 set -euo pipefail
 # 全体を { } で包み、実行の前にすべて読み込ませる（実行中にこのファイルを書き換えても、動いている試行が壊れないように）
@@ -30,7 +33,7 @@ case "$TARGET" in clean|vulns|diff|diff2|diff3) ;; *) echo "題材は clean・vu
 MODEL="${POC_MODEL:-claude-opus-5-5}"
 CACHE="${POC_CACHE:-$ROOT/.poc-cache}"
 KEY="$ROOT/docs/poc/answer-key/SEC"
-ID="SEC-$TOOL-$TARGET-$LEVEL-$RUN"
+ID="SEC-$TOOL-$TARGET-$LEVEL-$RUN${POC_SBX:+-sbx}"
 WORK="${POC_TRIAL_ROOT:-/tmp/poc-trials}/$ID"
 APP="$WORK/app"; HOME_DIR="$WORK/home"; AUDIT_OUT="$WORK/out"
 OUT="$ROOT/docs/poc/results/security/raw/$ID"
@@ -152,6 +155,22 @@ I accept the scan's time and token cost; do not ask me to confirm. This session 
   # 利用状況の送信と、push 後のスキャンの勧めを止める（README の Telemetry）
   CHILD_ENV+=(DISABLE_TELEMETRY=1 CLAUDE_SECURITY_SCAN_TIP=off)
 fi
+if [[ "${POC_SBX:-}" == 1 ]]; then
+  # 隔離して動かすコマンド。root の持ち物として作業用コピーの外に置き、子セッションの PATH に入れる
+  mkdir -p "$WORK/bin" "$AUDIT_OUT/run-1/agents"
+  install -m 0755 "$ROOT/scripts/poc/sbx.sh" "$WORK/bin/sbx"
+  chmod -R a+rX "$APP"
+  CHILD_ENV+=(SBX_ROOT="$AUDIT_OUT/run-1/agents" SBX_TARGET="$APP" PATH="$WORK/bin:$PATH")
+  ALLOWED+=("Bash(sbx:*)" "Bash($WORK/bin/sbx:*)")
+  echo 1 > "$OUT/sbx"
+  TASK="$TASK
+
+この環境には、対象のコードを隔離して動かすコマンド sbx があります（使い方: sbx <作業用ディレクトリ> <コマンド> [引数...]）。
+- 作業用ディレクトリは $AUDIT_OUT/run-1/agents/<エージェント ID>/scratch のように、$AUDIT_OUT/run-1/agents の下の新しいパスを指定します。書き込めるのはそこだけです。
+- 中では、ネットワーク（ループバック以外）が切れ、権限のない利用者で動き、対象のリポジトリは読み取り専用になり、環境変数は PATH・HOME・TMPDIR だけになります。
+- CPU 60 秒・仮想メモリ 16 GiB・プロセス 64・ファイル 64 MiB・実時間 120 秒の上限があります。
+- 依存パッケージは入っていません（node_modules はありません）。Node.js の標準の機能（node:test、node:sqlite など）は使えます。"
+fi
 printf '%s\n' "$TASK" > "$OUT/prompt.txt"
 
 # 権限のモードは dontAsk（許可リストに無いものは確認せず断る）。acceptEdits は作業ディレクトリの中の編集をすべて許すので、
@@ -159,7 +178,7 @@ printf '%s\n' "$TASK" > "$OUT/prompt.txt"
 START=$(date +%s)
 ( cd "$APP" && env HOME="$HOME_DIR" "${CHILD_ENV[@]}" timeout "${POC_STEP_TIMEOUT:-7200}" claude -p "$TASK" \
     --model "$MODEL" --permission-mode dontAsk --allowedTools "${ALLOWED[@]}" \
-    --disallowedTools AskUserQuestion --strict-mcp-config --add-dir "$AUDIT_OUT" "${PLUGINS[@]}" \
+    --disallowedTools AskUserQuestion "Read(//home/user/**)" "Grep(//home/user/**)" "Glob(//home/user/**)" --strict-mcp-config --add-dir "$AUDIT_OUT" "${PLUGINS[@]}" \
     --output-format stream-json --verbose < /dev/null ) > "$OUT/step1.jsonl" 2> "$OUT/step1.stderr" \
   || echo "exit=$?" >> "$OUT/errors.log"
 echo $(( $(date +%s) - START )) > "$OUT/wall-seconds"

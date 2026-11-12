@@ -54,7 +54,7 @@ printf '%s\n' "$TASK" > "$OUT/prompt.txt"
 START=$(date +%s)
 ( cd "$APP" && env HOME="$HOME_DIR" DISABLE_TELEMETRY=1 CLAUDE_SECURITY_SCAN_TIP=off timeout "${POC_STEP_TIMEOUT:-5400}" claude -p "$TASK" \
     --model "$MODEL" --permission-mode dontAsk --allowedTools "${ALLOWED[@]}" \
-    --disallowedTools AskUserQuestion --strict-mcp-config --plugin-dir "$PLUG" --add-dir "$PLUG" \
+    --disallowedTools AskUserQuestion "Read(//home/user/**)" "Grep(//home/user/**)" "Glob(//home/user/**)" --strict-mcp-config --plugin-dir "$PLUG" --add-dir "$PLUG" \
     --output-format stream-json --verbose < /dev/null ) > "$OUT/step1.jsonl" 2> "$OUT/step1.stderr" \
   || echo "exit=$?" >> "$OUT/errors.log"
 echo $(( $(date +%s) - START )) > "$OUT/wall-seconds"
