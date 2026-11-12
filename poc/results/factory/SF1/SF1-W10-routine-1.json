@@ -1,0 +1,615 @@
+{
+  "scenario": "W10",
+  "trial": "SF1-W10-routine-1",
+  "candidate": "W10-routine",
+  "run": 1,
+  "elapsed_seconds": 266,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "arseAssignee (83.383068ms)\n▶ getTask\n  ✔ returns a task by id, or undefined (84.847395ms)\n✔ getTask (85.064391ms)\n▶ parseTaskId\n  ✔ accepts positive integers only (0.404923ms)\n✔ parseTaskId (0.526494ms)\n▶ validateTaskInput\n  ✔ accepts a complete input and trims the title (89.925173ms)\n  ✔ reports every invalid field (93.804421ms)\n  ✔ rejects non-object bodies (382.346836ms)\n  ✔ validates only the given fields when partial (186.674259ms)\n✔ validateTaskInput (753.038975ms)\n▶ createTask / updateTask\n  ✔ creates a task and updates only the given fields (99.855382ms)\n✔ createTask / updateTask (99.968527ms)\n▶ isTaskStatus\n  ✔ accepts known statuses only (0.180809ms)\n✔ isTaskStatus (0.255229ms)\nℹ tests 41\nℹ suites 21\nℹ pass 41\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 2503.782385\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "sks/[id]\n├ ƒ /api/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /api/tasks/[id]/extensions\n├ ƒ /api/tasks/[id]/extensions/[extensionId]/approve\n├ ƒ /api/tasks/[id]/extensions/[extensionId]/reject\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:4935) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:4934) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:4941) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "id": "P01",
+      "name": "未ログインは 401（一覧・申請・承認・却下）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "id": "P02",
+      "name": "申請が無いタスクは 200 で空配列",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "id": "P03",
+      "name": "申請すると 201 で指定どおりの形の申請を返す（申請者はログイン中のユーザー、保留中、判断は null）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "id": "P04",
+      "name": "一覧は申請の古い順",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "id": "P05",
+      "name": "タスクが無い・ID が正の整数でないときは 404（一覧・申請）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "id": "P06",
+      "name": "新しい期限が YYYY-MM-DD 形式でない・理由が無いときは 400（details に理由）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "id": "P07",
+      "name": "理由が 500 文字を超えると 400",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "id": "P08",
+      "name": "保留中の申請があるタスクへの 2 件目の申請は 409",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "id": "P09",
+      "name": "承認すると 200 で承認済みの申請と変更後のタスクを返し、タスクの期限が変わる",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "id": "P10",
+      "name": "却下すると 200 で却下済みの申請を返し、タスクの期限は変わらない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "id": "P11",
+      "name": "却下・承認の後は、同じタスクに新しく申請できる",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "id": "P12",
+      "name": "存在しない申請の承認・却下は 404",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "id": "P13",
+      "name": "既存の動作: タスクの一覧・作成・更新が従来どおり動く",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/api/tasks/[id]/extensions/[extensionId]/approve/route.ts",
+        "added": 23,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/api/tasks/[id]/extensions/[extensionId]/reject/route.ts",
+        "added": 23,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/api/tasks/[id]/extensions/route.ts",
+        "added": 27,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/db/migrations.ts",
+        "added": 19,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/extensions.ts",
+        "added": 140,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "tests/extensions.test.ts",
+        "added": 106,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/tasks/[id]/extensions/[extensionId]/approve/route.ts",
+      "src/app/api/tasks/[id]/extensions/[extensionId]/reject/route.ts",
+      "src/app/api/tasks/[id]/extensions/route.ts",
+      "src/lib/extensions.ts",
+      "tests/extensions.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": []
+  },
+  "transcript": {
+    "cost_usd": 0.0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0,
+      "cache_creation": 0
+    },
+    "turns": 0,
+    "permission_denials": [],
+    "tool_calls": {},
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 0,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "",
+    "turns_last_result_only": 0,
+    "active_seconds_last_result_only": 0
+  },
+  "w10": {
+    "hidden": [
+      {
+        "id": "H01",
+        "name": "権限: 担当者でない人は延長を申請できない（拒否され、申請は作られない）",
+        "pass": false,
+        "detail": "suzuki が sato のタスクに申請: 201 {\"extension\":{\"id\":1,\"taskId\":8,\"requester\":\"suzuki\",\"newDueDate\":\"2026-12-20\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.472Z\",\"decidedBy\":null,\"decidedAt\":null}}"
+      },
+      {
+        "id": "H02",
+        "name": "権限: 申請者本人は自分の申請を承認できない（拒否され、期限も状態も変わらない）",
+        "pass": false,
+        "detail": "本人が承認: 200 {\"extension\":{\"id\":2,\"taskId\":9,\"requester\":\"sato\",\"newDueDate\":\"2026-12-20\",\"reason\":\"作業が遅れているため\",\"status\":\"approved\",\"createdAt\":\"2026-11-09T15:30:01.483Z\",\"decidedBy\":\"sato\",\"decidedAt\":\"2026-11-09"
+      },
+      {
+        "id": "H03",
+        "name": "権限: URL のタスクに属さない申請は承認・却下できない（拒否され、元のタスクは変わらない）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H04",
+        "name": "なりすまし: 本文の申請者・状態・判断した人・ID は使わない（申請者はログイン中のユーザーで保留中）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H05",
+        "name": "入力検証: 実在しない日付（2027-02-29・2027-04-31・2027-13-01）は 400",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H06",
+        "name": "エラー時の振る舞い: 壊れた本文・型の違う値・不正な申請 ID でも 500 にならず 400 / 404 を返す",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H07",
+        "name": "境界値: 新しい期限が今の期限と同じ・より前なら 400、1 日後なら受け付ける",
+        "pass": false,
+        "detail": "同じ日=201 前の日=409 1 日後=409"
+      },
+      {
+        "id": "H08",
+        "name": "境界値: 理由は前後の空白を除いて 1〜500 文字（空白だけは 400、500 文字は受け付け、501 文字は 400）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H09",
+        "name": "入力検証: 新しい期限に過去の日付（今の期限より後でも、今日より前）は指定できない",
+        "pass": false,
+        "detail": "2026-11-05（今日は 2026-11-10）: 201 {\"extension\":{\"id\":7,\"taskId\":19,\"requester\":\"sato\",\"newDueDate\":\"2026-11-05\",\"reason\":\"作業が遅れているため\",\"status\":\"pending\",\"createdAt\":\"2026-11-09T15:30:01.686Z\",\"decidedBy\":null,\"decidedAt\":null}}"
+      },
+      {
+        "id": "H10",
+        "name": "時差: 「今日」は日本時間で判断する（UTC では 11-09、日本時間では 11-10 の時刻に、11-09 は過去、11-10 は受け付ける）",
+        "pass": false,
+        "detail": "11-09=201 11-10=201"
+      },
+      {
+        "id": "H11",
+        "name": "二重処理: 判断済みの申請は承認・却下し直せない（拒否され、状態と期限は変わらない）",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "id": "H12",
+        "name": "同時更新: 申請の後に期限がもっと先へ変えられていたら、承認しても期限を短くしない",
+        "pass": false,
+        "detail": "承認=200 で期限が 2026-12-20 になった（2026-12-31 のままであるべき）"
+      }
+    ],
+    "mutation": {
+      "baseline_tests_pass": true,
+      "baseline_fails": 0,
+      "baseline_log": "",
+      "mutants": 44,
+      "killed": 39,
+      "kill_rate": 0.886,
+      "files": [
+        "src/lib/db/migrations.ts",
+        "src/lib/extensions.ts"
+      ],
+      "survivors": [
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 56,
+          "old": "4",
+          "new": "5",
+          "snippet": "version: 4,"
+        },
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 65,
+          "old": "'pending'",
+          "new": "'approved'",
+          "snippet": "status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),"
+        },
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 71,
+          "old": "'pending'",
+          "new": "'approved'",
+          "snippet": "CREATE UNIQUE INDEX due_date_extensions_one_pending ON due_date_extensions(task_id) WHERE status = 'pending';"
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 70,
+          "old": " < ",
+          "new": " <= ",
+          "snippet": "if (typeof b.reason !== \"string\" || reason.length < 1 || reason.length > EXTENSION_REASON_MAX_LENGTH) {"
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 70,
+          "old": "1",
+          "new": "2",
+          "snippet": "if (typeof b.reason !== \"string\" || reason.length < 1 || reason.length > EXTENSION_REASON_MAX_LENGTH) {"
+        }
+      ],
+      "details": [
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 56,
+          "old": "4",
+          "new": "5",
+          "killed": false
+        },
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 65,
+          "old": "'pending'",
+          "new": "'approved'",
+          "killed": false
+        },
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 65,
+          "old": "'pending'",
+          "new": "'approved'",
+          "killed": true
+        },
+        {
+          "file": "src/lib/db/migrations.ts",
+          "line": 71,
+          "old": "'pending'",
+          "new": "'approved'",
+          "killed": false
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 48,
+          "old": "500",
+          "new": "501",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 50,
+          "old": "4",
+          "new": "5",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 50,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 50,
+          "old": "2",
+          "new": "3",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 54,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 54,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 56,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 56,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 56,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 56,
+          "old": "10",
+          "new": "11",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 56,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 61,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 61,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 61,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 61,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 62,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 66,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 66,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 66,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 69,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 69,
+          "old": ".trim()",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 70,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 70,
+          "old": " < ",
+          "new": " <= ",
+          "killed": false
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 70,
+          "old": " > ",
+          "new": " >= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 70,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 70,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 70,
+          "old": "1",
+          "new": "2",
+          "killed": false
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 73,
+          "old": " > ",
+          "new": " >= ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 73,
+          "old": "false",
+          "new": "true",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 73,
+          "old": "0",
+          "new": "1",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 74,
+          "old": "true",
+          "new": "false",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 85,
+          "old": "&&",
+          "new": "||",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 95,
+          "old": " AND ",
+          "new": " OR ",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 95,
+          "old": "'pending'",
+          "new": "'approved'",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 100,
+          "old": "'pending'",
+          "new": "'approved'",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 121,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 121,
+          "old": "||",
+          "new": "&&",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 121,
+          "old": "!",
+          "new": "",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 122,
+          "old": "!==",
+          "new": "===",
+          "killed": true
+        },
+        {
+          "file": "src/lib/extensions.ts",
+          "line": 131,
+          "old": "===",
+          "new": "!==",
+          "killed": true
+        }
+      ]
+    },
+    "tests_changed": [
+      "tests/extensions.test.ts"
+    ]
+  }
+}
