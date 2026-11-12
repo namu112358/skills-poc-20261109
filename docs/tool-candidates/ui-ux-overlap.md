@@ -12,7 +12,22 @@
 - Impeccable: 最新版の v4.8.1。PoC で固定している版（`scripts/poc/fetch-plugins.sh`）とは、主要部分で差がありません。
 - UI/UX Pro Max: v2.15.0。PoC で固定している版と同じです。
 
-## 結論
+## 決定（2026-11-12。PoC U1〜U4 の結果）
+
+**標準は Impeccable と Web Design Guidelines の 2 つにした。** Frontend Design と UI/UX Pro Max は外した。各プロジェクトの `CLAUDE.md` に「画面を作るときは `impeccable` Skill を使う」と書く（雛形に記載済み）。
+
+| 根拠 | 結果 | 出典 |
+|---|---|---|
+| 人の評価（依頼者が画面を二択で 85 回比べた） | 勝率: Impeccable 79%、4 つすべて 66%、Frontend Design 40%、ツールなし 32%、UI/UX Pro Max 16%。Impeccable と Frontend Design を直接比べた組は 11 勝 1 敗（同じくらい 2）で Impeccable | [U1/human-pairs.md](../poc/results/workflow/U1/human-pairs.md) |
+| Skill が呼ばれるか | 依頼文だけでは呼ばれないことが多い（4 つすべてのとき作る課題 20 回中 11 回、UI/UX Pro Max 単体で 20 回中 6 回）。`CLAUDE.md` で指定すると毎回呼ばれた | [U1](../poc/results/workflow/U1/report.md)・[U2](../poc/results/workflow/U2/report.md) |
+| 作った後の仕上げの工程 | 見た目はほとんど変わらなかった。Frontend Design で作り Impeccable で仕上げる分担（勝率 50%）は、最初から Impeccable で作る構成に及ばなかった | [U3](../poc/results/workflow/U3/report.md)・[U1/human-pairs.md](../poc/results/workflow/U1/human-pairs.md) |
+| UI のレビュー | 簡単な問題（9 件）も見つけにくい問題（8 件）も、道具が無くてもほとんど見つけた。Web Design Guidelines は残すが、レビューの標準の手順には入れない（任意） | [U1](../poc/results/workflow/U1/report.md)・[U4](../poc/results/workflow/U4/report.md) |
+| 費用 | Impeccable は作る段階で Frontend Design の約 2 倍（1 回 $0.6〜2.0）。画面 1 つで差は 1 ドル前後 | [U1/tables.md](../poc/results/workflow/U1/tables.md) |
+
+- 補助として使った AI の見た目の判定は、人の評価との一致が 61%（偶然なら 50%）で、人の好みの代わりにならなかった。見た目は人の評価で決めた。
+- 下の「結論」「整理の案」は PoC の前（2026-11-09）に、中身を読んで書いたもの。案 A（Impeccable を作る担当、Web Design Guidelines をレビュー担当、UI/UX Pro Max は既定で無効）の向きは PoC で支持され、Frontend Design も外した。
+
+## 結論（PoC の前の調査。2026-11-09）
 
 - **「画面を作る」役割が 3 つ重なっています。** Frontend Design、Impeccable、UI/UX Pro Max のどれもが、画面を作る・作り直す依頼で呼び出されるように作られています。しかも、それぞれ別の手順を「必ず行う」と指示しています。
 - **書体・スタイルの勧めが逆向きです。** UI/UX Pro Max が勧める書体（Inter、Open Sans、Space Grotesk など）やスタイル（すりガラス風など）を、Impeccable の自動チェックが「使い古された書体」「装飾目的の効果」として指摘します。

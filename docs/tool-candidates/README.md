@@ -17,7 +17,7 @@ README の標準ツール一覧を見直した際に、足りない領域と、�
 - **UI/UX ツール**
   - 4 つを同時に有効にすると、「画面を作る」役割が 3 つ重なります。
   - 書体やスタイルの勧めが互いに逆になっている箇所もあります。UI/UX Pro Max が勧める書体を、Impeccable の自動チェックが「使い古された書体」として指摘します。
-  - 整理の案は、Impeccable を作る担当、Web Design Guidelines をレビュー担当にし、UI/UX Pro Max を既定で無効にするものです。
+  - PoC（U1〜U4）の結果、標準は Impeccable と Web Design Guidelines の 2 つにしました（2026-11-12）。Frontend Design と UI/UX Pro Max は外しました（[ui-ux-overlap.md](ui-ux-overlap.md) の「決定」）。
 - **セキュリティ監査の定期実行**
   - 毎日は CodeQL などの LLM を使わない検査に任せ、Cloudflare Security Audit は週 1 回の差分と月 1 回の全体に使う案です。
   - 頻度と費用の上限は、`poc-app` で 1 回あたりの費用を測ってから決めます。

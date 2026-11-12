@@ -2,6 +2,8 @@
 
 実施日 2026-11-11 ・ モデル claude-sonnet-5-5 ・ Claude Code 2.1.322 ・ 設計 [docs/poc/tasks/wf-U3-design.md](../../../tasks/wf-U3-design.md)
 
+> **2026-11-12 追記（確定）:** 依頼者の二択の評価でも、Frontend Design で作り仕上げを足した構成（WDG で仕上げ 46%・Impeccable で仕上げ 50%）は、最初から Impeccable で作る構成（79%）に及ばなかった（[U1/human-pairs.md](../U1/human-pairs.md)）。仕上げの工程は標準の手順に入れない、という結論は変わらない。
+
 > **暫定の報告です。** 見た目の評価は補助の AI の判定（`claude-opus-5-5`）による対の比較です。依頼者の順位付けが付いたら確かめます。試行の結果は `results/workflow/U1/` にあり、試行 ID は `U1<課題>-ui-fd-md-<wdg|imp>-<回>` です。
 
 ## 結論（暫定）

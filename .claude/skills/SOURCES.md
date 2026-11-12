@@ -5,7 +5,6 @@
 
 | Skill | 提供元 | パス | 固定コミット | ライセンス |
 |---|---|---|---|---|
-| frontend-design | anthropics/skills | `skills/frontend-design` | `2c5958ecac7cee2b583967a2c4981d0f4a75c579` | Apache-2.0（同梱 LICENSE.txt） |
 | webapp-testing | anthropics/skills | `skills/webapp-testing` | `2c5958ecac7cee2b583967a2c4981d0f4a75c579` | Apache-2.0（同梱 LICENSE.txt） |
 | skill-creator | anthropics/skills | `skills/skill-creator` | `2c5958ecac7cee2b583967a2c4981d0f4a75c579` | Apache-2.0（同梱 LICENSE.txt） |
 | web-design-guidelines | vercel-labs/agent-skills | `skills/web-design-guidelines` | `1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62` | MIT |

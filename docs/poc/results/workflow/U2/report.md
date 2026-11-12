@@ -2,6 +2,8 @@
 
 実施日 2026-11-11 ・ モデル claude-sonnet-5-5 ・ Claude Code 2.1.322 ・ 設計 [docs/poc/tasks/wf-U2-design.md](../../../tasks/wf-U2-design.md)
 
+> **2026-11-12 追記（確定）:** 「`CLAUDE.md` で指定すると Skill が毎回呼ばれる」は、そのまま確定（AI の判定に頼らない結果）。一方、下の「標準は Frontend Design + 指示」の提案は、依頼者の二択の評価で支持されなかった（Frontend Design + 指示 6%・Impeccable + 指示 70%。[U1/human-pairs.md](../U1/human-pairs.md)）。標準は「Impeccable + Web Design Guidelines、`CLAUDE.md` で `impeccable` を指定」にした。
+
 > **暫定の報告です。** 見た目の評価は補助の AI の判定（`claude-opus-5-5`）によるものです。依頼者の順位付けが付いたら確定させます。試行の結果は U1 と同じ場所（`results/workflow/U1/`）にあり、試行 ID は `U1<課題>-<構成>-<回>` です。
 
 ## 結論（暫定）

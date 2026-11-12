@@ -2,6 +2,8 @@
 
 実施日 2026-11-11 ・ モデル claude-sonnet-5-5 ・ Claude Code 2.1.322 ・ 設計 [docs/poc/tasks/wf-U1-design.md](../../../tasks/wf-U1-design.md)
 
+> **2026-11-12 追記（確定）: 見た目の評価は、依頼者の二択の評価（85 回）で確定した。** 勝率は Impeccable 79%・4 つすべて 66%・Frontend Design 40%・ツールなし 32%・UI/UX Pro Max 16%（[human-pairs.md](human-pairs.md)）。下の「暫定」の見た目の結論は、AI の判定によるもので置き換える。特に「業務の画面では Frontend Design が安く評価も高い」は、人の評価では支持されなかった（一覧画面 Frontend Design 43%・Impeccable 57%、ダッシュボード 25%・86%）。AI の判定と人の選択の一致は 61%。この結果、標準は Impeccable と Web Design Guidelines の 2 つにした（[ui-ux-overlap.md](../../../../tool-candidates/ui-ux-overlap.md)）。
+
 > **暫定の報告です。** 見た目の主な評価は、依頼者による順位付け（構成の名前を伏せた画面を並べ替える）です。依頼者の順位付けはまだ付いていないため、この報告の見た目の評価は、補助の AI の判定（`claude-opus-5-5`）によるものです。順位付けが付いたら、主な評価をそれに差し替えます。
 
 ## 結論（暫定）
