@@ -1,0 +1,222 @@
+diff --git a/src/app/tasks/[id]/page.tsx b/src/app/tasks/[id]/page.tsx
+index 6325e66..9a496b4 100644
+--- a/src/app/tasks/[id]/page.tsx
++++ b/src/app/tasks/[id]/page.tsx
+@@ -12,7 +12,7 @@ export default async function TaskDetailPage({ params }: Props) {
+   const id = parseTaskId((await params).id);
+   const task = id === undefined ? undefined : getTask(id);
+   if (!task) notFound();
+-  const assignee = getUser(task.assignee);
++  const assignee = getUser(task.assigneeId);
+ 
+   return (
+     <main>
+@@ -24,7 +24,7 @@ export default async function TaskDetailPage({ params }: Props) {
+         <dt>ステータス</dt>
+         <dd data-testid="task-status">{STATUS_LABELS[task.status]}</dd>
+         <dt>担当者</dt>
+-        <dd data-testid="task-assignee">{assignee?.name ?? task.assignee}</dd>
++        <dd data-testid="task-assignee">{assignee?.name ?? task.assigneeId}</dd>
+         <dt>期限</dt>
+         <dd data-testid="task-due-date">{task.dueDate}</dd>
+       </dl>
+diff --git a/src/app/tasks/page.tsx b/src/app/tasks/page.tsx
+index 1da2fed..4f20ae1 100644
+--- a/src/app/tasks/page.tsx
++++ b/src/app/tasks/page.tsx
+@@ -44,7 +44,7 @@ export default async function TasksPage({ searchParams }: Props) {
+                 <a href={`/tasks/${task.id}`}>{task.title}</a>
+               </td>
+               <td>{STATUS_LABELS[task.status]}</td>
+-              <td>{task.assignee}</td>
++              <td>{task.assigneeId}</td>
+               <td>{task.dueDate}</td>
+             </tr>
+           ))}
+diff --git a/src/lib/db/index.ts b/src/lib/db/index.ts
+index 27530d3..462a090 100644
+--- a/src/lib/db/index.ts
++++ b/src/lib/db/index.ts
+@@ -26,8 +26,8 @@ export function seed(db: Db): void {
+   transaction(db, () => {
+     const insertUser = db.prepare("INSERT INTO users (id, name, password_hash) VALUES (?, ?, ?)");
+     for (const u of SEED_USERS) insertUser.run(u.id, u.name, hashPassword(SEED_PASSWORD));
+-    const insertTask = db.prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES (?, ?, ?, ?)");
+-    for (const t of SEED_TASKS) insertTask.run(t.title, t.status, t.assignee, t.dueDate);
++    const insertTask = db.prepare("INSERT INTO tasks (title, status, assignee_id, due_date) VALUES (?, ?, ?, ?)");
++    for (const t of SEED_TASKS) insertTask.run(t.title, t.status, t.assigneeId, t.dueDate);
+   });
+ }
+ 
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 4e1b0a4..b45a13c 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -38,4 +38,12 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX sessions_user ON sessions(user_id);
+     `,
+   },
++  {
++    version: 3,
++    name: "rename_tasks_assignee",
++    // 列名を、users.id を指す外部キーであることが分かる名前にする（インデックス・外部キーは SQLite が付け替える）。
++    sql: `
++      ALTER TABLE tasks RENAME COLUMN assignee TO assignee_id;
++    `,
++  },
+ ];
+diff --git a/src/lib/db/seed.ts b/src/lib/db/seed.ts
+index eb745e0..0e5682b 100644
+--- a/src/lib/db/seed.ts
++++ b/src/lib/db/seed.ts
+@@ -9,11 +9,11 @@ export const SEED_USERS = [
+ ] as const;
+ 
+ export const SEED_TASKS = [
+-  { title: "要件定義書のレビュー", status: "done", assignee: "sato", dueDate: "2026-11-02" },
+-  { title: "ログイン画面のデザイン", status: "in_progress", assignee: "suzuki", dueDate: "2026-11-12" },
+-  { title: "API 設計", status: "in_progress", assignee: "sato", dueDate: "2026-11-14" },
+-  { title: "DB スキーマ作成", status: "todo", assignee: "tanaka", dueDate: "2026-11-18" },
+-  { title: "CI の整備", status: "todo", assignee: "suzuki", dueDate: "2026-11-20" },
+-  { title: "E2E テストの追加", status: "todo", assignee: "sato", dueDate: "2026-11-25" },
+-  { title: "リリースノート作成", status: "done", assignee: "tanaka", dueDate: "2026-11-05" },
++  { title: "要件定義書のレビュー", status: "done", assigneeId: "sato", dueDate: "2026-11-02" },
++  { title: "ログイン画面のデザイン", status: "in_progress", assigneeId: "suzuki", dueDate: "2026-11-12" },
++  { title: "API 設計", status: "in_progress", assigneeId: "sato", dueDate: "2026-11-14" },
++  { title: "DB スキーマ作成", status: "todo", assigneeId: "tanaka", dueDate: "2026-11-18" },
++  { title: "CI の整備", status: "todo", assigneeId: "suzuki", dueDate: "2026-11-20" },
++  { title: "E2E テストの追加", status: "todo", assigneeId: "sato", dueDate: "2026-11-25" },
++  { title: "リリースノート作成", status: "done", assigneeId: "tanaka", dueDate: "2026-11-05" },
+ ] as const;
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+index b533ce9..72792e9 100644
+--- a/src/lib/tasks.ts
++++ b/src/lib/tasks.ts
+@@ -6,7 +6,7 @@ export type Task = {
+   id: number;
+   title: string;
+   status: TaskStatus;
+-  assignee: string;
++  assigneeId: string; // users.id
+   dueDate: string; // YYYY-MM-DD
+ };
+ 
+@@ -26,21 +26,21 @@ export type TaskFilter = {
+   status?: TaskStatus;
+ };
+ 
+-type TaskRow = { id: number; title: string; status: TaskStatus; assignee: string; due_date: string };
++type TaskRow = { id: number; title: string; status: TaskStatus; assignee_id: string; due_date: string };
+ 
+ function toTask(row: TaskRow): Task {
+-  return { id: row.id, title: row.title, status: row.status, assignee: row.assignee, dueDate: row.due_date };
++  return { id: row.id, title: row.title, status: row.status, assigneeId: row.assignee_id, dueDate: row.due_date };
+ }
+ 
+ export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
+   const rows = db
+-    .prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id")
++    .prepare("SELECT id, title, status, assignee_id AS assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id")
+     .all({ status: filter.status ?? null }) as TaskRow[];
+   return rows.map(toTask);
+ }
+ 
+ export function getTask(id: number, db: Db = getDb()): Task | undefined {
+-  const row = db.prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE id = ?").get(id) as
++  const row = db.prepare("SELECT id, title, status, assignee_id, due_date FROM tasks WHERE id = ?").get(id) as
+     | TaskRow
+     | undefined;
+   return row && toTask(row);
+@@ -84,11 +84,12 @@ export function validateTaskInput(
+     if (!isTaskStatus(b.status)) errors.push("ステータスが正しくありません");
+     else value.status = b.status;
+   }
+-  if (need("assignee")) {
++  if (need("assigneeId")) {
+     const exists =
+-      typeof b.assignee === "string" && db.prepare("SELECT 1 FROM users WHERE id = ?").get(b.assignee) !== undefined;
++      typeof b.assigneeId === "string" &&
++      db.prepare("SELECT 1 FROM users WHERE id = ?").get(b.assigneeId) !== undefined;
+     if (!exists) errors.push("担当者が存在しません");
+-    else value.assignee = b.assignee as string;
++    else value.assigneeId = b.assigneeId as string;
+   }
+   if (need("dueDate")) {
+     if (typeof b.dueDate !== "string" || !DATE_RE.test(b.dueDate) || Number.isNaN(Date.parse(b.dueDate))) {
+@@ -100,8 +101,8 @@ export function validateTaskInput(
+ 
+ export function createTask(input: TaskInput, db: Db = getDb()): Task {
+   const { lastInsertRowid } = db
+-    .prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES (?, ?, ?, ?)")
+-    .run(input.title, input.status, input.assignee, input.dueDate);
++    .prepare("INSERT INTO tasks (title, status, assignee_id, due_date) VALUES (?, ?, ?, ?)")
++    .run(input.title, input.status, input.assigneeId, input.dueDate);
+   return getTask(Number(lastInsertRowid), db)!;
+ }
+ 
+@@ -110,10 +111,10 @@ export function updateTask(id: number, changes: Partial<TaskInput>, db: Db = get
+   const current = getTask(id, db);
+   if (!current) return undefined;
+   const next = { ...current, ...changes };
+-  db.prepare("UPDATE tasks SET title = ?, status = ?, assignee = ?, due_date = ? WHERE id = ?").run(
++  db.prepare("UPDATE tasks SET title = ?, status = ?, assignee_id = ?, due_date = ? WHERE id = ?").run(
+     next.title,
+     next.status,
+-    next.assignee,
++    next.assigneeId,
+     next.dueDate,
+     id,
+   );
+diff --git a/tests/db.test.ts b/tests/db.test.ts
+index 1a67f64..1953e56 100644
+--- a/tests/db.test.ts
++++ b/tests/db.test.ts
+@@ -20,7 +20,7 @@ describe("openDb", () => {
+   it("enforces foreign keys", () => {
+     const db = openDb();
+     assert.throws(() =>
+-      db.prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES ('x', 'todo', 'nobody', '2026-01-01')").run(),
++      db.prepare("INSERT INTO tasks (title, status, assignee_id, due_date) VALUES ('x', 'todo', 'nobody', '2026-01-01')").run(),
+     );
+   });
+ });
+diff --git a/tests/tasks.test.ts b/tests/tasks.test.ts
+index 66029e6..145bd87 100644
+--- a/tests/tasks.test.ts
++++ b/tests/tasks.test.ts
+@@ -30,7 +30,7 @@ describe("getTask", () => {
+       id: 1,
+       title: "要件定義書のレビュー",
+       status: "done",
+-      assignee: "sato",
++      assigneeId: "sato",
+       dueDate: "2026-11-02",
+     });
+     assert.equal(getTask(999, db), undefined);
+@@ -45,7 +45,7 @@ describe("parseTaskId", () => {
+ });
+ 
+ describe("validateTaskInput", () => {
+-  const valid = { title: " 新しいタスク ", status: "todo", assignee: "tanaka", dueDate: "2026-12-01" };
++  const valid = { title: " 新しいタスク ", status: "todo", assigneeId: "tanaka", dueDate: "2026-12-01" };
+ 
+   it("accepts a complete input and trims the title", () => {
+     const r = validateTaskInput(valid, {}, openDb());
+@@ -53,7 +53,7 @@ describe("validateTaskInput", () => {
+   });
+ 
+   it("reports every invalid field", () => {
+-    const r = validateTaskInput({ title: "", status: "x", assignee: "nobody", dueDate: "12/01" }, {}, openDb());
++    const r = validateTaskInput({ title: "", status: "x", assigneeId: "nobody", dueDate: "12/01" }, {}, openDb());
+     assert.equal(r.ok, false);
+     assert.equal(!r.ok && r.errors.length, 4);
+   });
+@@ -74,7 +74,7 @@ describe("validateTaskInput", () => {
+ describe("createTask / updateTask", () => {
+   it("creates a task and updates only the given fields", () => {
+     const db = openDb();
+-    const created = createTask({ title: "新規", status: "todo", assignee: "sato", dueDate: "2026-12-01" }, db);
++    const created = createTask({ title: "新規", status: "todo", assigneeId: "sato", dueDate: "2026-12-01" }, db);
+     assert.equal(created.id, 8);
+     assert.equal(listTasks({}, db).length, 8);
+     const updated = updateTask(created.id, { status: "done" }, db);

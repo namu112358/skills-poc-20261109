@@ -1,0 +1,38 @@
+{
+  "trial": "W23-baseline-d2-2",
+  "scenario": "W23",
+  "config": "baseline",
+  "case": "d2",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスクにコメントを付けられるようにする\n\n対象: 未コミットの差分（コメントの API・詳細画面・マイグレーション・テスト）。\n`typecheck`・`test` が通っていても、下記はマージ前に直す必要があります。\n\n## 指摘一覧\n\n### 1. 【高】`javascript:` リンクによる XSS\n- 場所: `src/lib/comments.ts` の `renderBody`、`src/app/tasks/[id]/page.tsx` の `dangerouslySetInnerHTML`\n- 問題: HTML エスケープは `\"` `<` `>` `&` だけで、`[文字](URL)` の URL は検証していません。`[クリック](javascript:alert(document.cookie))` というコメントを書くと `<a href=\"javascript:...\">` になり、タスク詳細を開いた他のユーザーがクリックすると任意のスクリプトが実行されます。`data:` なども同様です。\n- 直し方: URL は `http:` / `https:` だけ許可し、それ以外はリンクにせず文字のまま出します。望ましいのは `dangerouslySetInnerHTML` をやめ、本文を React 要素（`<a>` と `<br />`）として組み立てる方法です。URL 検証は `src/lib/` の関数に置き、`javascript:` を拒否するテストを追加してください。\n\n### 2. 【高】存在しないタスクへの `POST` が 500 になる\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` の `POST`\n- 問題: `GET` と違い `getTask(id)` で存在確認をしていません。`POST /api/tasks/9999/comments` は `comments.task_id` の外部キー制約（`foreign_keys = ON`）違反で例外になり、500 が返ります。規約 9「対象が無いときは 404」に反します。\n- 直し方: `id === undefined || !getTask(id)` なら 404 を返します。API のテストも追加してください。\n\n### 3. 【高】他人のコメントを編集できる（認可の漏れ）\n- 場所: `src/app/api/comments/[commentId]/route.ts` の `PATCH`\n- 問題: `DELETE` は `comment.authorId !== user.id` を確認していますが、`PATCH` は確認していません。ログインしていれば誰でも他人のコメント本文を書き換えられ、発言のなりすましができます。\n- 直し方: `PATCH` にも `DELETE` と同じ作成者チェックを入れます（共通化が望ましい）。その上で、他人のコメントを編集・削除すると 403 になるテストを追加してください。\n\n### 4. 【中】コメントの並び順が壊れる（`created_at` の形式）\n- 場所: `src/lib/comments.ts` の `formatCreatedAt` と `listComments` の `ORDER BY created_at, id`\n- 問題: `toLocaleString(\"ja-JP\")` は `2026/11/9 9:05:00` のように月・日・時をゼロ埋めしません。これを文字列として並べるため、`2026/11/9` が `2026/11/10` より後、`9:00:00` が `10:00:00` より後になり、古い順になりません。テストは 10 時と 11 時で偶然通っています。表示用の文字列を保存しているため、タイムゾーンや書式の変更にも弱くなります。\n- 直し方: DB には ISO 8601（UTC）で保存します（`sessions.expires_at` と同じ方針）。表示のときだけ日本時間に整形します。ORDER BY は `id` だけでも足ります。月・日が 1 桁と時刻が 1 桁になる日時を使った並び順のテストを追加してください。\n\n### 5. 【中】画面からコメントを書けない\n- 場所: `src/app/tasks/[id]/page.tsx`\n- 問題: PR の説明は「画面でコメントを読み書きできる」ですが、実装は表示だけで、投稿・編集・削除の UI がありません。API を直接呼ぶしかありません。\n- 直し方: 投稿フォーム（日本語の文言）を追加するか、PR の説明を「表示と API のみ」に直してください。\n\n### 6. 【低】テストが足りない\n- 場所: `tests/comments.test.ts`\n- 問題: ライブラリ関数だけが対象で、API Route の 401・400・404・403、存在しないタスク、他人のコメントの扱い、危険な URL がテストされていません（#1〜#3 を見逃した原因です）。\n- 直し方: 上記の各ケースのテストを追加してください。\n\n### 7. 【低】コメント ID の検証に `parseTaskId` を流用している\n- 場所: `src/app/api/comments/[commentId]/route.ts`\n- 問題: 動作は正しいものの、名前が「タスク ID」で読み手が混乱します。\n- 直し方: 汎用の ID 検証関数に分けるか、`parseCommentId` を用意してください。\n\n### 8. 【低】文字数の検証が trim 前の長さで行われる\n- 場所: `src/lib/comments.ts` の `validateCommentBody`\n- 問題: 前後の空白を含めて 2000 文字を超えると、trim 後は上限内でも 400 になります。\n- 直し方: trim してから長さを判定してください。\n",
+  "review_chars": 2568,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2107,
+    "tokens": {
+      "input": 20,
+      "output": 4489,
+      "cache_read": 330819,
+      "cache_creation": 33178
+    },
+    "turns": 9,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat \\\"$f\\\"; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 47,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は、前のターンで指摘 8 件すべてを依頼どおりの形式（重要度・場所・問題・直し方）で書いてコミット済みです。書き写す内容は残っておらず、ファイルは変えていません。新しいコミットも作っていません。\n\n- コミットは `3eb10be` で、対象は `REVIEW.md` だけです。\n- `git status` で `REVIEW.md` に未コミットの差分がないことを確認しました。\n- 8 件の内訳は高 3 件、中 2 件、低 3 件です。\n\n新しい指摘は足しておらず、削った指摘もありません。コードも直していません。"
+  },
+  "interventions": 0
+}

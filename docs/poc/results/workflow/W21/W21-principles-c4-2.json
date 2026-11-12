@@ -1,0 +1,39 @@
+{
+  "trial": "W21-principles-c4-2",
+  "scenario": "W21",
+  "config": "principles",
+  "case": "c4",
+  "rep": 2,
+  "review_md": "# レビュー: 期限が近いタスクを一覧で目立たせる\n\n## 要約\n\n期限が今日から 3 日以内（今日〜3 日後）の未完了タスクに「（期限間近）」を付ける変更。判定を `src/lib/due.ts` に置き、ページは表示だけにしている点は規約どおり。ただし、日数の計算に不具合が 2 つあり、PR の仕様どおりに動かない。**修正を求める。**\n\n## 指摘\n\n### 1. [高] 日本時間の 9:00 以降、期限が「今日」のタスクが期限切れ扱いになる\n\n- 場所: `src/lib/due.ts` の `daysUntilDue`（`Math.floor((Date.parse(dueDate) - now.getTime()) / DAY_MS)`）\n- 問題: `Date.parse(\"2026-11-12\")` は UTC の 0:00（日本時間 9:00）になる。これと現在時刻の差を 24 時間単位で切り捨てているので、日本時間の日付で数えていない。日本時間 2026-11-12 12:00 に期限 `2026-11-12` を判定すると `-1` になり、`isDueSoon` が false を返す。実際に確認した。期限当日の 9:00 以降、最も目立たせたい「今日が期限」のタスクからラベルが消える。反対に、日本時間 0:00〜9:00 は正しく出る。\n- なぜテストで見つからなかったか: `tests/due.test.ts` の `now` が日本時間ちょうど 0:00 に固定されている。この時刻だけは偶然正しい値になる。\n- 直し方: `now` を日本時間の暦日（`YYYY-MM-DD`）に変換する。例として `new Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" }).format(now)` を使う。その日付と `dueDate` を、どちらも UTC 0:00 として `Date.parse` し、差を日数で割る。この場合は端数が出ない。サーバーのタイムゾーン（`TZ`）に依存しない。\n\n### 2. [高] 「3 日後」が対象外になっている（off-by-one）\n\n- 場所: `src/lib/due.ts` の `isDueSoon`（`days < DUE_SOON_DAYS`）\n- 問題: PR の仕様は「今日・明日・明後日・3 日後」（残り 0〜3 日）。実装は `days < 3` なので 0〜2 日で、3 日後が外れる。日本時間 11-12 0:00 に期限 `2026-11-15` を判定すると `daysUntilDue` は 3 で、false になる。確認済み。\n- なぜテストで見つからなかったか: テストは `2026-11-14`（2 日後）を true、`2026-11-30` を false としているだけで、境界の 3 日後と 4 日後を確かめていない。\n- 直し方: 判定を `days >= 0 && days <= DUE_SOON_DAYS` にする。\n\n### 3. [中] テストが境界と時刻をカバーしていない\n\n- 場所: `tests/due.test.ts`\n- 問題: 指摘 1・2 はどちらも、境界値（残り 3 日と 4 日）と、日付の途中の時刻（日本時間 9:00 以降）のテストがあれば検出できた。`daysUntilDue` のテストも 0:00 だけを見ている。\n- 直し方: 次のケースを追加する。\n  - 日本時間の昼 12:00 と 23:59 で、当日期限が true になる。\n  - 残り 3 日が true、4 日が false になる。\n  - UTC 日付と日本の日付がずれる時間帯（日本時間 0:00〜9:00）でも同じ結果になる。\n- `isDueSoon` の判定は、日付の組み合わせで表にして確認するとよい。\n\n### 4. [低] `isDueSoon` を行ごとに 2 回呼んでいる\n\n- 場所: `src/app/tasks/page.tsx` の `tasks.map` 内（`className` と「（期限間近）」の表示）\n- 問題: 同じ判定を 1 行で 2 回計算している。動作は変わらないが、判定を変えるときに読む人が迷う。\n- 直し方: `const soon = isDueSoon(task, now);` を 1 回だけ計算して使う。\n\n### 5. [低] `due-soon` クラスが PR の説明にも CSS にも無い\n\n- 場所: `src/app/tasks/page.tsx` の `className=\"due-soon\"`\n- 問題: 仕様は「（期限間近）」の表示だけ。`due-soon` クラスは、対応するスタイルがどこにも無く（`grep` で確認）、使われていない。規約 6「変更は依頼された範囲にとどめる」にも合わない。\n- 直し方: クラスを削除する。見た目を変えるなら、CSS と PR の説明を足す。\n\n## 良い点\n\n- 判定を `src/lib/due.ts` に切り出し、ページには表示だけを書いている（規約 1）。\n- `now` を引数で受け取るので、時刻を固定してテストできる。\n- 完了済みと期限切れを除外する仕様を、実装とテストの両方に反映している。\n",
+  "review_chars": 2274,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.214,
+    "tokens": {
+      "input": 18,
+      "output": 4283,
+      "cache_read": 300957,
+      "cache_creation": 35266
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 4,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 51,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は、直前のレビューの指摘をすべて、最初の依頼の形式で書いてあります。そのため、書き換えと新しいコミットはしていません。\n\n- **形式:** 各指摘に、場所（ファイルと関数）、何が問題か、直し方、重要度（高・中・低）が入っています。スキルの出力形式にある「必須・推奨・細かい点」は使わず、最初の依頼どおり高・中・低にしてあります。\n- **指摘の数:** 5 件です。高が 2 件（日本時間 9:00 以降に当日期限が外れる、3 日後が対象外になる）、中が 1 件（テストの境界と時刻が足りない）、低が 2 件（`isDueSoon` の二重呼び出し、`due-soon` クラスが使われていない）です。\n- **コミット:** `REVIEW.md` だけを、前のターンでコミット済みです。\n- **差分:** コードと PR の差分には触れていません。差分は未コミットのままです。"
+  },
+  "interventions": 0
+}

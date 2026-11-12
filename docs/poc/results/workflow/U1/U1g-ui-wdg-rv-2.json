@@ -1,0 +1,59 @@
+{
+  "trial": "U1g-ui-wdg-rv-2",
+  "scenario": "U1",
+  "task": "U1g",
+  "config": "ui-wdg-rv",
+  "rep": 2,
+  "transcript": {
+    "cost_usd": 0.1922,
+    "tokens": {
+      "input": 3486,
+      "output": 8129,
+      "cache_read": 292403,
+      "cache_creation": 23572
+    },
+    "turns": 11,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat -n $f; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Skill": 1,
+      "Bash": 6,
+      "ToolSearch": 1,
+      "WebFetch": 1
+    },
+    "skills_used": [
+      "web-design-guidelines"
+    ],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 66,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "レビューを `REVIEW.md` にまとめ、`REVIEW.md` だけをコミットしました（`00e716f`）。コードは変更していません。PR の差分は、元のとおり未コミットで残っています。ブラウザで画面を動かしての確認はしておらず、コードの読解だけでの指摘です。\n\n`CLAUDE.md` の指定どおり `web-design-guidelines` Skill を使いました。ガイドラインの本文は取得できましたが、要約でしか返ってこなかったので、ルールの全文を一行ずつ当てたわけではありません。指摘は、そのカテゴリごとの観点と実際のコードを突き合わせたものです。\n\n**高**\n1. タスクから詳細への移動が `<li onClick>` だけです。キーボードや支援技術では詳細に行けず、新しいタブでも開けません。タイトルを実際のリンク（`<a>`）にしてください。\n2. 追加ボタンの `tabIndex={1}` で、Tab 順が壊れています。ページを開いて最初にフォーカスが当たるのがこのボタンになります。\n\n**中**\n3. フォームのエラーが入力欄と結び付いていません。`aria-invalid` や `aria-describedby` が無く、フォーカスも動きません。\n4. 追加が成功しても、通知は視覚的なアニメーションだけです。\n5. アニメーションが `prefers-reduced-motion` を無視しています。\n6. スマートフォンで、入力欄の文字が 16px 未満（iOS で自動ズームされる）、押せる範囲が 44px 未満です。\n7. ステータス変更に保存中の表示が無く、連続して変えると、失敗時の巻き戻しが実際の保存内容とずれます。失敗の文言にも次の行動がありません。\n\n**低**\n8. 見出しが `h1` から `h3` に飛んでいて、`nav` ランドマークも無いです。\n9. 期限が ISO 形式のままで、期限切れが区別できません。\n10. 枠線 `#ccc` のコントラストが低く、色が固定でダークモードに未対応です。\n11. カードにホバー・フォーカスの状態がありません。\n\n各指摘には、場所、困る人と状況、直し方を書いています。\n\nコミット時、すでにステージされていた PR の変更は含めていません。"
+  },
+  "elapsed_seconds": 75,
+  "interventions": 0,
+  "review_md": "# レビュー: マイタスク画面（`/my-tasks`）\n\n観点: 画面の見た目・使い勝手・アクセシビリティ（Web Interface Guidelines に沿って確認）。\n行番号は `src/app/my-tasks/MyTasks.tsx` のもの（別ファイルは明記）。コードは変更していません。\n\n## 高\n\n### 1. タスクの詳細への移動が `<li onClick>` だけで、キーボード・支援技術で使えない\n- 場所: `MyTasks.tsx:83`（`<li onClick={() => (window.location.href = ...)}>`）、`:87`（`stopPropagation`）、`:84`（`cursor: pointer`）\n- 問題: 詳細画面への入口が、リンクでもボタンでもない `li` のクリックだけ。キーボードだけで操作する人・スクリーンリーダーの人は詳細に行けない（フォーカスできず、リンクとして読み上げられない）。スマートフォンでも長押しや「新しいタブで開く」ができず、毎回ページ全体を読み込み直す。`stopPropagation` が必要になっているのも、カード全体を押せる作りの副作用で、select の周りの余白を押しても何も起きないなど反応がばらつく。\n- 直し方: タイトル（`:86` の `span`）を `<a href={`/tasks/${task.id}`}>` にする。カード全体を押せるようにしたいなら、そのリンクに `::after { position: absolute; inset: 0 }` を付けて広げ、select 側を `position: relative` にして前面に出す。`li` の `onClick` と `stopPropagation` は削除する。\n\n### 2. 追加ボタンに `tabIndex={1}` が付いていて、Tab 順が壊れる\n- 場所: `MyTasks.tsx:113`\n- 問題: 正の `tabIndex` はページ内で最初にフォーカスされる。ページを開いて Tab を押すと、ヘッダーのリンクやステータスの select より先に「追加する」ボタンへ飛ぶ。キーボード・スクリーンリーダーの人は、タイトルや期限を入力する前にボタンに着き、読む順序と操作の順序が食い違う。\n- 直し方: `tabIndex` を削除する（`button` は既定でフォーカスできる）。\n\n## 中\n\n### 3. フォームのエラーが入力欄と結び付いておらず、フォーカスも動かない\n- 場所: `MyTasks.tsx:107-122`（入力欄とエラー表示 `role=\"alert\"`）\n- 問題: エラーは1つの `div` にまとめて表示されるだけで、「タイトルが空です」のような内容がどの入力欄のものか分からない。入力欄に `aria-invalid` / `aria-describedby` が無く、スクリーンリーダーで欄に戻っても誤りが読まれない。エラーはボタンの下にあり、スマートフォンでキーボードが出ていると画面外になりやすい。フォーカスは「追加する」ボタンに残ったままで、直す場所に移らない。また `key={m}`（`:119`）は同じ文言が2つ来ると key が重複する。\n- 直し方: エラーのある欄に `aria-invalid=\"true\"` と `aria-describedby`（エラー文の id）を付ける。送信に失敗したら最初の誤りのある入力欄か、エラー表示にフォーカスを移す。`required` も付ける（必須の表示にもなる）。key は `${index}-${m}` にする。\n\n### 4. 追加に成功したことが視覚的な強調（アニメーション）でしか伝わらない\n- 場所: `MyTasks.tsx:71-72`、`:34`（`setJustAdded`）、一覧の `ul`（`:78`）\n- 問題: 成功すると入力欄が空になりリストに行が増えるだけ。スクリーンリーダーの人には何も通知されず、成功したのか分からない。リストが画面外（長い一覧の上のほう）に増えた場合、目で見る人にも気づきにくい。ステータスの保存成功も同様に無反応。\n- 直し方: 「『〇〇』を追加しました。」を表示する `role=\"status\"`（`aria-live=\"polite\"`）の領域を設ける。\n\n### 5. アニメーションが `prefers-reduced-motion` を無視し、合成だけで済むプロパティになっていない\n- 場所: `MyTasks.tsx:71-72`\n- 問題: 画面の動きを減らす設定にしている人（前庭障害など）にも、横から滑り込む動きが出る。`background` のアニメーションは再描画が走り、`transform` との組み合わせで低性能の端末では引っかかりやすい。`ease-out` のみで、`transition: all` ではないのは良いが、`justAdded` は次の追加まで残るため、再描画のたびに同じ要素へ再適用される恐れもある。\n- 直し方: `@media (prefers-reduced-motion: reduce) { .my-task-added { animation: none; } }` を足す。動きは `opacity` / `transform` に絞るか、背景の強調だけにして移動をやめる。\n\n### 6. スマートフォンで入力欄・操作部品が小さい（iOS でのズーム、タップしにくさ）\n- 場所: `MyTasks.tsx:90`（select）、`:108`・`:111`（input）、`:113`（button）、`src/app/layout.tsx:13-14`（ヘッダーのリンク）\n- 問題: スタイル指定が無く、ブラウザ既定の約 13px のまま。iPhone の Safari では 16px 未満の入力欄にフォーカスすると画面が勝手に拡大され、戻す操作が必要になる。select・ボタン・リンクの押せる領域が 44px 未満で、押し間違えやすい。ステータスを1行ごとに変える画面なので、select の押し間違いは誤った更新につながる。\n- 直し方: 入力欄・select・ボタンに `font-size: 16px` 以上、`min-height: 44px` 程度を指定する。ヘッダーのリンクにも余白（padding）を付けて押せる範囲を広げる。\n\n### 7. ステータス変更の保存中・連続操作の扱いが不十分\n- 場所: `MyTasks.tsx:50-68`（`changeStatus`）\n- 問題: (a) 保存中の表示も無効化も無く、通信が遅いと保存されたのか分からない。(b) 続けて 2 回変えると（例: 未着手→進行中→完了）、1 回目が失敗したとき `previous`（古い値）に戻してしまい、画面が実際の保存内容とずれる。レスポンスの順序も保証されない。(c) 失敗の文言が「ステータスを変更できませんでした。」だけで、どう対処すべきか（再度試す、再読み込み）が書かれていない。ログイン切れ（401）でも同じ文言になる。\n- 直し方: 保存中はその行の select を `disabled`（または `aria-busy`）にして連続操作を防ぐ。失敗時は「もう一度お試しください」など次の行動を書き、401 のときはログイン画面へ案内する。\n\n## 低\n\n### 8. 見出しの階層が飛んでいる・ランドマークが無い\n- 場所: `MyTasks.tsx:105`（`<h3>`）、`src/app/my-tasks/page.tsx`（`<h1>`）、`src/app/layout.tsx:10-13`（`header` 内のリンク）\n- 問題: `h1` の次が `h3` で `h2` が無く、見出しで移動する人に構造が不自然。ヘッダーのリンク群が `nav` ではなく、現在のページ（マイタスク）を示す表示（`aria-current=\"page\"`）も無い。\n- 直し方: `h3` を `h2` にする。リンクを `<nav aria-label=\"メイン\">` で囲み、現在のページに `aria-current=\"page\"` を付ける。\n\n### 9. 期限が ISO 形式（`2026-11-14`）のままで、期限切れも分からない\n- 場所: `MyTasks.tsx:98`\n- 問題: 日本語の画面なのに日付が機械向けの表記で読みにくい。「期限の近い順」が売りの画面だが、期限切れ・今日が期限のタスクが見た目で区別できない。\n- 直し方: `Intl.DateTimeFormat(\"ja-JP\", ...)` で整形し（SSR とクライアントでタイムゾーン差が出ないよう固定する）、`<time dateTime=...>` で包む。期限切れには文言（「期限切れ」）を添える（色だけに頼らない）。\n\n### 10. 色の指定が固定で、枠線のコントラストが低い・ダークモードに未対応\n- 場所: `MyTasks.tsx:84`（`border: 1px solid #ccc`）、`:71`（`#fff3b0`）\n- 問題: `#ccc` は白背景に対し約 1.6:1 で、カードの境界が見えにくい人がいる。ダークモードの端末では、`#fff3b0` の強調が暗い背景に対して目立ちすぎ、`transparent` への戻り先も背景に依存する。\n- 直し方: 枠線は 3:1 以上のものにする。色は CSS 変数にして `prefers-color-scheme` に対応させる（`color-scheme` も指定する）。\n\n### 11. カードのフォーカス・ホバーの状態が無い\n- 場所: `MyTasks.tsx:84`\n- 問題: カード全体が押せる見た目（`cursor: pointer`）なのに、ホバー・フォーカス時の変化が無く、押せるのか分かりにくい（#1 を直すと、リンクの `:focus-visible` が必要になる）。\n- 直し方: リンクに `:focus-visible` の明確な枠線を付ける。カード全体を押せる作りにするなら `:hover` / `:focus-within` で枠線の色を変える。\n",
+  "observations": {
+    "hook_outputs": {},
+    "hook_samples": [],
+    "design_docs": [],
+    "fonts": [
+      "system-ui, sans-serif\", margin: 16"
+    ],
+    "overused_fonts": [],
+    "files_changed": [
+      "REVIEW.md",
+      "src/app/layout.tsx",
+      "src/app/my-tasks/MyTasks.tsx",
+      "src/app/my-tasks/page.tsx",
+      "src/lib/tasks.ts",
+      "tests/tasks.test.ts"
+    ]
+  }
+}

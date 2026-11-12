@@ -1,0 +1,47 @@
+{
+  "trial": "W22-review-pr-full-c4-2",
+  "scenario": "W22",
+  "config": "review-pr-full",
+  "case": "c4",
+  "rep": 2,
+  "review_md": "# レビュー: 期限が近いタスクを一覧で目立たせる\n\n対象: 未コミットの差分（`src/app/tasks/page.tsx`、`src/lib/due.ts`、`tests/due.test.ts`）。\n結論: **このままではマージ不可**。高が 2 件あり、どちらも仕様（今日・明日・明後日・3 日後、日本時間の日付）を満たしていません。\n`npm test` と `npm run typecheck` は通ります。ただしテストが、不具合の出ない時刻（JST 0:00 ちょうど）だけで書かれているためです。\n\n## 指摘一覧\n\n### 1. 【高】日の切り替わりが JST 0:00 ではなく JST 9:00 になる\n\n- **場所**: `src/lib/due.ts` の `daysUntilDue`（13 行目付近）`Math.floor((Date.parse(dueDate) - now.getTime()) / DAY_MS)`\n- **問題**: `Date.parse(\"2026-11-12\")` は UTC 0:00（= JST 9:00）として解釈されます。その時刻と現在時刻の差を 24 時間で割って切り捨てるので、「今日」の境目が日本の暦日ではなく UTC の暦日になります。サーバーの TZ（UTC・Asia/Tokyo など）を変えても結果は同じで、日本時間への変換はどこにも入っていません。\n- **起きること**（期限 `2026-11-12`、いずれも実行で確認）:\n  - 現在 JST 11/12 9:01 以降（23:59 まで）: `daysUntilDue` が -1、`isDueSoon` が false。今日が期限なのに「期限間近」が消える。毎日 JST 9:01〜23:59 の約 15 時間続く。シードの「ログイン画面のデザイン」（期限 11/12）も当日 9:01 以降に表示が消える。\n  - 現在 JST 11/11 23:59: 明日が期限のタスクが 0（今日）と数えられ、日数が 1 日ずれる。\n- **直し方**: 現在時刻を JST の暦日（`YYYY-MM-DD`）に直し、期限の日付と日付どうしで差をとる。日本に夏時間はないので、`Intl.DateTimeFormat(\"en-CA\", { timeZone: \"Asia/Tokyo\" })` でも、`new Date(now.getTime() + 9 * 3600_000).toISOString().slice(0, 10)` でもよい（新しいライブラリは不要）。\n  ```ts\n  const today = new Intl.DateTimeFormat(\"en-CA\", { timeZone: \"Asia/Tokyo\" }).format(now);\n  // 両方とも UTC 0:00 として読むので、差は DAY_MS の整数倍になる\n  return Math.round((Date.parse(dueDate) - Date.parse(today)) / DAY_MS);\n  ```\n\n### 2. 【高】「3 日後」が対象外になる\n\n- **場所**: `src/lib/due.ts` の `isDueSoon`（18 行目付近）`return days >= 0 && days < DUE_SOON_DAYS;`\n- **問題**: 仕様は「今日・明日・明後日・3 日後」の 4 日分（0〜3）ですが、`< 3` なので 0〜2 の 3 日分です。\n- **起きること**: 現在 JST 11/12 0:00、期限 `2026-11-15` で `daysUntilDue` が 3、`isDueSoon` が false（期待は true）。1 と重なるため、どの時刻でも 4 日分になる時刻がありません（0:00〜9:00 は今日〜明後日、9:01 以降は明日〜3 日後）。\n- **直し方**: `days <= DUE_SOON_DAYS` にする。あわせて `DUE_SOON_DAYS` と doc コメントの「以内」の意味（今日から数えて 3 日後まで）をそろえる。\n\n### 3. 【中】テストが不具合を検出できない（規約 5）\n\n- **場所**: `tests/due.test.ts` 7 行目 `now = new Date(\"2026-11-12T00:00:00+09:00\")`、および `isDueSoon` のケース\n- **問題**: JST 0:00 は、現在のコードで日数が偶然正しく数えられる唯一の時間帯（JST 0:00〜9:00）の中にあります。そのため 1 を検出できません。また 3 日後（11/15）と 4 日後（11/16）のケースがないので、2 も検出できません。`done` の確認も今日の 1 点だけです。\n- **直し方**: 修正前のコードで失敗するケースを追加する。`now` は `+09:00` や `Z` 付きの固定時刻にする。\n  - JST 11/12 9:01 と 23:59 で、期限 `2026-11-12` が true（`daysUntilDue` は 0）。\n  - JST 11/12 0:00 と 23:59 で、期限 `2026-11-15` が true、`2026-11-16` が false。\n  - JST 11/11 23:59（UTC 14:59）で、期限 `2026-11-12` の `daysUntilDue` が 1。\n  - JST 11/12 0:00（UTC 15:00）で、期限 `2026-11-11` が false（期限切れ）。\n  - `done` は期限が今日・3 日後・昨日のいずれでも false。\n  - 同じ日なら時刻が違っても `daysUntilDue` が同じ値になる。\n  - 不正な `dueDate`（空文字・`\"invalid\"`）の挙動を固定する（4 の修正方針に合わせる）。\n  - `TZ=UTC` と `TZ=America/Los_Angeles` で `npm test` を実行しても通る（TZ に依存しない）。\n- **補足**: `src/app/tasks/page.tsx` の表示（「（期限間近）」と `className`）を確かめるテストはありません。優先度は低いので、必要なら判定を `src/lib/` に寄せたうえでテストする。\n\n### 4. 【中】不正な `dueDate` が黙って「期限間近ではない」になる\n\n- **場所**: `src/lib/due.ts` の `daysUntilDue` / `isDueSoon`\n- **問題**: 空文字・`\"abc\"`・`\"2026-13-45\"` などでは `Date.parse` が `NaN` を返し、`NaN >= 0` が false になるだけで、例外もログも出ません。`daysUntilDue` は `NaN` を `number` として返します。DB の値が壊れていても、表示が出ないことしか分かりません。\n- **直し方**: `Number.isNaN` を検出し、例外にするか、少なくとも呼び出し側が区別できる値（`null` など）を返す。`YYYY-MM-DD` の形式に限ることを関数側でも確認し、コメントに前提を書く。\n- **補足 1（形式の緩い文字列）**: `Date.parse` は `YYYY-MM-DD` 以外の文字列を実行環境の TZ で解釈します。`\"2026-11-12T10:00:00\"` は JST・UTC では 0、Los_Angeles では 1、`\"11/12/2026\"` は JST・UTC では 0、Kiritimati では -1 になります。現状は `DATE_RE` の検証で入力が絞られているため表に出ませんが、`due.ts` はその前提を自分では守らず、黙って依存しています。\n- **補足 2**（今回の差分外）: `2026-02-30` のような存在しない日付は `Date.parse` が繰り上げて解釈します。`src/lib/tasks.ts` の入力検証（`DATE_RE` と `Number.isNaN(Date.parse(...))`）も同じ穴があり、API から保存できます。別 PR で対応してください。\n\n### 5. 【低】doc コメントが実装と合っていない\n\n- **場所**: `src/lib/due.ts` の `daysUntilDue`・`isDueSoon` の doc コメント、1 行目\n- **問題**: 「今日が期限なら 0」「DUE_SOON_DAYS 日以内」と書かれていますが、1・2 のとおり実装はそうなっていません。「今日」が JST の暦日であることも書かれていません。\n- **補足**: `dueDate` が `YYYY-MM-DD` であること、不正な文字列では `NaN` になる（4 参照）ことも、引数の説明に書かれていません。\n- **直し方**: 1・2 の修正後に、「日付はすべて日本時間（JST）の暦日で扱う」「今日〜`DUE_SOON_DAYS` 日後まで」「期限切れ・完了は false」と書き直す。\n\n### 6. 【低】`isDueSoon` を 1 行につき 2 回呼んでいる\n\n- **場所**: `src/app/tasks/page.tsx` の `tasks.map`（`className` と「（期限間近）」の 2 か所）\n- **問題**: 同じ値を 2 回計算しています。結果は同じなので動作の不具合ではありません。\n- **直し方**: `const dueSoon = isDueSoon(task, now);` に切り出す。\n\n### 7. 【低】`isDueSoon` の引数が広すぎる\n\n- **場所**: `src/lib/due.ts` の `isDueSoon(task: Task, ...)`\n- **問題**: 使うのは `status` と `dueDate` だけです。\n- **直し方**: `Pick<Task, \"status\" | \"dueDate\">` にすると、テストで `Task` を丸ごと作らずに済む。\n\n### 8. 【低】`due-soon` クラスのスタイルが見当たらない\n\n- **場所**: `src/app/tasks/page.tsx` の `className=\"due-soon\"`\n- **問題**: 対応する CSS が見つかりませんでした。スタイルを付ける予定がなければ不要です（規約 6）。\n- **直し方**: スタイルを追加するか、クラス指定を外す。\n\n## 規約の確認\n\n問題なし: 判定ロジックを `src/lib/` に置いている（規約 1）、画面の文言が日本語（規約 3）、外部ライブラリ・スキーマ・SQL の変更なし（規約 4・7・8）。\n\n## レビューの実施方法\n\ncode-reviewer、pr-test-analyzer、comment-analyzer、silent-failure-hunter、type-design-analyzer の 5 エージェントを並列で実行し、その結果を統合しました。1・2 は複数のエージェントが、`TZ` を変えた実行で独立に確認しています。\n",
+  "review_chars": 4857,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.8986,
+    "tokens": {
+      "input": 70,
+      "output": 26498,
+      "cache_read": 1048375,
+      "cache_creation": 130756
+    },
+    "turns": 9,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W22-review-pr-full-c4-2-app/85d708c9-be6b-42fe-80b7-240879262592/scratchpad && cat > $S/fix.ts <<'EOF'\\nconst DAY_MS = 86400000;\\nconst jstToday = (now: Da"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 15,
+      "Agent": 5,
+      "Write": 1,
+      "Edit": 3
+    },
+    "skills_used": [],
+    "subagents": 5,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:comment-analyzer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:type-design-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 55,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を更新し、`REVIEW.md` だけをコミットしました（`97f3ebc`）。コードは直していません。新しい指摘は足していません。\n\n前回のコミットで、指摘ごとに場所・問題・直し方・重要度（高 2、中 2、低 4）を書いていました。今回はそれを、エージェントの報告と照らし合わせました。すでに書いてあった指摘は、削らずそのまま残しています。\n\nエージェントが報告していたのに書き漏れていた細部を 3 点だけ補いました。\n\n- **指摘 4:** `YYYY-MM-DD` 以外の文字列は、実行環境の TZ で `Date.parse` の結果が変わります。\n- **指摘 3:** 不正な `dueDate` の挙動を固定するテストと、`page.tsx` の表示を確かめるテストがありません。\n- **指摘 5:** `dueDate` の形式と、不正値で `NaN` になることが、引数の説明に書かれていません。\n\nPR の 3 ファイルは、これまでどおり未コミットです。"
+  },
+  "interventions": 0
+}

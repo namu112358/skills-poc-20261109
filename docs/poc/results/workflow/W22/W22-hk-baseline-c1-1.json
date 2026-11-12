@@ -1,0 +1,49 @@
+{
+  "trial": "W22-hk-baseline-c1-1",
+  "scenario": "W22",
+  "config": "hk-baseline",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスクに「保留」（on_hold）ステータスを追加\n\n対象: 未コミット差分（`src/lib/tasks.ts`、`tests/tasks.test.ts`）\n\n確認したこと: `npm run typecheck` は通過。`npm test` は 20 件すべて成功。\n一方で、下記の指摘 1 の再現スクリプトでは、`on_hold` を DB に書き込もうとすると失敗することを確認した。\n\n---\n\n## 1. 【高】DB の CHECK 制約が `on_hold` を許していない。作成・更新が必ず失敗する\n\n- **場所**: `src/lib/db/migrations.ts` 21 行目（マイグレーション version 1 の `tasks.status` の CHECK 制約）。影響する呼び出し: `src/lib/tasks.ts` の `createTask`（105 行付近）と `updateTask`（114 行付近）。\n- **重要度**: 高\n- **何が問題か**: スキーマの CHECK 制約は `('todo', 'in_progress', 'done')` のままで、`on_hold` が入っていない。\n  - `validateTaskInput` は `on_hold` を通すので、`POST /api/tasks` と `PATCH /api/tasks/:id` は検証を通過し、そのまま INSERT / UPDATE を実行する。\n  - SQLite がそれを拒否し、例外 `CHECK constraint failed: status IN ('todo', 'in_progress', 'done')` が発生する。`createTask` / `updateTask` も API Route も例外を捕まえていないため、利用者には 400 ではなく 500 が返る。\n  - 再現（`openDb()` で作成した DB に対して実行）:\n    - `validateTaskInput({ ..., status: \"on_hold\" })` → `ok: true`\n    - `createTask({ ..., status: \"on_hold\" })` → 例外（上記の CHECK 制約違反）\n    - `updateTask(1, { status: \"on_hold\" })` → 同じ例外\n  - 結果として「保留」は作成・変更のどちらでも設定できず、一覧の絞り込みで「保留」を選んでも、該当する行は常に 0 件になる（`?status=on_hold` は `isTaskStatus` を通るため、エラーにはならず空の一覧になる）。\n- **直し方**: 既存のマイグレーションは書き換えず（CLAUDE.md 規約 7）、`migrations.ts` の末尾に version 3 を追加する。SQLite は CHECK 制約を `ALTER` で変えられないため、テーブルを作り直す。\n  ```sql\n  CREATE TABLE tasks_new (\n    id       INTEGER PRIMARY KEY AUTOINCREMENT,\n    title    TEXT NOT NULL,\n    status   TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'on_hold', 'done')),\n    assignee TEXT NOT NULL REFERENCES users(id),\n    due_date TEXT NOT NULL\n  );\n  INSERT INTO tasks_new (id, title, status, assignee, due_date)\n    SELECT id, title, status, assignee, due_date FROM tasks;\n  DROP TABLE tasks;\n  ALTER TABLE tasks_new RENAME TO tasks;\n  CREATE INDEX tasks_assignee ON tasks(assignee);\n  ```\n  - `DROP TABLE` でインデックスも消えるので、`tasks_assignee` を作り直すこと。\n  - 既存行の `id` を保つこと（`AUTOINCREMENT` の採番も `sqlite_sequence` 経由で引き継がれる）。\n  - `migrate()` はマイグレーションを 1 つのトランザクションで実行するので、途中で失敗しても元に戻る。\n\n## 2. 【中】テストが DB 層の動作を見ていないため、指摘 1 が検出されなかった\n\n- **場所**: `tests/tasks.test.ts`（追加された「accepts the on_hold status」は `validateTaskInput` の結果だけを検証している）。\n- **重要度**: 中\n- **何が問題か**: 追加したテストは検証関数の戻り値だけを見ている。`createTask` / `updateTask` で実際に `on_hold` を保存できるか、`listTasks({ status: \"on_hold\" })` で取得できるかは確認していない。そのため、DB の制約違反がテストで検出されずに済んだ。PR の「検証結果」も単体テストの通過のみで、DB 書き込みは含まれていない。\n- **直し方**: 次のテストを追加する。\n  - `createTask({ ..., status: \"on_hold\" }, openDb())` が成功し、返り値の `status` が `on_hold` であること。\n  - `updateTask(id, { status: \"on_hold\" }, db)` が成功すること。\n  - `listTasks({ status: \"on_hold\" }, db)` が、保存した行を返すこと。\n  - マイグレーション後も既存の行（seed の 7 件）の件数と内容が変わらないこと（指摘 1 の version 3 を入れる場合）。\n  - `tests/db.test.ts` には、version 3 の適用後に CHECK 制約が `on_hold` を受け付けることを確認するテストを入れると、スキーマ側の回帰を防げる。\n\n## 3. 【低】API で制約違反が 500 になる\n\n- **場所**: `src/app/api/tasks/route.ts`（POST）、`src/app/api/tasks/[id]/route.ts`（PATCH）。\n- **重要度**: 低\n- **何が問題か**: `createTask` / `updateTask` が例外を投げたとき、Route で捕まえていない。CLAUDE.md 規約 9 は「入力誤りは 400」と定めているが、DB 層の制約違反は 500 として返る。指摘 1 を直せば通常の入力では起きなくなるが、将来 `TASK_STATUSES` と CHECK 制約がずれると同じ症状が再発する。\n- **直し方**: 指摘 1 の修正を優先する。そのうえで、`TASK_STATUSES` と CHECK 制約が一致していることを `tests/db.test.ts` で確認するテストを入れる（ずれを早く検出するため）。Route 側で例外を 500 にとどめるのは、想定外の障害として妥当なので変えなくてよい。\n\n---\n\n## 指摘しなかった点（問題なしと判断したもの）\n\n- `STATUS_LABELS` に「保留」を追加しており、一覧の絞り込みのセレクトと詳細画面の表示は `TASK_STATUSES` / `STATUS_LABELS` から作られるため、追加の変更は不要。\n- `isTaskStatus` は `TASK_STATUSES` を使っているので、クエリパラメータの検証（規約 2）は `on_hold` を正しく扱う。\n- `TaskStatus` 型と `TASK_STATUSES` の更新は、API の値 `on_hold` と一致している。\n- 画面の文言「保留」は日本語になっている（規約 3）。\n- 新しいライブラリは追加されていない（規約 4）。\n",
+  "review_chars": 3615,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0229,
+    "tokens": {
+      "input": 32,
+      "output": 11359,
+      "cache_read": 812942,
+      "cache_creation": 45547
+    },
+    "turns": 20,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/poc-trials/W22-hk-baseline-c1-1/app/.probe.test.ts 2>/dev/null; rm -f /tmp/poc-trials/W22-hk-baseline-c1-1/app/.probe.test.ts; S=/tmp/claude-0/-tmp-poc-trials-W22-hk-baseline-c"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W22-hk-baseline-c1-1-app/b2f39828-a10d-466c-bede-10da5715ca27/scratchpad && mkdir -p \\\"$S\\\" && cat > \\\"$S/probe.ts\\\" <<'EOF'\\nimport { openDb } from \\\"/tmp"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git diff --cached --name-only && git add REVIEW.md && git commit -q -m \\\"$(printf 'docs: on_hold ステータス追加のコードレビュー結果を追加\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaud"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 10,
+      "Write": 3,
+      "Read": 1,
+      "Edit": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 65,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を最初の依頼の形式に合わせて整え、`REVIEW.md` だけをコミットしました（`c902bc6`）。\n\n今回の変更は、各指摘に「重要度」の行を明示したことだけです。3 つの指摘（場所・何が問題か・直し方）は前回のまま残し、新しい指摘は足していません。\n\n- 指摘 1: 重要度 高（DB の CHECK 制約が `on_hold` を許していない）\n- 指摘 2: 重要度 中（テストが DB 層を見ていない）\n- 指摘 3: 重要度 低（API で制約違反が 500 になる）\n\nコードは変更していません。コミットに含めなかった `src/lib/tasks.ts` と `tests/tasks.test.ts` の変更は、未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

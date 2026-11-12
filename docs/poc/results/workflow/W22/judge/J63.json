@@ -1,0 +1,155 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "updateTask は UPDATE の後に eventBus.emit を呼び、emit は購読者の例外を捕まえないため、通知が失敗すると DB は更新済みなのに PATCH が規約外の 500 になる。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 2,
+   "summary": "SlackNotifier/EmailNotifier は選べるのに send が必ず例外を投げる未実装のスタブで、起動時ではなく最初の担当者変更で失敗し、PATCH が 500 になる。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "NotifierFactory.create の registry[kind] が Object.hasOwn を使わないため、NOTIFIER_KIND=constructor/toString で send is not a function になる。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "NOTIFIER_KIND の誤記（Slack, SLACK など）が警告なしで console 扱いになり、設定ミスに気づけない。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "src/lib/notify/ 全体が「ログ 1 行」の要件を超えた抽象化で、使われないイベントの種類・clear・NotifierKind などを含むため、削除して updateTask から直接 console.log を出すべき。",
+   "severity": "高",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "events.ts の as unknown as / as never で型検査を回避している。",
+   "severity": "高",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "index.ts が import の副作用で購読を登録している。",
+   "severity": "高",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "tests/notify.test.ts はバスと Factory だけを検証し、担当者が変わったときだけ監査ログが 1 回出る（変わらないときは出ない）という本題を検証していない。",
+   "severity": "高",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "モジュール全体で共有されるグローバルなバスのため、tasks.ts を import したテストでも通知が動き、clear() で監査の購読も消える（HMR で購読が重複する恐れもある）。",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 10,
+   "summary": "events.ts・notifier.ts のコメントとテスト名（by default）が実際の振る舞いと合わない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "emit にも購読者にも try/catch とログが無く、失敗の文脈が残らず、1 つ目の購読者が投げると後続の購読者が呼ばれない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 12,
+   "summary": "基盤を残す場合、notify.test.ts には send の例外、複数の購読者、不正な NOTIFIER_KIND、日時の書式などのテストが足りない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 13,
+   "summary": "tasks.ts を import した時点で NotifierFactory.create() が呼ばれて NOTIFIER_KIND が固定され、読み込みの副作用のためにテストしにくい。",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 14,
+   "summary": "同じ関数を 2 回 subscribe すると、解除 1 回で両方が消える。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 15,
+   "summary": "send の event 引数を ConsoleNotifier が使っておらず、メッセージと情報が重複している。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 16,
+   "summary": "at: Date が全バリアントに重複している。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 17,
+   "summary": "SlackNotifier は webhookUrl を保持するだけで使っていない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 18,
+   "summary": "NotifierFactory は static メンバーだけのクラスで、モジュール関数で足りる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 19,
+   "summary": "環境変数の文字列を型ガードで検証せず、as NotifierKind で狭めている。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 20,
+   "summary": "「アプリ全体で 1 つ」のバスは、モジュール単位のシングルトンでしかない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 21,
+   "summary": "tasks.ts で at を new Date() として詰めているため、テストで時刻を固定できない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.11150380000000001
+ }
+}

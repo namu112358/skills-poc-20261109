@@ -1,0 +1,39 @@
+{
+  "trial": "W26-baseline-std-d3-3",
+  "scenario": "W26",
+  "config": "baseline-std",
+  "case": "d3",
+  "rep": 3,
+  "review_md": "# レビュー: ダッシュボードとタスクのコメント\n\n`npm test` は通りますが、下記は再現スクリプトで実際に動かして確認した問題です（再現結果を併記）。マージ前に直してください。\n\n## 高\n\n### 1. ダッシュボードのキャッシュキーにユーザーが含まれていない（他人のデータが見える）\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", …)`）\n- 問題: キーが固定の `\"dashboard\"` で、30 秒以内は最初に計算した人の結果が全員に返る。sato が見た直後に suzuki が `/dashboard` や `GET /api/dashboard` を開くと、sato のタスク・件数が表示される（再現: `buildDashboard(\"sato\")` → `buildDashboard(\"suzuki\")` の `userId` がどちらも `sato`）。テストは単一ユーザーかつ `clearCache()` 済みなので検出できない。\n- 直し方: キーを `` `dashboard:${userId}` `` にする（`db`・日付が変わる場合も考慮）。タスク更新後も最大 30 秒古い値が出る点も踏まえ、キャッシュ自体が必要か再検討する（規約上、効果の薄いキャッシュは削除が無難）。別ユーザーでテストを追加。\n\n### 2. SQL インジェクション（文字列連結）\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`\n- 問題: `WHERE assignee = '${userId}'` と値を埋め込んでいる（規約 8 違反）。`\"x' OR '1'='1\"` を渡すと全ユーザーの 7 件すべてが返る。\n- 直し方: `WHERE assignee = ?` + `.all(userId)`。\n\n### 3. コメント本文のリンクで `javascript:` URL が通る（保存型 XSS）\n- 場所: `src/lib/comments.ts` `renderBody`、利用側 `src/app/tasks/[id]/page.tsx`（`dangerouslySetInnerHTML`）\n- 問題: `[x](javascript:alert(1))` が `<a href=\"javascript:alert(1\" …>` になる。URL に許可スキームの検査が無く、閲覧者がクリックするとスクリプトが動く（`alert\\`1\\`` のような括弧なしの形でも成立）。また正規表現が `)` を含む URL を途中で切る。\n- 直し方: `dangerouslySetInnerHTML` をやめ、本文を React のノードとして描画する（改行は `<br/>`、リンクは `http:`/`https:` のときだけ `<a>`）。HTML 文字列方式を続けるなら URL を `new URL()` で解析し http/https のみ許可。テストに `javascript:` ケースを追加。\n\n### 4. `countByStatus` が共有配列 `TASK_STATUSES` を破壊的に反転する\n- 場所: `src/lib/dashboard.ts` `countByStatus`（`order.reverse()`）\n- 問題: `as TaskStatus[]` のキャストで元配列を指しており、`reverse()` が定数 `TASK_STATUSES` そのものを書き換える。呼ぶたびに順序が反転し、1 回目は `done, in_progress, todo`、2 回目は `todo, in_progress, done`。ダッシュボードの表示順が更新ごとに入れ替わり、`TASK_STATUSES` を使う他の箇所（`isTaskStatus` 以外の並び依存部分）にも影響する。テストは 1 回しか呼ばないので通る。\n- 直し方: `[...TASK_STATUSES].reverse()`（または `toReversed()`）。同じ入力で 2 回呼んで同じ結果になるテストを追加。\n\n### 5. コメントの編集（PATCH）に作成者チェックが無い\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`\n- 問題: DELETE は `authorId` を確認しているが、PATCH は無く、ログインしていれば他人のコメントを書き換えられる。\n- 直し方: DELETE と同様に `comment.authorId !== user.id` なら 403。テスト追加。\n\n## 中\n\n### 6. 今週の範囲が日曜日に翌週になる\n- 場所: `src/lib/week.ts` `weekRange`\n- 問題: 日曜は `getUTCDay()` が 0 なので `start = today + 1`（翌月曜）になる。2026-11-15（日）で `{start: 2026-11-16, end: 2026-11-22}` となり、その日が期限のタスクが「今週」から漏れ、翌週分が入る。\n- 直し方: `const offset = (dow + 6) % 7; start = addDays(today, -offset)`。日曜・月曜の境界テストを追加。\n\n### 7. タスクが 0 件のとき完了率が NaN\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 問題: `0 / 0` で `NaN`。画面は「完了率 NaN%」、API の JSON では `null`。担当タスクの無い新規ユーザーで発生。\n- 直し方: `tasks.length === 0` なら 0 を返す。テスト追加。\n\n### 8. コメントの並び順が文字列順で時刻順にならない\n- 場所: `src/lib/comments.ts` `formatCreatedAt` と `listComments`（`ORDER BY created_at, id`）\n- 問題: `toLocaleString(\"ja-JP\")` の `2026/11/11 9:05:00` を文字列で並べるため、時が 1 桁だと 2 桁より後ろに来る。再現: 9:05・10:05・17:05 のコメントが `10:05, 17:05, 9:05` の順に表示される（日付が月・日で桁が違う場合も同様）。\n- 直し方: DB には ISO 8601（`now.toISOString()`）を保存し、表示側で日本時間に整形するか、並びを `ORDER BY id` にする。\n\n### 9. 存在しないタスクへのコメント投稿が 500 になる\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` `POST`\n- 問題: GET は `getTask` で 404 にしているが、POST は確認せず外部キー違反（`FOREIGN KEY constraint failed`）が例外のまま 500 になる。規約 9（対象が無いときは 404）違反。\n- 直し方: `getTask(id)` を確認して 404。テスト追加。\n\n## 低\n\n- `src/lib/dashboard.ts` `dueThisWeek`: 今週内で期限切れのタスクが「期限切れ」と「今週が期限」の両方に出る（テストもその挙動を固定している）。意図的でなければ重複を除く。\n- `src/lib/comments.ts` `validateCommentBody`: 文字数上限を trim 前の長さで判定しており、保存する値（trim 後）と基準が違う。\n- テストの不足: API ルート（401/403/404/400）、`renderBody`、複数ユーザーのキャッシュ、日曜・0 件の境界のテストが無い（規約 5）。\n",
+  "review_chars": 3440,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2765,
+    "tokens": {
+      "input": 22,
+      "output": 7141,
+      "cache_read": 412965,
+      "cache_creation": 40933
+    },
+    "turns": 10,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W26-baseline-std-d3-3-app/4dda4141-125b-48d8-b01e-e9f650ab2ede/scratchpad; cat tests/dashboard.test.ts | head -70; cat > $S/r.ts <<'EOF'\\nimport { openDb }"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 64,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘は、すでにその形式で `REVIEW.md` に書いてあり、コミット済みです（`8ef709d`）。そのため、今回は追記も再コミットもしていません。\n\n- **書式:** 指摘ごとに、場所（ファイルと関数）、何が問題か（再現した入力と結果）、直し方、重要度を書いています。\n- **件数:** 高 5 件、中 4 件の計 9 件に見出しがあり、低 3 件は箇条書きです。直前に出した指摘と過不足はありません。\n- **状態:** `REVIEW.md` に未コミットの変更はありません。コードは直しておらず、PR の差分も未コミットのままです。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "\"adds days to the due date\" のテストは期待値を同じ extendDueDate で計算しているため、実装がどんな値を返しても通る。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "\"works across months\" は doesNotThrow だけで、月をまたいだ結果の値（2026-12-03 など）を確かめていない。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "validateExtendInput のテストは 7 を受け付けることだけで、0・31・小数・文字列などの拒否や境界を確かめておらず、範囲や整数の判定を壊しても通る。",
+   "severity": "高",
+   "match": "T3",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "\"extends a task\" は result.ok だけを見て、延長後の dueDate と DB に保存された値を確かめていない。",
+   "severity": "高",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "\"handles a completed task\" は doesNotThrow だけで、{ ok: false, reason: \"done\" } と期限が変わらないことを確かめていない。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "存在しない ID で reason が not_found になることのテストが無い。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "extendTask のテストが seed の ID（4、1）に暗黙に依存しており、ID の意味がテストから読み取れない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "ルートの状態コード（401/404/400）の対応を確かめるテストが無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "ルートで本文の検証を存在確認より先に行うため、存在しないタスクに不正な日数を送ると 404 ではなく 400 になり、既存の PATCH と食い違う。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "extendTask で getTask の後に updateTask が内部で再度読み取り、updateTask(...)! の非 null 表明が直前の getTask に依存している。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.07257380000000001
+ }
+}

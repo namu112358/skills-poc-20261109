@@ -1,0 +1,47 @@
+{
+  "trial": "W24-hk-baseline-c4-2",
+  "scenario": "W24",
+  "config": "hk-baseline",
+  "case": "c4",
+  "rep": 2,
+  "review_md": "# コードレビュー: 期限が近いタスクの表示\n\n対象: `git diff HEAD`（`src/app/tasks/page.tsx`、`src/lib/due.ts`、`tests/due.test.ts`）\n\n確認方法: 差分を読み、`src/lib/due.ts` の関数を `node --experimental-strip-types` で直接呼び、現在時刻を変えたときの結果を確かめた。\n\n---\n\n## 指摘 1\n\n- **場所**: `src/lib/due.ts` `daysUntilDue()`（11 行目付近）\n- **何が問題か**: `Date.parse(\"2026-11-12\")` は UTC の 0 時として解釈されるが、`now` は現在時刻（瞬間）なので、差を `Math.floor` で切り捨てても日付の差にならない。日本時間の 9 時を過ぎると、今日が期限のタスクの残り日数が `-1`（期限切れ）になる。\n  - 2026-11-12 00:00 JST: 期限 11-12 → 残り 0 日、期限間近 = true\n  - 2026-11-12 09:30 JST: 期限 11-12 → 残り **-1** 日、期限間近 = **false**\n  - 2026-11-12 23:30 JST: 期限 11-12 → 残り **-1** 日、期限間近 = **false**\n  - 今日期限のタスクは朝 9 時から翌日 0 時まで「期限間近」にならない。「日本時間の日付で数える」という要件を満たしていない。\n  - 単体テストは `now` を日本時間の 0 時ちょうどにしているため、この不具合を検出できない（指摘 3）。\n- **直し方**: 「今日」を日本時間の暦日で求め、期限の日付との差を暦日どうしで計算する。\n  - `now` から JST の `YYYY-MM-DD` を作る（例: `Intl.DateTimeFormat(\"en-CA\", { timeZone: \"Asia/Tokyo\" })`）。\n  - 両方の `YYYY-MM-DD` を `Date.UTC(y, m - 1, d)` でミリ秒にして引き、`DAY_MS` で割る（割り切れる値なので `Math.round` で十分）。\n  - テストは 0 時だけでなく、当日 9 時・23 時の `now` でも書く。\n- **重要度**: 高\n\n## 指摘 2\n\n- **場所**: `src/lib/due.ts` `isDueSoon()`（17〜18 行目）\n- **何が問題か**: 条件が `days < DUE_SOON_DAYS`（`< 3`）になっている。仕様は「今日から 3 日以内（今日・明日・明後日・3 日後）」なので、3 日後を含まなければならない。\n  - 2026-11-12 00:00 JST の時点で、期限 11-15（3 日後）は `isDueSoon = false`。仕様では true。\n  - 指摘 1 のせいで、9 時以降は 11-15 が偶然 true になる。時刻によって結果が変わるため、指摘 1 だけを直すと 3 日後は必ず漏れる。\n- **直し方**: `days >= 0 && days <= DUE_SOON_DAYS` にする。定数名も上限を表すように（例: `DUE_SOON_MAX_DAYS = 3`）そろえる。0・3・4 日後の境界をテストに入れる。\n- **重要度**: 高\n\n## 指摘 3\n\n- **場所**: `tests/due.test.ts` 全体\n- **何が問題か**:\n  - `now` が日本時間の 0 時ちょうどに固定されている。この時刻だけは UTC 基準の計算と日本時間の日付が一致するため、指摘 1 の不具合が出ない。\n  - 3 日後（仕様の上限）のケースがない。`11-14`（2 日後）と `11-30`（遠い）しか見ていないので、指摘 2 の境界も検出できない。\n  - `daysUntilDue` は「今日なら 0」しか確かめておらず、「今日の 23 時 59 分でも 0」を確かめていない。\n- **直し方**: `now` を JST の 0 時・9 時・23 時 59 分の 3 通りにし、同じ期限で結果が変わらないことを確かめる。3 日後が true、4 日後が false になるケースを入れる。\n- **重要度**: 中\n\n## 指摘 4\n\n- **場所**: `src/app/tasks/page.tsx` 44 行目（`className={isDueSoon(task, now) ? \"due-soon\" : undefined}`）\n- **何が問題か**: `src` 内に `.due-soon` の定義が見当たらない（リポジトリ全体を `grep` して確認）。このクラスは何もしておらず、目立たせているのは「（期限間近）」の文字だけになる。PR の「一覧で目立たせる」という意図に対して、見た目の強調が足りているか確認が要る。\n- **直し方**: `.due-soon` のスタイルを既存の CSS の場所に定義する。または、クラス名を使わないならこの `className` を削る。\n- **重要度**: 低\n\n---\n\n## 優先順位\n\n1. 指摘 1 と指摘 2 は一緒に直す。\n2. 直した後に指摘 3 のテストを足す。\n3. 指摘 4 はデザイン側の判断。\n",
+  "review_chars": 2335,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0205,
+    "tokens": {
+      "input": 28,
+      "output": 11725,
+      "cache_read": 663941,
+      "cache_creation": 39963
+    },
+    "turns": 14,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat package.json | head -40; echo ---; cat src/lib/tasks.ts | head -80; echo ---; grep -rn \\\"due-soon\\\\|dueDate\\\" src --include=*.ts --include=*.tsx --include=*.css | head -40; echo ---; "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/poc-trials/W24-hk-baseline-c4-2/scratch_check.mts 2>/dev/null; node --experimental-strip-types --no-warnings -e '\\nimport(\\\"./src/lib/due.ts\\\").then(({ daysUntilDue, isDueSoon "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'Add review notes for due-soon task highlight\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude."
+      }
+    ],
+    "tool_calls": {
+      "Bash": 9,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 66,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を最初の依頼の形式（場所・何が問題か・直し方・重要度）に書き直し、`REVIEW.md` だけをコミットしました（commit `dc73b5a`）。コードは変更していません。\n\n指摘は前回の 4 件をそのまま残しました。新しい指摘は足していません。\n\n1. **高**: `daysUntilDue` が日本時間の日付で数えていない。9 時以降は今日が期限のタスクが -1 日になり、「期限間近」が付かない。\n2. **高**: `isDueSoon` の `< 3` で 3 日後が漏れる。仕様では `<= 3` が必要。\n3. **中**: テストが `now` を JST 0 時に固定しているため、指摘 1 と 2 を見逃す。\n4. **低**: `.due-soon` クラスに対応するスタイルが `src` 内に見当たらない。\n\n前回と同じく、元からステージされていた `src/lib/due.ts` と `tests/due.test.ts` は、そのままステージに残しています。`git status` ではこれらと `src/app/tasks/page.tsx` の変更が未コミットとして残っています。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,47 @@
+{
+  "trial": "W22-review-pr-full-c1-2",
+  "scenario": "W22",
+  "config": "review-pr-full",
+  "case": "c1",
+  "rep": 2,
+  "review_md": "# レビュー: タスクに「保留」(`on_hold`) のステータスを追加する PR\n\n対象は未コミットの差分（`src/lib/tasks.ts`、`tests/tasks.test.ts`）です。\n\n**結論: このままではマージできません。** `npm run typecheck` と `npm test` は通りますが、`on_hold` を保存する操作は DB に拒否されます。API は HTTP 500 になり、一覧の「保留」は常に 0 件になります。\n\n確認の方法は次のとおりです。\n- 独立したインメモリ DB で `createTask` と `updateTask` を実行しました。\n- `next dev` を起動し、ログイン済みセッションで curl を実行しました。\n\n## 指摘一覧\n\n| # | 重要度 | 内容 |\n|---|---|---|\n| 1 | 高 | DB の CHECK 制約が `on_hold` を拒否する（マイグレーション未追加） |\n| 2 | 高 | 保存まで通すテストがなく、指摘 1 を見逃している |\n| 3 | 中 | API Route が DB 例外を処理せず、本文なしの 500 になる |\n| 4 | 中 | `TASK_STATUSES` と `TaskStatus` が二重定義で、DB の CHECK 制約との同期も検出できない |\n| 5 | 低 | `PATCH /api/tasks/:id` が `updateTask` の `undefined` を検査しない |\n| 6 | 低 | `readJson` が JSON の構文エラーを握りつぶす（差分外、記録のみ） |\n| 7 | 低 | `STATUS_LABELS` と `TASK_STATUSES` の対応を確認するテストがない |\n\n---\n\n### 1. [高] DB の CHECK 制約が `on_hold` を拒否する\n\n- **場所**: `src/lib/db/migrations.ts:21`（version 1 の `status TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'done'))`）。差分にマイグレーションの追加がありません。\n- **問題**: `validateTaskInput` は `TASK_STATUSES` を見るので `on_hold` を受理します。ところが DB の CHECK 制約は旧 3 値のままです。検証を通った後の INSERT と UPDATE が `CHECK constraint failed: status IN ('todo', 'in_progress', 'done')` で失敗します。実測の結果は次のとおりです。\n\n  | 操作 | 結果 |\n  |---|---|\n  | `createTask({ status: \"on_hold\", ... })` | 例外 |\n  | `updateTask(id, { status: \"on_hold\" })` | 例外 |\n  | `POST /api/tasks`（status=`on_hold`） | HTTP 500、本文は空 |\n  | `PATCH /api/tasks/1`（status=`on_hold`） | HTTP 500、タスクは更新されない |\n  | `GET /api/tasks?status=on_hold` と `/tasks?status=on_hold` | `on_hold` の行を作れないため常に 0 件（エラーは出ない） |\n\n  一覧の絞り込み UI には「保留」が出ますが、選ぶと常に空です。利用者には「保留のタスクが無いだけ」に見え、不具合に気づけません。\n- **直し方**: 規約 7 に従い、`migrations.ts` の末尾に version 3 を追加します。version 1 は書き換えません。SQLite は CHECK 制約を `ALTER` で変更できないため、テーブルを作り直します。\n  ```ts\n  {\n    version: 3,\n    name: \"task_status_on_hold\",\n    sql: `\n      CREATE TABLE tasks_new (\n        id       INTEGER PRIMARY KEY AUTOINCREMENT,\n        title    TEXT NOT NULL,\n        status   TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'on_hold', 'done')),\n        assignee TEXT NOT NULL REFERENCES users(id),\n        due_date TEXT NOT NULL\n      );\n      INSERT INTO tasks_new (id, title, status, assignee, due_date)\n        SELECT id, title, status, assignee, due_date FROM tasks;\n      DROP TABLE tasks;\n      ALTER TABLE tasks_new RENAME TO tasks;\n      CREATE INDEX tasks_assignee ON tasks(assignee);\n    `,\n  },\n  ```\n  - この SQL は未実行です。適用後に `npm test` で確認してください。\n  - `DATABASE_PATH` でファイル DB を使う既存環境も、このマイグレーションで移行されます。\n  - 既存の行（`id`、`assignee` など）が残ることを確認するテストも書いてください（指摘 2 を参照）。\n\n### 2. [高] 保存まで通すテストがなく、指摘 1 を見逃している\n\n- **場所**: `tests/tasks.test.ts`（追加された 2 件は `validateTaskInput` と `isTaskStatus` のみ）。既存の `createTask / updateTask` のテスト（81〜91 行付近）は新ステータスで一度も実行されません。\n- **問題**: 追加テストは「検証を通る」ことしか確認していません。DB を使わない部分だけを見ているため、「受理される」が「保存できる」を保証しないという今回の落とし穴に気づけません。テストが全件グリーンでも機能は動きません。規約 5 の趣旨に照らしても不十分です。\n- **直し方**:\n  1. `createTask` に `status: \"on_hold\"` を渡し、返り値の `status` が `on_hold` であることを確認する（今回の不具合を直接検出します）。\n  2. `updateTask` で `todo` から `on_hold` に更新でき、他の項目が変わらないことを確認する。\n  3. `listTasks({ status: \"on_hold\" })` が `on_hold` のタスクだけを返すことを確認する。\n  4. `TASK_STATUSES` の全要素が `openDb()` の DB の tasks に INSERT でき、範囲外の値は拒否されることを確認する。これはステータスを追加するたびに CHECK 制約の直し忘れを検出します。\n  5. マイグレーション適用後も既存のタスク行が残ることを確認する。\n\n### 3. [中] API Route が DB 例外を処理せず、本文なしの 500 になる\n\n- **場所**:\n  - `src/app/api/tasks/route.ts` の POST（`createTask(result.value as TaskInput)`）\n  - `src/app/api/tasks/[id]/route.ts` の PATCH（`updateTask(id, result.value)`）\n- **問題**: どちらも例外を捕捉しません。次の例外が、規約 9 の `{ error, details? }` の JSON にならず、本文が空の 500 になります。\n  - CHECK 制約違反\n  - 存在しない `assignee` による外部キー違反\n  - `SQLITE_BUSY`\n  - ディスクエラー\n\n  クライアントは入力誤りか障害かを区別できません。ログもスタックトレースだけで、リクエストの内容が残りません。\n- **直し方**: 想定する例外を狭く捕捉して、`{ error }` の JSON で 500 を返し、リクエストの内容付きでログを残します。CHECK 違反は本来バグなので、400 に変換して隠さないでください。このアプリのスキーマと検証がずれた場合に検知できる状態にしておく必要があります。\n- **補足**: 指摘 1 を直せば今回の 500 は解消します。この指摘は、今後同種の不整合が起きたときの扱いに関するものです。\n\n### 4. [中] `TASK_STATUSES` と `TaskStatus` が二重定義で、DB との同期も検出できない\n\n- **場所**: `src/lib/tasks.ts:3`（`TaskStatus`）、`src/lib/tasks.ts:13`（`TASK_STATUSES: readonly TaskStatus[]`）、`src/lib/db/migrations.ts`（CHECK 句）。\n- **問題**: 型と配列と SQL の文字列リテラルが別々に書かれています。\n  - `readonly TaskStatus[]` では、配列の要素の抜けを型検査が検出できません。\n  - 型に足して配列に足し忘れても `typecheck` は通ります。その場合、`isTaskStatus(\"on_hold\")` が false になり、フィルタ UI にも出ません。\n  - `STATUS_LABELS: Record<TaskStatus, string>` だけが網羅性を型で守っています。\n  - 今回の差分では配列にも足されています。ただし、それは仕組みで守られているのではなく、偶然合っているだけです。\n- **直し方**: 配列を唯一の定義元にして、型を導出します。\n  ```ts\n  export const TASK_STATUSES = [\"todo\", \"in_progress\", \"on_hold\", \"done\"] as const;\n  export type TaskStatus = (typeof TASK_STATUSES)[number];\n  ```\n  DB の CHECK 制約との同期は、指摘 2 の 4 番のテストで検出します。マイグレーションの SQL を `TASK_STATUSES` から生成するのは避けてください。過去のマイグレーションが現在のコードに依存し、「既存のマイグレーションは不変」という規約 7 の原則に反します。\n\n### 5. [低] `PATCH /api/tasks/:id` が `updateTask` の `undefined` を検査しない\n\n- **場所**: `src/app/api/tasks/[id]/route.ts` の PATCH の最終行（`NextResponse.json({ task: updateTask(...) })`）。この PR で入った問題ではありません。\n- **問題**: `getTask` で存在を確認した後、`updateTask` までの間にタスクが消えると `undefined` が返り、`{}` の 200 になります。現状の API に削除機能がないため、発生頻度は低いです。\n- **直し方**: `undefined` のときは規約 9 に従い 404 を返してください。\n\n### 6. [低] `readJson` が JSON の構文エラーを握りつぶしている\n\n- **場所**: `src/lib/api.ts` の `readJson`。この PR の差分外の既存コードです（記録のみ）。\n- **問題**: JSON のパースに失敗すると、ログを出さずに `undefined` を返します。壊れた JSON と本文なしを区別できず、利用者には汎用の「入力内容に誤りがあります」（400）だけが返ります。\n- **直し方**: 構文エラーであることが分かるメッセージ（`details`）を返すか、少なくとも原因をログに残します。この PR の範囲外なので、別の変更で対応してください。\n\n### 7. [低] `STATUS_LABELS` と `TASK_STATUSES` の対応を確認するテストがない\n\n- **場所**: `tests/tasks.test.ts`。\n- **問題**: `STATUS_LABELS.on_hold` が「保留」であること、`TASK_STATUSES` の全要素にラベルがあることを確認するテストがありません。ラベルが欠けると画面に `undefined` が出ます。`Record<TaskStatus, string>` の型が守っているため、優先度は低いです。\n- **直し方**: `TASK_STATUSES` の全要素について `STATUS_LABELS[s]` が空でない文字列であることと、`on_hold` が「保留」であることを確認する小さなテストを追加します。\n\n**指摘 4 の補足**: `isTaskStatus` の `(TASK_STATUSES as readonly string[]).includes(value)` は、正しさが配列の内容に依存します。配列を `as const` から導出すれば、型とガードが乖離しにくくなります（優先度は低く、`Set<string>` への変更は 4 要素なので不要です）。\n\n---\n\n## 問題なしと判断した点（参考）\n\n書かなくてよい点なので、要点だけ記します。\n- 一覧画面（`src/app/tasks/page.tsx`）と詳細画面（`src/app/tasks/[id]/page.tsx`）は `TASK_STATUSES` と `STATUS_LABELS` から作られるので、変更なしで「保留」が出ます。\n- `?status=on_hold` は `isTaskStatus` で検証されます（規約 2、3 に適合）。\n- SQL のプレースホルダ（規約 8）、外部ライブラリの追加なし（規約 4）、変更の範囲（規約 6）に問題はありません。\n- seed に `on_hold` が無いのは妥当です。データを足す場合は、`tests/db.test.ts` の件数（7 件）の決め打ちも直す必要があります。\n\n## 実施したレビュー\n\n| エージェント | 起動 |\n|---|---|\n| code-reviewer | 起動した |\n| pr-test-analyzer | 起動した |\n| silent-failure-hunter | 起動した |\n| type-design-analyzer | 起動した（`TaskStatus` などの型を変更しているため） |\n| comment-analyzer | 起動しなかった（コメントの追加がないため） |\n| code-simplifier | 起動しなかった（コマンドの手順では、レビューを通った後の工程のため） |\n",
+  "review_chars": 6722,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.9212,
+    "tokens": {
+      "input": 86,
+      "output": 25115,
+      "cache_read": 1505411,
+      "cache_creation": 122326
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W22-review-pr-full-c1-2-app/2638ae5f-da77-4bd3-9715-d0ff10c004bd/scratchpad && cat > $S/fix.ts <<'EOF'\\nimport { migrate, openDb } from \\\"/tmp/poc-trials/W"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 21,
+      "Agent": 4,
+      "ReadNotifications": 3,
+      "Write": 1,
+      "Edit": 2
+    },
+    "skills_used": [],
+    "subagents": 4,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:type-design-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 58,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "REVIEW.md への追記を `3e5b535` として、REVIEW.md だけコミットしました。コードは直していません。PR の差分（`src/lib/tasks.ts`、`tests/tasks.test.ts`）は未コミットのままです。\n\nREVIEW.md の指摘 1〜5 は、すでに場所・問題・直し方・重要度の形式で書いてありました。ただ、エージェントが出した指摘のうち 2 件を落としていたので、追記しました。\n\n- **指摘 6（低）**: `src/lib/api.ts` の `readJson` が JSON の構文エラーを握りつぶします。今回の差分の外にある既存コードなので、記録のみです。\n- **指摘 7（低）**: `STATUS_LABELS` と `TASK_STATUSES` の対応を確かめるテストがありません。\n- **指摘 4 の補足**: `isTaskStatus` のキャストが配列の内容に依存する点です。重複する指摘なので、指摘 4 に補足としてまとめました。\n\n新しい指摘は足していません。一覧の件数が常に 0 になる点は指摘 1 に、テストの網羅性は指摘 2 にまとめてあります。"
+  },
+  "interventions": 0
+}

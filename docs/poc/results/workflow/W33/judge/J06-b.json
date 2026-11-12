@@ -1,0 +1,71 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "recordInspection が status != 'disposed' だけを除外しているため、貸出中や校正中の計測器に要修理を登録すると使用停止に上書きされ、貸出や校正の状態と食い違う",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 2,
+   "summary": "recordInspection は点検日の新旧を見ないため、最新より古い日付の要修理を後から登録しても計測器が使用停止になる",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "旧台帳の日付が読めない計測器は、旧記録があっても一覧と詳細で「未点検」と強調され、元の書き方が一覧に出ない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "parseLegacyDate が年号ごとの年の範囲を見ないため、H40.1.1 や R20.1.1 のような範囲外の和暦を誤った日付として引き継ぐ",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "2 桁の西暦（26/8/20）を読めないものとして残す挙動にテストが無い",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 6,
+   "summary": "廃棄済みの計測器にも一覧で太字の「未点検」が出て、対象外の行が目立つ",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "マイグレーションの matchInspector が行ごとに users の SELECT を prepare し直しており、約 5 万件で起動時の適用が遅くなる",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "マイグレーションで、同名などの理由で引き継がれずに残った件数のログが無く、運用で確認できない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "一覧の COLUMNS が行ごとに inspections を引く相関サブクエリで全件を返すため、本番相当のデータ量で実測すべき",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0589798
+ }
+}

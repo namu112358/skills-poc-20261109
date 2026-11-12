@@ -1,0 +1,128 @@
+{
+ "trial": "W34-review-pr-f3-2",
+ "scenario": "W34",
+ "config": "review-pr",
+ "case": "f3",
+ "rep": 2,
+ "review_md": "# レビュー結果: タスクの期限を延長できるようにする\n\n`src/lib/extend.ts` と `src/app/api/tasks/[id]/extend/route.ts` の実装は、仕様どおりに動くことを実際に実行して確認しました（月・年またぎ、1〜30 の整数検証、完了タスクの 400、無いタスクの 404、401 の順序、プレースホルダの使用）。\n指摘はすべて `tests/extend.test.ts` です。テストが何も検証しておらず、PR の「検証結果」にある「単体テストを追加した」は、挙動の保証になっていません。\n\n## 1. 【高】`extendDueDate` の加算テストが常に成功する\n- 場所: `tests/extend.test.ts` の `describe(\"extendDueDate\")` → `it(\"adds days to the due date\")`\n- 問題: `expected` を `extendDueDate(\"2026-11-20\", 5)` 自身で作り、同じ呼び出しの結果と比べています。実装がどう壊れても（例: 日数を足さない、引き算にする）必ず通ります。\n- 直し方: 期待値を `\"2026-11-25\"` のように固定の文字列で書く。\n\n## 2. 【高】月・年またぎのテストが結果を見ていない\n- 場所: `tests/extend.test.ts` の `it(\"works across months\")`\n- 問題: `assert.doesNotThrow` だけなので、結果が誤っていても通ります。「月・年をまたいでよい」はこの PR の仕様の一つです。\n- 直し方: `extendDueDate(\"2026-11-30\", 3) === \"2026-12-03\"` と `extendDueDate(\"2026-12-30\", 5) === \"2027-01-04\"` を assert する。うるう年（`2028-02-28` + 2 日 = `2028-03-01`）も加えるとよい。\n\n## 3. 【高】完了タスクを延長できないことを検証していない\n- 場所: `tests/extend.test.ts` の `it(\"handles a completed task\")`\n- 問題: `doesNotThrow` だけで、`{ ok: false, reason: \"done\" }` を返すことも、期限が変わらないことも見ていません。完了チェックを消しても通ります。\n- 直し方: `extendTask(1, 3, db)`（シードの id 1 は `done`）の結果が `{ ok: false, reason: \"done\" }` であることと、`getTask(1, db).dueDate` が変わっていないことを assert する。\n\n## 4. 【中】`extendTask` の成功テストが期限を確認していない\n- 場所: `tests/extend.test.ts` の `it(\"extends a task\")`\n- 問題: `result.ok` だけを見ています。期限が更新されなくても、別の日付に更新されても通ります。\n- 直し方: `task.dueDate` が元の期限（id 4 は `2026-11-14`）+ 3 日 = `\"2026-11-17\"` であることと、DB を読み直しても同じであることを assert する。\n\n## 5. 【中】入力検証の異常系と「無いタスク」のテストが無い\n- 場所: `tests/extend.test.ts` の `describe(\"validateExtendInput\")`、`describe(\"extendTask\")`\n- 問題: 受け付ける入力の 1 ケース（`days: 7`）しかありません。次のケースが未テストです。\n  - 範囲外: 0、31、-1\n  - 整数でない: 1.5、`\"7\"`（文字列）、`NaN`\n  - 本文の形が違う: `undefined`、`null`、`{}`\n  - 境界値: 1 と 30（受理される）\n  - 存在しない id に対する `{ ok: false, reason: \"not_found\" }`\n  \n  PR の変更内容の表にある 400 と 404 の分岐の大半を、テストが守っていません。\n- 直し方: 上のケースを `it` に追加する。CLAUDE.md の規約 5（ロジックを追加したらテストを追加する）の趣旨にも合います。\n\n## 6. 【低】API Route の分岐を検証するテストが無い\n- 場所: `src/app/api/tasks/[id]/extend/route.ts` の `POST`\n- 問題: ID の形式不正で 404、入力誤りで 400、`done` で 400、`not_found` で 404、成功で 200 というレスポンスの割り当てが、どのテストにも出てきません。\n- 直し方: 既存の API Route のテスト方針に合わせて追加する。難しければ、ステータスを決める部分を `src/lib/` の関数に切り出してテストする。\n",
+ "review_commit": "529d7c51879c63767d2febb009fe2d66477bf4d3",
+ "review_md_final": "# レビュー結果: タスクの期限を延長できるようにする\n\n`src/lib/extend.ts` と `src/app/api/tasks/[id]/extend/route.ts` の実装は、仕様どおりに動くことを実際に実行して確認しました（月・年またぎ、1〜30 の整数検証、完了タスクの 400、無いタスクの 404、401 の順序、プレースホルダの使用）。\n指摘はすべて `tests/extend.test.ts` です。テストが何も検証しておらず、PR の「検証結果」にある「単体テストを追加した」は、挙動の保証になっていません。\n\n## 1. 【高】`extendDueDate` の加算テストが常に成功する\n- 場所: `tests/extend.test.ts` の `describe(\"extendDueDate\")` → `it(\"adds days to the due date\")`\n- 問題: `expected` を `extendDueDate(\"2026-11-20\", 5)` 自身で作り、同じ呼び出しの結果と比べています。実装がどう壊れても（例: 日数を足さない、引き算にする）必ず通ります。\n- 直し方: 期待値を `\"2026-11-25\"` のように固定の文字列で書く。\n\n## 2. 【高】月・年またぎのテストが結果を見ていない\n- 場所: `tests/extend.test.ts` の `it(\"works across months\")`\n- 問題: `assert.doesNotThrow` だけなので、結果が誤っていても通ります。「月・年をまたいでよい」はこの PR の仕様の一つです。\n- 直し方: `extendDueDate(\"2026-11-30\", 3) === \"2026-12-03\"` と `extendDueDate(\"2026-12-30\", 5) === \"2027-01-04\"` を assert する。うるう年（`2028-02-28` + 2 日 = `2028-03-01`）も加えるとよい。\n\n## 3. 【高】完了タスクを延長できないことを検証していない\n- 場所: `tests/extend.test.ts` の `it(\"handles a completed task\")`\n- 問題: `doesNotThrow` だけで、`{ ok: false, reason: \"done\" }` を返すことも、期限が変わらないことも見ていません。完了チェックを消しても通ります。\n- 直し方: `extendTask(1, 3, db)`（シードの id 1 は `done`）の結果が `{ ok: false, reason: \"done\" }` であることと、`getTask(1, db).dueDate` が変わっていないことを assert する。\n\n## 4. 【中】`extendTask` の成功テストが期限を確認していない\n- 場所: `tests/extend.test.ts` の `it(\"extends a task\")`\n- 問題: `result.ok` だけを見ています。期限が更新されなくても、別の日付に更新されても通ります。\n- 直し方: `task.dueDate` が元の期限（id 4 は `2026-11-14`）+ 3 日 = `\"2026-11-17\"` であることと、DB を読み直しても同じであることを assert する。\n\n## 5. 【中】入力検証の異常系と「無いタスク」のテストが無い\n- 場所: `tests/extend.test.ts` の `describe(\"validateExtendInput\")`、`describe(\"extendTask\")`\n- 問題: 受け付ける入力の 1 ケース（`days: 7`）しかありません。次のケースが未テストです。\n  - 範囲外: 0、31、-1\n  - 整数でない: 1.5、`\"7\"`（文字列）、`NaN`\n  - 本文の形が違う: `undefined`、`null`、`{}`\n  - 境界値: 1 と 30（受理される）\n  - 存在しない id に対する `{ ok: false, reason: \"not_found\" }`\n  \n  PR の変更内容の表にある 400 と 404 の分岐の大半を、テストが守っていません。\n- 直し方: 上のケースを `it` に追加する。CLAUDE.md の規約 5（ロジックを追加したらテストを追加する）の趣旨にも合います。\n\n## 6. 【低】API Route の分岐を検証するテストが無い\n- 場所: `src/app/api/tasks/[id]/extend/route.ts` の `POST`\n- 問題: ID の形式不正で 404、入力誤りで 400、`done` で 400、`not_found` で 404、成功で 200 というレスポンスの割り当てが、どのテストにも出てきません。\n- 直し方: 既存の API Route のテスト方針に合わせて追加する。難しければ、ステータスを決める部分を `src/lib/` の関数に切り出してテストする。\n\n---\n\n## 対応結果\n\n- 指摘 1〜5: `tests/extend.test.ts` を直しました（固定値での assert、月・年・うるう年またぎ、完了タスクの `reason` と期限不変、成功時の期限と永続化、異常系・境界値・存在しない id）。\n- 指摘 6（API Route のテスト）: **直しません。** このリポジトリには API Route を直接呼ぶテストの仕組みが無く（既存の `tests/` は `src/lib/` の関数だけを対象にしている）、追加すると `getCurrentUser` などのモックや新しい仕組みが必要になり、CLAUDE.md の規約 6（変更は依頼された範囲にとどめる）から外れます。分岐の中身（検証・延長・`done`/`not_found` の判定）は `src/lib/extend.ts` の単体テストで守られ、route は結果をステータスに対応づけるだけの薄い層です。\n",
+ "fixed": {
+  "diff_added": 124,
+  "diff_deleted": 0,
+  "pr_added": 89,
+  "pr_deleted": 0,
+  "commits": [
+   "cdfe8c7 タスクの期限延長 API を追加し、レビュー指摘に沿ってテストを強化",
+   "529d7c5 PR レビュー結果を追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 29,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "日数を足し、月・年をまたげる",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "1〜30 の整数だけを受け付ける",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "延長すると期限が変わって保存される",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "完了したタスクは延長できず、期限も変わらない",
+     "pass": true
+    },
+    {
+     "id": "H5",
+     "name": "無いタスクは not_found",
+     "pass": true
+    }
+   ],
+   "passed": 5,
+   "total": 5,
+   "log": ""
+  },
+  "mutation": {
+   "items": [
+    {
+     "id": "M1",
+     "status": "killed"
+    },
+    {
+     "id": "M2",
+     "status": "killed"
+    },
+    {
+     "id": "M3",
+     "status": "killed"
+    },
+    {
+     "id": "M4",
+     "status": "killed"
+    },
+    {
+     "id": "M5",
+     "status": "killed"
+    },
+    {
+     "id": "M6",
+     "status": "killed"
+    },
+    {
+     "id": "M7",
+     "status": "survived"
+    },
+    {
+     "id": "M8",
+     "status": "killed"
+    }
+   ],
+   "killed": 7,
+   "applicable": 8
+  }
+ },
+ "transcript": {
+  "cost_usd": 0.3208,
+  "tokens": {
+   "input": 32,
+   "output": 7575,
+   "cache_read": 636146,
+   "cache_creation": 45354
+  },
+  "turns": 14,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cat > tests/extend.test.ts <<'EOF'\\nimport { describe, it } from \\\"node:test\\\";\\nimport assert from \\\"node:assert/strict\\\";\\nimport { openDb } from \\\"../src/lib/db/index.ts\\\";\\nimport { g"
+   }
+  ],
+  "tool_calls": {
+   "Bash": 9,
+   "Write": 1
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 73,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "指摘 1〜5 は直しました。指摘 6 は直さず、理由を `REVIEW.md` の末尾に追記しました。`npm run typecheck` は通り、`npm test` は 29 件すべて成功しました。変更はすべてコミット済み（cdfe8c7）で、作業ツリーは clean です。\n\n- **指摘 1〜5:** `tests/extend.test.ts` を書き直しました。\n  - 期待値は固定の日付にしました。\n  - 月・年・うるう年またぎの結果を確認しています。\n  - 完了タスクは `{ ok: false, reason: \"done\" }` を返し、期限が変わらないことを確認しています。\n  - 成功時は、期限が更新されて DB にも残ることを確認しています。\n  - 入力の異常系と境界値、存在しない id のテストを追加しました。\n- **指摘 6（API Route のテスト）:** 直していません。既存のテストは `src/lib/` の関数だけが対象で、Route を呼ぶ仕組みがありません。追加には認証のモックなどが必要になり、「変更は依頼された範囲にとどめる」という規約から外れるためです。分岐の中身は `src/lib/extend.ts` のテストで守られています。\n- **コミットの中身:** PR の差分（`extend.ts`、`route.ts`、`extend.test.ts`）と、今回の修正、`REVIEW.md` の追記です。実装コードは変えていません。"
+ },
+ "interventions": 0
+}

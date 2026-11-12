@@ -1,0 +1,52 @@
+{
+  "trial": "W23-hk-baseline-d2-1",
+  "scenario": "W23",
+  "config": "hk-baseline",
+  "case": "d2",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスクへのコメント機能\n\n対象: 未コミットの差分（`git diff HEAD`）。コメントの読み書き（タスク詳細画面・API）、マイグレーション v3、単体テスト。\n確認: `npm run typecheck` は通過、`npm test` は 22 件すべて通過。ただし下記の問題はテストでは検出されていない。\n\n---\n\n## 1. 【高】`renderBody` が `javascript:` のリンクを通す（保存型 XSS）\n\n- 場所: `src/lib/comments.ts` の `renderBody`（正規表現によるリンク変換）。表示は `src/app/tasks/[id]/page.tsx` の `dangerouslySetInnerHTML`。\n- 何が問題か: HTML エスケープはかかっているが、`[文字](URL)` の URL 部分に制限がない。コメント本文に `[確認](javascript:alert(document.cookie))` と書くと、`<a href=\"javascript:alert(document.cookie)\">` が出力され、閲覧者がリンクを押したときにスクリプトが動く。コメントは他のユーザーにも表示されるので、被害は他人のセッションに及ぶ。`escapeHtml` は `:` や `(` を変換しないため防げない。\n- 直し方: リンクの URL を許可リストで検証する（`https:` と `http:` のみ、必要なら相対パスも許可）。許可しない場合はリンクにせず、テキストとして出す。`javascript:`、`data:`、`vbs:`、大文字小文字や空白・制御文字を混ぜた形もテストに入れる。あわせて、リンクの変換は `renderBody` の中で URL を検証してから行う。\n\n## 2. 【高】コメントの編集（PATCH）に作成者の確認がない\n\n- 場所: `src/app/api/comments/[commentId]/route.ts` の `PATCH`。\n- 何が問題か: ログイン済みなら誰でも、他人のコメント ID を指定して本文を書き換えられる。`DELETE` では `comment.authorId !== user.id` で 403 を返しているのに、`PATCH` にはこの確認がない。ユーザー `suzuki` が `sato` のコメントを改ざんできる。\n- 直し方: `PATCH` にも `DELETE` と同じ作成者確認を入れ、他人のコメントなら 403 を返す。認可の確認は `src/lib/comments.ts` の関数に置き、API Route は呼ぶだけにすると、テストもしやすい。\n\n## 3. 【高】画面にコメントを書く欄がない（PR の説明と一致しない）\n\n- 場所: `src/app/tasks/[id]/page.tsx`。\n- 何が問題か: PR の説明は「タスクの詳細画面で、コメントを読み書きできるようにした」だが、追加されたのは一覧表示だけ。投稿フォームも、編集・削除の操作も画面にない。API（POST・PATCH・DELETE）は使えるが、画面からは書けない。\n- 直し方: 投稿フォームを追加する（Server Action か、クライアントコンポーネントから `POST /api/tasks/:id/comments` を呼ぶ）。自分のコメントだけ編集・削除ボタンを出す。実装しないなら、PR の説明を「API と表示のみ」に直す。\n\n## 4. 【中】存在しないタスクへのコメント投稿が 404 にならない\n\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` の `POST`。\n- 何が問題か: `GET` は `getTask(id)` で存在を確認しているが、`POST` は ID の形式だけを見て `addComment` を呼ぶ。`foreign_keys = ON` なので INSERT が外部キー違反で例外になり、500 が返る。CLAUDE.md の規約（対象が無いときは 404）に反する。\n- 直し方: `POST` の冒頭で `if (id === undefined || !getTask(id)) return jsonError(404, ...)` と確認する（`GET` と同じ形にする）。\n\n## 5. 【中】作成日時を表示用の文字列で保存し、並び順が壊れる\n\n- 場所: `src/lib/comments.ts` の `formatCreatedAt`、`addComment`、`listComments`（`ORDER BY created_at, id`）。\n- 何が問題か: `toLocaleString(\"ja-JP\")` の結果を `created_at` に保存している。出力は `2026/11/9 10:00:00` のように月・日がゼロ埋めされない（実行して確認済み）。文字列として並べ替えると `2026/11/9` が `2026/11/10` より後ろに来る。月をまたいだり、日が 9 日から 10 日に変わったりするコメントの順序が崩れる。また、ICU の設定によって表示の形式が変わり得る。\n- 直し方: `created_at` は `toISOString()`（UTC）で保存し、表示のときだけ `Asia/Tokyo` で整形する。既存の `sessions.expires_at` と同じく ISO 8601 を使う。既存データがないマイグレーション v3 の段階で直せる。\n\n## 6. 【低】テストが API と安全性の確認を含まない\n\n- 場所: `tests/comments.test.ts`。\n- 何が問題か: テストはライブラリ関数の正常系と、`<b>` のエスケープ、通常のリンクだけを確認している。次の点は確認されていない: 未ログインの 401、存在しないタスクの 404、不正な本文の 400、他人のコメントの編集と削除（2・4 の不具合を検出できない）、`javascript:` リンク（1）。\n- 直し方: 1・2・4 の修正と一緒に、各ケースのテストを追加する。API Route のテストが難しければ、認可と存在確認を `src/lib/comments.ts` の関数に切り出し、その関数をテストする。\n\n---\n\n## 参考（重要度は低く、直さなくてもよい）\n\n- `updateComment` は `updated_at` を持たないため、編集されたかどうかが画面からわからない。必要になった時点で追加する。\n- 本文の上限 `MAX_BODY` は trim 前の長さで判定しているが、trim 後に保存しているので、先頭や末尾の空白は保存されない。問題はない。\n",
+  "review_chars": 2929,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0181,
+    "tokens": {
+      "input": 24,
+      "output": 8913,
+      "cache_read": 579630,
+      "cache_creation": 39241
+    },
+    "turns": 15,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node -e 'console.log(new Date(\\\"2026-11-09T01:00:00Z\\\").toLocaleString(\\\"ja-JP\\\",{timeZone:\\\"Asia/Tokyo\\\"}), \\\"|\\\", new Date(\\\"2026-11-10T01:00:00Z\\\").toLocaleString(\\\"ja-JP\\\",{timeZone:\\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -o REVIEW.md -m \\\"$(printf 'Add code review notes for task comments\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https:/"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 10,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 54,
+    "answer_key_access": [],
+    "isolation_suspects": [
+      {
+        "step": "step2.jsonl",
+        "tool": "Bash",
+        "reasons": [
+          "他の試行の作業用コピー"
+        ],
+        "input": "{\"command\": \"node -e 'console.log(new Date(\\\"2026-11-09T01:00:00Z\\\").toLocaleString(\\\"ja-JP\\\",{timeZone:\\\"Asia/Tokyo\\\"}), \\\"|\\\", new Date(\\\"2026-11-10T01:00:00Z\\\").toLocaleString(\\\"ja-JP\\\",{timeZone:\\\"Asia/Tokyo\\\"}))' && cat > /tmp/poc-trials/scratch-check.mts 2>/dev/null; node --experimental-strip-"
+      }
+    ],
+    "final_message": "REVIEW.md は直前のコミット（`e0aae5c`）の時点で、指示された内容になっていたため、書き直しもコミットもしていません。`git status` と `git diff HEAD` で REVIEW.md に変更がないことを確認しました。空のコミットは作っていません。\n\n現在の REVIEW.md には、前回出た 6 件の指摘がすべて、場所・何が問題か・直し方・重要度の形式で入っています。\n\n1. 【高】`renderBody` が `javascript:` のリンクを通す（保存型 XSS）\n2. 【高】コメントの編集（PATCH）に作成者の確認がない\n3. 【高】画面にコメントを書く欄がない（PR の説明と一致しない）\n4. 【中】存在しないタスクへのコメント投稿が 404 にならない\n5. 【中】作成日時を表示用の文字列で保存し、並び順が壊れる\n6. 【低】テストが API と安全性の確認を含まない\n\n末尾には「参考」の節があり、`updated_at` がないことと、`MAX_BODY` の判定の 2 点を書いています。これは指摘ではなく補足として書いたものです。指示どおり残しています。\n\nコードは変更していません。ほかの差分は未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

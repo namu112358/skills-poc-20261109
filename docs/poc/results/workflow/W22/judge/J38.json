@@ -1,0 +1,57 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "daysUntilDue は日本時間の暦日ではなく現在時刻との差（UTC 0 時＝日本時間 9 時基準）で日数を数えるため、日本時間 9 時以降は今日が期限のタスクが -1 になりラベルが付かない。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "isDueSoon の `days < DUE_SOON_DAYS` により 3 日後が対象外になる境界の off-by-one。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "テストが日本時間 0 時の 1 点だけで、+3/+4 日の境界や done 以外の状態も確認していないため、不具合を検出できない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "不正な dueDate（または Invalid Date の now）で Date.parse が NaN になり、黙って「期限間近でない」扱いになる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "一覧ページで isDueSoon を行ごとに 2 回呼んでいるので 1 回にまとめるべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 6,
+   "summary": "PR の説明に無い className=\"due-soon\" が <tr> に追加されており、使わないなら削除すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "期限切れのタスクに何も表示しないのは意図どおりだが、その旨をコメントで明記すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.061759800000000004
+ }
+}

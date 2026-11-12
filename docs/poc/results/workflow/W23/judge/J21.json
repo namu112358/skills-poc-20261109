@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で userId を含まず、30 秒以内に別ユーザーが開くと他人のダッシュボードが返る",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "キャッシュが db 引数も無視するため、テストで別 DB を使っても古い値が返りうる",
+   "severity": "高",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 3,
+   "summary": "listAssignedTasks で userId をテンプレート文字列で SQL に埋め込んでおり規約 8 違反・SQL インジェクションになる",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "countByStatus で TASK_STATUSES をキャストして reverse() し、共有定数を呼ぶたびにその場で反転させている",
+   "severity": "中",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "weekRange が日曜に getUTCDay()=0 で 1-dow=+1 となり翌週の範囲を返す",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "completionRate が担当タスク 0 件で 0/0 となり NaN（API では null）になる",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "30 秒キャッシュに無効化の仕組みがなく、タスク更新後もダッシュボードが古いまま表示される",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "キーをユーザーごとにすると Map が増え続け、期限切れエントリが削除されない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "now 引数がキャッシュの時計を兼ねており、固定や古い now だと期限切れ判定がおかしくなる",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 10,
+   "summary": "dueThisWeek が今週の過去日が期限の未完了タスクも含み、期限切れ一覧と重複して表示される",
+   "severity": "中",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 11,
+   "summary": "テストが不足しており（0 件・日曜・別ユーザーのキャッシュ・複数回呼び出しなど）上記の不具合を検出できない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "dashboard.ts が tasks.ts の Row 型・toTask・SELECT をコピーして重複しており、listTasks を再利用すべき",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0728198
+ }
+}

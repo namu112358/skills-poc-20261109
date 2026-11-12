@@ -1,0 +1,104 @@
+{
+ "trial": "W34-cr-high-f1-2",
+ "scenario": "W34",
+ "config": "cr-high",
+ "case": "f1",
+ "rep": 2,
+ "review_md": "# コードレビュー: タスクに優先度を付け、一覧で絞り込めるようにする\n\n重要度の高い順。行番号はレビュー時点の差分に基づく。\n\n## 1. 【高】PATCH で priority が保存されない\n\n- 場所: `src/lib/tasks.ts:135`（`updateTask` の UPDATE 文）\n- 問題: `PATCH /api/tasks/1` に `{\"priority\":\"high\"}` を送ると、`validateTaskInput` は通り、`updateTask` も `next` にマージするが、UPDATE 文が `title` / `status` / `assignee` / `due_date` しか更新しない。API は 200 を返すのにタスクの優先度は `medium` のままで、変更が黙って失われる。`updateTask` の priority を検証するテストも無い。\n- 直し方: UPDATE 文の SET に `priority` を加え、プレースホルダで `next.priority` を渡す。`updateTask` に priority を更新するテストを追加する。\n\n## 2. 【中】`whereClause` が SQL を文字列連結で組み立てている（CLAUDE.md 規約 8 違反）\n\n- 場所: `src/lib/attributes/registry.ts:44`（`whereClause`、`${d.column} = :attr_${d.key}`）\n- 問題: 列名とパラメータ名を文字列補間している。レジストリは任意の `column` / `key` を受け取り、識別子の検証が無い。空白・ハイフンなどを含む属性（例: key が `due-date`）を登録すると、不正な名前付きパラメータになって SQL が壊れる。外部入力が入る場合はインジェクションにもなり得る。\n- 直し方: 登録時に `column` / `key` を `/^[a-z_][a-z0-9_]*$/` のような許可リストで検証して不正なら例外にする（または列名をコード内の固定の対応表から引く）。値は引き続きプレースホルダで渡す。\n\n## 3. 【中】API Route が独自の優先度リストで検証している（規約 2 違反・値の定義が分散）\n\n- 場所: `src/app/api/tasks/route.ts:12`\n- 問題: ルートが独自の `PRIORITIES` を持ち、`isTaskStatus` のような型ガードを使っていない。有効な値が `priority.ts`・ルートの `PRIORITIES`・ページの `PRIORITY_LABELS`・マイグレーションの CHECK の 4 か所に存在し、追加・改名時に一部だけ更新されて食い違う。レジストリは単一の定義元のはずが、`whereClause` 側でも再検証している。\n- 直し方: `src/lib/` に `isTaskPriority` 型ガードを 1 つ置き（定義元は `priority.ts`）、ルート・ページ・`validateTaskInput` はそれを使う。\n\n## 4. 【中】ページのクエリ検証が `in` 演算子で、プロトタイプのキーも通る／ラベルが重複\n\n- 場所: `src/app/tasks/page.tsx:13`\n- 問題: `params.priority in PRIORITY_LABELS` はプロトタイプのキーにも一致する。`/tasks?priority=constructor`（`toString`・`__proto__` も同様）は検証を通り、select の `defaultValue` が `constructor` になってどの option にも一致しない。`listTasks` 側は `isValid` で弾いて絞り込まないので、絞り込みが効いていないように見える。また `PRIORITY_LABELS` は `priorityAttribute.labels` の重複で、絞り込み・表示の処理がページコンポーネントにある（規約 1・2 に反する）。\n- 直し方: 項目 3 の型ガード（`Object.hasOwn` または値の配列の `includes` で判定）を使い、不正な値は「指定なし」にする。ラベルは `priorityAttribute.labels` を参照し、データの取得・絞り込みは `src/lib/` に置く。\n\n## 5. 【中】属性レジストリがモジュール単位のシングルトンで、import の副作用で登録される\n\n- 場所: `src/lib/attributes/priority.ts:14`（レジストリ本体は `registry.ts`）\n- 問題: `priority.ts` は import 時に自分を登録し、`register()` は重複キーで例外を投げる。`priority.ts` が二重に評価される（Next の HMR で別インスタンスになる、バンドルでモジュールが分割されるなど）と `属性 priority は登録済みです` が投げられ、`tasks.ts` の import 時にクラッシュする。逆に、どこからも `priority.ts` が import されなくなると、`listTasks` は優先度の絞り込みを黙って行わなくなる。どちらも原因が離れた場所に出て追いにくい。\n- 直し方: import の副作用での登録をやめ、`tasks.ts` が明示的に属性定義の配列を渡して（または定義を直接参照して）レジストリを組み立てる。登録は冪等にするか、グローバルな状態を持たない設計にする。\n\n## 6. 【低】priority の検証・保存が個別の特別扱いで、レジストリの目的を果たしていない\n\n- 場所: `src/lib/tasks.ts:107`（`validateTaskInput` の `\"priority\" in b`）\n- 問題: `need()` ヘルパーを使わず priority だけ個別に書かれている。`validateTaskInput`・`createTask`・`toTask`・`TaskRow`・SELECT 列を手作業で書き換える必要があり、「定義とレジストリへの登録だけで項目を足せる」という PR の説明どおりになっていない。レジストリの `labels` / `values` は `isValid` 以外で使われていない。（明示的な `\"priority\": null` を POST で 400 にするのは妥当。）\n- 直し方: レジストリの定義から検証・列リスト・行変換を導出するか、仕組みを使わず単純な実装に戻す。どちらかに決めて重複を無くす。\n\n## 7. 【中】テスト不足（規約 5）\n\n- 場所: `tests/tasks.test.ts:95` 付近\n- 問題: 追加されたテストは作成・一覧の絞り込み・検証のみ。`updateTask`（PATCH）と priority、API ルートの priority クエリの扱い、レジストリ自体（重複登録、複数属性での `whereClause`）にテストが無い。そのため項目 1 のバグがテストを通ってしまう。\n- 直し方: `updateTask` で priority を変更するテスト、ルートの `priority` クエリ（不正値は指定なし）のテスト、レジストリの単体テスト（重複登録で例外、識別子の検証、複数属性の `whereClause`）を `tests/` に追加する。\n\n## 8. 【低】`TaskFilter.priority` の型が緩く、不正値が黙って無視される\n\n- 場所: `src/lib/tasks.ts:30`\n- 問題: `TaskFilter.priority` が `TaskPriority` ではなく `string` で、ルート・ページは検証前の文字列をキャストして渡している。型で不正な値を防げず、`listTasks({priority: 'unknown'})` は絞り込まずに全 8 件を返す（テストもそれを期待値にしている）。内部呼び出しの打ち間違いが、エラーにならず全件表示になる。\n- 直し方: `priority?: TaskPriority` にし、呼び出し側で型ガードを通してから渡す。「不正値は指定なし」はクエリパラメータを扱う境界（ルート・ページ）に限る。\n",
+ "review_commit": "dfa08386ac47abfb54cb3fe87711ca396924eef7",
+ "review_md_final": "# コードレビュー: タスクに優先度を付け、一覧で絞り込めるようにする\n\n重要度の高い順。行番号はレビュー時点の差分に基づく。\n\n## 1. 【高】PATCH で priority が保存されない\n\n- 場所: `src/lib/tasks.ts:135`（`updateTask` の UPDATE 文）\n- 問題: `PATCH /api/tasks/1` に `{\"priority\":\"high\"}` を送ると、`validateTaskInput` は通り、`updateTask` も `next` にマージするが、UPDATE 文が `title` / `status` / `assignee` / `due_date` しか更新しない。API は 200 を返すのにタスクの優先度は `medium` のままで、変更が黙って失われる。`updateTask` の priority を検証するテストも無い。\n- 直し方: UPDATE 文の SET に `priority` を加え、プレースホルダで `next.priority` を渡す。`updateTask` に priority を更新するテストを追加する。\n\n## 2. 【中】`whereClause` が SQL を文字列連結で組み立てている（CLAUDE.md 規約 8 違反）\n\n- 場所: `src/lib/attributes/registry.ts:44`（`whereClause`、`${d.column} = :attr_${d.key}`）\n- 問題: 列名とパラメータ名を文字列補間している。レジストリは任意の `column` / `key` を受け取り、識別子の検証が無い。空白・ハイフンなどを含む属性（例: key が `due-date`）を登録すると、不正な名前付きパラメータになって SQL が壊れる。外部入力が入る場合はインジェクションにもなり得る。\n- 直し方: 登録時に `column` / `key` を `/^[a-z_][a-z0-9_]*$/` のような許可リストで検証して不正なら例外にする（または列名をコード内の固定の対応表から引く）。値は引き続きプレースホルダで渡す。\n\n## 3. 【中】API Route が独自の優先度リストで検証している（規約 2 違反・値の定義が分散）\n\n- 場所: `src/app/api/tasks/route.ts:12`\n- 問題: ルートが独自の `PRIORITIES` を持ち、`isTaskStatus` のような型ガードを使っていない。有効な値が `priority.ts`・ルートの `PRIORITIES`・ページの `PRIORITY_LABELS`・マイグレーションの CHECK の 4 か所に存在し、追加・改名時に一部だけ更新されて食い違う。レジストリは単一の定義元のはずが、`whereClause` 側でも再検証している。\n- 直し方: `src/lib/` に `isTaskPriority` 型ガードを 1 つ置き（定義元は `priority.ts`）、ルート・ページ・`validateTaskInput` はそれを使う。\n\n## 4. 【中】ページのクエリ検証が `in` 演算子で、プロトタイプのキーも通る／ラベルが重複\n\n- 場所: `src/app/tasks/page.tsx:13`\n- 問題: `params.priority in PRIORITY_LABELS` はプロトタイプのキーにも一致する。`/tasks?priority=constructor`（`toString`・`__proto__` も同様）は検証を通り、select の `defaultValue` が `constructor` になってどの option にも一致しない。`listTasks` 側は `isValid` で弾いて絞り込まないので、絞り込みが効いていないように見える。また `PRIORITY_LABELS` は `priorityAttribute.labels` の重複で、絞り込み・表示の処理がページコンポーネントにある（規約 1・2 に反する）。\n- 直し方: 項目 3 の型ガード（`Object.hasOwn` または値の配列の `includes` で判定）を使い、不正な値は「指定なし」にする。ラベルは `priorityAttribute.labels` を参照し、データの取得・絞り込みは `src/lib/` に置く。\n\n## 5. 【中】属性レジストリがモジュール単位のシングルトンで、import の副作用で登録される\n\n- 場所: `src/lib/attributes/priority.ts:14`（レジストリ本体は `registry.ts`）\n- 問題: `priority.ts` は import 時に自分を登録し、`register()` は重複キーで例外を投げる。`priority.ts` が二重に評価される（Next の HMR で別インスタンスになる、バンドルでモジュールが分割されるなど）と `属性 priority は登録済みです` が投げられ、`tasks.ts` の import 時にクラッシュする。逆に、どこからも `priority.ts` が import されなくなると、`listTasks` は優先度の絞り込みを黙って行わなくなる。どちらも原因が離れた場所に出て追いにくい。\n- 直し方: import の副作用での登録をやめ、`tasks.ts` が明示的に属性定義の配列を渡して（または定義を直接参照して）レジストリを組み立てる。登録は冪等にするか、グローバルな状態を持たない設計にする。\n\n## 6. 【低】priority の検証・保存が個別の特別扱いで、レジストリの目的を果たしていない\n\n- 場所: `src/lib/tasks.ts:107`（`validateTaskInput` の `\"priority\" in b`）\n- 問題: `need()` ヘルパーを使わず priority だけ個別に書かれている。`validateTaskInput`・`createTask`・`toTask`・`TaskRow`・SELECT 列を手作業で書き換える必要があり、「定義とレジストリへの登録だけで項目を足せる」という PR の説明どおりになっていない。レジストリの `labels` / `values` は `isValid` 以外で使われていない。（明示的な `\"priority\": null` を POST で 400 にするのは妥当。）\n- 直し方: レジストリの定義から検証・列リスト・行変換を導出するか、仕組みを使わず単純な実装に戻す。どちらかに決めて重複を無くす。\n\n## 7. 【中】テスト不足（規約 5）\n\n- 場所: `tests/tasks.test.ts:95` 付近\n- 問題: 追加されたテストは作成・一覧の絞り込み・検証のみ。`updateTask`（PATCH）と priority、API ルートの priority クエリの扱い、レジストリ自体（重複登録、複数属性での `whereClause`）にテストが無い。そのため項目 1 のバグがテストを通ってしまう。\n- 直し方: `updateTask` で priority を変更するテスト、ルートの `priority` クエリ（不正値は指定なし）のテスト、レジストリの単体テスト（重複登録で例外、識別子の検証、複数属性の `whereClause`）を `tests/` に追加する。\n\n## 8. 【低】`TaskFilter.priority` の型が緩く、不正値が黙って無視される\n\n- 場所: `src/lib/tasks.ts:30`\n- 問題: `TaskFilter.priority` が `TaskPriority` ではなく `string` で、ルート・ページは検証前の文字列をキャストして渡している。型で不正な値を防げず、`listTasks({priority: 'unknown'})` は絞り込まずに全 8 件を返す（テストもそれを期待値にしている）。内部呼び出しの打ち間違いが、エラーにならず全件表示になる。\n- 直し方: `priority?: TaskPriority` にし、呼び出し側で型ガードを通してから渡す。「不正値は指定なし」はクエリパラメータを扱う境界（ルート・ページ）に限る。\n\n---\n\n# 対応状況\n\n## 修正した指摘\n\n- 1: `updateTask` の UPDATE 文に `priority` を追加し、更新のテストを追加した。\n- 2: `register()` で `key`・`column` を `/^[a-z_][a-z0-9_]*$/` に限定した。不正な識別子は登録時に例外になる。値は従来どおりプレースホルダで渡している。\n- 3・4: `isTaskPriority` 型ガードを `priority.ts` に置き、API ルート・ページ・`validateTaskInput` で使うようにした。ルートの `PRIORITIES` とページの `PRIORITY_LABELS` は削除し、ページはラベルを `priorityAttribute` から参照する。`constructor` などのプロトタイプのキーは「指定なし」になる。\n- 5（一部）: 同じ定義の再登録は何もしないようにした（二重評価でも落ちない）。異なる定義が同じキーで衝突した場合だけ例外にする。\n- 7: `updateTask` の priority、`isTaskPriority`、レジストリ（冪等登録・衝突・識別子の検証・`whereClause`）のテストを追加した。ルートのテストは、この repo にルートを呼ぶテストの仕組みが無いため追加していない。ルートの絞り込みの判定は `isTaskPriority` のテストで確認している。\n- 8: `TaskFilter.priority` を `TaskPriority` 型にした。「不正値は指定なし」は境界（ルート・ページ）の型ガードで行う。`listTasks({ priority: \"unknown\" })` のテストは、型で防がれるため削除し、絞り込み無しの件数確認に置き換えた。\n\n## 直さなかった指摘と理由\n\n- 5（残り: import の副作用での登録）: `tasks.ts` が `priority.ts` を直接 import しており、`priorityAttribute.defaultValue` も使っているので、`priority.ts` が import されなくなることは実際には起きない。二重評価でのクラッシュは上の修正で解消した。登録の仕組みを組み替えると PR の範囲（規約 6）を超えるため、これ以上は変更しない。\n- 6: `validateTaskInput` の priority は、作成時に省略できる（既定値は「中」）ため、必須扱いになる `need()` とは意味が違う。`\"priority\" in b` で書くのは意図どおり。`validateTaskInput`・`createTask`・`toTask`・SELECT をレジストリから導出する作り変えは、次に項目を足すときに必要な形が見えてから行うほうがよく、今回の範囲を超える。ただし、PR の説明にある「定義と登録だけで項目を足せる」は現状では正確ではない。マージ前に説明を直すか、「当面は個別の編集が必要」と書き添えるのがよい。\n",
+ "fixed": {
+  "diff_added": 201,
+  "diff_deleted": 13,
+  "pr_added": 150,
+  "pr_deleted": 12,
+  "commits": [
+   "7e4f949 優先度機能の PR とレビュー指摘への修正",
+   "dfa0838 PR レビュー結果（優先度機能）を REVIEW.md に追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 25,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "更新（PATCH）で優先度を変えると保存される",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "優先度を指定しないと中（medium）になる",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "優先度で絞り込める（不正な値は指定なし）",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "不正な優先度は入力の誤りになる",
+     "pass": true
+    },
+    {
+     "id": "H5",
+     "name": "ステータスの絞り込みと組み合わせられる",
+     "pass": true
+    }
+   ],
+   "passed": 5,
+   "total": 5,
+   "log": ""
+  },
+  "design": {
+   "registry_remains": true,
+   "priority_value_lists": 1,
+   "priority_label_maps": 1
+  }
+ },
+ "transcript": {
+  "cost_usd": 0.5395,
+  "tokens": {
+   "input": 36,
+   "output": 16991,
+   "cache_read": 677612,
+   "cache_creation": 93664
+  },
+  "turns": 28,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; git diff main...HEAD --stat; git diff HEAD --stat\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 - <<'EOF'\\nimport re\\ndef sub(p,a,b,c=1):\\n    s=open(p).read(); assert a in s,(p,a); open(p,'w').write(s.replace(a,b,c))\\n# registry\\np='src/lib/attributes/registry.ts'\\nsub(p,''"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cat >> tests/tasks.test.ts <<'EOF'\\n\\ndescribe(\\\"priority (update / guard / registry)\\\", () => {\\n  it(\\\"persists priority on update\\\", () => {\\n    const db = openDb();\\n    assert.equal"
+   }
+  ],
+  "tool_calls": {
+   "Bash": 12,
+   "Write": 1,
+   "Edit": 17
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 133,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "指摘8件のうち6件を修正し、2件は一部または全部を直さず、理由を `REVIEW.md` の末尾に追記しました。`npm run typecheck` と `npm test`（25件）は通っています。PR の差分と修正を `7e4f949` でコミットしました。\n\n**修正した指摘**\n- **1（PATCH で priority が保存されない）**: `updateTask` の UPDATE 文に `priority` を追加し、更新のテストを追加しました。\n- **2（SQL の文字列連結）**: レジストリの登録時に、`key` と `column` を英小文字・数字・`_` だけに限定しました。不正な名前は登録時に例外になります。\n- **3・4（優先度リストの重複、`in` 演算子の問題）**: `isTaskPriority` 型ガードを `priority.ts` に置き、ルート・ページ・`validateTaskInput` で使うようにしました。`constructor` などの値は「指定なし」になります。\n- **5（一部）**: 同じ定義の再登録は何もせず、定義が食い違うときだけ例外にしました。\n- **7（テスト不足）**: `updateTask`、`isTaskPriority`、レジストリのテストを追加しました。API ルートのテストは、この repo にルートを呼ぶテストの仕組みが無いため追加していません。\n- **8（`TaskFilter` の型）**: `priority` を `TaskPriority` 型にしました。「不正値は指定なし」は、ルートとページの境界だけで行います。不正値で全件が返ることを確かめていたテストは削除しました。\n\n**直さなかった指摘**\n- **5（import の副作用での登録）**: `tasks.ts` が `priority.ts` を直接 import しているので、import されなくなる状況は実際には起きません。組み替えは今回の範囲を超えるため見送りました。\n- **6（priority だけ個別の特別扱い）**: priority は作成時に省略できるので、`need()` とは意味が違い、現状の書き方で意図どおりです。レジストリから検証などを導出する作り変えも見送りました。\n\nPR の説明にある「定義と登録だけで項目を足せる」は、現状では正確ではありません。マージ前に説明を直すか、「当面は個別の編集が必要」と書き添えるのがよいです。\n\n作業の途中で、`REVIEW.md` が私の編集とは別にディスク上で変わっていたという通知が出ました。内容は確認しておらず、私が追記した内容のままコミットしています。"
+ },
+ "interventions": 0
+}

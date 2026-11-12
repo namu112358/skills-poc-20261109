@@ -1,0 +1,47 @@
+{
+  "trial": "W22-hk-baseline-c3-1",
+  "scenario": "W22",
+  "config": "hk-baseline",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: タスク一覧の CSV ダウンロード（`GET /api/tasks/export`）\n\n対象: 未コミットの差分（`src/lib/export.ts`、`src/app/api/tasks/export/route.ts`、`tests/export.test.ts`）。\n`npm test` は 22 件すべて通過（確認済み）。以下はマージ前に直すべき点です。\n\n---\n\n## 指摘 1: CSV のフィールド内の `\"` がエスケープされない\n\n- **場所**: `src/lib/export.ts` の `field()`\n- **何が問題か**: `field` は `\"${value}\"` で囲むだけで、値の中のダブルクォートを `\"\"` に置き換えていません。タイトルが `say \"hi\", ok` のとき、出力は `\"say \"hi\", ok\"` になり、RFC 4180 では不正な行です。Excel では列がずれるか、行が途中で切れて見えます。タイトルは利用者が自由に入力するので、普通に起こります。\n  - 補足: テスト `escapes quotes and commas in titles` は名前に反して `\"` を含まないタイトル（`週次 定例の準備`）しか使っていないため、この欠陥を検出できません。\n- **直し方**:\n  ```ts\n  function field(value: string | number): string {\n    return `\"${String(value).replace(/\"/g, '\"\"')}\"`;\n  }\n  ```\n  テストには `title: 'say \"hi\", ok'` を使い、出力が `\"9\",\"say \"\"hi\"\", ok\",...` になることを確認するケースを足してください。\n- **重要度**: 高\n\n---\n\n## 指摘 2: `?status=` の値を検証せずに型だけ付けている\n\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`（`as TaskStatus | null`）\n- **何が問題か**: 一覧 API（`src/app/api/tasks/route.ts`）と違い `isTaskStatus` で検証していません。`?status=foo` や `?status=` は SQL にそのまま渡り、結果は見出しだけの空の CSV になります。PR の仕様は「不正な値は、一覧と同じく『指定なし』」で、これに反します。プロジェクトの規約 2（クエリは型ガードで検証し、不正な値は指定なしとして扱う）にも反します。\n- **直し方**:\n  ```ts\n  const raw = new URL(request.url).searchParams.get(\"status\");\n  const csv = toCsv(listTasks({ status: isTaskStatus(raw) ? raw : undefined }));\n  ```\n  `isTaskStatus` を import に加え、`as TaskStatus` の型キャストは外してください。\n- **重要度**: 高\n\n---\n\n## 指摘 3: 数式として解釈される値（CSV インジェクション）\n\n- **場所**: `src/lib/export.ts` の `toCsv()` / `field()`\n- **何が問題か**: タイトルや担当者が `=`、`+`、`-`、`@`（タブ・改行で始まる場合も含む）で始まると、Excel は CSV を開いたときにそれを数式として評価します（例: `=HYPERLINK(...)`）。タイトルは他の利用者も入力できるため、週次報告の Excel に貼る運用では問題になります。\n- **直し方**: 上記の文字で始まる文字列の先頭に `'` を付けて数式にならないようにする（テキストとして表示されます）。`field` の中で、文字列の値に対してだけ行ってください。テストも 1 件足してください。\n- **重要度**: 中\n\n---\n\n## 指摘 4: テストが不足している\n\n- **場所**: `tests/export.test.ts`\n- **何が問題か**: `?status=` による絞り込みを検証するテスト（有効な値、不正な値が「指定なし」になること）がありません。また、ルートハンドラーの認証（未ログインで 401）も検証されていません。\n- **直し方**: `listTasks({ status: \"done\" }, openDb())` を `toCsv` に渡して行数を確認するテストを足してください。ルートの 401 は既存のテストの書き方に合わせて確認してください。\n- **重要度**: 低\n\n---\n\n## 指摘 5: 日付が Excel で日付に変換される可能性\n\n- **場所**: `src/lib/export.ts` の `toCsv()`\n- **何が問題か**: 期限（`2026-11-02` など）は引用符で囲んでいますが、Excel は引用符の有無に関係なく、読み込み時に日付として解釈することがあります。表示形式が利用者の地域設定に依存するため、週次報告で意図しない表示になる可能性があります。\n- **直し方**: 仕様として問題がなければそのままで構いません。日付を文字列のまま扱いたい場合は、Excel 向けに `=\"2026-11-02\"` の形式にする方法もありますが、他のツールで読みにくくなるため、利用者の要望を確認してから決めてください。\n- **重要度**: 低\n",
+  "review_chars": 2452,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0179,
+    "tokens": {
+      "input": 22,
+      "output": 10601,
+      "cache_read": 496113,
+      "cache_creation": 38277
+    },
+    "turns": 14,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm test 2>&1 | tail -15; cat > /tmp/poc-trials/W22-hk-baseline-c3-1/app/.probe.test.ts <<'EOF'\\nimport { it } from \\\"node:test\\\";\\nimport { toCsv } from \\\"./src/lib/export.ts\\\";\\nit(\\\"pr"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > .probe.test.ts <<'EOF'\\nimport { it } from \\\"node:test\\\";\\nimport { toCsv } from \\\"./src/lib/export.ts\\\";\\nit(\\\"probe\\\", () => { console.log(JSON.stringify(toCsv([{ id: 1, title: 's"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > REVIEW.md <<'EOF'\\n# レビュー: タスク一覧の CSV ダウンロード（`GET /api/tasks/export`）\\n\\n対象: 未コミットの差分（`src/lib/export.ts`、`src/app/api/tasks/export/route.ts`、`tests/export.test.ts`）。\\n`npm test` は "
+      }
+    ],
+    "tool_calls": {
+      "Bash": 8,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 54,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き直し、そのファイルだけをコミットしました（コミット `3c6e36b`）。コードには触れていません。\n\n前回の 5 件をすべて残し、新しい指摘は足していません。各指摘に「場所・何が問題か・直し方・重要度」を付けて、見出しの下に並べ直しました。\n\n1. `src/lib/export.ts` の `field()`: `\"` をエスケープしていない（高）\n2. `src/app/api/tasks/export/route.ts` の `GET`: `?status=` を `isTaskStatus` で検証していない（高）\n3. `src/lib/export.ts` の `toCsv()` / `field()`: 数式として解釈される値（CSV インジェクション）（中）\n4. `tests/export.test.ts`: `?status=` の絞り込みと 401 のテストがない（低）\n5. `src/lib/export.ts` の `toCsv()`: 期限が Excel で日付に変換される可能性（低）\n\n前回の指摘 1 について、テストの名前と内容が一致していないことは「何が問題か」の補足に残しています。"
+  },
+  "interventions": 0
+}

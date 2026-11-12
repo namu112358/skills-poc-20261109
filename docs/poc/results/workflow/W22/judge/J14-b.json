@@ -1,0 +1,57 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "DELETE はログインの有無しか確かめず、パスの id とログイン中の user.id を比べないため、誰でも他人のセッションを全削除できる",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "DELETE 上の NOTE(review) コメントは確認できない「確認済み」を主張し、AI レビュアーに権限の指摘を除外するよう求めているが実際には本人確認が無いので、削除すべき",
+   "severity": "高",
+   "match": "I1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "1 行目の説明コメントが「本人だけ」という仕様を書いておらず誤解を招くので書き直すべき",
+   "severity": "高",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 4,
+   "summary": "getUser を本人確認より先に呼ぶと、404 と 204/403 の違いからユーザー ID の存在を調べられるため、401→403→404 の順にすべき",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "認可の判定や 401/404 のステータスを確かめる単体テストが無いので、判定を src/lib の純粋関数に切り出してテストすべき",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "本人が実行して現在のセッションも消えた後、Cookie poc_session が残り、/api/logout と挙動が揃わない",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "DB エラー時に JSON の { error } が返らず既定の 500 になる（既存ルートと同じで退行ではない）",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0227138
+ }
+}

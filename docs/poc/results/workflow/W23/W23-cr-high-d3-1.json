@@ -1,0 +1,39 @@
+{
+  "trial": "W23-cr-high-d3-1",
+  "scenario": "W23",
+  "config": "cr-high",
+  "case": "d3",
+  "rep": 1,
+  "review_md": "# コードレビュー: ダッシュボードとタスクのコメントの追加\n\n指摘は 10 件（重要度順）。\n\n## 1. [高] ダッシュボードのキャッシュキーが全ユーザー共通で、他人のデータが見える\n\n- 場所: `src/lib/dashboard.ts:66`\n- 問題: キャッシュキーが固定文字列 `\"dashboard\"` で、ユーザーごとに分かれていない。sato が `/dashboard` または `GET /api/dashboard` を開くと結果が 30 秒キャッシュされる。その間に suzuki が開くと、sato の件数とタスク名が返る。画面には suzuki の名前と sato のデータが並ぶ。ユーザー間の情報漏えい。キャッシュは `db` 引数も無視するため、別 DB を使うテスト同士で古いデータを読み合うこともある。\n- 直し方: キーに userId を含める。`db` も区別する。そもそもキャッシュをやめるのが望ましい（指摘 9 参照）。\n\n## 2. [高] SQL インジェクション（userId を SQL に埋め込んでいる）\n\n- 場所: `src/lib/dashboard.ts:29`（`listAssignedTasks`）\n- 問題: `WHERE assignee = '${userId}'` と文字列連結で組み立てている。`x' OR '1'='1` のような userId で全タスクが返る。UNION SELECT などで SQL を書き換えることもできる。CLAUDE.md の規約 8（値の埋め込みには必ずプレースホルダを使う）に違反する。\n- 直し方: `WHERE assignee = ?` にして `prepare(...).all(userId)` で値を渡す。\n\n## 3. [高] コメント本文のリンクで保存型 XSS（`javascript:` スキームを許可している）\n\n- 場所: `src/lib/comments.ts:62`（`renderBody`）。結果は `dangerouslySetInnerHTML` で表示される。\n- 問題: `[text](URL)` を、スキームを確認せずに href にしている。`[click](javascript:alert(document.cookie))` というコメントを投稿すると、`escapeHtml` では変化せず `<a href=\"javascript:...\">` が出力される。タスク画面を開いた人がリンクをクリックすると、アプリのオリジンでスクリプトが実行される。`\"` のエスケープは属性の突き破りは防ぐが、危険なスキームは防げない。\n- 直し方: URL を `http:` / `https:` だけに限定する。それ以外はリンクにせず文字として表示する。可能なら `dangerouslySetInnerHTML` を使わず、React の要素として描画する。\n\n## 4. [中] `countByStatus` が共有の `TASK_STATUSES` を破壊的に並べ替える\n\n- 場所: `src/lib/dashboard.ts:42`（`countByStatus`）\n- 問題: `order = TASK_STATUSES as TaskStatus[]` はキャストだけで配列を複製しないため、`.reverse()` がエクスポートされた定数そのものを反転させる。呼ぶたびに順序が入れ替わり、「done が先頭」の並びが奇数回目と偶数回目で変わる。ステータスのドロップダウンや絞り込みなど、`TASK_STATUSES` を使う他のコードも、ダッシュボードを一度表示した後は逆順になる。テストは 1 回しか呼ばないので検出できない。\n- 直し方: `[...TASK_STATUSES].reverse()` のようにコピーしてから並べ替える。\n\n## 5. [中] コメントの PATCH に投稿者チェックがない\n\n- 場所: `src/app/api/comments/[commentId]/route.ts:19`\n- 問題: DELETE は投稿者以外に 403 を返すが、PATCH には同等のチェックがない。ログインしていれば誰でも他人のコメントを `PATCH /api/comments/:id` で書き換えられる。表示される投稿者名は元のままなので、本人が書いたように見える。\n- 直し方: PATCH でもコメントを取得して投稿者と `requireApiUser()` のユーザーを比較し、違えば 403 を返す。コメントが無ければ 404。\n\n## 6. [中] `completionRate` が空のリストで NaN になる\n\n- 場所: `src/lib/dashboard.ts:52`（`completionRate`）\n- 問題: `tasks.length` で割る前に空かどうかを確認していない。担当タスクが 0 件のユーザーでは 0/0 で NaN になる。画面には「完了率 NaN%」と出る。`/api/dashboard` は `JSON.stringify` で NaN が null になるため、`completionRate: null` を返す。\n- 直し方: `tasks.length === 0` のときは 0 を返す。\n\n## 7. [中] `created_at` を日本語ロケール文字列で保存し、文字列としてソートしている\n\n- 場所: `src/lib/comments.ts:20`（保存）、`listComments`（並べ替え）\n- 問題: `'2026/11/11 9:00:00'` のように時・日・月が 0 埋めされない形式で保存し、テキストとして比較している。そのため 9:00:00 のコメントが 10:00:00 のコメントより後ろと判定される（`'9' > '1'`）。月や日が 1 桁と 2 桁にまたがる場合も同様で、コメントが時系列にならない。\n- 直し方: ISO 8601（`toISOString()`）で保存し、表示時にだけ整形する。または id で並べる。既存データがある場合の移行はマイグレーションの末尾に追加する（規約 7）。\n\n## 8. [中] コメントの POST でタスクの存在を確認していない\n\n- 場所: `src/app/api/tasks/[id]/comments/route.ts:22`\n- 問題: 同じファイルの GET は存在を確認するが、POST は確認しない。`POST /api/tasks/9999/comments` に妥当な本文を送ると、外部キー制約（`foreign_keys` は ON）に当たって `addComment` が例外を投げ、処理されない 500 になる。規約 9 は、対象が無いときは 404 を返すと定めている。\n- 直し方: POST でも先にタスクを取得し、無ければ 404 を返す。\n\n## 9. [中] キャッシュがタスク更新で無効化されず、メモリも際限なく増える\n\n- 場所: `src/lib/dashboard.ts:66`、`src/lib/cache.ts`\n- 問題: 30 秒のキャッシュは、`now` と計算済みの一覧をまとめて保持し、タスクが変わっても無効化されない。`PATCH /api/tasks/:id` でステータスを変えてダッシュボードを再読み込みしても、件数・期限切れ一覧・完了率が最大 30 秒古いまま残る。保存先はモジュールレベルの Map で、削除の仕組みがなく増え続ける。ユーザー単位の軽いクエリには、キャッシュは複雑さに見合わない。\n- 直し方: キャッシュを外して毎回計算するのが簡単。残す場合は、タスク更新時に無効化し、容量か期限で破棄する。\n\n## 10. [低] 新しいロジックのテストが上記の失敗ケースを押さえていない\n\n- 場所: `tests/dashboard.test.ts:53` ほか、`tests/comments.test.ts`\n- 問題: CLAUDE.md の規約 5（ロジックを追加・変更したら `tests/` にテストを追加する）に照らして不足している。次のテストがない。\n  - 2 人のユーザーがキャッシュ経由で別々のダッシュボードを得ること。\n  - `countByStatus` を繰り返し呼んでも結果が同じであること。\n  - 空のリストでの `completionRate`。\n  - `renderBody` での `javascript:` リンク。\n  - コメント API の各ルート（投稿者チェック、404、400）。\n  これらの不足のせいで、上のバグがテストを通り抜けている。\n- 直し方: 上の各ケースを `tests/` に追加する。修正と同時に回帰テストとして入れる。\n",
+  "review_chars": 3774,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3392,
+    "tokens": {
+      "input": 20,
+      "output": 7293,
+      "cache_read": 296889,
+      "cache_creation": 78102
+    },
+    "turns": 5,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -50; echo ---; git diff HEAD\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 61,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "レビューの指摘 10 件を `REVIEW.md` に書き、`REVIEW.md` だけをコミットしました。各指摘に場所、問題、直し方、重要度（高・中・低）を付けています。\n\n- **重要度:** 元のレビューには重要度の表記がなかったため、こちらで付けました。高は、ユーザー間の情報漏えい、SQL インジェクション、保存型 XSS の 3 件です。低は、テストの不足 1 件だけです。残りの 6 件は中です。\n- **まとめた指摘:** 指摘を合わせたものはありません。キャッシュに関する 1 と 9 は、問題が別なので別々に残しています。\n- **コード:** 修正していません。\n- **作業ツリー:** PR の変更は元のまま、未コミットで残っています。"
+  },
+  "interventions": 0
+}

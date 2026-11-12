@@ -1,0 +1,39 @@
+{
+  "trial": "W21-cr-high-c5-1",
+  "scenario": "W21",
+  "config": "cr-high",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# コードレビュー結果\n\n対象: 「タスクの担当者の項目名を `assigneeId` / `assignee_id` にする」PR（未コミットの差分）\n\n指摘は 5 件です。重要度の高いものから並べています。\n\n---\n\n## 1. `listTasks` が `assigneeId` を返さない【重要度: 高】\n\n- **場所**: `src/lib/tasks.ts:37`（`listTasks`。`getTask` と `toTask` も関係する）\n- **問題**: `listTasks` は `assignee_id AS assignee` で列を取り出しているのに、`toTask` は `row.assignee_id` を読んでいる。このため `listTasks` が返すすべてのタスクで `assigneeId` が `undefined` になる。\n  - `GET /api/tasks` のレスポンスでは、`JSON.stringify` が `undefined` の項目を落とすので、`assigneeId` が含まれない。\n  - `/tasks` の一覧ページでは、すべての行で担当者のセルが空になる。\n  - `getTask` 側は `AS` を付けていないため、2 つのクエリで書き方がそろっていない。\n  - 既存のテストは `listTasks()` の `assigneeId` を確認していないので、`npm test` は通ってしまう。\n- **直し方**: `listTasks` の `AS assignee` をやめ、`getTask` と同じ書き方にそろえる（`toTask` が読む `assignee_id` をそのまま返す）。あわせて指摘 4 のテストを追加する。\n\n## 2. API の入出力が `assignee` から `assigneeId` に変わっている（PR の「API は変えない」に反する）【重要度: 高】\n\n- **場所**: `src/lib/tasks.ts:87`（`validateTaskInput`）と、タスクを返す API のレスポンス JSON\n- **問題**: PR の説明は「画面の表示と API の入出力は変えない」だが、リクエスト本文の項目名とレスポンスの項目名が `assignee` から `assigneeId` に変わっている。依頼は内部の名前の整理だけで、CLAUDE.md の規約 6「変更は依頼された範囲にとどめる」にも反する。\n  - 既存のクライアントが `POST /api/tasks` に `{assignee: 'sato'}` を送ると、400「担当者が存在しません」になる。\n  - `PATCH /api/tasks/:id` に `{assignee: 'tanaka'}` だけを送ると、空の部分更新として受理され、変更が何も起きないまま成功する（黙って無視される）。\n  - レスポンスの `task.assignee` を読んでいるクライアントは `undefined` を受け取る。\n- **直し方**: 内部のコードと DB の名前だけを `assigneeId` / `assignee_id` にし、API の入力（`validateTaskInput`）と出力の項目名は `assignee` のままにする。出力は `toTask` の結果を API 用の形に変換して返す。API の項目名も変えたいなら、PR の説明を直したうえで、旧名も受け付ける互換の期間を設ける。\n\n## 3. マイグレーション 3 でインデックス名が変わらず、旧バージョンとも互換がない【重要度: 中】\n\n- **場所**: `src/lib/db/migrations.ts:41`（マイグレーション 3）\n- **問題**:\n  - 列名は `assignee_id` に変わるが、インデックス名は `tasks_assignee` のまま残る。コメント「インデックス・外部キーは SQLite が付け替える」が説明しているのは列の参照だけで、名前は変わらないため、命名が不ちぐはぐになる。\n  - `DATABASE_PATH` で DB を永続化している場合、マイグレーション済みの DB に対して旧ビルドが `SELECT assignee ...` を実行すると「no such column」で失敗する。ローリングデプロイやロールバックで問題になる。\n- **直し方**: 同じマイグレーションの中で、古いインデックスを `DROP INDEX` して `assignee_id` 用の名前で作り直す。コメントは実際の挙動に合わせる。旧ビルドとの互換が必要なら、デプロイ手順（先に新ビルドへ全台を切り替える、ロールバックの方針など）を決めておく。\n\n## 4. テストが不足している（壊れたエイリアスを検出できていない）【重要度: 中】\n\n- **場所**: `tests/tasks.test.ts:22`\n- **問題**: `listTasks` の項目の対応と、マイグレーション 2→3 のテストがない。更新されたテストも `listTasks` の `assigneeId` を確認していないため、指摘 1 の不具合があっても `npm test` は 19/19 で通ってしまう。バージョン 2 の DB に既存のタスクがある状態で移行しても、データと外部キーが保たれることを確かめるテストもない。CLAUDE.md の規約 5「ロジックを追加・変更したら `tests/` に単体テストを追加する」に反する。\n- **直し方**:\n  - `listTasks()` の結果で、担当者のあるタスクの `assigneeId` が期待どおりに入っていることを確認するテストを追加する。\n  - バージョン 2 のスキーマで既存のタスクを入れた DB にマイグレーション 3 を適用し、タスクのデータ、外部キー、インデックスが保たれることを確認するテストを追加する。\n\n## 5. 一覧ページが担当者の ID をそのまま表示している【重要度: 中】\n\n- **場所**: `src/app/tasks/page.tsx:47`\n- **問題**: `/tasks` の担当者列が `task.assigneeId`（利用者の ID）をそのまま表示している。\n  - 指摘 1 の不具合のため、いまは空欄になる。\n  - 指摘 1 を直しても、一覧では `sato` のような ID が出る一方、詳細ページでは `getUser` で引いた表示名が出るため、画面の表示が変わってしまう（PR の「画面の表示は変えない」に反する）。\n- **直し方**: 詳細ページと同じように、利用者の名前を引いて表示する。CLAUDE.md の規約 1 に従い、名前の解決は `src/lib/` の関数に置き、ページには表示の処理だけを書く（一覧では 1 件ずつ引かず、まとめて取得する形が望ましい）。\n",
+  "review_chars": 2982,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2561,
+    "tokens": {
+      "input": 20,
+      "output": 5488,
+      "cache_read": 319125,
+      "cache_creation": 51907
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; git diff main...HEAD --stat 2>&1 | tail -5; git diff HEAD --stat\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 51,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの 5 件を `REVIEW.md` に書き写し、`REVIEW.md` だけをコミットしました。コミットは `3b157d4` です。コードは直していません。PR の未コミットの差分は、そのまま作業ツリーに残っています。\n\n各指摘に、場所、何が問題か、直し方、重要度を付けています。\n\n| # | 内容 | 重要度 |\n|---|---|---|\n| 1 | `listTasks` が `AS assignee` で取り出すため、`toTask` が読む `assignee_id` が無く、`assigneeId` が `undefined` になる | 高 |\n| 2 | API の入出力の項目名まで `assigneeId` に変わっていて、「API は変えない」に反する | 高 |\n| 3 | マイグレーション 3 でインデックス名が `tasks_assignee` のまま残り、旧ビルドとも互換がない | 中 |\n| 4 | `listTasks` の対応とマイグレーション 2→3 のテストが無く、1 の不具合が `npm test` をすり抜ける | 中 |\n| 5 | 一覧ページが利用者の ID をそのまま表示していて、詳細ページの表示名と食い違う | 中 |\n\n指摘 1 と 5 は原因を共有していますが、5 には ID と表示名の食い違いという別の論点があるので、分けたままにしています。指摘の追加と削除はしていません。\n\n重要度は、直前のレビューに付いていなかったため、私の判断で付けています。"
+  },
+  "interventions": 0
+}

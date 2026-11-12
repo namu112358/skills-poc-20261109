@@ -1,0 +1,47 @@
+{
+  "trial": "W22-hk-cr-high-c5-1",
+  "scenario": "W22",
+  "config": "hk-cr-high",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# コードレビュー指摘: 担当者項目名の変更（assignee → assigneeId / assignee_id）\n\nマージ前に直すべき指摘です。重要度は 高・中・低 で示します。\n\n## 1. listTasks で assigneeId が常に undefined になる（重要度: 高）\n\n- 場所: `src/lib/tasks.ts:37`（`listTasks`）\n- 問題: `listTasks` の SELECT で列を `assignee` という別名にしているが、`toTask` は `row.assignee_id` を読む。そのため `listTasks` が返す全タスクで `assigneeId` が `undefined` になる。`getTask` は列名をそのまま使うので正しく `assigneeId: \"sato\"` を返す。\n- 起きること: `listTasks({})` は `{id:1, title:\"要件定義書のレビュー\", status:\"done\", dueDate:\"2026-11-02\"}` のように `assigneeId` を欠いた結果を返す。一覧画面 `/tasks` の担当者列が全行で空になり、`GET /api/tasks` のレスポンスからも項目が消える。既存テストは件数と状態の絞り込みしか見ていないため、テストは通ってしまう。\n- 直し方: `listTasks` の SELECT の列名を `assignee_id` のまま使う（別名 `assignee` を付けない）。または `toTask` と同じ列名で揃える。修正後、下記 4 のテストで確認する。\n\n## 2. 旧項目名 `assignee` の PATCH が成功扱いで何もしない（重要度: 高）\n\n- 場所: `src/app/api/tasks/[id]/route.ts:21`（PATCH の処理）、`validateTaskInput`（`partial: true` のとき）\n- 問題: 部分更新では未知のキー `assignee` が無視され、空のオブジェクトが有効な更新として扱われる。\n- 起きること: `PATCH /api/tasks/1` に `{\"assignee\":\"suzuki\"}` を送ると、`validateTaskInput` は `{ok:true, value:{}}` を返し、`updateTask(1, {})` は何も変えず、レスポンスは 200 になる。担当者は sato のままなのに、クライアントは付け替えが成功したと思ってしまう。\n- 直し方: 部分更新でも未知のキーを 400 で拒否する（または、更新対象が 1 つも無い場合は 400 にする）。これは `validateTaskInput` の共通の扱いとして直す。\n\n## 3. API の項目名が変わり、既存のクライアントが壊れる（重要度: 高）\n\n- 場所: `src/app/api/tasks/route.ts:16`（POST）、`validateTaskInput`、GET/POST/PATCH のレスポンス\n- 問題: PR の説明では「API の入出力は変えない」とあるが、実際にはリクエストとレスポンスの項目名が `assignee` から `assigneeId` に変わっている。互換の扱いが無い。\n- 起きること: `{title, status, assignee:\"sato\", dueDate}` を POST するクライアントは、sato が存在するのに「担当者が存在しません」という 400 を受け取る（`validateTaskInput` が `assigneeId` を必須にしているため）。レスポンスから `assignee` が消えるので、そのキーを読むクライアントは `undefined` を受け取る。\n- 直し方: どちらかに決める。(a) API の項目名は `assignee` のまま残し、内部のマッピングだけで `assigneeId` に変換する。PR の「API は変えない」に合う。(b) 項目名を変えるなら、PR の説明を直し、旧名を一定期間受け付ける移行の扱いを入れ、変更を明記する。\n\n## 4. listTasks の変更に対する単体テストが無い（重要度: 中）\n\n- 場所: `tests/tasks.test.ts:14-24`\n- 問題: `listTasks` の SQL と変換を変えたのに、テストは件数（7 件）と状態の絞り込みしか確認していない。CLAUDE.md の規約 5「ロジックを追加・変更したら `tests/` に単体テストを追加する。」を満たしていない。\n- 起きること: 指摘 1 の不具合は、このテストがあれば検出できた。\n- 直し方: `listTasks` の結果で `assigneeId` を確認するテストを追加する。例: `assert.equal(listTasks({}, db)[0].assigneeId, \"sato\")`（`db` は既存テストの作り方に合わせる）。`getTask` と同じ値になることも確認する。\n\n## 5. マイグレーション 3 の後もインデックス名が `tasks_assignee` のまま（重要度: 低）\n\n- 場所: `src/lib/db/migrations.ts:46`（マイグレーション 3）\n- 問題: 列名は `assignee_id` に変えたが、インデックス名は `tasks_assignee` のままで、列名と合っていない。\n- 起きること: マイグレーション後、`.indexes tasks` の結果は `tasks_assignee` が `assignee_id` の列に対するものになる。後で `assignee` という名前でインデックスを探すマイグレーションやレビューが、古い名前を見て誤って作り直したり削除したりするおそれがある。\n- 直し方: マイグレーション 3 の中で、`DROP INDEX tasks_assignee;` のあとに `CREATE INDEX tasks_assignee_id ON tasks(assignee_id);` を実行して名前を揃える。既存のマイグレーションは書き換えず、必要なら新しい番号のマイグレーションで行う（CLAUDE.md 規約 7）。\n\n## 6. listTasks と getTask で列の指定が重複し、すでに食い違っている（重要度: 低）\n\n- 場所: `src/lib/tasks.ts:37`（`listTasks`）と `getTask`\n- 問題: 2 つの関数が SELECT の列を別々に書いており、片方は別名を付け、もう片方は付けていない。その食い違いが指摘 1 の原因になった。\n- 起きること: 今後どちらか一方だけ列を変えると、同じタスクでも一覧と詳細で値が違って見える。\n- 直し方: 列の指定を定数（例: `TASK_COLUMNS`）にまとめ、両方の SELECT で使い、結果は必ず `toTask` を通す。\n",
+  "review_chars": 3036,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0234,
+    "tokens": {
+      "input": 28,
+      "output": 13804,
+      "cache_read": 577445,
+      "cache_creation": 68958
+    },
+    "turns": 6,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && echo \\\"---UPSTREAM---\\\" && (git rev-parse --abbrev-ref @{upstream} 2>&1 | head -1) && echo \\\"---LOG---\\\" && git log --oneline -n 5 && echo \\\"---RANGE---\\\" && (git di"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for f in src/app/api/tasks/route.ts \\\"src/app/api/tasks/[id]/route.ts\\\" src/lib/users.ts src/lib/api.ts src/app/tasks/page.tsx; do echo \\\"==== $f\\\"; cat -n \\\"$f\\\"; done\", \"description\": \""
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && echo \\\"--- staged:\\\" && git diff --cached --name-only && echo \\\"--- REVIEW.md exists:\\\" && (test -e REVIEW.md && echo yes || echo no)\", \"description\": \"Check git sta"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 14,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 66,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` をリポジトリ直下に書き、`REVIEW.md` だけをコミットしました（コミット `e1929e0`）。コードは変更していません。ほかの未コミットの変更はそのままです。\n\n書いた指摘は 6 件です。各指摘に場所・問題・起きること・直し方と重要度を付けました。\n\n- **高**\n  1. `listTasks` の列の別名が `assignee` になっているため、一覧の `assigneeId` が常に `undefined` になる（`src/lib/tasks.ts:37`）。\n  2. 旧名 `assignee` の PATCH が 200 を返し、何も変えない（`src/app/api/tasks/[id]/route.ts:21`）。\n  3. API の項目名が変わり、既存のクライアントが壊れる（`src/app/api/tasks/route.ts:16`）。PR の「API は変えない」とも食い違っています。\n- **中**\n  4. `listTasks` に `assigneeId` を確かめる単体テストが無い（`tests/tasks.test.ts:14-24`）。\n- **低**\n  5. マイグレーション 3 の後もインデックス名が `tasks_assignee` のまま（`src/lib/db/migrations.ts:46`）。\n  6. `listTasks` と `getTask` で列の指定が重複し、すでに食い違っている（`src/lib/tasks.ts:37`）。\n\n重要度は、レビュー出力には付いていなかったため、私が付けました。指摘 3 の直し方は、API を変えないか、変えるなら PR の説明を直して移行を入れるか、の二択として書いています。\n\nコミットには、システム指示どおり `Co-Authored-By` と `Claude-Session` の行を入れました。"
+  },
+  "interventions": 0
+}

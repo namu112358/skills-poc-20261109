@@ -1,0 +1,120 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "\"adds days to the due date\" は期待値を extendDueDate 自身で計算して比べているため、実装が間違っていても必ず通る。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "\"works across months\" と \"handles a completed task\" は doesNotThrow だけで、月またぎの日付も完了タスクを延長できないことも確かめていない。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "validateExtendInput のテストは正常系 1 件だけで、0・31・1.5・文字列などの拒否と 1・30 の境界を確かめていない。",
+   "severity": "高",
+   "match": "T3",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "extendTask のテストは result.ok しか見ず、期限が延びて DB に保存されたかを確かめていない。",
+   "severity": "高",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "extendTask の not_found の結果がテストされていない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "extendDueDate で年が 9999 を超えると toISOString().slice が壊れた日付を返し、それが保存されて 200 になる。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "due_date が解釈できない値だと extendDueDate の toISOString が RangeError を投げ、route に try/catch が無いため汎用の 500 になる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "validateExtendInput の戻り値が既存の ValidationResult<T> と形が違い、route で包み直している。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "validateExtendInput が (body as …)?.days で型を偽って読み、本文が読めない場合にも日数の文言を返すため、既存と同じ形式チェックを先にすべき。",
+   "severity": "中",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 10,
+   "summary": "extendTask の updateTask(...)! の非 null アサーションは将来 undefined のまま ok: true になりうる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "extendTask・extendDueDate が日数の範囲を自分では保証せず、route 以外から呼ぶと 0・負数・NaN が通る。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "route の失敗理由の分岐が done か否かの二択で、理由が増えると黙って 404 になるため switch と never で網羅すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 13,
+   "summary": "extend の route は本文の検証がタスクの存在確認より先に走り、既存の PATCH と順序が違う。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 14,
+   "summary": "extendDueDate・extendTask の説明コメントに、前提と戻り値の説明を足すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 15,
+   "summary": "日数の下限 1 が直書きなので MIN_EXTEND_DAYS を定数にすべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 16,
+   "summary": "既存の validateTaskInput は Date.parse で検証するため 2026-02-31 のような存在しない日付を受け付ける（範囲外）。",
+   "severity": "なし",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0960878
+ }
+}

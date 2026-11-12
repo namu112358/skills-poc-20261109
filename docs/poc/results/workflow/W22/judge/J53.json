@@ -1,0 +1,106 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "listTasks の SELECT が assignee_id AS assignee と別名を付けているのに toTask は row.assignee_id を読むため、一覧と GET /api/tasks で担当者が undefined になる。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "Task 型と validateTaskInput の改名がそのまま API に出るため、/api/tasks と /api/tasks/:id の入出力のキーが assignee から assigneeId に変わり、既存クライアントが壊れる。PR の主張とも食い違う。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "validateTaskInput が need(\"assigneeId\") しか読まないため、旧形式の assignee を送ると POST は分かりにくい 400 になり、PATCH は何も更新せずに 200 を返す。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "listTasks のテストが件数と status しか確かめておらず、担当者の中身を検証していない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "データのある user_version=2 の DB にマイグレーション 3 を適用する経路のテストがない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "updateTask での assigneeId の変更、partial 検証の分岐、旧キーの扱いのテストがない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "API Route のレスポンスのキー名とページの担当者表示を固定するテストがない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "listTasks と getTask の as TaskRow キャストが実行時の行の形を保証せず、列名の食い違いが型検査で見えない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "validateTaskInput 内の need(key: string) がキー名の型チェックを受けておらず、keyof TaskInput にすべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "マイグレーション 1 のインデックス名 tasks_assignee が新しい列名 assignee_id と揃っていない。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 11,
+   "summary": "マイグレーション 3 のコメントに、付け替えの対象に CHECK 制約が含まれないことなどを書き足すと親切。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "validateTaskInput の戻り値が Partial<TaskInput> のため、POST 側で as TaskInput のキャストが必要になっている。オーバーロードで型を分けるべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 13,
+   "summary": "詳細ページは氏名、一覧ページは ID を表示しており、担当者の表示が揃っていない。差分以前からの挙動。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 14,
+   "summary": "assigneeId のコメントを日本語で書くと意図がより伝わる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0899478
+ }
+}

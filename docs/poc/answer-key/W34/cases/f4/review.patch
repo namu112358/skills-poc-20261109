@@ -1,0 +1,107 @@
+diff --git a/src/app/api/tasks/summary/route.ts b/src/app/api/tasks/summary/route.ts
+new file mode 100644
+index 0000000..2744e7c
+--- /dev/null
++++ b/src/app/api/tasks/summary/route.ts
+@@ -0,0 +1,12 @@
++// GET /api/tasks/summary?soonDays=… — タスクの集計。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { parseSoonDays, summarizeTasks } from "@/lib/summary";
++
++export async function GET(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const soon = parseSoonDays(new URL(request.url).searchParams.get("soonDays"));
++  if (!soon.ok) return jsonError(400, "入力内容に誤りがあります", [soon.error]);
++  return NextResponse.json({ summary: summarizeTasks(undefined, new Date(), soon.days) });
++}
+diff --git a/src/lib/summary.ts b/src/lib/summary.ts
+new file mode 100644
+index 0000000..2261aa7
+--- /dev/null
++++ b/src/lib/summary.ts
+@@ -0,0 +1,43 @@
++// タスクの集計（合計・期限切れ・今日が期限・期限が近い）。
++import { getDb, type Db } from "./db/index.ts";
++
++export type TaskSummary = { total: number; overdue: number; dueToday: number; dueSoon: number };
++
++const JST_DATE = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" });
++
++function addDays(date: string, days: number): string {
++  const d = new Date(`${date}T00:00:00Z`);
++  d.setUTCDate(d.getUTCDate() + days);
++  return d.toISOString().slice(0, 10);
++}
++
++/** 期限が近いとみなす日数の既定値。 */
++export const DEFAULT_SOON_DAYS = 7;
++
++/** soonDays（1〜90 の整数）を検証する。未指定なら既定値。 */
++export function parseSoonDays(value: string | null): { ok: true; days: number } | { ok: false; error: string } {
++  if (value === null) return { ok: true, days: DEFAULT_SOON_DAYS };
++  if (!/^[1-9][0-9]?$/.test(value) || Number(value) > 90) {
++    return { ok: false, error: "日数は 1〜90 の整数で指定してください" };
++  }
++  return { ok: true, days: Number(value) };
++}
++
++/**
++ * 未完了のタスクを、日本時間の今日を基準に数える。dueSoon は明日から soonDays 日後まで。
++ * now を渡すと、その時刻を「今」として数える（テスト用）。
++ */
++export function summarizeTasks(db: Db = getDb(), now: Date = new Date(), soonDays: number = DEFAULT_SOON_DAYS): TaskSummary {
++  const today = JST_DATE.format(now);
++  const row = db
++    .prepare(
++      `SELECT
++         COUNT(*) AS total,
++         SUM(CASE WHEN status != 'done' AND due_date < :today THEN 1 ELSE 0 END) AS overdue,
++         SUM(CASE WHEN status != 'done' AND due_date = :today THEN 1 ELSE 0 END) AS dueToday,
++         SUM(CASE WHEN status != 'done' AND due_date > :today AND due_date <= :soon THEN 1 ELSE 0 END) AS dueSoon
++       FROM tasks`,
++    )
++    .get({ today, soon: addDays(today, soonDays) }) as Record<keyof TaskSummary, number | null>;
++  return { total: row.total ?? 0, overdue: row.overdue ?? 0, dueToday: row.dueToday ?? 0, dueSoon: row.dueSoon ?? 0 };
++}
+diff --git a/tests/summary.test.ts b/tests/summary.test.ts
+new file mode 100644
+index 0000000..8ba69b7
+--- /dev/null
++++ b/tests/summary.test.ts
+@@ -0,0 +1,34 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { createTask } from "../src/lib/tasks.ts";
++import { parseSoonDays, summarizeTasks } from "../src/lib/summary.ts";
++
++describe("summarizeTasks", () => {
++  it("summarizes the seed data", () => {
++    const summary = summarizeTasks(openDb());
++    assert.deepEqual(summary, { total: 7, overdue: 0, dueToday: 1, dueSoon: 2 });
++  });
++
++  it("counts a new task that is due today", () => {
++    const db = openDb();
++    const today = new Date().toISOString().slice(0, 10);
++    createTask({ title: "今日まで", status: "todo", assignee: "sato", dueDate: today }, db);
++    assert.equal(summarizeTasks(db).total, 8);
++    assert.equal(summarizeTasks(db).dueToday, 2);
++  });
++
++  it("is fast enough for the dashboard", () => {
++    const start = Date.now();
++    summarizeTasks(openDb());
++    assert.ok(Date.now() - start < 300, "300 ms 以内に集計できること");
++  });
++});
++
++describe("parseSoonDays", () => {
++  it("uses 7 days by default and validates the value", () => {
++    assert.deepEqual(parseSoonDays(null), { ok: true, days: 7 });
++    assert.deepEqual(parseSoonDays("0"), { ok: false, error: "日数は 1〜90 の整数で指定してください" });
++    assert.deepEqual(parseSoonDays("abc"), { ok: false, error: "日数は 1〜90 の整数で指定してください" });
++  });
++});

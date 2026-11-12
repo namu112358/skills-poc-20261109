@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で userId を含まず、30 秒以内に別ユーザーが開くと他人のタスク・件数が返る",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "countByStatus で型の断定後に reverse() を呼び、共有の TASK_STATUSES をその場で書き換えるため、表示のたびに並びが反転し、タスク一覧の絞り込みメニューの並びも変わる",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり規約 8 に違反し、引用符を含む ID でクエリが壊れる",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "completionRate は担当タスク 0 件のとき 0/0 で NaN になり、画面に「完了率 NaN%」と出て、API の JSON では null になる",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "タスクの作成・更新時にキャッシュを消さないため、最長 30 秒は古い件数が表示される",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 6,
+   "summary": "cache.ts の store が期限切れの項目を削除しないため、ユーザー別のキーにするとキャッシュが無制限に増える",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "別の now を渡しても、キャッシュが残っていれば古い generatedAt と日付判定の結果が返る",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "サーバーのインスタンスや開発時の再読み込みごとに別のキャッシュになり、効き方が一定でない",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "dueThisWeek が今週内の期限切れタスクも含むため、「期限切れ」と「今週が期限」の両方に重複して出る",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 10,
+   "summary": "テストにユーザー別の呼び出し・countByStatus の 2 回呼び出し・0 件のケース・cached・API の 401 の確認が無く、上の不具合を検出できない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0753438
+ }
+}

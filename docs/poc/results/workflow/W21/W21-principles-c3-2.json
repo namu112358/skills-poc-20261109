@@ -1,0 +1,48 @@
+{
+  "trial": "W21-principles-c3-2",
+  "scenario": "W21",
+  "config": "principles",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# レビュー: タスク一覧の CSV ダウンロード API\n\n## レビューの要約\n\nタスク一覧を CSV でダウンロードできる `GET /api/tasks/export` を追加する変更です。**修正を求める**判断です。PR の説明にある「引用符のエスケープ」と「不正な `status` は指定なし」が実装されておらず、テストもそれに気づけない形になっています。\n\n## 良い点\n\n- CSV の組み立て（`src/lib/export.ts`）を `src/lib/` に置き、Route は薄く保っている（規約 1）。\n- 認証確認が最初にあり、既存の `listTasks` と `STATUS_LABELS` を再利用している。\n- BOM・CRLF・末尾改行など Excel 向けの配慮が、定数や関数に分かれていて読みやすい。\n\n## 指摘\n\n### 1. [重要度: 高] 値の中のダブルクォートをエスケープしていない\n\n- 場所: `src/lib/export.ts:11-13`（`field`）\n- 何が問題か: `field` は `\"${value}\"` と囲むだけです。タイトルが `彼は\"急ぎ\"と言った` のとき、出力は `\"彼は\"急ぎ\"と言った\"` になります。CSV の規則では項目内の `\"` を `\"\"` にする必要があるため、Excel では列がずれたり、項目が壊れたりします。PR の「引用符が含まれていても列がずれない」を満たしていません。タイトルは最大 200 文字の自由入力なので、実際に起きます。\n- 直し方: `` `\"${String(value).replaceAll('\"', '\"\"')}\"` `` にします。改行とカンマは常時クォートしているので、これだけで足ります。\n\n### 2. [重要度: 高] 不正な `status` が「指定なし」にならず、空の CSV になる\n\n- 場所: `src/app/api/tasks/export/route.ts:11-12`\n- 何が問題か: `searchParams.get(\"status\") as TaskStatus | null` は型を偽装しているだけで、検証していません。`?status=foo` は `listTasks({ status: \"foo\" })` に渡ります。SQL は `status = 'foo'` となり 0 件で、見出しだけの CSV が返ります。PR の説明（不正な値は一覧と同じく指定なし）や、規約 2（型ガードで検証する）に反します。`?status=` のような空文字も同様です。一覧 API（`src/app/api/tasks/route.ts:10`）は `isTaskStatus` を使っています。\n- 直し方: 一覧と同じにします。\n\n  ```ts\n  const status = new URL(request.url).searchParams.get(\"status\");\n  const tasks = listTasks({ status: isTaskStatus(status) ? status : undefined });\n  ```\n\n  `as` による型の指定は外します。\n\n### 3. [重要度: 中] CSV インジェクション（数式の実行）への対策がない\n\n- 場所: `src/lib/export.ts:11-13`（`field`）\n- 何が問題か: タイトルは誰でも入力でき、このファイルは Excel で開かれます。`=HYPERLINK(...)` や `=cmd|...` のように、`=` `+` `-` `@` で始まるタイトルは Excel に数式として扱われます。引用符で囲んでも防げません。他のユーザーが作ったタスクを、報告担当者が開いたときに実行されます。\n- 直し方: 文字列の項目の先頭が `= + - @` やタブ・CR のときは、先頭に `'` を付けます。ID は数値なので対象外です。テストも追加してください。\n\n### 4. [重要度: 中] テストが、PR の説明にある受入条件を確かめていない\n\n- 場所: `tests/export.test.ts:15-18`、ほか\n- 何が問題か:\n  - 「escapes quotes and commas」というテストのデータは `週次 定例の準備` で、引用符もカンマも含みません。名前と中身が合わず、指摘 1 の不具合を通してしまいます（PR の「テスト通過」はそのため）。改行を含むケースもありません。\n  - 絞り込み（`status`）のテストが `listTasks` にも Route にもありません。指摘 2 は、テストがあれば見つかっていました。\n  - 1 件目のテストは初期データ（7 件・1 件目の内容）に依存し、`lines.length` は `9` という数に頼っています。シードを変えると落ちます。`toCsv` の単体テストなら、Task を直接渡す方が安定します。\n  - BOM が付くこと（`CSV_BOM`）と、Route の応答ヘッダを確かめるテストがありません。\n- 直し方: `title: 'a\"b,c\\nd'` のタスクで、出力が `\"a\"\"b,c\\nd\"` になることを確かめます。数式の先頭文字のケースも足します。`status` の絞り込みは、検証・絞り込みの処理を `src/lib/` の関数に切り出し、それを不正値と有効値でテストします。\n\n### 5. [重要度: 低] `export.ts` の BOM 定数が、見えない文字のリテラルになっている\n\n- 場所: `src/lib/export.ts:5`\n- 何が問題か: `\"﻿\"` は目に見えない U+FEFF のリテラルです。エディタや整形ツールで消えても気づけず、Excel で文字化けします。\n- 直し方: `\"﻿\"` と書きます。\n\n### 6. [重要度: 低] ダウンロードのファイル名が固定で、毎回同じ名前になる\n\n- 場所: `src/app/api/tasks/export/route.ts:15`\n- 何が問題か: 毎週の報告用に使うとき、`tasks.csv` が上書きされたり `tasks (1).csv` が増えたりします。必須ではありません。\n- 直し方: 必要なら `tasks-2026-11-11.csv` のように日付を付けます。要望が出てからで構いません（今回の依頼の範囲外）。\n\n## 補足（問題なしと判断した点）\n\n- `/api/tasks/export` は、Next.js の静的ルートが `/api/tasks/[id]` より優先されるため、競合しません。\n- 認証は `requireApiUser()` で最初に確認しており、規約 9 と合っています。\n",
+  "review_chars": 2923,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2916,
+    "tokens": {
+      "input": 28,
+      "output": 7033,
+      "cache_read": 583649,
+      "cache_creation": 40714
+    },
+    "turns": 19,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat -n $f; done\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'E'\\nimport re\\np='REVIEW.md'\\ns=open(p,encoding='utf-8').read()\\ns=s.replace(\\\"- 何が起きるか:\\\",\\\"- 何が問題か:\\\")\\ns=s.replace(\\\"- 直し方:\\\",\\\"- 直し方:\\\")\\ns=s.replace(\\\"ファイル名が固定で、ログインと実行日"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i 's/^- 何が起きるか:/- 何が問題か:/; s/ログインと実行日の違いを区別できない/毎回同じ名前になる/; s/^### 6\\\\. \\\\[重要度: 低\\\\] ファイル名が固定で、毎回同じ名前になる/### 6. [重要度: 低] ダウンロードのファイル名が固定で、毎回同じ名前になる/' REVIEW.md && grep -n \\\"^###\\\\|何が"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 8,
+      "Write": 1,
+      "Edit": 7
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 81,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を依頼の形式に揃えて、`REVIEW.md` だけをコミットしました（9185a3a）。コードは直していません。\n\n前回のコミットで、指摘 6 件は「場所・何が問題か・直し方・重要度」の形で書けていました。今回は次の 2 点だけ直しました。\n\n- 各指摘の項目名「何が起きるか」を、依頼の形式にある「何が問題か」に統一しました。\n- 指摘 6 の見出しが不正確でした。「ログインと実行日の違いを区別できない」を、実際の内容に合わせて「ダウンロードのファイル名が固定で、毎回同じ名前になる」に直しました。\n\n指摘は 6 件のままで、追加も削除もしていません。\n\n| # | 重要度 | 内容 |\n|---|---|---|\n| 1 | 高 | ダブルクォートをエスケープしていない |\n| 2 | 高 | 不正な `status` が「指定なし」にならず、空の CSV になる |\n| 3 | 中 | `=` `+` `-` `@` で始まるタイトルが数式として実行される（CSV インジェクション） |\n| 4 | 中 | テストが受入条件を確かめていない |\n| 5 | 低 | BOM が見えない文字のリテラルになっている |\n| 6 | 低 | ダウンロードのファイル名が固定 |\n\n末尾の「補足（問題なしと判断した点）」は指摘ではないので、そのまま残しています。\n\nPR の変更ファイル 3 つは、これまでどおり未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

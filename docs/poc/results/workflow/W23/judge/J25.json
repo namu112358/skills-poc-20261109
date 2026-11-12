@@ -1,0 +1,64 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で利用者を含まず、30 秒以内に別の利用者が開くと最初の利用者のタスク・件数が返る",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "listAssignedTasks で userId をテンプレート文字列で SQL に埋め込んでおり、規約 8 違反で SQL インジェクションの恐れがある",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "countByStatus が型キャストで readonly を外して共有定数 TASK_STATUSES を reverse() で破壊的に並べ替え、呼ぶたびに並びが反転し他画面にも波及する",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "completionRate が担当タスク 0 件のとき 0/0 で NaN になり、画面に「完了率 NaN%」、API では null になる",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "dueThisWeek が今週の月曜〜昨日の期限切れタスクも含み、「期限切れ」と「今週が期限」が重複する",
+   "severity": "中",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "キャッシュのため、タスクを PATCH で更新しても最大 30 秒は古い件数・一覧がダッシュボードに出る",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "cache.ts のキャッシュは単純な Map で期限切れのエントリが削除されず、ユーザーごとにキーを分けるとエントリが増え続ける",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "tests/dashboard.test.ts に別ユーザーのキャッシュ、繰り返し呼び出し、0 件、401、週境界（日曜・月曜）などのテストが足りない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0624798
+ }
+}

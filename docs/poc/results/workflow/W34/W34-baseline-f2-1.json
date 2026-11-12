@@ -1,0 +1,89 @@
+{
+ "trial": "W34-baseline-f2-1",
+ "scenario": "W34",
+ "config": "baseline",
+ "case": "f2",
+ "rep": 1,
+ "review_md": "# レビュー結果\n\n「振る舞いは変えない」という PR の説明に反して、`validateTaskInput` の検証が緩くなっています。マージ前に直してください。\n\n## 1. [高] 担当者の存在確認が消えている（`src/lib/tasks/validation.ts` の `validateTaskInput`、`assignee` の分岐）\n\n- 分割前は `SELECT 1 FROM users WHERE id = ?` で担当者の存在を確認していました。分割後は「空でない文字列か」しか見ていません。引数も `_db` になり、使われなくなっています。\n- 例：`POST /api/tasks` に `assignee: \"nobody\"` を送ると、検証を通ります。その後 `createTask` の INSERT が外部キー制約違反（`PRAGMA foreign_keys = ON`、`tasks.assignee REFERENCES users(id)`）で例外になり、**400 ではなく 500** が返ります。`PATCH /api/tasks/:id` でも同じです。CLAUDE.md の「入力誤りは 400」に反します。\n- 直し方：元の存在確認を戻します（`typeof b.assignee === \"string\" && db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee) !== undefined`）。引数名も `db` に戻します。\n\n## 2. [中] タイトルの長さ上限（200 文字）の検証が消えている（同 `title` の分岐）\n\n- 元は `b.title.length > 200` も不正としていました。分割後は空かどうかだけを見ています。エラー文言は「1〜200 文字」のままで、実際の動作と合っていません。\n- 例：10 万文字のタイトルが保存できてしまいます。一覧や詳細の表示が崩れる原因にもなります。\n- 直し方：`|| b.title.length > 200` を戻します。\n\n## 3. [中] テストの欠落（`tests/task-validation.test.ts`、`tests/task-model.test.ts`）\n\n- 元の `tests/tasks.test.ts` にあった「reports every invalid field」（不正な 4 項目を全部報告する）が、移した先にありません。このテストが残っていれば、指摘 1・2 は `npm test` で見つかったはずです。PR の「テストが通った」という確認は、テストが減った状態での結果です。\n- 直し方：このテストを `task-validation.test.ts` に戻します。あわせて、存在しない担当者と 201 文字のタイトルを拒否するケースを足します。\n\n## 4. [低] 使っていない import（`tests/task-model.test.ts`、`tests/task-repository.test.ts`）\n\n- `task-model.test.ts` は `openDb` を import していますが、使っていません。`task-validation.test.ts` は `openDb` を使っています。\n- 直し方：`task-model.test.ts` の import を削除します。\n\n## 5. [低] `index.ts` 経由の import（`src/app/**`、テスト）\n\n- 呼び出し側が `@/lib/tasks/index` と書いています。`@/lib/tasks` のままでも解決できるので、変更行を減らせます。必須の修正ではありません。\n",
+ "review_commit": "4e86454ad9f99182f661fd325c5dd20992fe1be7",
+ "review_md_final": "# レビュー結果\n\n「振る舞いは変えない」という PR の説明に反して、`validateTaskInput` の検証が緩くなっています。マージ前に直してください。\n\n## 1. [高] 担当者の存在確認が消えている（`src/lib/tasks/validation.ts` の `validateTaskInput`、`assignee` の分岐）\n\n- 分割前は `SELECT 1 FROM users WHERE id = ?` で担当者の存在を確認していました。分割後は「空でない文字列か」しか見ていません。引数も `_db` になり、使われなくなっています。\n- 例：`POST /api/tasks` に `assignee: \"nobody\"` を送ると、検証を通ります。その後 `createTask` の INSERT が外部キー制約違反（`PRAGMA foreign_keys = ON`、`tasks.assignee REFERENCES users(id)`）で例外になり、**400 ではなく 500** が返ります。`PATCH /api/tasks/:id` でも同じです。CLAUDE.md の「入力誤りは 400」に反します。\n- 直し方：元の存在確認を戻します（`typeof b.assignee === \"string\" && db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee) !== undefined`）。引数名も `db` に戻します。\n\n## 2. [中] タイトルの長さ上限（200 文字）の検証が消えている（同 `title` の分岐）\n\n- 元は `b.title.length > 200` も不正としていました。分割後は空かどうかだけを見ています。エラー文言は「1〜200 文字」のままで、実際の動作と合っていません。\n- 例：10 万文字のタイトルが保存できてしまいます。一覧や詳細の表示が崩れる原因にもなります。\n- 直し方：`|| b.title.length > 200` を戻します。\n\n## 3. [中] テストの欠落（`tests/task-validation.test.ts`、`tests/task-model.test.ts`）\n\n- 元の `tests/tasks.test.ts` にあった「reports every invalid field」（不正な 4 項目を全部報告する）が、移した先にありません。このテストが残っていれば、指摘 1・2 は `npm test` で見つかったはずです。PR の「テストが通った」という確認は、テストが減った状態での結果です。\n- 直し方：このテストを `task-validation.test.ts` に戻します。あわせて、存在しない担当者と 201 文字のタイトルを拒否するケースを足します。\n\n## 4. [低] 使っていない import（`tests/task-model.test.ts`、`tests/task-repository.test.ts`）\n\n- `task-model.test.ts` は `openDb` を import していますが、使っていません。`task-validation.test.ts` は `openDb` を使っています。\n- 直し方：`task-model.test.ts` の import を削除します。\n\n## 5. [低] `index.ts` 経由の import（`src/app/**`、テスト）\n\n- 呼び出し側が `@/lib/tasks/index` と書いています。`@/lib/tasks` のままでも解決できるので、変更行を減らせます。必須の修正ではありません。\n\n## 対応状況\n\n- 指摘 1〜4 は修正した（担当者の存在確認と 200 文字上限を戻し、`db` 引数名を戻した。テストを復元・追加し、未使用 import を削除した）。\n- 指摘 5 は直さない。`@/lib/tasks/index` でも `@/lib/tasks` でも動作は同じで、不具合ではない。PR の意図（入口の明示）を尊重し、依頼範囲を超える変更を避けた。\n",
+ "fixed": {
+  "diff_added": 235,
+  "diff_deleted": 217,
+  "pr_added": 218,
+  "pr_deleted": 217,
+  "commits": [
+   "6b66769 タスク機能の分割 PR と、レビュー指摘の修正（担当者確認・タイトル上限の復元、テスト復元）",
+   "4e86454 REVIEW.md: タスク機能分割 PR のレビュー指摘を追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 21,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "タイトルは 200 文字まで（201 文字は入力の誤り）",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "存在しない担当者は入力の誤り",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "すべての項目が誤っていれば、4 つとも報告する",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "一覧・取得・作成・更新は元のとおり",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 4,
+   "log": ""
+  }
+ },
+ "transcript": {
+  "cost_usd": 0.2868,
+  "tokens": {
+   "input": 32,
+   "output": 6783,
+   "cache_read": 605338,
+   "cache_creation": 39602
+  },
+  "turns": 20,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"for f in src/lib/tasks/*.ts tests/task-*.ts; do echo \\\"=== $f\\\"; cat $f; done; git show HEAD:tests/tasks.test.ts; git diff HEAD -- src/app\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/tasks/validation.ts'\\ns=open(p).read()\\ns=s.replace('_db: Db','db: Db')\\ns=s.replace('b.title.trim() === \\\"\\\") {','b.title.trim() === \\\"\\\" || b.title.length "
+   }
+  ],
+  "tool_calls": {
+   "Bash": 10,
+   "Edit": 6
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 73,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "REVIEW.md の指摘 1〜4 を直し、5 は直さずに理由を書きました。`npm run typecheck` は通り、`npm test` も 21 件すべて通りました。PR の差分と今回の修正は、まとめて 1 つのコミット（`6b66769`）にしています。\n\n- **指摘 1（担当者の存在確認）:** `validateTaskInput` に DB での存在確認を戻しました。引数名も `db` に戻しています。\n- **指摘 2（タイトル上限）:** 200 文字を超えるタイトルを不正とする検証を戻しました。\n- **指摘 3（テスト）:** `task-validation.test.ts` に、不正な 4 項目を全部報告するテストを戻しました。存在しない担当者、タイトルの 200 文字と 201 文字、部分更新で存在しない担当者を送るケースも足しました。\n- **指摘 4（未使用 import）:** `task-model.test.ts` から `openDb` の import を削除しました。\n- **指摘 5（import パス）:** 直していません。`@/lib/tasks/index` でも動作は変わらず、不具合ではないためです。理由は REVIEW.md 末尾の「対応状況」に追記しました。\n\n作業中、Python での一括編集が承認待ちになりました。そのため、ファイルの編集は Edit ツールで 1 か所ずつ行っています。"
+ },
+ "interventions": 0
+}

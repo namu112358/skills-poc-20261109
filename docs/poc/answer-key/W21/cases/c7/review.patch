@@ -1,0 +1,156 @@
+diff --git a/src/lib/notify/events.ts b/src/lib/notify/events.ts
+new file mode 100644
+index 0000000..a3fa847
+--- /dev/null
++++ b/src/lib/notify/events.ts
+@@ -0,0 +1,31 @@
++// アプリ内のイベントの発行・購読。通知の経路を増やすときは、ここに購読者を足す。
++export type AppEvent =
++  | { type: "task.assignee_changed"; taskId: number; from: string; to: string; at: Date }
++  | { type: "task.status_changed"; taskId: number; from: string; to: string; at: Date }
++  | { type: "task.created"; taskId: number; at: Date };
++
++export type AppEventType = AppEvent["type"];
++type Handler<T extends AppEventType> = (event: Extract<AppEvent, { type: T }>) => void;
++
++class EventBus {
++  private handlers = new Map<AppEventType, Handler<AppEventType>[]>();
++
++  subscribe<T extends AppEventType>(type: T, handler: Handler<T>): () => void {
++    const list = this.handlers.get(type) ?? [];
++    list.push(handler as unknown as Handler<AppEventType>);
++    this.handlers.set(type, list);
++    return () =>
++      this.handlers.set(type, (this.handlers.get(type) ?? []).filter((h) => h !== (handler as unknown)));
++  }
++
++  emit(event: AppEvent): void {
++    for (const handler of this.handlers.get(event.type) ?? []) handler(event as never);
++  }
++
++  clear(): void {
++    this.handlers.clear();
++  }
++}
++
++/** アプリ全体で 1 つのイベントバス。 */
++export const eventBus = new EventBus();
+diff --git a/src/lib/notify/index.ts b/src/lib/notify/index.ts
+new file mode 100644
+index 0000000..324e355
+--- /dev/null
++++ b/src/lib/notify/index.ts
+@@ -0,0 +1,11 @@
++// 通知の初期化。読み込んだ時点で、イベントバスに通知の購読者を登録する。
++import { eventBus } from "./events.ts";
++import { NotifierFactory } from "./notifier.ts";
++
++export { eventBus } from "./events.ts";
++
++const notifier = NotifierFactory.create();
++
++eventBus.subscribe("task.assignee_changed", (e) => {
++  notifier.send(`[audit] task ${e.taskId}: assignee ${e.from} -> ${e.to} at ${e.at.toISOString()}`, e);
++});
+diff --git a/src/lib/notify/notifier.ts b/src/lib/notify/notifier.ts
+new file mode 100644
+index 0000000..305a7a0
+--- /dev/null
++++ b/src/lib/notify/notifier.ts
+@@ -0,0 +1,48 @@
++// 通知の送り先。今はサーバーのログだけ。Slack・メールは将来の拡張用。
++import type { AppEvent } from "./events.ts";
++
++export interface Notifier {
++  readonly kind: NotifierKind;
++  send(message: string, event: AppEvent): void;
++}
++
++export type NotifierKind = "console" | "slack" | "email";
++
++export class ConsoleNotifier implements Notifier {
++  readonly kind = "console" as const;
++  send(message: string): void {
++    console.log(message);
++  }
++}
++
++export class SlackNotifier implements Notifier {
++  readonly kind = "slack" as const;
++  private readonly webhookUrl: string;
++  constructor(webhookUrl: string = process.env.SLACK_WEBHOOK_URL ?? "") {
++    this.webhookUrl = webhookUrl;
++  }
++  send(): void {
++    throw new Error(`Slack への通知は未実装です（${this.webhookUrl ? "URL 設定済み" : "URL 未設定"}）`);
++  }
++}
++
++export class EmailNotifier implements Notifier {
++  readonly kind = "email" as const;
++  send(): void {
++    throw new Error("メールでの通知は未実装です");
++  }
++}
++
++export class NotifierFactory {
++  private static readonly registry: Record<NotifierKind, () => Notifier> = {
++    console: () => new ConsoleNotifier(),
++    slack: () => new SlackNotifier(),
++    email: () => new EmailNotifier(),
++  };
++
++  /** 環境変数 NOTIFIER_KIND（既定は console）の送り先を作る。知らない値なら console。 */
++  static create(kind: string = process.env.NOTIFIER_KIND ?? "console"): Notifier {
++    const make = NotifierFactory.registry[kind as NotifierKind] ?? NotifierFactory.registry.console;
++    return make();
++  }
++}
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+index b533ce9..d453b37 100644
+--- a/src/lib/tasks.ts
++++ b/src/lib/tasks.ts
+@@ -1,4 +1,5 @@
+ import { getDb, type Db } from "./db/index.ts";
++import { eventBus } from "./notify/index.ts";
+ 
+ export type TaskStatus = "todo" | "in_progress" | "done";
+ 
+@@ -117,5 +118,8 @@ export function updateTask(id: number, changes: Partial<TaskInput>, db: Db = get
+     next.dueDate,
+     id,
+   );
++  if (next.assignee !== current.assignee) {
++    eventBus.emit({ type: "task.assignee_changed", taskId: id, from: current.assignee, to: next.assignee, at: new Date() });
++  }
+   return getTask(id, db);
+ }
+diff --git a/tests/notify.test.ts b/tests/notify.test.ts
+new file mode 100644
+index 0000000..b71db3c
+--- /dev/null
++++ b/tests/notify.test.ts
+@@ -0,0 +1,23 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { eventBus } from "../src/lib/notify/events.ts";
++import { ConsoleNotifier, NotifierFactory } from "../src/lib/notify/notifier.ts";
++
++describe("eventBus", () => {
++  it("delivers events to subscribers and stops after unsubscribe", () => {
++    const got: number[] = [];
++    const off = eventBus.subscribe("task.created", (e) => got.push(e.taskId));
++    eventBus.emit({ type: "task.created", taskId: 1, at: new Date() });
++    off();
++    eventBus.emit({ type: "task.created", taskId: 2, at: new Date() });
++    assert.deepEqual(got, [1]);
++  });
++});
++
++describe("NotifierFactory", () => {
++  it("creates a console notifier by default and for unknown kinds", () => {
++    assert.ok(NotifierFactory.create("console") instanceof ConsoleNotifier);
++    assert.ok(NotifierFactory.create("unknown") instanceof ConsoleNotifier);
++    assert.equal(NotifierFactory.create("slack").kind, "slack");
++  });
++});

@@ -1,0 +1,33 @@
+{
+  "trial": "W29-baseline-req-c2-1",
+  "scenario": "W29",
+  "config": "baseline-req",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: 計測器ごとの定期点検（担当者・周期・点検記録）\n\n## 要件ごとの確認結果\n\n| # | 要件 | 実装の該当箇所 | 判定 |\n|---|---|---|---|\n| 1 | 担当者は在籍中の利用者 1 人。退職・休職は新しく選べない。すでに担当の人はそのまま表示 | `inspections.ts` `validatePlanInput` / `users.ts` `listActiveUsers` / `[id]/page.tsx` の `planChoices` | 満たす（画面・API とも） |\n| 2 | 点検記録（点検日・点検した人・結果・メモ）を何回分も。点検した人は担当者以外でも可 | migration 6 `inspection_records` / `validateInspectionInput` / `recordInspection` | 満たす |\n| 3 | 記録は消さない。間違えたら**訂正の記録を足す** | 削除 API は無い | **不十分**（指摘 4） |\n| 4 | 周期は計測器ごと・既定 3。次回 = 最後の点検日 + 周期。記録なしは「未点検」を目立たせる | migration 6 / `judgeDue` / `addMonths` | 満たす |\n| 5 | **担当者で絞り込み・並べ替え** | `instruments/page.tsx`、`listInstruments` | **満たさない**（指摘 2） |\n| 6 | **担当者ごとの遅れ台数を毎朝知りたい** | 該当なし（ジョブ・集計・画面が無い） | **満たさない**（指摘 3） |\n| 7 | 要修理なら使用停止 | `recordInspection`（画面・API は同じ関数） | 満たす |\n| 8 | 旧 extra の点検者・最終点検日を引き継ぐ。名前は担当者に、不明・読めない日付は元の書き方を残す。黙って捨てない | `inspections-legacy.ts` `importLegacyInspections` / migration 6 `apply` | **一部反する**（指摘 1・5） |\n| 9 | 5 万件でも一覧が遅くない | `listInspectionPlans` / `instruments/page.tsx` | **懸念あり**（指摘 6） |\n| 10 | extra の dept の持ち方を変えない | dept には触れていない | 満たす |\n| 11 | 前の版に戻せる（DB はそのまま） | migration 6 は列・テーブルの追加のみ、extra を消さない | 概ね満たす（指摘 7） |\n\n---\n\n## 指摘\n\n### 1. 【高】別の送信元（`POST/PATCH /api/instruments` の `extra`）で書かれた点検者・最終点検日が、画面から消える\n- 場所: `src/app/instruments/[id]/page.tsx` の extra 表示の `.filter(([key]) => key !== \"inspector\" && key !== \"last_inspected\")`（62 行付近）、`src/lib/instruments.ts` `validateInstrumentInput` / `updateInstrument`（`extra` をそのまま受ける）\n- 問題: 画面（`/instruments/:id/inspection(s)` の API とフォーム）は新しいテーブルに書くが、既存の `POST /api/instruments`・`PATCH /api/instruments/:id` は今も `extra.inspector` / `extra.last_inspected` を受け付けて書く。移行（マイグレーション 6）は一度きりなので、リリース後にこの経路で書かれた値は担当者にも点検記録にもならず、しかも詳細画面は該当キーを非表示にするため**誰にも見えなくなる**（黙って捨てるのと同じ）。一覧画面の「点検」列（旧表示）も廃止されている。前の版へ戻した旧アプリや、extra を使う他システムが書く場合も同じ。\n- 同様に、移行で拾われなかった値（`inspector` が文字列でない、`last_inspected` が数値、extra の JSON が壊れていて `inspections-legacy.ts` 52 行で `continue`）も、extra には残るが画面で非表示になる。\n- 直し方: (a) extra の `inspector` / `last_inspected` を API で書けないようにする、または書かれたら新しいテーブルに反映する（検証して 400 で返す）。(b) 画面の非表示は「移行済み（担当者または記録に反映済み）の場合だけ」にし、移行できなかった値は元の書き方のまま表示する。(c) 非文字列・壊れた JSON は legacy として残すか、ログに出して件数を確認できるようにする。テストを足す。\n\n### 2. 【高】担当者での絞り込み・並べ替えが無い\n- 場所: `src/app/instruments/page.tsx`（クエリは `status` と `dept` だけ）、`src/lib/instruments.ts` `listInstruments`、`GET /api/instruments`（`manager` は管理者であって点検の担当者ではない）\n- 問題: 合意した要件「担当者で絞り込み・並べ替え」が画面にも API にも無い。`instruments.inspector_id` の索引だけが用意されている。\n- 直し方: `src/lib/` の関数に `inspectorId`（と並び順 `sort=inspector` など）を足し、クエリは型ガードで検証（規約 2）。担当者は未設定の絞り込みも欲しい。一覧画面に選択欄（label 付き）を付ける。テストを足す。\n\n### 3. 【高】担当者ごとの「点検が遅れている台数」を毎朝知る手段が無い\n- 場所: 該当する実装なし（`src/app/api/jobs/`、`docs/operations.md`、`src/lib/inspections.ts`）\n- 問題: 要件 6 が未実装。`listInspectionPlans` は計測器単位の判定だけで、担当者ごとの集計が無い。毎朝の定期処理（既存の `overdue-loans` と同じ仕組み）も、画面の集計もない。\n- 直し方: 担当者ごとの期限切れ・未点検の台数を数える関数を `src/lib/` に追加し（SQL で集計。5 万件を全部アプリに読み込まない）、`POST /api/jobs/overdue-inspections`（`requireJobAuth()`、再実行しても同じ結果）と `docs/operations.md` の表（毎朝 8:00 JST）を足す。通知するなら `docs/notify-api.md` に従い、タイムアウトと失敗時の扱いを決める。担当者未設定の台数も別に数える。\n\n### 4. 【中】「間違えたら訂正の記録を足す」が成り立たない\n- 場所: `src/lib/inspections.ts` `PLAN_SELECT`（`MAX(r.inspected_on)`）、`recordInspection`\n- 問題: 最後の点検日は単純に日付の最大値。たとえば誤って 2026-11-10 と入力した記録は、後から正しい日付（2026-10-10）の記録を足しても最大値のまま残り、次の点検予定日が誤ったままになる。また、誤って登録した「要修理」を取り消す（使用停止から戻す）手順もない。要件に「訂正の記録」とある以上、訂正を表す仕組み（訂正対象の記録 ID を持つ記録、集計では訂正された記録を除く等）が要る。\n- 直し方: `corrects_id` のような列を持つ訂正記録を設計し、最後の点検日・一覧表示は訂正を反映する。仕様が決まらないなら PR に仮定を書く（規約 21）。\n\n### 5. 【中】担当者を変えると旧データの元の書き方が消える（記録が無い場合）\n- 場所: `src/lib/inspections.ts` `updateInspectionPlan`（177 行）`legacy_inspector = NULL`、`inspections-legacy.ts` `importLegacyInspections`\n- 問題: 旧データに点検者だけがあり最終点検日が空だと、点検記録は作られず、元の書き方（例「外部委託」）は `instruments.legacy_inspector` にしか残らない。担当者を設定し直すとコメントの「点検記録の側には残る」が成り立たず、元の書き方が失われる（「黙って捨てない」に反する）。`extra` に残るが、画面からは非表示（指摘 1）。\n- 直し方: 日付が無くても、元の書き方を移行用の点検記録（または別の履歴）として残す。あるいは `legacy_inspector` を消さない。\n\n### 6. 【中】5 万件での一覧の性能\n- 場所: `src/lib/inspections.ts` `listInspectionPlans`（全計測器分を読む）、`src/app/instruments/page.tsx`（`plans` を全件作り、絞り込み後の件数に関係なく全件表示）、`PLAN_SELECT`（相関サブクエリ）\n- 問題: `dept` や状態で数件に絞っても 5 万件分の計画を作って Map に入れる。絞り込みと並べ替え（指摘 2）を足すと、アプリ側で全件を並べ替えることになりやすい。ページ分割もなく 5 万行の表を描画する（既存の問題だが、列が増えて悪化）。索引 `inspection_records(instrument_id, inspected_on)` は最後の点検日には効くが、期限切れの絞り込み（最後の点検日 + 周期）は SQL で表現されていない。\n- 直し方: 表示する計測器の ID だけについて計画を取る（または `listInstruments` と JOIN して 1 本の SQL にする）。絞り込み・並べ替え・期限切れ判定は SQL 側で行い、ページ分割する。5 万件規模のテスト（または `EXPLAIN QUERY PLAN` の確認）を足す。\n\n### 7. 【低】前の版へ戻したときの扱いが PR に書かれていない\n- 場所: migration 6（`src/lib/db/migrations.ts`）\n- 問題: 列・テーブルの追加だけで extra は消さないため、戻しても旧アプリは動く。ただし戻した後は、新しい版で設定した担当者・点検記録は旧アプリに見えず、旧アプリが extra に書いた点検者は、再度新しい版に上げても取り込まれない（移行は一度きり）。\n- 直し方: 戻すときの手順と、再度上げるときの取り込み方を PR / `docs/operations.md` に書く。\n\n### 8. 【低】期限切れの判定が廃棄・使用停止の計測器にも及ぶ\n- 場所: `src/lib/inspections.ts` `judgeDue` / `toPlan`\n- 問題: 廃棄済み・使用停止中の計測器も「未点検」「期限切れ」と太字になり、担当者ごとの遅れ台数（指摘 3）に含めると過大になる。\n- 直し方: 状態を見て除外するか、含める方針を決めて PR に書く。\n\n### 9. 【低】要修理で貸出中・校正中の計測器を使用停止にしたときの扱い\n- 場所: `src/lib/inspections.ts` `recordInspection`（`status <> 'disposed'` のみ除外）\n- 問題: 貸出中（`on_loan`）でも使用停止になり、貸出の記録は未返却のまま残る。校正の不合格（`calibrations.ts`）と同じ扱いなら許容できるが、仕様として確認・明記されていない。\n- 直し方: 仕様を確認し、PR に仮定を書く。\n\n## 問題が無いと判断した点（参考）\n- SQL は全てプレースホルダ、API は先にログイン確認と検証関数を通している（404 / 400 / 401 の使い分けも規約どおり）。\n- `dept` の持ち方・`extra` の既存列は変えていない。移行は同一トランザクションで、何度実行しても同じ結果になる。\n- 日付は JST の今日で判定し、保存は UTC の ISO 8601。月末の加算（1/31 + 1 か月）も考慮されている。\n",
+  "review_chars": 5432,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3748,
+    "tokens": {
+      "input": 22,
+      "output": 8836,
+      "cache_read": 505193,
+      "cache_creation": 58981
+    },
+    "turns": 10,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 7
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 81,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの指摘 9 件がすべて、指定の形式（重要度・場所・問題・直し方）で入っています。書き写す作業はもう済んでいたので、新しい変更はありません。\n\n- 内容: 要件ごとの確認表と、指摘 9 件（高 3・中 3・低 3）です。\n- コミット: コミット `cba959b` に `REVIEW.md` だけが入っていて、未コミットの変更は残っていません。\n- 指摘: 新しい指摘は足しておらず、削った指摘もありません。\n- コード: 直していません。"
+  },
+  "interventions": 0
+}

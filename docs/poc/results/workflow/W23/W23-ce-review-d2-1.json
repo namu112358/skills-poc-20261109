@@ -1,0 +1,59 @@
+{
+  "trial": "W23-ce-review-d2-1",
+  "scenario": "W23",
+  "config": "ce-review",
+  "case": "d2",
+  "rep": 1,
+  "review_md": "# レビュー: タスクにコメントを付けられるようにする\n\n判定: **マージ不可（Not ready）**。高 2 件・中 2 件を直してからマージしてください。\n\n## 指摘\n\n### 1. [高] コメント本文の `javascript:` リンクによる格納型 XSS\n\n- 場所: `src/lib/comments.ts` の `renderBody`（63 行目）、表示側は `src/app/tasks/[id]/page.tsx:42`（`dangerouslySetInnerHTML`）\n- 問題: `escapeHtml` で `<` `>` `\"` `&` は無害化されるが、`[文字](URL)` の URL のスキームを検証していない。ログイン済みの誰かが `[詳細](javascript:fetch('/api/tasks',{method:'POST',body:'...'}))` というコメントを投稿すると `<a href=\"javascript:...\">` が出力され、そのタスクを開いてリンクをクリックした別のユーザーの権限でスクリプトが動く（`data:` や `vbscript:` も同様）。指摘 2 と組み合わさると、他人のコメントを書き換えて仕込むこともできる。\n- 直し方: リンクにするのは `^https?://` に一致する URL だけにし、それ以外は文字のまま出す（リンク化しない）。より安全なのは、本文を React 要素に変換して `dangerouslySetInnerHTML` をやめる方法。`\"` のエスケープは href の属性破りを防いでいるので外さないこと。テストに `javascript:` / `data:` を渡して `<a>` にならないことを確認するケースを追加する。\n\n### 2. [高] 他人のコメントを誰でも編集できる（PATCH に権限チェックが無い）\n\n- 場所: `src/app/api/comments/[commentId]/route.ts` の `PATCH`（9〜18 行目）\n- 問題: DELETE は `comment.authorId !== user.id` で 403 を返すのに、PATCH には同じ確認が無い。`tanaka` が `PATCH /api/comments/1`（`sato` のコメント）に `{\"body\":\"...\"}` を送ると 200 で本文が書き換わり、表示上は `sato` の発言のまま残る。なりすまし・改ざんになる。\n- 直し方: コメントの取得後、本文の検証の前に DELETE と同じく `authorId !== user.id` なら 403 を返す。権限チェックを `src/lib/comments.ts` の関数（例: `canModify(comment, user)`）にまとめて PATCH と DELETE で共有すると食い違いを防げる。他ユーザーの PATCH が 403 になるテストを追加する。\n\n### 3. [中] 存在しないタスクへの POST が 500 になる\n\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` の `POST`（21 行目）\n- 問題: GET は `getTask(id)` でタスクの存在を確認して 404 を返すが、POST は ID の形式しか見ていない。`POST /api/tasks/99999/comments` に正しい本文を送ると、`PRAGMA foreign_keys = ON`（`src/lib/db/index.ts:37`）のため INSERT が外部キー制約エラーを投げ、未処理の 500 になる。CLAUDE.md の規約 9（対象が無いときは 404）に反する。\n- 直し方: `if (id === undefined || !getTask(id)) return jsonError(404, ...)` にして GET と揃える。存在しないタスクへの POST が 404 になるテストを追加する。\n\n### 4. [中] 作成日時を日本語ロケールの文字列で保存しており、並び順が崩れる\n\n- 場所: `src/lib/comments.ts` の `formatCreatedAt`（22 行目）と `listComments` の `ORDER BY created_at, id`（29 行目）、保存は 44 行目\n- 問題: `toLocaleString(\"ja-JP\")` は `2026/11/11 9:00:00` のように月・日・時をゼロ埋めしない。これを文字列として `ORDER BY` するので、`9:59:00` のコメントが `10:00:00` のコメントより後ろに並ぶ（`2026/11/9` と `2026/11/10` も同様）。「古い順」という仕様と合わない。保存値が表示形式とタイムゾーンに固定され、ICU のバージョンによる出力差にも左右される。`tests/comments.test.ts` は 10 時と 11 時（日本時間）で比べているため、この不具合を検出できない。\n- 直し方: DB には `now.toISOString()`（UTC の ISO 8601）を保存し、日本時間の整形は表示側（ページ）で行う。マイグレーション 3 は未リリースなら書き換えず、型を変えないのでそのままでよい。9:59 と 10:00 をまたぐテストを追加する。\n\n### 5. [低] PATCH が更新結果を確認していない\n\n- 場所: `src/app/api/comments/[commentId]/route.ts:18`\n- 問題: `updateComment` は `Comment | undefined` を返すが、そのまま JSON にしている。取得と更新の間に本人が削除すると 200 で `{}` が返り、呼び出し側は成功したと誤解する。\n- 直し方: 戻り値が `undefined` なら 404 を返す。\n\n### 6. [低] 文字数の検証が trim 前の長さで、単位も UTF-16 コード単位\n\n- 場所: `src/lib/comments.ts` の `validateCommentBody`（17 行目）\n- 問題: 前後に空白のある 2000 文字の本文は、保存される値（trim 後）は上限内なのに拒否される。`String.length` は UTF-16 コード単位なので、「2000 文字以内」と表示しても絵文字などは 1000 文字分しか入らない。\n- 直し方: trim してから長さを数える。文字数として数えるなら `[...s].length` を使う。\n\n### 7. [低] 外部キーの削除時の挙動が未指定\n\n- 場所: `src/lib/db/migrations.ts` のマイグレーション 3（`task_id` / `author_id` の `REFERENCES`）\n- 問題: 既定の NO ACTION のままなので、将来タスクやユーザーを削除する機能を足すと、コメントがあるだけで削除が制約エラーになる。今の差分に削除機能は無いので潜在的な問題。\n- 直し方: `task_id` は `ON DELETE CASCADE` など意図した挙動を明示する。リリース前のマイグレーション 3 を直すか、リリース後なら新しい番号で追加する。\n\n## テストの不足\n\n- API Route（権限・404・401）のテストが無い。指摘 2・3・5 はテストがあれば防げた。\n- `renderBody` のテストは `<b>` のエスケープと https リンクだけで、危険なスキームのケースが無い。\n- 並び順のテストが桁数の違う時刻をまたいでいない（指摘 4）。\n\n## 確認した範囲と限界\n\n- 見た範囲: `git diff HEAD` の全 6 ファイル（新規ファイルを含む）、関連する `src/lib/api.ts`・`src/lib/tasks.ts`・`src/lib/db/index.ts`、CLAUDE.md の規約。\n- 独立した敵対的な読みは、別の会話文脈で動くレビュー担当 1 件（同じモデル系列）に依頼した。外部の別モデルには送っていない（無人実行で外部送信と実行承認が得られなかったため）。したがって別モデルによる裏付けは無い。\n- 差分の行数などを数える判定スクリプトは承認が要るため使わず、差分を直接読んだ。コードの実行（型チェック・テスト・ブラウザ確認）はしていない。\n- 良い点として、SQL はすべてプレースホルダ、API は先頭でログイン確認、本文は検証関数を通しており、規約 8・9 のこれらの部分は守られている。\n",
+  "review_chars": 3754,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.6773,
+    "tokens": {
+      "input": 46,
+      "output": 11682,
+      "cache_read": 1358525,
+      "cache_creation": 122648
+    },
+    "turns": 21,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W23-ce-review-d2-1/plugins/compound-engineering/skills/ce-code-review; PY=python3; BASE=$(git rev-parse HEAD); \\\"$PY\\\" $SKILL_DIR/scripts/review-scope.py --base "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W23-ce-review-d2-1/app\\nSKILL_DIR=/tmp/poc-trials/W23-ce-review-d2-1/plugins/compound-engineering/skills/ce-code-review\\nBASE=$(git rev-parse HEAD)\\npython3 $SKILL_DIR/"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W23-ce-review-d2-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"command -v codex grok agent opencode npx node; cat /tmp/poc-trials/W23-ce-review-d2-1/app/.compound-engineering/config.yaml 2>&1 | head -5; ls /tmp/poc-trials/W23-ce-review-d2-1/app/REVIE"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"command -v codex; command -v grok; command -v npx; ls /tmp/poc-trials/W23-ce-review-d2-1/app/.compound-engineering 2>&1\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 5,
+      "Bash": 14,
+      "Agent": 1,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 1,
+    "subagent_types": {
+      "general-purpose": 1
+    },
+    "questions": 0,
+    "active_seconds": 106,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は、直前のレビューで出た指摘 7 件をすべて、依頼された形式（重要度・場所・何が問題か・直し方）ですでに記載済みです。コミット済み（af0b8a2）で、`REVIEW.md` に未コミットの変更はありません。そのため書き写す作業は無く、新しいコミットも作っていません。\n\n7 件は次のとおりです。\n1. 高: `javascript:` リンクによる XSS\n2. 高: PATCH に権限チェックが無い\n3. 中: 存在しないタスクへの POST が 500 になる\n4. 中: 作成日時を文字列で保存しており、並び順が崩れる\n5. 低: PATCH が更新結果を確認していない\n6. 低: 文字数の検証が trim 前の長さ\n7. 低: 外部キーの削除時の挙動が未指定\n\nレビュー担当が挙げた「`'` を escape しないが、現状は無害」という点は、指摘ではなく注意書きなので載せていません。コードは触っていません。"
+  },
+  "interventions": 0
+}

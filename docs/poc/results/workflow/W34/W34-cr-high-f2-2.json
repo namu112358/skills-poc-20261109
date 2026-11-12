@@ -1,0 +1,98 @@
+{
+ "trial": "W34-cr-high-f2-2",
+ "scenario": "W34",
+ "config": "cr-high",
+ "case": "f2",
+ "rep": 2,
+ "review_md": "# コードレビュー: タスク機能のファイル分割 PR\n\n「振る舞いは変えない」という PR の説明に反して、`validation.ts` で振る舞いが変わっています。指摘は重要度順です。\n\n## 1. 【高】担当者の存在確認が消えている（500 エラーになる）\n\n- 場所: `src/lib/tasks/validation.ts:34`（`validateTaskInput`）\n- 問題: 担当者の検証で users テーブルを引かなくなり、空でない文字列ならすべて通る。`POST /api/tasks` に assignee `\"nobody\"` を送ると検証を通過する。続く `createTask` の INSERT が `PRAGMA foreign_keys=ON` のため `tasks.assignee -> users(id)` の外部キー制約に違反する。`node:sqlite` が例外を投げ、API は 400（「担当者が存在しません」）ではなく処理されない 500 を返す。`PATCH /api/tasks/:id` も `updateTask` の UPDATE で同様に失敗する。CLAUDE.md の規約 9（入力誤りは検証関数を通して 400）に反する。\n- 直し方: 元の検証を戻す。`db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee)` が無ければ「担当者が存在しません」のエラーにする。\n\n## 2. 【中】`validateTaskInput` の `db` 引数が使われていない\n\n- 場所: `src/lib/tasks/validation.ts:10`（`_db` 引数。既定値の `getDb()` も含む）\n- 問題: `db` 引数が何にも使われないのに、呼び出し側やテストは `openDb()` を渡し続けている。コードやテストを読む人は、担当者の存在を DB で確認していると誤解する。既定値の `getDb()` も毎回評価される。指摘 1 の変更が隠れた振る舞い変更であることも示しており、`index.ts` のコメントの「振る舞いは変えていない」とも食い違う。\n- 直し方: 指摘 1 の修正で `db` を実際に使う。使わない設計にするなら、引数と呼び出し側を整理する。\n\n## 3. 【中】タイトルの 200 文字上限が外れているのに、メッセージは上限があるままになっている\n\n- 場所: `src/lib/tasks/validation.ts:28`（`|| b.title.length > 200` が削除されている）\n- 問題: 1 万文字のタイトルを `POST` すると、元のコードは 400 を返していたが、変更後は受け付けて保存する。巨大なタイトルで画面が崩れる。空タイトルのエラーメッセージは「1〜200 文字」のままで、実際の動作と合っていない。\n- 直し方: `b.title.length > 200` の条件を戻す。\n\n## 4. 【中】テストの移し替えでカバレッジが失われている\n\n- 場所: `tests/task-validation.test.ts:18`（空行だけが残っている）\n- 問題: 分割時に「reports every invalid field」のテストが削除された。このテストは、存在しない担当者・タイトル長・複数エラーをまとめて確認できる唯一のテストだった。元のテスト（assignee `\"nobody\"`）なら指摘 1 と 3 の退行を検出できたはずで、現在はどのテストも検出できない。CLAUDE.md の規約 5 にも反する。\n- 直し方: 元のテストを復元する。assignee 不在・タイトル 201 文字・複数エラーの 3 ケースを `task-validation.test.ts` に入れ、あわせて指摘 1 と 3 を直す。\n\n## 5. 【低】担当者の判定と保存する値が食い違っている（trim）\n\n- 場所: `src/lib/tasks/validation.ts:33`\n- 問題: ガードは `b.assignee.trim() === \"\"` で判定するが、保存するのは trim していない `b.assignee` である。元の「ユーザー ID と完全一致」とも意味が違う。`\" sato\"` は検証を通り、そのまま書き込まれて外部キーエラー（現状は 500）になる。DB 確認を戻したあとも、ガードと保存値が食い違ったままになる。\n- 直し方: 指摘 1 の存在確認を戻し、trim を使わず ID の完全一致で判定する。trim するなら、検証にも保存にも trim 後の値を使う。\n\n## 6. 【低】使われていない import が残っている\n\n- 場所: `tests/task-model.test.ts:3`（`openDb` の import）\n- 問題: 使われていない import で、純粋なモデルのテストが DB モジュールに依存してしまう。実行時の害は無いが、`noUnusedLocals` や lint の設定によってはエラーになる。\n- 直し方: import を削除する。\n\n## 7. 【低】不要な import の書き換えと、すべてを再エクスポートする barrel\n\n- 場所: `src/app/api/tasks/route.ts:4` ほか呼び出し側 4 か所（`@/lib/tasks` → `@/lib/tasks/index`）、`src/lib/tasks/index.ts`\n- 問題: `@/lib/tasks` はディレクトリの index に解決されるので、import の書き換えは不要である。依頼範囲外の変更で、規約 6 に反する。`index.ts` がすべてを再エクスポートするため、`STATUS_LABELS` だけが要るページもリポジトリや DB のコードを読み込む。\n- 直し方: 呼び出し側の import は `@/lib/tasks` のままに戻す。ページは `model.ts` など必要なファイルだけを import する。\n",
+ "review_commit": "6f27e3666eb6058de144c4f8b895a5911808cd3b",
+ "review_md_final": "# コードレビュー: タスク機能のファイル分割 PR\n\n「振る舞いは変えない」という PR の説明に反して、`validation.ts` で振る舞いが変わっています。指摘は重要度順です。\n\n## 1. 【高】担当者の存在確認が消えている（500 エラーになる）\n\n- 場所: `src/lib/tasks/validation.ts:34`（`validateTaskInput`）\n- 問題: 担当者の検証で users テーブルを引かなくなり、空でない文字列ならすべて通る。`POST /api/tasks` に assignee `\"nobody\"` を送ると検証を通過する。続く `createTask` の INSERT が `PRAGMA foreign_keys=ON` のため `tasks.assignee -> users(id)` の外部キー制約に違反する。`node:sqlite` が例外を投げ、API は 400（「担当者が存在しません」）ではなく処理されない 500 を返す。`PATCH /api/tasks/:id` も `updateTask` の UPDATE で同様に失敗する。CLAUDE.md の規約 9（入力誤りは検証関数を通して 400）に反する。\n- 直し方: 元の検証を戻す。`db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee)` が無ければ「担当者が存在しません」のエラーにする。\n\n## 2. 【中】`validateTaskInput` の `db` 引数が使われていない\n\n- 場所: `src/lib/tasks/validation.ts:10`（`_db` 引数。既定値の `getDb()` も含む）\n- 問題: `db` 引数が何にも使われないのに、呼び出し側やテストは `openDb()` を渡し続けている。コードやテストを読む人は、担当者の存在を DB で確認していると誤解する。既定値の `getDb()` も毎回評価される。指摘 1 の変更が隠れた振る舞い変更であることも示しており、`index.ts` のコメントの「振る舞いは変えていない」とも食い違う。\n- 直し方: 指摘 1 の修正で `db` を実際に使う。使わない設計にするなら、引数と呼び出し側を整理する。\n\n## 3. 【中】タイトルの 200 文字上限が外れているのに、メッセージは上限があるままになっている\n\n- 場所: `src/lib/tasks/validation.ts:28`（`|| b.title.length > 200` が削除されている）\n- 問題: 1 万文字のタイトルを `POST` すると、元のコードは 400 を返していたが、変更後は受け付けて保存する。巨大なタイトルで画面が崩れる。空タイトルのエラーメッセージは「1〜200 文字」のままで、実際の動作と合っていない。\n- 直し方: `b.title.length > 200` の条件を戻す。\n\n## 4. 【中】テストの移し替えでカバレッジが失われている\n\n- 場所: `tests/task-validation.test.ts:18`（空行だけが残っている）\n- 問題: 分割時に「reports every invalid field」のテストが削除された。このテストは、存在しない担当者・タイトル長・複数エラーをまとめて確認できる唯一のテストだった。元のテスト（assignee `\"nobody\"`）なら指摘 1 と 3 の退行を検出できたはずで、現在はどのテストも検出できない。CLAUDE.md の規約 5 にも反する。\n- 直し方: 元のテストを復元する。assignee 不在・タイトル 201 文字・複数エラーの 3 ケースを `task-validation.test.ts` に入れ、あわせて指摘 1 と 3 を直す。\n\n## 5. 【低】担当者の判定と保存する値が食い違っている（trim）\n\n- 場所: `src/lib/tasks/validation.ts:33`\n- 問題: ガードは `b.assignee.trim() === \"\"` で判定するが、保存するのは trim していない `b.assignee` である。元の「ユーザー ID と完全一致」とも意味が違う。`\" sato\"` は検証を通り、そのまま書き込まれて外部キーエラー（現状は 500）になる。DB 確認を戻したあとも、ガードと保存値が食い違ったままになる。\n- 直し方: 指摘 1 の存在確認を戻し、trim を使わず ID の完全一致で判定する。trim するなら、検証にも保存にも trim 後の値を使う。\n\n## 6. 【低】使われていない import が残っている\n\n- 場所: `tests/task-model.test.ts:3`（`openDb` の import）\n- 問題: 使われていない import で、純粋なモデルのテストが DB モジュールに依存してしまう。実行時の害は無いが、`noUnusedLocals` や lint の設定によってはエラーになる。\n- 直し方: import を削除する。\n\n## 7. 【低】不要な import の書き換えと、すべてを再エクスポートする barrel\n\n- 場所: `src/app/api/tasks/route.ts:4` ほか呼び出し側 4 か所（`@/lib/tasks` → `@/lib/tasks/index`）、`src/lib/tasks/index.ts`\n- 問題: `@/lib/tasks` はディレクトリの index に解決されるので、import の書き換えは不要である。依頼範囲外の変更で、規約 6 に反する。`index.ts` がすべてを再エクスポートするため、`STATUS_LABELS` だけが要るページもリポジトリや DB のコードを読み込む。\n- 直し方: 呼び出し側の import は `@/lib/tasks` のままに戻す。ページは `model.ts` など必要なファイルだけを import する。\n\n---\n\n## 対応状況\n\n- 指摘 1・2・3・4・5・6: 修正した。担当者の DB 確認と 200 文字上限を戻し、`db` 引数を使うようにした。削除されていたテストを復元し、担当者不在・untrimmed・タイトル 200/201 文字のテストを追加した。使われていない `openDb` の import も削除した。指摘 5 は、DB の完全一致で判定する方式に戻したことで解消した。\n- 指摘 7（一部修正、一部は直さない）:\n  - 修正した点: 呼び出し側 4 か所の import を `@/lib/tasks` に戻した。\n  - 直さない点: `index.ts` の barrel は、PR の目的（ファイルを分けつつ入口を 1 つにして、呼び出し側を変えない）そのものなので残す。importer はいずれもサーバー側（Server Component / API Route）のコードで、リポジトリや DB のコードを読み込んでも実害は無い。ページが `model.ts` だけを import する形に変えると、依頼範囲を超える変更になる。\n",
+ "fixed": {
+  "diff_added": 233,
+  "diff_deleted": 213,
+  "pr_added": 218,
+  "pr_deleted": 217,
+  "commits": [
+   "f66adf4 タスク機能のファイル分割と、レビュー指摘の修正",
+   "6f27e36 コードレビューの指摘を REVIEW.md に追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 21,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "タイトルは 200 文字まで（201 文字は入力の誤り）",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "存在しない担当者は入力の誤り",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "すべての項目が誤っていれば、4 つとも報告する",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "一覧・取得・作成・更新は元のとおり",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 4,
+   "log": ""
+  }
+ },
+ "transcript": {
+  "cost_usd": 0.4518,
+  "tokens": {
+   "input": 38,
+   "output": 10626,
+   "cache_read": 709526,
+   "cache_creation": 86146
+  },
+  "turns": 24,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -500; echo ----; git diff HEAD\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 - <<'E'\\nimport re\\np='src/lib/tasks/validation.ts'\\ns=open(p).read()\\ns=s.replace(\\\"  _db: Db = getDb(),\\\",\\\"  db: Db = getDb(),\\\")\\ns=s.replace(\\\" * API に送られたタスクの内容を検証する。partial"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"grep -n openDb tests/task-model.test.ts; sed -i 's#@/lib/tasks/index\\\"#@/lib/tasks\\\"#' src/app/api/tasks/route.ts \\\"src/app/api/tasks/[id]/route.ts\\\" \\\"src/app/tasks/[id]/page.tsx\\\" src/a"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i 's#@/lib/tasks/index\\\"#@/lib/tasks\\\"#' src/app/api/tasks/route.ts \\\"src/app/api/tasks/[id]/route.ts\\\" \\\"src/app/tasks/[id]/page.tsx\\\" src/app/tasks/page.tsx\"}"
+   }
+  ],
+  "tool_calls": {
+   "Bash": 14,
+   "Write": 1,
+   "Edit": 10
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 112,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "指摘 1〜6 は修正し、指摘 7 は呼び出し側の import だけ直して barrel は残しました。`npm run typecheck` と `npm test`（21 件）は通り、PR の差分と修正を f66adf4 にコミットしました。\n\n- **指摘 1・2・5（担当者）:** `validateTaskInput` が `users` テーブルを引いて、担当者の存在を確認するようにしました。`db` 引数も使われます。存在しない担当者や `\" sato\"` は 400 になり、DB の外部キーエラーによる 500 は出ません。\n- **指摘 3（タイトル）:** 200 文字を超えるタイトルを拒否する条件を戻しました。\n- **指摘 4（テスト）:** 削除されていた「reports every invalid field」を復元しました。あわせて、担当者不在・`\" sato\"`・空の担当者のテストと、タイトル 200 文字は通り 201 文字は拒否されるテストを足しました。\n- **指摘 6（import）:** `tests/task-model.test.ts` の使われていない `openDb` の import を削除しました。\n- **指摘 7（import の書き換え）:** 呼び出し側 4 か所を `@/lib/tasks` に戻しました。\n- **指摘 7（barrel）:** `index.ts` の barrel は残しました。入口を 1 つに保って呼び出し側を変えないことが PR の目的で、importer はサーバー側のコードなので実害もありません。この理由は `REVIEW.md` の末尾に追記しました。"
+ },
+ "interventions": 0
+}

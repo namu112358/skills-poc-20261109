@@ -1,0 +1,118 @@
+{
+ "trial": "W34-review-pr-f2-2",
+ "scenario": "W34",
+ "config": "review-pr",
+ "case": "f2",
+ "rep": 2,
+ "review_md": "# レビュー: タスク機能の分割（tasks.ts → tasks/ 配下）\n\nPR は「振る舞いは変えない」リファクタとされているが、`validateTaskInput` の検証が分割時に緩くなっており、実際には振る舞いが変わっている。`npm test` が通っているのは、該当するテストが分割の際に落とされたため。\n\n## 指摘\n\n### 1. 【高】担当者の存在確認が消え、存在しない担当者で API が 500 になる\n- 場所: `src/lib/tasks/validation.ts` の `validateTaskInput`（`assignee` の検証部分、引数 `_db`）\n- 問題: 旧 `src/lib/tasks.ts` は `SELECT 1 FROM users WHERE id = ?` で担当者の存在を確認していた。新版は空文字でない文字列なら通し、`db` 引数も `_db` として未使用になった。`tasks.assignee` は `REFERENCES users(id)` で、接続は `PRAGMA foreign_keys = ON` のため、`POST /api/tasks` に `\"assignee\": \"nobody\"` を送ると検証を通過し、`createTask` の INSERT が外部キー制約違反で例外になる。入力誤りなので 400 を返すべきところ（CLAUDE.md 規約 9）、500 になる。`PATCH /api/tasks/:id` も同様。\n- 補足: `\" sato\"` のように前後に空白のある値も旧版では弾かれていたが、新版では通って同じく 500 になる。\n- 直し方: 旧実装の存在確認（プレースホルダ付きの `SELECT 1 FROM users WHERE id = ?`）を戻し、引数名を `db` に戻す。`ユーザー` の参照が検証層に入るのが気になるなら、`src/lib/users.ts` に存在確認関数を作ってそれを呼ぶ。\n\n### 2. 【中】タイトルの 200 文字上限が消えている\n- 場所: `src/lib/tasks/validation.ts` の `validateTaskInput`（`title` の検証）\n- 問題: 旧版の `b.title.length > 200` の条件が無くなった。エラー文言は「1〜200 文字で入力してください」のままなので、文言と実際の検証が食い違う。数万文字のタイトルが保存でき、一覧・詳細画面の表示も崩れうる。\n- 直し方: `|| b.title.length > 200` を戻す。上限は `model.ts` に定数として置いて検証とメッセージで共用すると、再びずれにくい。\n\n### 3. 【中】検証の退行を検出するテストが削除されている\n- 場所: `tests/task-validation.test.ts`（旧 `tests/tasks.test.ts` の `validateTaskInput` の `reports every invalid field`）\n- 問題: 空タイトル・不正ステータス・存在しない担当者・不正な日付の 4 項目すべてがエラーになることを確かめるテストが、分割時に落とされている（ファイルにも空行が 2 つ残っている）。このテストがあれば指摘 1 は検出できていた。「テストも同じ単位に分けた」という PR の説明とも合わない（削除であり移動ではない）。新規テストが全部通るのは、退行を見つけるテストが無いため。\n- 直し方: 旧テストを `task-validation.test.ts` に戻す。あわせて、201 文字のタイトルが拒否されること、存在しない担当者が `partial: true` でも拒否されることのテストを追加する（規約 5）。\n\n### 4. 【低】テストの未使用 import\n- 場所: `tests/task-model.test.ts` 2 行目の `openDb`\n- 問題: 使っていない import が残っている。\n- 直し方: 削除する。\n\n### 5. 【低】`index.ts` を経由する import\n- 場所: `src/app/**` の `@/lib/tasks/index`\n- 問題: 機能上の問題はないが、`@/lib/tasks` のままでも解決できる（`tasks/index.ts` があるため）。呼び出し側 4 ファイルの変更は不要で、差分を小さくできる（規約 6）。\n- 直し方: `@/lib/tasks` に戻す。\n\n## 確認したこと\n- `npm test`: 18 件すべて成功（ただし上記のとおり、退行を見るテストが削られている）。\n- `model.ts` / `repository.ts` は旧実装と同じ内容で、SQL もプレースホルダのまま。\n",
+ "review_commit": "74798d2f03c7f06ada205fa2248ee99f1ab0ff09",
+ "review_md_final": "# レビュー: タスク機能の分割（tasks.ts → tasks/ 配下）\n\nPR は「振る舞いは変えない」リファクタとされているが、`validateTaskInput` の検証が分割時に緩くなっており、実際には振る舞いが変わっている。`npm test` が通っているのは、該当するテストが分割の際に落とされたため。\n\n## 指摘\n\n### 1. 【高】担当者の存在確認が消え、存在しない担当者で API が 500 になる\n- 場所: `src/lib/tasks/validation.ts` の `validateTaskInput`（`assignee` の検証部分、引数 `_db`）\n- 問題: 旧 `src/lib/tasks.ts` は `SELECT 1 FROM users WHERE id = ?` で担当者の存在を確認していた。新版は空文字でない文字列なら通し、`db` 引数も `_db` として未使用になった。`tasks.assignee` は `REFERENCES users(id)` で、接続は `PRAGMA foreign_keys = ON` のため、`POST /api/tasks` に `\"assignee\": \"nobody\"` を送ると検証を通過し、`createTask` の INSERT が外部キー制約違反で例外になる。入力誤りなので 400 を返すべきところ（CLAUDE.md 規約 9）、500 になる。`PATCH /api/tasks/:id` も同様。\n- 補足: `\" sato\"` のように前後に空白のある値も旧版では弾かれていたが、新版では通って同じく 500 になる。\n- 直し方: 旧実装の存在確認（プレースホルダ付きの `SELECT 1 FROM users WHERE id = ?`）を戻し、引数名を `db` に戻す。`ユーザー` の参照が検証層に入るのが気になるなら、`src/lib/users.ts` に存在確認関数を作ってそれを呼ぶ。\n\n### 2. 【中】タイトルの 200 文字上限が消えている\n- 場所: `src/lib/tasks/validation.ts` の `validateTaskInput`（`title` の検証）\n- 問題: 旧版の `b.title.length > 200` の条件が無くなった。エラー文言は「1〜200 文字で入力してください」のままなので、文言と実際の検証が食い違う。数万文字のタイトルが保存でき、一覧・詳細画面の表示も崩れうる。\n- 直し方: `|| b.title.length > 200` を戻す。上限は `model.ts` に定数として置いて検証とメッセージで共用すると、再びずれにくい。\n\n### 3. 【中】検証の退行を検出するテストが削除されている\n- 場所: `tests/task-validation.test.ts`（旧 `tests/tasks.test.ts` の `validateTaskInput` の `reports every invalid field`）\n- 問題: 空タイトル・不正ステータス・存在しない担当者・不正な日付の 4 項目すべてがエラーになることを確かめるテストが、分割時に落とされている（ファイルにも空行が 2 つ残っている）。このテストがあれば指摘 1 は検出できていた。「テストも同じ単位に分けた」という PR の説明とも合わない（削除であり移動ではない）。新規テストが全部通るのは、退行を見つけるテストが無いため。\n- 直し方: 旧テストを `task-validation.test.ts` に戻す。あわせて、201 文字のタイトルが拒否されること、存在しない担当者が `partial: true` でも拒否されることのテストを追加する（規約 5）。\n\n### 4. 【低】テストの未使用 import\n- 場所: `tests/task-model.test.ts` 2 行目の `openDb`\n- 問題: 使っていない import が残っている。\n- 直し方: 削除する。\n\n### 5. 【低】`index.ts` を経由する import\n- 場所: `src/app/**` の `@/lib/tasks/index`\n- 問題: 機能上の問題はないが、`@/lib/tasks` のままでも解決できる（`tasks/index.ts` があるため）。呼び出し側 4 ファイルの変更は不要で、差分を小さくできる（規約 6）。\n- 直し方: `@/lib/tasks` に戻す。\n\n### 6. 【低】テストの穴（分割前から無く、今回も補われていない）\n- 場所: `tests/task-validation.test.ts`、`tests/task-repository.test.ts`\n- 問題: 次のケースが無い。`dueDate` の不正値（`2026-13-45`・`12/01` など）、`partial: true` での空文字タイトルの拒否、`updateTask` が指定しなかった項目（title・assignee・dueDate）を変えないこと（現状は status のみ確認）。また `createTask` のテストの `created.id === 8` はシードが 7 件であることに依存していて脆い（旧テストから引き継いだもの）。\n- 直し方: 上記のケースを追加する。ID の確認は「一覧の件数が 1 増える」「取得し直した内容が一致する」などに置き換える。\n\n### 7. 【低】テストが `index.ts` 経由でしか import しておらず、分割の単位を確かめていない\n- 場所: `tests/task-model.test.ts`・`task-validation.test.ts`・`task-repository.test.ts` の import（`../src/lib/tasks/index.ts`）\n- 問題: 3 ファイルとも `index.ts` から import している。`model.ts`・`validation.ts`・`repository.ts` を直接参照しないので、テストを「同じ単位に分けた」意図がテスト上は反映されていない。\n- 直し方: 各テストは対応するファイル（`model.ts` など）から直接 import する。`index.ts` の再エクスポート漏れを見るなら、そのための小さなテストを別に 1 つ置く。\n\n### 8. 【低】コメントが実際と食い違っている\n- 場所: `src/lib/tasks/index.ts` 1 行目のコメント「振る舞いは変えていない」、`src/lib/tasks/validation.ts` の `validateTaskInput` の JSDoc\n- 問題: 指摘 1・2 のとおり振る舞いは変わっているので、`index.ts` のコメントは事実と異なる。また旧版の JSDoc にあった「担当者が存在するかは DB で確認する」の一文が消えており、`db` 引数を `_db` にして使っていないこととあわせて、検証の仕様が読み取れなくなっている。\n- 直し方: 指摘 1 で検証を元に戻したうえで JSDoc の一文を復元し、`index.ts` のコメントは実態に合わせて書き直すか削除する。\n\n## 確認したこと\n- `npm test`: 18 件すべて成功（ただし上記のとおり、退行を見るテストが削られている）。\n- `model.ts` / `repository.ts` は旧実装と同じ内容で、SQL もプレースホルダのまま。\n\n## 対応結果\n指摘 1〜8 はすべて修正した（直さなかった指摘は無い）。`npm run typecheck` と `npm test`（25 件）が通ることを確認した。\n\n- 1: `validateTaskInput` に担当者の存在確認（`SELECT 1 FROM users WHERE id = ?`）を戻し、`db` 引数を使うようにした。\n- 2: タイトルの上限を `model.ts` の `TITLE_MAX_LENGTH`（200）にし、検証とエラー文言で共用した。\n- 3・6: 旧テスト `reports every invalid field` を戻し、存在しない担当者（partial 含む）、200/201 文字のタイトル、partial の空タイトル、不正な期限、`updateTask` が他の項目を変えないことのテストを追加した。`created.id === 8` は件数の増減と取得結果の一致の確認に置き換えた。\n- 4: 未使用の `openDb` import を削除した。\n- 5: 呼び出し側 4 ファイルの import を元の `@/lib/tasks` に戻した。\n- 7: 各テストを対応するファイル（`model.ts` など）から直接 import するようにし、再エクスポートの確認用に `tests/task-index.test.ts` を追加した。\n- 8: `validateTaskInput` の JSDoc の一文を復元し、`index.ts` の「振る舞いは変えていない」を削除した。\n",
+ "fixed": {
+  "diff_added": 238,
+  "diff_deleted": 171,
+  "pr_added": 218,
+  "pr_deleted": 217,
+  "commits": [
+   "b4e6909 tasks を model/validation/repository に分割し、検証の退行を修正する",
+   "f935317 REVIEW.md: 低重要度の指摘（テストの穴・import・コメント）を追記",
+   "74798d2 REVIEW.md: タスク機能分割 PR のレビュー指摘を追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 25,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "タイトルは 200 文字まで（201 文字は入力の誤り）",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "存在しない担当者は入力の誤り",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "すべての項目が誤っていれば、4 つとも報告する",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "一覧・取得・作成・更新は元のとおり",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 4,
+   "log": ""
+  }
+ },
+ "transcript": {
+  "cost_usd": 1.0571,
+  "tokens": {
+   "input": 98,
+   "output": 21706,
+   "cache_read": 2288072,
+   "cache_creation": 142873
+  },
+  "turns": 24,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i 's/^- 直し方: 旧実装の存在確認/- 補足: `\\\" sato\\\"` のように前後に空白のある値も旧版では弾かれていたが、新版では通って同じく 500 になる。\\\\n- 直し方: 旧実装の存在確認/' REVIEW.md && git add REVIEW.md && git commit -q -m \\\"REVIEW.md: タスク機能分割 PR の"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/tasks/validation.ts'\\ns=open(p).read()\\ns=s.replace(''' * API に送られたタスクの内容を検証する。partial = true（更新）のときは、送られた項目だけを検証する。\\n */''',''' * API に送られたタスクの内容を検証する。parti"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i 's#@/lib/tasks/index\\\"#@/lib/tasks\\\"#' src/app/api/tasks/route.ts \\\"src/app/api/tasks/[id]/route.ts\\\" \\\"src/app/tasks/[id]/page.tsx\\\" src/app/tasks/page.tsx && git diff HEAD --stat"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i 's#@/lib/tasks/index\\\"#@/lib/tasks\\\"#' src/app/api/tasks/route.ts\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i 's#@/lib/tasks/index\\\"#@/lib/tasks\\\"#' 'src/app/api/tasks/[id]/route.ts'\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i 's#@/lib/tasks/index\\\"#@/lib/tasks\\\"#' 'src/app/tasks/[id]/page.tsx'\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i 's#@/lib/tasks/index\\\"#@/lib/tasks\\\"#' src/app/tasks/page.tsx\"}"
+   }
+  ],
+  "tool_calls": {
+   "Bash": 26,
+   "Agent": 2,
+   "ReadNotifications": 4,
+   "Write": 6,
+   "Monitor": 1,
+   "Edit": 4,
+   "Read": 1
+  },
+  "skills_used": [],
+  "subagents": 2,
+  "subagent_types": {
+   "pr-review-toolkit:code-reviewer": 1,
+   "pr-review-toolkit:pr-test-analyzer": 1
+  },
+  "questions": 0,
+  "active_seconds": 86,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "REVIEW.md の指摘 1〜8 をすべて直し、PR の分割とあわせて 1 つのコミットにしました。直さなかった指摘はありません。`npm run typecheck` は通り、`npm test` は 25 件すべて成功しました。\n\n- **指摘 1・2（検証の退行）:** `validateTaskInput` に担当者の存在確認を戻し、`db` 引数を使うようにしました。タイトルの上限は `model.ts` に `TITLE_MAX_LENGTH`（200）として置き、検証とエラー文言の両方で使っています。\n- **指摘 3・6・7（テスト）:**\n  - 削除されていた `reports every invalid field` を復元しました。\n  - 追加したケースは、存在しない担当者（partial 含む）、200 / 201 文字のタイトル、partial の空タイトル、不正な期限、`updateTask` が他の項目を変えないことです。\n  - `created.id === 8` は、件数の増減と取得結果の一致の確認に置き換えました。\n  - 各テストは対応するファイルから直接 import するようにし、再エクスポートの確認として `tests/task-index.test.ts` を足しました。\n- **指摘 4・5・8（import・コメント）:** 未使用の `openDb` import を削除し、呼び出し側 4 ファイルの import を `@/lib/tasks` に戻しました。JSDoc の一文を復元し、`index.ts` の「振る舞いは変えていない」を削除しました。\n\nREVIEW.md の末尾に「対応結果」を追記しました。システムから、REVIEW.md がこちらの最後の読み取り後に変わっているという通知があり、末尾の追記を確認しないままコミットしています。"
+ },
+ "interventions": 0
+}

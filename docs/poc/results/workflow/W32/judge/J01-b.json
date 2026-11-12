@@ -1,0 +1,85 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "updateInstrument が next.locationOriginal を書き戻すため、locationId で場所を変えても経理が読む古い列 location が変更前の場所のままになり、前の版へのロールバックでも古い場所が出る。",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "location-master.ts の updateLocation が locations.name しか更新せず、その場所の計測器の古い列 location が古い名前のまま残る。",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "移行（linkInstrumentsToLocations／マイグレーション 5）で結び付けた計測器の location 列が表記ゆれの元の値のままで、正式名にそろわない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "locationId を指定した POST /api/instruments で validateLocation が locationOriginal を設定せず、createInstrument が undefined を SQL に渡して 500 になる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "約 5 万件の移行を起動時に 1 件ずつ照合・UPDATE しており、所要時間が測られておらず要件 9（長く止めない）を満たす根拠が無い。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "移行ログ locations.migrated に、表記ゆれで寄せた件数の内訳が無く後から確かめにくい。",
+   "severity": "高",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "ALIASES（「大阪営」→「大阪営業所」）は推測で寄せる処理に近く、依頼者の合意が必要。",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 8,
+   "summary": "ハンディ端末で確定済みの計測器に照合できない文字が来ると、recordInventory が何も反映せず 200 を返す。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 9,
+   "summary": "確認中の計測器を直す導線が詳細画面での 1 件ずつに限られ、一括で直す手段が無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "使用終了の場所と確認中の扱い（location 文字列の経路）が API の説明に書かれていない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "不正な ?location= は全件、存在しない ID は 0 件になり、画面で絞り込みの状態が区別しにくい。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0832638
+ }
+}

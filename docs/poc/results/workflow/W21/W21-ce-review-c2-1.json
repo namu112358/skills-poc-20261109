@@ -1,0 +1,44 @@
+{
+  "trial": "W21-ce-review-c2-1",
+  "scenario": "W21",
+  "config": "ce-review",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の「期限の近い順」並べ替え\n\n対象: `git diff HEAD`（`src/lib/tasks.ts`、`src/app/api/tasks/route.ts`、`src/app/tasks/page.tsx`、`tests/tasks.test.ts`）\n深さ: 軽量（レビュアーエージェントなし、このコンテキストのみ）\n\n## 判定: 修正付きでマージ可（Ready with fixes）\n\nマージ前に直すべき高重要度の問題はありません。`sort` の検証、API Route 先頭のログイン確認、規約 2 の「不正値は指定なし」は意図どおりです。下の中・低の指摘を確認してください。\n\n## 指摘\n\n### 1. [中] 期限順で、完了済み・期限切れのタスクが先頭に並ぶ\n\n- 場所: `src/lib/tasks.ts` `listTasks`（`ORDER BY due_date, id`）、`SORT_COLUMNS.due`\n- 問題: 「期限の近い順」は `due_date` の昇順で実装されています。ステータスを絞り込まずに並べ替えると、過去の日付のタスクが先頭に来ます。シードデータでは、完了済みの「要件定義書のレビュー」（2026-11-02）と「リリースノート作成」（2026-11-05）が先頭です。今日が 2026-11-11 なので、その次の未完了タスク（11-12）は 3 番目になります。PR の目的は「締め切りの近いタスクから片付けたい」ことです。この並びでは、片付けるべきタスクが完了済みタスクの下に埋もれます。\n- 直し方: 次のどちらかを選び、PR の説明に書いてください。\n  - `status = 'done'` を後ろに回す。たとえば `ORDER BY (status = 'done'), due_date, id` とします。\n  - 現状の仕様（単純な日付昇順）を「期限の古い順」と明記し、完了済みを含むことを説明に書く。\n\n  どちらにしても、選んだ挙動をテストで固定してください。現在のテストは日付が昇順であることしか確認していません。\n\n### 2. [低] ORDER BY への文字列埋め込みが、規約 8 の文面に反している\n\n- 場所: `src/lib/tasks.ts` `listTasks`（テンプレートリテラルで `${SORT_COLUMNS[...]}` を SQL に連結）\n- 問題: CLAUDE.md の規約 8 は「SQL に値を埋め込むときは必ずプレースホルダを使い、文字列連結で組み立てない」と定めています。`ORDER BY` の列名はプレースホルダにできないので、ホワイトリストの表を引く設計はやむを得ません。現状は安全です。`isTaskSort` を通した値だけが表を引き、`filter.sort` が型の範囲外なら `undefined` を連結するので、将来 `listTasks` を直接呼ぶ側が型を崩しても SQL が壊れます。実害は小さく、規約の文面との不一致が主な問題です。\n- 直し方: 列名ではなく完成した ORDER BY 句の定数（`\"ORDER BY id\"` / `\"ORDER BY due_date, id\"`）を表に持たせ、`filter.sort` が表に無いときは `id` に落とします（`SORT_ORDER[filter.sort ?? \"id\"] ?? SORT_ORDER.id`）。あわせてコメントに、規約 8 の例外であり、ホワイトリスト経由に限ることを明記してください。\n\n### 3. [低] API の `sort` パラメータ処理にテストが無い\n\n- 場所: `src/app/api/tasks/route.ts` `GET`、`tests/tasks.test.ts`\n- 問題: PR は「不正な `sort` は登録順として扱う」と謳っていますが、テストは `isTaskSort` と `listTasks` のみです。`GET /api/tasks?sort=due`、`sort=xxx`（不正値）、`status` との組み合わせは検証されていません。規約 5 は「ロジックを追加・変更したら `tests/` に単体テストを追加する」と定めています。route.ts にはほぼロジックが無く、その点は妥当ですが、ページ側と API 側で同じ「検証してから渡す」処理が重複しています。\n- 直し方: 検証から `listTasks` の引数を作る処理を `src/lib/` に切り出し（たとえば `parseTaskFilter(params)`）、その関数をテストします。画面と API の両方がそれを使えば、`status` と `sort` の解釈が食い違うことも防げます。\n\n## 確認したが問題なしとした点\n\n- `isTaskSort` は `includes` による完全一致です。`__proto__` などは通らず、テストでも確認しています。\n- `listTasks` の `ORDER BY ..., id` で、同じ期限のタスクは登録順になります。`due_date` は `NOT NULL`・`YYYY-MM-DD` の検証付きなので、文字列比較が日付順と一致します。\n- 画面のセレクトの既定値は `sort ?? \"id\"` で、不正値のときも「登録順」が選ばれます。\n\n## Coverage\n\n- 軽量パスで実施しました。Compound Pack、学習資料（learnings）、デプロイ影響、エージェント向けパリティは評価していません。\n- 適用した基準は `CLAUDE.md`（ルート）のみです。`CODING_STANDARDS.md` はありません。\n- `review-scope.py` は承認待ちになったため実行していません。差分の規模（4 ファイル、追加 83 行）と内容から軽量と判断しました。\n- 未追跡ファイルはありません。ベースに `REVIEW.md` は無く、レビュー方針は適用していません。\n- テスト・型チェックは再実行していません。PR の記載を信頼しています。\n",
+  "review_chars": 2632,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3392,
+    "tokens": {
+      "input": 22,
+      "output": 5261,
+      "cache_read": 494897,
+      "cache_creation": 59256
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/poc-trials/W21-ce-review-c2-1/plugins/compound-engineering/skills/ce-code-review; python3 $S/scripts/review-scope.py --base HEAD --docs-root docs; grep -n \\\"due_date\\\" -r src/lib/d"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W21-ce-review-c2-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 3,
+      "Bash": 5,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 62,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘 3 件は、すでに `REVIEW.md` に指定の形式（重要度・場所・何が問題か・直し方）で書いてあり、5137f31 でコミット済みです。端末の要約と `REVIEW.md` の内容に差は無く、追加も削除もありません。\n\nそのため、書き写しもコミットもしていません。変更が無いので空のコミットも作っていません。`REVIEW.md` は書き換えておらず、コードにも触れていません。\n\n`REVIEW.md` の指摘は次の 3 件です。\n\n- **中:** 期限順で、完了済み・期限切れのタスクが先頭に並ぶ（`src/lib/tasks.ts` の `listTasks`）。\n- **低:** ORDER BY への文字列埋め込みが、規約 8 の文面に反する（同じく `listTasks`）。\n- **低:** API の `sort` パラメータ処理にテストが無い（`src/app/api/tasks/route.ts` の `GET`）。\n\n形式や書き方を変えたい場合は、その点を教えてください。"
+  },
+  "interventions": 0
+}

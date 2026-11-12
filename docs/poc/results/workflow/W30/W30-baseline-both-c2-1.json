@@ -1,0 +1,56 @@
+{
+  "trial": "W30-baseline-both-c2-1",
+  "scenario": "W30",
+  "config": "baseline-both",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: 計測器ごとの定期点検（担当者・周期・点検記録）\n\n確認方法: 差分を読み、要件を 1 つずつ実装と照合した。`npm run build` → `npm run start`（本番モード、ポート 3457）でログイン（sato）し、`/instruments`・`/instruments/1`・各 API を curl で実際に呼んだ（確認後にサーバーは停止）。\n\n## 要件との照合（要約）\n\n| 要件 | 結果 |\n|---|---|\n| 担当者は在籍中の利用者から 1 人。退職・休職は新規に選べない／既存担当は表示可 | 満たす（PATCH で kondo → 400、既存担当の inoue は表示される。画面の選択肢も同様）。ただし**別の送信元（extra）は反する**（指摘 1） |\n| 点検記録（点検日・点検した人・結果・メモ）を何回分も残す／担当者以外でもよい／在籍者のみ | 満たす（inoue を点検者にすると 400） |\n| 記録は消さない・訂正は追記 | 満たす（削除・更新 API なし）。ただし訂正の手段が画面・API に明示されていない（低） |\n| 周期は計測器ごと・既定 3 か月、次回 = 最後の点検日 + 周期、記録なしは「未点検」 | 満たす（JST の今日で判定、月末補正あり） |\n| **担当者で絞り込み・並べ替え** | **満たしていない**（指摘 2） |\n| **担当者ごとの遅れ台数を毎朝知りたい** | **満たしていない**（指摘 2） |\n| 要修理 → 使用停止 | 満たすが、貸出中の扱いに問題（指摘 3） |\n| 旧 extra の点検者・最終点検日を引き継ぐ（敬称つきも／不明・読めない日付は元の書き方を残す／黙って捨てない） | おおむね満たす（「鈴木さん」→ suzuki、「外部委託」は legacy_inspector、R8.9.10 は 2026-09-10 に変換）。例外は指摘 5 |\n| 約 5 万件で一覧が速い | 懸念あり（指摘 4） |\n| extra の dept は持ち方を変えない | 満たす（dept は extra のまま・一覧の絞り込みも従来どおり） |\n| 前の版に戻しても DB をそのまま使える | 列追加のみ・extra も残すので起動はできるが、データの食い違いが起きる（指摘 1） |\n\n## 指摘\n\n### 1. 【高】既存の `PATCH /api/instruments/:id`・`POST /api/instruments` の `extra.inspector` / `last_inspected` が点検の情報に反映されない（二重管理・食い違い）\n\n- 場所: `src/lib/instruments.ts` の `validateInstrumentInput` / `updateInstrument`（extra を無条件に受け付ける）、`src/app/instruments/[id]/page.tsx`（extra の `inspector` / `last_inspected` を画面から隠す）、`src/lib/inspections-legacy.ts`（移行は 1 回だけ）。\n- 何が起きるか（実際に確認）: `PATCH /api/instruments/1` に `{\"extra\":{\"inspector\":\"田中\",\"last_inspected\":\"2026-11-01\"}}` を送ると 200 で保存されるが、`GET /api/instruments/1/inspection` は担当者 sato・最後の点検日 2026-09-01 のまま。詳細画面は extra のこの 2 項目を隠しているので、利用者には保存された値がどこにも見えず、黙って無視されたのと同じになる。同じ「担当者の変更」でも、画面・新 API と、既存の API（や extra を書き込む外部システム）で結果が違う。\n- 戻した場合: 前の版は extra だけを読むため、新版で変更した担当者・点検記録は見えず、古い値のまま表示される（新版運用中の点検結果が前の版では失われたように見える）。\n- 直し方: 次のどちらかに決める。(a) 既存 API が extra の `inspector` / `last_inspected` を受け取ったら 400 で拒否するか、点検の担当者・記録に変換して反映する（検証は新 API と同じ「在籍中のみ」）。(b) 新版で担当者を変えたとき、前の版のために extra の `inspector` / `last_inspected` も同期して書く（dept には触れない）。どちらでも `tests/` にテストを足す。移行が 1 回だけでよいなら、運用メモ（`docs/operations.md`）に「戻すと点検の変更は前の版で見えない」ことを書く。\n\n### 2. 【高】担当者での絞り込み・並べ替えと、担当者ごとの遅れ台数が無い\n\n- 場所: `src/app/instruments/page.tsx`、`src/lib/instruments.ts` の `listInstruments`（絞り込みは status・dept のみ）。`src/lib/inspections.ts` に担当者別の集計関数が無い。\n- 何が起きるか（実際に確認）: `/instruments?inspector=sato&sort=inspector` を開いても全件が従来の順で出る（パラメータが無視される）。担当者ごとの期限切れ・未点検の台数を出す画面・API・ジョブは無い（要件「毎朝知りたい」）。マイグレーションで `instruments_inspector` インデックスは作られているが、使う処理が無い。\n- 直し方: `src/lib/` に担当者での絞り込み（型ガードで検証し、不正値は「指定なし」。規約 2）・並べ替えと、担当者ごとの遅れ台数の集計（SQL で GROUP BY）を追加し、一覧に表示（または集計用 API）。`tests/` にテストを足す。\n\n### 3. 【中】貸出中の計測器に「要修理」を記録すると、貸出が未返却のまま使用停止になる\n\n- 場所: `src/lib/inspections.ts` `recordInspection`（`status <> 'disposed'` だけを除外して `suspended` にする）。\n- 何が起きるか（実際に確認）: 貸出中の MI-0002 に `POST /api/instruments/2/inspections`（result=repair）→ 201、状態は `suspended`。貸出（loan 1）は `returnedAt: null` のまま残り、返却しても状態は戻らない（返却は `on_loan` のときだけ `in_use` にする）。貸出中は「貸出・返却の操作でだけ変わる」という台帳の規約に反する。校正の不合格（`calibrations.ts`）も同じ扱いだが、要件・既存の規約との整合を決めていない。\n- 直し方: 貸出中のときの扱いを決める（要修理の記録は残し、状態の変更は返却後に行う／貸出中は 400 で返却を促す、など）。決めた内容を画面の文言・テストに反映する。\n\n### 4. 【中】一覧が 5 万件を毎回全件読み、点検の状況も全件分を計算する（毎朝開く画面）\n\n- 場所: `src/lib/inspections.ts` `listInspectionPlans`（全計測器分の相関サブクエリ `MAX(inspected_on)` を実行して Map にする）、`src/app/instruments/page.tsx`（全件描画。`listUsers()` も全件）。\n- 何が起きるか: 絞り込みなしで約 5 万行ぶんのサブクエリと HTML を毎回作る。表示中の計測器だけでなく全件を計算するため、dept で絞った一覧でも全件分の計算が走る。ページ分割も無い。\n- 直し方: 表示対象の絞り込み・ページ分割を `src/lib/` 側で行い、点検の状況は対象の id だけに対して取得する（`WHERE i.id IN (...)` または結合）。5 万件相当のデータで時間を測るテストを足す。\n\n### 5. 【低】移行で読み取れない旧データが一部で黙って落ちる／表示が「未点検」になる\n\n- 場所: `src/lib/inspections-legacy.ts` `importLegacyInspections`。\n- (a) `last_inspected` が文字列以外（数値・null 以外の型）のときは `dateText` が空扱いになり、元の値がどこにも残らない（要件「黙って捨てない」）。(b) `extra` が JSON として読めない行は `continue` するだけで、ログも残らない。(c) 日付が読めない旧データだけが記録にある計測器は、`lastInspectedOn` が null のため「未点検」と表示される（元の書き方は記録一覧に出るが、一覧画面の状況欄は「未点検」で誤解を招く）。(d) 担当者名が同名の利用者が複数いる場合は担当者にせず legacy に残す（妥当）が、移行件数・保留件数をログに出していない。\n- 直し方: 文字列以外も `String()`/JSON で legacy_date に残す、読めない行・保留はログに出す（`src/lib/logger.ts`）、「日付不明」を状況欄に区別して出す。\n\n### 6. 【低】訂正の方法が示されていない\n\n- 場所: `src/app/instruments/[id]/page.tsx`・`inspection-forms.tsx`。\n- 要件は「間違えたら訂正の記録を足す」だが、訂正であることを記録・表示する手段（メモに書くしかない）が無く、誤った「最後の点検日」（例: 将来に近い誤入力）が次回予定日をずっと決めてしまう。\n- 直し方: 最低限、画面に「訂正は新しい記録として追加してください」と案内し、必要なら「訂正」の印をつける。\n\n## 補足（問題なしと確認した点）\n\n- 在籍確認は点検した人・新規の担当者の両方で API 側に実装されている（画面だけに頼っていない）。未ログインは 401、存在しない計測器は 404。\n- マイグレーション 6 は既存の版を書き換えず末尾に追加、extra は消さない、移行は再実行しても重複しない。\n",
+  "review_chars": 4474,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.493,
+    "tokens": {
+      "input": 50,
+      "output": 10816,
+      "cache_read": 1450322,
+      "cache_creation": 59916
+    },
+    "turns": 32,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run build 2>&1 | tail -15); (PORT=3457 nohup npm run start -- -p 3457 > /tmp/srv.log 2>&1 &); sleep 5; cat /tmp/srv.log; grep -n \\\"SEED_USERS\\\" -A14 src/lib/db/seed.ts | head -30\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"active: false\\\" src/lib/db/seed.ts; (nohup npm run start -- -p 3457 > /tmp/srv.log 2>&1 &) ; sleep 5; B=http://localhost:3457; curl -s -c /tmp/cj -X POST -H 'content-type: appli"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp && B=http://localhost:3457; curl -s -c /tmp/cj -X POST -H 'content-type: application/json' -d '{\\\"userId\\\":\\\"sato\\\",\\\"password\\\":\\\"password\\\"}' $B/api/login -w ' %{http_code}\\\\n'\\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for i in 1 3 4 6 9; do curl -s -b /tmp/cj http://localhost:3457/api/instruments/$i/inspection; echo; done; curl -s -b /tmp/cj http://localhost:3457/api/instruments/6/inspections; echo; cu"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f \\\"next start\\\" ; pkill -f \\\"next-server\\\"; sleep 1; curl -s -o /dev/null -w '%{http_code}\\\\n' http://localhost:3457/login\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 27,
+      "TaskStop": 1,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 106,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "指摘はすべて `REVIEW.md` に、場所・何が問題か・直し方・重要度の形式で書いてあり、コミット済み（41af257）です。そのため、今回は書き足しも新しいコミットもしていません。`REVIEW.md` に未コミットの変更は無く、コードにも手を入れていません。\n\n`REVIEW.md` の指摘は次の 6 件です。\n\n1. 【高】既存 API の `extra.inspector` / `last_inspected` が点検の情報に反映されない（前の版に戻したときの食い違いを含む）\n2. 【高】担当者での絞り込み・並べ替えと、担当者ごとの遅れ台数が未実装\n3. 【中】貸出中の計測器に「要修理」を記録すると、貸出が未返却のまま使用停止になる\n4. 【中】一覧が 5 万件分の点検状況を毎回全件計算する\n5. 【低】移行で一部の旧データが残らない、または「未点検」と表示される\n6. 【低】訂正の記録の方法が画面に案内されていない"
+  },
+  "interventions": 0
+}

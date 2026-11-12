@@ -1,0 +1,44 @@
+{
+  "trial": "W22-ce-full-c5-1",
+  "scenario": "W22",
+  "config": "ce-full",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# コードレビュー: 担当者の項目名を `assigneeId` / `assignee_id` に変更\n\n判定: **マージ不可（修正が必要）**\n\nPR の説明は「画面の表示と API の入出力は変えない」ですが、実際には画面（一覧）が壊れ、API の入出力も変わっています。\n\n## 指摘\n\n### 1. [高] タスク一覧で担当者が空欄になる\n\n- 場所: `src/lib/tasks.ts` の `listTasks`（SELECT 文。37 行目付近）と `toTask`\n- 問題: SELECT が `assignee_id AS assignee` と別名を付けているのに、`toTask` は `row.assignee_id` を読みます。そのため一覧の各タスクの `assigneeId` は `undefined` になります。\n  - 実際に確認した結果: `listTasks({}, openDb())[0]` は `assigneeId: undefined` を返しました。\n  - `/tasks` の担当者列（`src/app/tasks/page.tsx` の `{task.assigneeId}`）が全行で空欄になります。\n  - `GET /api/tasks` の JSON では `assigneeId` が欠落します（`JSON.stringify` が undefined を落とすため）。\n- 型チェックを通った理由: 戻り値を `as TaskRow[]` でキャストしているので、型で検出できません。\n- 直し方: 別名を外して `SELECT id, title, status, assignee_id, due_date ...` にします（`getTask` と同じ形）。\n\n### 2. [高] テストが一覧のバグを検出できない\n\n- 場所: `tests/tasks.test.ts`（`listTasks` の検証）\n- 問題: `listTasks` のテストは件数や絞り込みしか見ておらず、`assigneeId` の中身を確認していません。そのため指摘 1 のバグがあっても `npm test` が通り、PR の「テストが通った」という検証結果が当てになりません。\n- 直し方: `listTasks` の結果の各タスクについて、`assigneeId` が期待どおりの文字列（例: 1 件目は `\"sato\"`）であることを検証するテストを追加します（CLAUDE.md 規約 5）。\n\n### 3. [高] API の入出力が変わっている（説明と食い違う・既存クライアントが壊れる）\n\n- 場所: `src/lib/tasks.ts` の `validateTaskInput`（`need(\"assigneeId\")`、`b.assigneeId`）と `Task` 型。これらを通る `POST /api/tasks`、`PATCH /api/tasks/:id`、`GET /api/tasks`、`GET /api/tasks/:id`\n- 問題:\n  - リクエストの JSON のキーが `assignee` から `assigneeId` に変わりました。従来どおり `{\"assignee\":\"sato\", ...}` を送ると、「担当者が存在しません」で 400 になります（確認済み）。\n  - `PATCH` で `assignee` だけを送った場合は、未知のキーとして無視され、担当者が変わらないまま成功扱いになるおそれがあります。\n  - レスポンスのキーも `assignee` から `assigneeId` に変わります。\n  - これは PR の「API の入出力は変えない」と矛盾します。\n- 直し方（どちらかを選ぶ）:\n  - (a) PR の方針どおり API の外向きは `assignee` のままにします。`validateTaskInput` の入力キーと、API Route が返す JSON のキーを `assignee` に保ち、内部の `Task.assigneeId` との変換は `src/lib/` 側で行います。\n  - (b) 意図的な API 変更にするなら、PR の説明を直し、クライアントへの周知と互換の扱い（旧キーも受け付ける期間を設けるなど）を決めます。\n- 追加で必要: API の入出力（キー名）を固定するテストを `tests/` に追加します。\n\n### 4. [中] マイグレーション 3 のテストがない\n\n- 場所: `src/lib/db/migrations.ts`（version 3）、`tests/db.test.ts`\n- 問題: 既存のテストは新規 DB（全マイグレーションを最初から適用）しか見ていません。version 2 まで適用済みの既存 DB に version 3 を適用して、データ・外部キー・インデックス（`tasks_assignee`）が保たれることを確認していません。PR は「データはそのまま」と説明しているため、これを裏付けるテストが必要です。\n- 補足: `RENAME COLUMN` 自体は、インデックスと外部キーを SQLite が付け替えるため、動作としては妥当と見ています。ただし、インデックス名 `tasks_assignee` が列名と食い違ったまま残ります。支障はないので許容してかまいませんが、気になる場合は同じマイグレーションで作り直します。\n- 直し方: `user_version = 2` の状態でタスクを入れた DB に version 3 を適用し、行・外部キー制約・インデックスが保たれていることを確かめる単体テストを追加します（CLAUDE.md 規約 5・7）。\n\n### 5. [低] 一覧画面が ID をそのまま表示している\n\n- 場所: `src/app/tasks/page.tsx` の担当者列（`{task.assigneeId}`）\n- 問題: 名前の取り違えを防ぐ目的の PR ですが、一覧は ID（`sato` など）を表示したままです。詳細画面は `getUser` で名前に変換しています。変更前と同じ表示なので、今回の範囲では問題になりません。\n- 直し方: 対応不要です。表示を名前にする場合は、別の変更で `src/lib/` 側に取得処理を置いて行います。\n\n## 確認したこと\n\n- 他に旧名 `assignee` を参照している箇所は見つかりませんでした（`grep` で確認）。\n- SQL は引き続きプレースホルダを使っています。\n- 既存のマイグレーション（1・2）は書き換えられていません。\n\n## レビューの範囲\n\n差分（未コミット、8 ファイル）を読み、指摘 1・3 は実際にコードを実行して再現しました。複数エージェントによる並列レビューは実行していません。差分が小さく、上記の指摘で内容を網羅できると判断したためです。\n",
+  "review_chars": 2964,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3637,
+    "tokens": {
+      "input": 26,
+      "output": 5987,
+      "cache_read": 659638,
+      "cache_creation": 59442
+    },
+    "turns": 14,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat package.json | grep -A8 '\\\"scripts\\\"'; cat > /tmp/claude-0/v.test.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W22-ce-full-c5-1/app/src/lib/db/index.ts\\\";\\nimport { listTasks,"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n test package.json; S=/tmp/claude-0/-tmp-poc-trials-W22-ce-full-c5-1-app/25585ad7-56fa-4b91-8670-a16d874de33d/scratchpad; mkdir -p $S; cat > $S/v.ts <<'EOF'\\nimport { openDb } from"
+      }
+    ],
+    "tool_calls": {
+      "Read": 2,
+      "Bash": 7,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 59,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "追加の作業はありませんでした。直前のレビューの 5 件は、すべて依頼の形式で `REVIEW.md` に書き込み済みで、コミットも済んでいます（`95840cf`）。5 件それぞれに、場所・何が問題か・直し方・重要度（高 3、中 1、低 1）があります。\n\n`REVIEW.md` に未コミットの変更はなく、指摘の追加も削除もしていません。コードも直していません。"
+  },
+  "interventions": 0
+}

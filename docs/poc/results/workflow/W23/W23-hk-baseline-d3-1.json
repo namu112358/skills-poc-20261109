@@ -1,0 +1,51 @@
+{
+  "trial": "W23-hk-baseline-d3-1",
+  "scenario": "W23",
+  "config": "hk-baseline",
+  "case": "d3",
+  "rep": 1,
+  "review_md": "# コードレビュー: ダッシュボードとタスクのコメント\n\n対象: 作業ツリーの未コミット差分（`git diff HEAD`、新規ファイルを含む）。\n確認方法: 差分とコードを読んだうえで、`src/lib/` の関数を `node --experimental-strip-types` で直接呼んで再現したものには「（再現済み）」と書いた。それ以外は読み取りによる指摘。`npm test` は 30 件すべて通過（ただし下記の問題を検出するテストは無い）。\n\n## 指摘一覧\n\n| # | 重要度 | 場所 | 概要 |\n|---|---|---|---|\n| 1 | 高 | `src/lib/dashboard.ts` `buildDashboard` / `src/lib/cache.ts` `cached` | キャッシュのキーがユーザーを含まず、別ユーザーのダッシュボードが見える |\n| 2 | 高 | `src/lib/comments.ts` `renderBody` / `src/app/tasks/[id]/page.tsx` | `javascript:` の URL がリンクになる（保存型 XSS） |\n| 3 | 高 | `src/app/api/comments/[commentId]/route.ts` `PATCH` | 作成者でなくてもコメントを書き換えられる |\n| 4 | 中 | `src/lib/dashboard.ts` `countByStatus` | 共有定数 `TASK_STATUSES` を `reverse()` で書き換える |\n| 5 | 中 | `src/lib/dashboard.ts` `completionRate` | 担当タスクが 0 件のとき「完了率 NaN%」になる |\n| 6 | 中 | `src/lib/comments.ts` `listComments` / `addComment` | `created_at` の文字列順が時系列にならない |\n| 7 | 中 | `src/lib/dashboard.ts` `listAssignedTasks` | SQL を文字列連結で組み立てている（規約 8 違反） |\n| 8 | 中 | `src/app/api/tasks/[id]/comments/route.ts` `POST` | 存在しないタスクへのコメント投稿が 404 にならない（コードからの推定） |\n| 9 | 低 | `src/lib/cache.ts` / `src/lib/dashboard.ts` | キャッシュの無効化が無く、キーが増え続ける |\n| 10 | 低 | `tests/` | 上の問題を検出するテストが無い |\n\n---\n\n## 1. 別ユーザーのダッシュボードが表示される\n\n- **重要度**: 高\n- **場所**: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", …)`）、`src/lib/cache.ts` `cached`\n- **何が問題か**: キャッシュのキーが `\"dashboard\"` の固定値で、`userId` を含まない。30 秒以内に別のユーザーが `buildDashboard` を呼ぶと、前のユーザーの結果が返る。\n  例: sato が `/dashboard` を開いた直後に suzuki が開くと、画面の名前は「suzuki さん」だが、タスク・件数・期限切れの一覧は sato のものになる。\n  （再現済み: `buildDashboard(\"suzuki\", …)` が `userId: \"sato\"` を返した。）\n  キャッシュは `src/lib/cache.ts` のプロセス内 Map なので、ログインしている全員に影響する。\n- **直し方**: キーに `userId` を含める（`` `dashboard:${userId}` ``）。キャッシュを使うなら、タスクの作成・更新・削除のあとに該当ユーザーのキーを消す。個人のデータなので、キャッシュ自体を外す判断も妥当。テストに「別ユーザーで結果が分かれる」ケースを足す。\n\n## 2. コメントの `javascript:` リンクによる XSS\n\n- **重要度**: 高\n- **場所**: `src/lib/comments.ts` `renderBody`（`[文字](URL)` の変換）、`src/app/tasks/[id]/page.tsx`（`dangerouslySetInnerHTML`）\n- **何が問題か**: 本文の HTML エスケープは正しく行われているが、リンクの URL のスキームを確認していない。コメントに `[x](javascript:alert\\`1\\`)` と書くと、表示側で `<a href=\"javascript:alert`1`\">x</a>` になる（再現済み。括弧を含む URL は `[^)\\s]+` で切られるので、この例のように括弧を避けた形で成立する）。タスクを見た人がリンクをクリックすると、そのページのオリジンでスクリプトが動く。\n- **直し方**: リンク先を `https://` `http://` と相対パス（`/` で始まる）に限定し、それ以外のスキームはリンクにせず文字列のまま表示する。`mailto:` なども、必要になるまで許可しない。テストに `javascript:` と `data:` の入力を足し、`<a` が出ないことを確認する。\n\n## 3. 他人のコメントを書き換えられる\n\n- **重要度**: 高\n- **場所**: `src/app/api/comments/[commentId]/route.ts` `PATCH`\n- **何が問題か**: ログインしていれば、どのユーザーでも任意のコメントの本文を更新できる。`DELETE` には `comment.authorId !== user.id` の確認があるが、`PATCH` には無い（`updateComment` を直接呼んでも制限は無い）。\n- **直し方**: `PATCH` にも `DELETE` と同じ作成者の確認を入れ、違えば 403 を返す。API の挙動を確かめるテストを追加する。\n\n## 4. 共有定数 `TASK_STATUSES` が書き換わる\n\n- **重要度**: 中\n- **場所**: `src/lib/dashboard.ts` `countByStatus`（`order.reverse()`）\n- **何が問題か**: `TASK_STATUSES`（`src/lib/tasks.ts`）の配列をその場で反転させる。ダッシュボードを 1 回表示すると、同じプロセス内の `/tasks` の状態選択肢の並びが逆になる（再現済み: 呼ぶ前は `['done','in_progress','todo']`、呼んだ後は `['todo','in_progress','done']`。ただし確認時点ではすでに 1 回反転していた）。`countByStatus` の呼び出しごとに順序が入れ替わるため、ページによって並びが変わる。\n- **直し方**: `[...order].reverse()` にする。テストに「呼び出し後も `TASK_STATUSES` が変わらない」を足す。\n\n## 5. 完了率が NaN になる\n\n- **重要度**: 中\n- **場所**: `src/lib/dashboard.ts` `completionRate`\n- **何が問題か**: 担当タスクが 0 件のとき `0 / 0` になり `NaN` を返す（再現済み: `completionRate([])` → `NaN`）。ページは「完了率 NaN%」と表示し、API では `null` になる。新しいユーザーや、タスクが無いユーザーでは必ず起きる。\n- **直し方**: 0 件のときは 0 を返す（または表示を「—」にする）。テストに 0 件のケースを足す。\n\n## 6. コメントの並び順が時系列にならない\n\n- **重要度**: 中\n- **場所**: `src/lib/comments.ts` `formatCreatedAt`（`toLocaleString(\"ja-JP\")`）と `listComments`（`ORDER BY created_at, id`）\n- **何が問題か**: `created_at` が `2026/11/9 1:00:00` の形式で保存される。文字列として並べ替えるため、`2026/11/10` が `2026/11/9` より前に来る（再現済み: 11/9 に投稿した `a` と 11/10 に投稿した `b` の順が `[b, a]`）。日付が一桁と二桁をまたぐと、コメントの順番が崩れる。\n- **直し方**: `created_at` は ISO 8601 形式（例: `now.toISOString()`）で保存し、表示のときだけ日本時間に整形する。既存データがあれば移行を考える（PoC なら初期化で足りる可能性が高い）。テストは 11/9 と 11/10 をまたぐ日付で書く。\n\n## 7. SQL を文字列連結で組み立てている\n\n- **重要度**: 中\n- **場所**: `src/lib/dashboard.ts` `listAssignedTasks`\n- **何が問題か**: `` WHERE assignee = '${userId}' `` と値を埋め込んでいる。CLAUDE.md の規約 8（プレースホルダを使い、文字列連結で組み立てない）に違反する。現状の `userId` はセッションから得た DB 上の ID なので直ちに攻撃されるわけではないが、ID に `'` が含まれると SQL が壊れ、注入の入口になる。\n- **直し方**: `WHERE assignee = ?` と書き、`.all(userId)` で渡す。同じファイルの他の関数（`src/lib/tasks.ts` の `listTasks` など）と同じ書き方に揃える。\n\n## 8. 存在しないタスクへのコメント投稿\n\n- **重要度**: 中（コードからの推定）\n- **場所**: `src/app/api/tasks/[id]/comments/route.ts` `POST`\n- **何が問題か**: `id` の形式は確認しているが、タスクが存在するかは確認していない（`GET` は `getTask` を確認している）。`openDb` で `PRAGMA foreign_keys = ON` なので、`INSERT` が外部キー違反で例外になり、未処理の 500 が返ると考えられる。この点は実行して確かめていない。\n- **直し方**: `POST` でも `getTask(id)` を確認し、無ければ 404 を返す。\n\n## 9. キャッシュの無効化と上限が無い\n\n- **重要度**: 低\n- **場所**: `src/lib/cache.ts`、`src/lib/dashboard.ts`（`CACHE_TTL_MS = 30_000`）\n- **何が問題か**: タスクを更新しても、30 秒間は古いダッシュボードが表示される。キーを `userId` 別にすると、Map に入るエントリ数がユーザー数だけ増え、期限切れのエントリは読まれない限り消えない。\n- **直し方**: タスクの作成・更新時に該当ユーザーのエントリを消す。または、キャッシュを外す。PoC の規模なら、キャッシュを外すのが一番単純。\n\n## 10. テストの不足\n\n- **重要度**: 低\n- **場所**: `tests/dashboard.test.ts`、`tests/comments.test.ts`（API Route のテストは無い）\n- **何が問題か**:\n  - `tests/dashboard.test.ts` は正常系だけで、以下を検出できない: 別ユーザーのキャッシュ（1）、`TASK_STATUSES` の不変（4）、0 件の完了率（5）、担当者 ID に `'` を含むケース（7）。\n  - `tests/comments.test.ts` は `renderBody` の `javascript:` リンク（2）、作成者以外の編集（3）、11/9 と 11/10 をまたぐ並び順（6）を検出できない。\n  - API Route のテストが無い。認可（3）と 404（8）は route 側の確認なので、検出できない。\n- **直し方**: 上に挙げたケースをそれぞれテストに足す。認可と 404 は、route を直接呼ぶテスト、または lib 側の確認関数を作ってテストする。\n",
+  "review_chars": 5495,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0357,
+    "tokens": {
+      "input": 40,
+      "output": 22123,
+      "cache_read": 1195493,
+      "cache_creation": 63219
+    },
+    "turns": 23,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git diff HEAD -- src/lib src/app/api src/app/tasks src/lib/db/migrations.ts | head -c 60000; echo; echo ====; git diff HEAD --no-index /dev/null src/lib/cache.ts >/dev/null 2>&1; for f in"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node -v && S=/tmp/claude-0/-tmp-poc-trials-W23-hk-baseline-d3-1-app/0abb0669-4ba0-402f-90ba-654fedc8ea2d/scratchpad && mkdir -p $S/check && cat > $S/check/probe.ts <<'EOF'\\nimport { cache"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W23-hk-baseline-d3-1-app/0abb0669-4ba0-402f-90ba-654fedc8ea2d/scratchpad && node --experimental-strip-types --no-warnings $S/check/probe.ts; echo \\\"exit=$?"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git diff --cached --name-only && git commit -q -m \\\"$(printf 'Add code review notes for dashboard and comments\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropi"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 17,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 108,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "REVIEW.md を依頼の形式に合わせて書き直し、REVIEW.md だけをコミットしました（`7071160`）。\n\n前回の版でも指摘は揃っていましたが、項目 10 には「場所」「直し方」の見出しが無く、ほかの項目も見出しの付け方がそろっていませんでした。今回は 10 件すべてに「重要度・場所・何が問題か・直し方」を付けています。\n\n- 指摘は 10 件のまま変えていません。新しい指摘は足していません。\n- 内容も変えていません。ただし項目 10 は、場所をテストファイルの一覧にまとめ、「何が問題か」に検出できないケースを書きました。\n- 項目 8 の重要度は「中（コードからの推定）」としています。実行して確かめてはいません。\n\nコードには触れていません。ダッシュボードとコメントの変更は引き続き未コミットのまま作業ツリーに残っています。"
+  },
+  "interventions": 0
+}

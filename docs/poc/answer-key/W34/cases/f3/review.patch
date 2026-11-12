@@ -1,0 +1,107 @@
+diff --git a/src/app/api/tasks/[id]/extend/route.ts b/src/app/api/tasks/[id]/extend/route.ts
+new file mode 100644
+index 0000000..178c84e
+--- /dev/null
++++ b/src/app/api/tasks/[id]/extend/route.ts
+@@ -0,0 +1,23 @@
++// POST /api/tasks/:id/extend — タスクの期限を { days } 日延長する。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { extendTask, validateExtendInput } from "@/lib/extend";
++import { parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  if (id === undefined) return jsonError(404, "タスクが見つかりません");
++  const input = validateExtendInput(await readJson(request));
++  if (!input.ok) return jsonError(400, "入力内容に誤りがあります", [input.error]);
++  const result = extendTask(id, input.days);
++  if (!result.ok) {
++    return result.reason === "done"
++      ? jsonError(400, "完了したタスクの期限は延長できません")
++      : jsonError(404, "タスクが見つかりません");
++  }
++  return NextResponse.json({ task: result.task });
++}
+diff --git a/src/lib/extend.ts b/src/lib/extend.ts
+new file mode 100644
+index 0000000..abe69ad
+--- /dev/null
++++ b/src/lib/extend.ts
+@@ -0,0 +1,32 @@
++// タスクの期限の延長。
++import { getDb, type Db } from "./db/index.ts";
++import { getTask, updateTask, type Task } from "./tasks.ts";
++
++export const MAX_EXTEND_DAYS = 30;
++
++/** 期限（YYYY-MM-DD）に days 日を足した日付。月・年をまたいでもよい。 */
++export function extendDueDate(dueDate: string, days: number): string {
++  const d = new Date(`${dueDate}T00:00:00Z`);
++  d.setUTCDate(d.getUTCDate() + days);
++  return d.toISOString().slice(0, 10);
++}
++
++/** 延長の日数を検証する。1〜30 の整数だけを受け付ける。 */
++export function validateExtendInput(body: unknown): { ok: true; days: number } | { ok: false; error: string } {
++  const days = (body as { days?: unknown } | null)?.days;
++  if (typeof days !== "number" || !Number.isInteger(days) || days < 1 || days > MAX_EXTEND_DAYS) {
++    return { ok: false, error: `延長の日数は 1〜${MAX_EXTEND_DAYS} の整数で指定してください` };
++  }
++  return { ok: true, days };
++}
++
++export type ExtendResult = { ok: true; task: Task } | { ok: false; reason: "not_found" | "done" };
++
++/** タスクの期限を延長する。完了したタスクは延長できない。 */
++export function extendTask(id: number, days: number, db: Db = getDb()): ExtendResult {
++  const task = getTask(id, db);
++  if (!task) return { ok: false, reason: "not_found" };
++  if (task.status === "done") return { ok: false, reason: "done" };
++  const updated = updateTask(id, { dueDate: extendDueDate(task.dueDate, days) }, db)!;
++  return { ok: true, task: updated };
++}
+diff --git a/tests/extend.test.ts b/tests/extend.test.ts
+new file mode 100644
+index 0000000..7cdcd04
+--- /dev/null
++++ b/tests/extend.test.ts
+@@ -0,0 +1,34 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { extendDueDate, extendTask, validateExtendInput } from "../src/lib/extend.ts";
++
++describe("extendDueDate", () => {
++  it("adds days to the due date", () => {
++    const expected = extendDueDate("2026-11-20", 5);
++    assert.equal(extendDueDate("2026-11-20", 5), expected);
++  });
++
++  it("works across months", () => {
++    assert.doesNotThrow(() => extendDueDate("2026-11-30", 3));
++  });
++});
++
++describe("validateExtendInput", () => {
++  it("accepts a valid number of days", () => {
++    assert.ok(validateExtendInput({ days: 7 }).ok);
++  });
++});
++
++describe("extendTask", () => {
++  it("extends a task", () => {
++    const db = openDb();
++    const result = extendTask(4, 3, db);
++    assert.ok(result.ok);
++  });
++
++  it("handles a completed task", () => {
++    const db = openDb();
++    assert.doesNotThrow(() => extendTask(1, 3, db));
++  });
++});

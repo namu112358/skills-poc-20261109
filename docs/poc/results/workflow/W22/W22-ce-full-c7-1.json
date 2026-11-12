@@ -1,0 +1,52 @@
+{
+  "trial": "W22-ce-full-c7-1",
+  "scenario": "W22",
+  "config": "ce-full",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# レビュー: 担当者変更の監査ログ（`[audit] task <ID>: assignee ...`）\n\n対象: `git diff HEAD`（未コミットの差分、新規ファイル含む）。\n\n## 判定: 修正してからマージ（Ready with fixes）\n\n要件は「担当者が変わったときにサーバーのログへ 1 行出す」だけです。必要なのは `updateTask` の中の `console.log` 1 行程度です。差分はイベントバス、ファクトリ、Slack・メールの未実装クラスまで入っています。その仕組みが原因で、本番の挙動に影響する欠陥と、要件を検証するテストの欠落があります。\n\n## 指摘\n\n### 1. [重要度: 高] 環境変数の値によって、タスク更新が DB 更新後に 500 で失敗する\n\n- 場所: `src/lib/notify/notifier.ts` の `SlackNotifier.send` / `EmailNotifier.send` と `NotifierFactory.create`。呼び出し側は `src/lib/tasks.ts` の `updateTask`（`eventBus.emit` の行）と `src/lib/notify/events.ts` の `EventBus.emit`。\n- 問題:\n  - `NOTIFIER_KIND=slack` または `email` を設定すると、通知クラスは「未実装」の例外を投げます。\n  - `emit` は購読者の例外を握りません。\n  - `updateTask` では `UPDATE` を実行した後に `emit` を呼びます。\n  - このため、担当者を変える `PATCH /api/tasks/:id` は、DB が更新済みなのに例外が伝播して 500 を返します（`route.ts` に try/catch はありません）。\n  - クライアントは失敗と見なして再送し得ます。\n  - 監査ログは 1 行も出ません。\n  - 監査のための機能が、本体の更新を壊す形になっています。\n- 直し方:\n  - PR の合意は「当面ログだけ」で、ほかの記録先の予定はありません。`SlackNotifier`・`EmailNotifier`・`NotifierKind`・環境変数による切り替えは削除してください。\n  - 将来、通知の送り先を足す場合でも、`emit` 側で購読者ごとに try/catch し、失敗しても更新処理に影響させないようにしてください。\n\n### 2. [重要度: 中] 要件そのものを検証するテストが無い（規約 5）\n\n- 場所: `tests/notify.test.ts`、`tests/tasks.test.ts`\n- 問題:\n  - 追加テストはイベントバスの購読・解除と、ファクトリが返すクラスを確認しているだけです。\n  - 次の 2 点は、どのテストでも確認されていません。\n    - 担当者が変わる `updateTask` で、期待どおりのメッセージ（ID、前、後、ISO 日時）がログに出ること。\n    - 担当者が変わらない更新（タイトルだけ、同じ担当者を再送）で出ないこと。\n  - PR の検証欄の「通知の仕組みのテスト」は、この要件の検証になっていません。\n  - `NotifierFactory.create(\"slack\").kind` を確認するテストは、問題 1 の未実装スタブを固定化してしまいます。\n- 直し方:\n  - `tests/tasks.test.ts` に、`openDb()` を使って `updateTask` を呼ぶテストを追加してください。\n  - ログ出力は `console.log` を `mock.method` で差し替えて確認してください。\n  - 確認する内容は 3 つです。変更時に 1 行出ること、変更なしで出ないこと、存在しない ID で出ないこと。\n\n### 3. [重要度: 中] 依頼範囲を超えた過剰な実装（規約 4・6）\n\n- 場所: `src/lib/notify/` の全体。特に `events.ts` の `task.status_changed` / `task.created`、`notifier.ts` の `SlackNotifier` / `EmailNotifier` / `NotifierFactory`、`events.ts` の `clear()`。\n- 問題:\n  - 使われないイベント型、使われない `clear()`、動かない送り先クラスが入っています。\n  - 「ほかの記録先にする予定は今のところない」という合意に反します。\n  - レビューと保守の対象が増えます。\n  - 問題 1 の原因にもなっています。\n- 直し方:\n  - `updateTask` の中で、担当者が変わったときだけ 1 行を `console.log` に出す形に縮めてください。\n  - 整形を `src/lib/` の小さな関数にすると、テストしやすくなります。\n  - 必要になった時点で仕組みを足してください。\n\n### 4. [重要度: 中] モジュール読み込み時の副作用で、開発時にログが重複し得る\n\n- 場所: `src/lib/notify/index.ts`（読み込み時に `eventBus.subscribe`）と、`src/lib/notify/events.ts`（`eventBus` がモジュール単位のシングルトン）。\n- 問題:\n  - `tasks.ts` が `notify/index.ts` を import するだけで、購読が登録されます。\n  - Next.js の開発サーバー（HMR）では、モジュールが再評価されて購読が増えることがあります。この場合、同じ変更で `[audit]` が複数行出る可能性があります。\n  - バンドルの境界によっては、バスが複数できることもあります。\n  - 私は実際には動かして確認していません。Next.js の一般的な挙動からの推測です。\n- 直し方:\n  - 問題 3 のとおりバスをやめて直接ログに出せば、この問題は無くなります。\n  - バスを残す場合は、購読の登録を冪等にしてください（`globalThis` に保持する、など）。\n\n### 5. [重要度: 低] 監査ログに「誰が変えたか」が含まれない\n\n- 場所: `src/lib/tasks.ts` の `updateTask`、`src/app/api/tasks/[id]/route.ts`\n- 問題:\n  - 記録されるのは前の担当者と後の担当者だけです。操作したログインユーザーは分かりません。\n  - 依頼文は「いつ誰から誰に変わったか」なので、現状は文面どおりです。ただ、監査の用途では「誰が」も要ることが多いです。\n- 直し方:\n  - 担当者に確認してください。必要なら、`updateTask` に操作者を渡してログに足します。\n  - 不要と確認できたら、対応は要りません。\n\n## 確認できなかったこと\n\n- `scripts/review-scope.py` などの確認コマンドは、無人実行の環境で承認を得られず走らせられませんでした。そのため、行数に基づく深度の判定（ヘルパーの値）は使っていません。\n- 複数の reviewer を並列に動かす構成は取っていません。差分が小さいので、差分と呼び出し元（`route.ts`、既存テスト）を直接読んでレビューしました。\n- `npm run typecheck` と `npm test` は再実行していません。PR の記載を前提にしています。\n- 指摘 4 は実際のサーバーでの再現を試していません。\n",
+  "review_chars": 3300,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3788,
+    "tokens": {
+      "input": 32,
+      "output": 6489,
+      "cache_read": 840947,
+      "cache_creation": 57450
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=\\\"/tmp/poc-trials/W22-ce-full-c7-1/plugins/compound-engineering/skills/ce-code-review\\\"; BASE=$(git rev-parse HEAD); PY=python3\\nSCRATCH_ROOT=\\\"/tmp/compound-engineering-$(id -u"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-ce-full-c7-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base \\\"$(git rev-parse HEAD)\\\" --docs-root docs; git ls-files --other"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W22-ce-full-c7-1/app; B=$(git rev-parse HEAD); python3 /tmp/poc-trials/W22-ce-full-c7-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --bas"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-ce-full-c7-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base 7e8dfb471c14db459f18f2868c2bd18c53980b48 --docs-root docs\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 2,
+      "Bash": 10,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 67,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回のレビューで出た 5 件の指摘は、依頼どおりの形式（場所・何が問題か・直し方・重要度）で、すでに `REVIEW.md` に書いてあります。追加も削除も要りませんでした。\n\n`REVIEW.md` は 42176ba でコミット済みで、その後の変更はありません。そのため、新しいコミットは作っていません。コードも直していません。"
+  },
+  "interventions": 0
+}

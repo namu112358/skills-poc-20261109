@@ -1,0 +1,73 @@
+{
+  "trial": "W33-baseline-e2e-report-e1-2",
+  "scenario": "W33",
+  "config": "baseline-e2e-report",
+  "case": "e1",
+  "rep": 2,
+  "review_md": "# レビュー: 計測器ごとの点検担当者・点検周期・点検記録\n\n## 動作確認の結果\n\n`npm run build` は成功。`npm run start`（ポート 3417、本番モード、既定の `:memory:` DB ＋初期データ）で、`sato` でログインして確認した。確認後にサーバーは止めた。\n画面は curl で取得し、状態コードと HTML 内の「Application error」「Internal Server Error」の有無を見た。Playwright のブラウザは使っていない。\n\n| 対象 | 状態コード | エラー表示 |\n|---|---|---|\n| POST /api/login | 200 | なし |\n| GET /instruments（10 行。未点検の太字表示 2 件、旧記録の表示あり） | 200 | なし |\n| GET /instruments?status=bogus | 200 | なし |\n| GET /instruments/2, /3, /4 | 200 | なし |\n| GET /instruments/999 | 404 | 想定どおり（not-found） |\n| GET /api/instruments | 200 | なし（新項目 `inspectorId` 等が返る） |\n| GET /api/instruments/3/inspections | 200 | なし |\n| GET /api/instruments/999/inspections | 404 | 想定どおり |\n| GET /api/instruments/3/inspections（Cookie なし） | 401 | 想定どおり |\n| POST …/3/inspections（`inspectedBy` に退職者・null） | 400 | 想定どおり（日本語のエラー） |\n| POST …/4/inspections（`{bad` の不正な JSON） | 400 | 想定どおり |\n| POST …/2/inspections（要修理、貸出中の計測器） | 201 | 下の【高】を参照 |\n| POST …/8/inspections（要修理、廃棄済み） | 201 | 廃棄のまま。想定どおり |\n| POST …/4/inspections（良好、メモに `<b>`） | 201 | 画面側でエスケープされる（React） |\n| PATCH /api/instruments/6（`inspectorId`: 退職・休職者） | 400 | 想定どおり |\n| PATCH /api/instruments/4（周期 2.5） | 400 | 想定どおり |\n\n500・例外・Application error は、確認した範囲では出なかった。\nマイグレーションは「新規 DB に 1〜6 を順に適用し、初期データを入れる」経路だけ確認した。バージョン 5 の既存 DB を 6 に上げる経路は動かしていない。\n\n## 指摘\n\n### 【高】1. 貸出中の計測器に「要修理」を登録すると、貸出の操作を経ずに使用停止になる\n\n- 場所: `src/lib/inspections.ts` の `recordInspection`（`UPDATE instruments SET status = 'suspended' WHERE id = ? AND status != 'disposed'`）\n- 問題: CLAUDE.md は「貸出中は貸出・返却の操作でだけ変わる」としている。`PATCH` は `on_loan` の変更を拒否している（`src/app/api/instruments/[id]/route.ts`）。この更新はそれを素通りする。\n- 実際に起きたこと: MI-0002（貸出中）に `POST /api/instruments/2/inspections` で `needs_repair` を送ると 201 になり、状態が `suspended` に変わった。\n- 影響: 未返却の貸出が残ったまま計測器が使用停止になる。返却の SQL は `AND status = 'on_loan'` なので、返却しても状態が戻らず、使用停止のまま残る。\n- 直し方: `status = 'on_loan'` のときは状態を変えず、点検記録だけ残す。または要修理の登録を拒否する。どちらにするかは業務で決める。`status IN ('in_use', 'calibrating')` のときだけ変える、という書き方もできる。\n- あわせて、貸出中のまま要修理を登録した場合の扱い（返却時に使用停止にする等）を決める。テストを追加する。現状のテストは廃棄済みだけを確認している。\n\n### 【中】2. 日付が読めなかった旧記録が、画面では「未点検」としか見えない\n\n- 場所: `src/app/instruments/page.tsx`（一覧の点検列）、`src/app/instruments/[id]/page.tsx`（最終点検日・次の点検予定日）、`src/lib/db/migrations.ts` の `migrateLegacyInspection`\n- 問題: 日付が読めない旧記録（例: `last_inspected` が「先月」）は `legacy_inspected_on` が NULL のままになる。元の書き方は `extra` に残るが、一覧は「未点検」と太字で出すだけ。担当者が未設定の行では、読めなかった日付が一覧に出ない。「元の書き方を残し、黙って捨てない」という合意は、DB 上では満たしているが、一覧では見えない。\n- 影響: 実際には点検済みの計測器が「未点検」と目立つ。逆に、読めなかった記録があることに気づけない。\n- 直し方: `extra.last_inspected` があるのに読めていない場合は、一覧にも「旧記録の日付を確認（元の記載: …）」のように表示する。または「未点検」と区別する。\n\n### 【中】3. 移行で変換できなかった数を数えて報告していない（運用で確認できない）\n\n- 場所: `src/lib/db/migrations.ts` の `migrateLegacyInspection` / `matchInspector`\n- 問題: 約 5 万件を変換するが、「引き継げた件数」「担当者が分からず未設定にした件数」「日付が読めなかった件数」をどこにも出さない。`matchInspector` は、同名の利用者が複数いるときも黙って undefined を返す。例えば「鈴木さん」が 2 人いると、担当者は未設定になる。\n- 直し方: マイグレーションの中で件数を `logger` に出す（開発標準 15）。あわせて、リリース手順（`docs/operations.md`）に確認方法を書く。\n- 補足: 名前から「氏・君・くん」を末尾だけ削る処理は、名前そのものがそれらで終わる利用者と衝突しうる。完全一致の候補を先に探す方が安全。\n\n### 【中】4. 過去日付の「要修理」でも、最新の点検が「良好」でも使用停止になる\n\n- 場所: `src/lib/inspections.ts` の `recordInspection`、`validateInspectionInput`\n- 問題: 点検日が今日以前なら、何日前でもよい。より新しい「良好」の記録があっても、古い日付の「要修理」を後から登録すると使用停止になる。入力ミスの訂正や、後から日付を遡って登録するときに起きる。\n- 直し方: 状態を変えるのは、その記録が最新の点検のときだけにする。または仕様として明記する。\n- 低優先度の補足: 登録した点検記録は修正・取り消しができない。誤って「要修理」を登録すると、PATCH で状態を手で戻すしかない。\n\n### 【低】5. 一覧の取得が重くなる可能性（約 5 万件）\n\n- 場所: `src/lib/instruments.ts` の `COLUMNS`（`last_inspected_on` の相関サブクエリ）\n- 問題: 計測器 1 件ごとに `legacy_inspected_on` と `inspections` の最大値を求める副問い合わせが走る。この列は `getInstrument` や `listInstruments` など、全ての取得に付く。`inspections(instrument_id, inspected_on)` にインデックスはあるが、一覧は件数の制限がなく、毎朝全件を開く運用になっている。\n- 影響: 本番規模での測定はしていない。初期データ 10 件では問題なかった。\n- 直し方: 5 万件相当のデータで `listInstruments` の時間を測る。遅ければ `inspections` を JOIN で集約して 1 回で取るか、最終点検日の列を持つ。\n\n### 【低】6. 次回点検日が過ぎている計測器が目立たない\n\n- 場所: `src/app/instruments/page.tsx`\n- 問題: 合意した要件は「未点検を目立たせる」だけなので、仕様違反ではない。ただし、次回点検日が過ぎた計測器（実際に MI-0004 は次回 2026-10-15 で今日より前だった）も、通常の文字で表示される。\n- 直し方: 期限超過の表示（文言・強調）を足すか、別の課題として切り出す。\n\n### 【低】7. 旧記録から取り込んだ日付の妥当性を確認していない\n\n- 場所: `src/lib/dates.ts` の `parseLegacyDate`\n- 問題: 未来の日付（誤記で 2062 年など）や昭和・平成のごく古い日付も、そのまま最終点検日として採用する。未来の日付が入ると、次の点検予定日が大幅に先になり、点検漏れにつながる。\n- 直し方: 今日より後の日付は「読めない」として扱い、元の書き方を残す。境界値のテストを足す。\n\n### 【低】8. 認可の範囲\n\n- 場所: `src/app/api/instruments/[id]/inspections/route.ts`\n- 問題: ログインしていれば、誰でも、どの計測器にも点検記録を登録でき、担当者も変えられる。合意した要件が「在籍中の利用者なら誰でも担当者に選べる」であり、ロールは設計されていないので、要件の範囲内。ただし、記録は取り消せない（4 の補足）。現状を許容するなら PR に明記する。\n\n## 問題なしと判断した点\n\n- マイグレーション 6 は末尾に追加されており、既存の番号は書き換えていない。`extra` は変更しない。\n- SQL は全てプレースホルダーを使っている。API は最初にログインを確認し、入力は検証関数を通している。\n- 新しい外部ライブラリは追加していない。\n- 退職・休職中の既存担当者（MI-0004 の井上）は表示・維持され、新規選択は拒否される。\n",
+  "review_chars": 4668,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.6409,
+    "tokens": {
+      "input": 70,
+      "output": 16681,
+      "cache_read": 2079392,
+      "cache_creation": 66505
+    },
+    "turns": 53,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"fail\\\\|suspended\\\\|on_loan\\\" src/lib/calibrations.ts | head; sed -n 1,60p src/app/instruments/page.tsx; grep -n \\\"name:\\\" src/lib/db/seed.ts | head -20; (npm run build 2>&1 | ta"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3417 nohup npm run start > /tmp/claude-0/srv.log 2>&1 &) ; sleep 5; tail -5 /tmp/claude-0/srv.log; grep -n \\\"inoue\\\\|inactive\\\\|active: false\\\" src/lib/db/seed.ts | head -5\\nB=http:"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"PORT=3417 nohup npm run start > /tmp/claude-0/srv.log 2>&1 &\\nsleep 6; tail -5 /tmp/claude-0/srv.log\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"PORT=3417 npm run start > /tmp/claude-0/srv.log 2>&1\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W33-baseline-e2e-report-e1-2-app/189c810b-ba23-440d-98b1-b861fce5c328/scratchpad; B=http://localhost:3417; J=$S/cj\\nsleep 3; curl -s -o /dev/null -w \\\"POST"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W33-baseline-e2e-report-e1-2-app/189c810b-ba23-440d-98b1-b861fce5c328/scratchpad/probe.sh\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W33-baseline-e2e-report-e1-2-app/189c810b-ba23-440d-98b1-b861fce5c328/scratchpad && for p in /instruments /instruments/1 /instruments/3 /instruments/6 /in"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W33-baseline-e2e-report-e1-2-app/189c810b-ba23-440d-98b1-b861fce5c328/scratchpad && curl -s -b cj -w \\\"\\\\nGET /instruments %{http_code}\\\\n\\\" http://localh"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f \\\"next start\\\"\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 46,
+      "Write": 2,
+      "ToolSearch": 1,
+      "TaskStop": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 154,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘 8 件は、すでに `REVIEW.md` に最初の依頼の形式（場所・何が問題か・直し方・重要度）で書いてあり、de155b6 でコミット済みです。書き写す差分がないため、追加のコミットはしていません。`REVIEW.md` に未コミットの変更はありません。\n\n指摘は高 1 件、中 3 件、低 4 件で、新しい指摘は足しておらず、削ってもいません。コードも直していません。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,65 @@
+{
+  "trial": "W28-baseline-e2e-c2-1",
+  "scenario": "W28",
+  "config": "baseline-e2e",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: 計測器ごとの定期点検の追加\n\n確認方法: `npm run build` のあと `npm run start`（ポート 3917）で本番モード起動し、`sato` でログインして、API を curl で呼び、画面を取得して確かめた（確認後にサーバーは停止済み）。\n`typecheck` / `test` / `build` は通るが、下記 1 は本番モードで初めて分かる不具合で、テストでは検出されていない。\n\n## 高\n\n### 1. 計測器の詳細画面が本番モードで HTTP 500 になる\n- 場所: `src/app/instruments/[id]/page.tsx` の `<InspectionForms users={planChoices} .../>`（95 行付近）／`src/lib/users.ts` の `listActiveUsers`\n- 問題: `node:sqlite` の `.all()` が返す行は null プロトタイプのオブジェクト。これを Server Component から Client Component（`inspection-forms.tsx`）へ props で渡すと、\n  `Only plain objects ... can be passed to Client Components` で失敗する。`/instruments/9` を開くと、利用者 16 人分のエラーがサーバーログに出て、応答は 500。\n  詳細画面は点検の入力フォームを含め全体が使えない（既存の校正・貸出の表示も巻き込まれる）。\n- 直し方: 渡す前に `users.map(u => ({ id: u.id, name: u.name }))` で通常のオブジェクトにする（`listActiveUsers` 側で詰め替えてもよい）。\n  `next build` + `next start` で詳細画面を開く確認（できれば簡易な E2E）を足す。\n\n### 2. 「担当者で絞り込み・並べ替え」が実装されていない\n- 場所: `src/app/instruments/page.tsx` / `src/lib/instruments.ts` の `listInstruments`\n- 問題: 合意した要件。`/instruments?inspector=sato` を指定しても全 10 台がそのまま出る（絞り込みも並べ替えも無い）。担当者の列を足しただけ。\n- 直し方: `inspector` / `sort` を型ガードで検証（規約 2）し、絞り込み・並べ替えは `src/lib/` の関数に置き SQL のプレースホルダーで書く。`inspector_id` の索引は作ってあるので使える。テストも追加する。\n\n### 3. 「担当者ごとの、点検が遅れている台数を毎朝知りたい」が未対応\n- 場所: 変更全体（`src/app/api/jobs/` に該当なし）\n- 問題: 担当者ごとの遅れ台数（期限切れ・未点検）を出す集計も、定期実行の仕組みも無い。要件の 1 つが丸ごと抜けている。\n- 直し方: `overdue-loans` と同様に `src/app/api/jobs/<名前>/route.ts` を `requireJobAuth()` で作り、`GROUP BY inspector_id` で集計する（何度動いても同じ結果になる処理にする）。`docs/operations.md` に実行時刻を追記する。通知を送るなら `docs/notify-api.md` に従う。\n\n## 中\n\n### 4. 一覧が 5 万件でも全件分の点検状況を毎回読み込む\n- 場所: `src/lib/inspections.ts` の `listInspectionPlans` と `src/app/instruments/page.tsx`\n- 問題: 絞り込みに関係なく全計測器の相関サブクエリ（`MAX(inspected_on)`）を実行し、`Map` に 5 万件を積む。毎朝開く画面なので遅くなる。上のとおり絞り込みも無い。\n  また、`plans.get(i.id)!` は、絞り込み後の一覧と全件が食い違うと落ちる。\n- 直し方: 表示する計測器の ID だけ（または `listInstruments` と同じ条件の JOIN）で取得する。ページ分割か件数上限も検討する。5 万件のデータでの所要時間をテストか手順で確かめる。\n\n### 5. 「間違えたら訂正の記録を足す」が成り立たない\n- 場所: `src/lib/inspections.ts` の `PLAN_SELECT`（`MAX(inspected_on)`）、`recordInspection`\n- 問題: 最後の点検日は「点検日の最大値」なので、誤って未来寄りの日付（例: 2026-11-10 を 2026-12-10 にして登録）を入れると、後から正しい記録を足しても最後の点検日は誤りのまま。\n  訂正を表す記録（どれを訂正したか）の仕組みも無い。点検日の上限は「今日」なので影響は軽いが、過去日の誤りで期限判定が狂う。\n- 直し方: 訂正の記録（`corrects_id` など）を持たせ、訂正された記録を最後の点検日の計算から除く。または、要件を依頼者に確認し、仮定を PR に書く。\n\n### 6. 旧アプリへ戻したときの扱いが書かれていない\n- 場所: マイグレーション 6（`src/lib/db/migrations.ts`）\n- 問題: DB は `user_version = 6` のまま旧アプリで使われる。旧アプリは `extra` の点検者・最終点検日しか見ない。戻している間に更新された点検（`extra` 側）は新しい表に入らず、再度新しい版に上げても取り込まれない（移行は 1 度きり）。\n  列・表の追加だけなので、旧アプリが落ちることはない（これは問題なし）。\n- 直し方: PR に「戻している間の点検は旧 `extra` に残る／再度上げるときは手で移す」と書く。必要なら、移行を再実行できる手段を用意する。\n\n## 低\n\n### 7. 貸出中・校正中の計測器も「要修理」で使用停止になる\n- 場所: `src/lib/inspections.ts` の `recordInspection`（`status <> 'disposed'` だけ除外）\n- 問題: CLAUDE.md には「貸出中は貸出・返却の操作でだけ変わる」とある。貸出中の計測器に要修理を登録すると、貸出が残ったまま `suspended` になり、返却時の状態の戻りと食い違う。校正の不合格の処理と同じ書き方ではあるが、要件との整合を確認したい。\n- 直し方: 貸出中は状態を変えずに警告を返す、または返却時の挙動を決めてテストする。\n\n### 8. 旧データの移行で `extra` が壊れた行を黙って飛ばす\n- 場所: `src/lib/inspections-legacy.ts` の `importLegacyInspections`（`catch { continue; }`）\n- 問題: JSON として読めない `extra` は、ログも残さず移行されない（「黙って捨てない」に反する）。`extra` 自体は残るので失われはしないが、運用で気付けない。\n- 直し方: 件数と計測器の ID をログに出す、または `legacy_inspector` に原文を残す。\n\n### 9. 移行後の「未点検」の扱い\n- 場所: `src/lib/inspections.ts`（`MAX(inspected_on)`）\n- 問題: 日付が読めなかった旧記録（`inspected_on` が NULL）だけの計測器は「未点検」と表示され、実際は点検済みの記録があることが一覧で分からない。詳細画面には出る。\n- 直し方: 一覧の状況に「日付不明の記録あり」などを出す。\n\n## 問題なしと確認した点\n- 担当者の検証（在籍中のみ。すでに担当の人はそのまま可）、周期の範囲、点検日の形式・未来日、要修理での使用停止、API の未ログイン 401、旧データ移行（`鈴木さん`・和暦 `R8.9.10`・`外部委託` の書き方の保存）は期待どおり動いた。\n- `extra` の `dept` には触れていない。\n",
+  "review_chars": 3558,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4926,
+    "tokens": {
+      "input": 52,
+      "output": 10903,
+      "cache_read": 1437891,
+      "cache_creation": 59909
+    },
+    "turns": 36,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"suspend\\\\|on_loan\\\" src/lib/calibrations.ts | head; sed -n 1,80p src/lib/instruments.ts | grep -n \\\"limit\\\\|LIMIT\\\\|page\\\" ; grep -n \\\"inspector\\\\|last_inspected\\\" src/lib/db/se"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 nohup npm run start > /tmp/claude-0/srv.log 2>&1 &) ; sleep 6; curl -s -c /tmp/claude-0/cj -o /dev/null -w \\\"%{http_code}\\\\n\\\" -X POST localhost:3917/api/login -H 'content-type"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"PORT=3917 npm run start > /tmp/claude-0/srv.log 2>&1 &\\nsleep 7; tail -3 /tmp/claude-0/srv.log\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0; B=localhost:3917; H='content-type: application/json'\\nfor i in 1 3 6 9; do curl -s -b cj $B/api/instruments/$i/inspection; echo; done\\ncurl -s -b cj $B/api/instruments/9"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0 && for i in 1 3 6 9; do curl -s -b cj localhost:3917/api/instruments/$i/inspection; echo; done; curl -s -b cj localhost:3917/api/instruments/9/inspections; echo\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0 && curl -s -b cj -X PATCH localhost:3917/api/instruments/1/inspection -H 'content-type: application/json' -d '{\\\"intervalMonths\\\":0}'; echo; curl -s -b cj -X PATCH localh"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat /tmp/claude-0/cj\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 30,
+      "Read": 1,
+      "TaskStop": 1,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 108,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は書き換えていません。直前のレビューで出た指摘 9 件が、すでに指定の形式で入っているためです。各指摘に、場所・何が問題か・直し方・重要度（高 3、中 3、低 3）を書いています。コミットも済んでいます（`e80c466`、`REVIEW.md` のみ）。作業ツリーに `REVIEW.md` の未コミットの変更はありません。\n\n指摘の追加も削除もしていません。コードも直していません。"
+  },
+  "interventions": 0
+}

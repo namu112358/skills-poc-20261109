@@ -1,0 +1,56 @@
+{
+  "trial": "W28-baseline-e2e-c4-2",
+  "scenario": "W28",
+  "config": "baseline-e2e",
+  "case": "c4",
+  "rep": 2,
+  "review_md": "# レビュー: 西日本校正センター CSV の取込\n\n確認方法: `npm run build` → `npm run start`（ポート 3917）→ ログイン → `POST /api/calibrations/import` に CSV を送って確認（確認後にサーバーは停止）。\nサンプルの取込・再取込（取込済みの読み飛ばし）・COND の備考追記・ハイフン無しの機器番号・台帳に無い番号／読めない判定の行だけが errors になる動作は期待どおりだった。\n\n## 1. BOM 付きの B 社 CSV が取り込めない（重要度: 高）\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の `isNishinihonCsv`（先頭の BOM 判定で `return false`）、`src/app/api/calibrations/import/route.ts`\n- 問題: 要件 3「BOM の有無・改行コードの違いで取り込めなくならない」を満たしていない。BOM 付き UTF-8 の B 社 CSV は B 社形式と判定されず A 社の取込に回り、400「CSV の形式が違います（1 行目に「管理番号」の列がありません）」になる（BOM 付きファイルを実際に送って確認。CRLF は取り込めた）。\n- 直し方: BOM があれば 3 バイトを除いてから判定・取込する。A 社の BOM 付き UTF-8 も見出し「管理番号」で振り分ければ両立するので、BOM は形式判定の根拠にしない。`importNishinihonCsv` の復号でも BOM を除く。\n\n## 2. ファイル内の重複の判定が A 社と違う（重要度: 高）\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の行ループ（`const key = \\`${no}|${date}|${cert}\\``）\n- 問題: 要件 7 は「同じファイルの中の重複は A 社と同じ決まり（機器番号＋校正日で後の行を読み飛ばす）」。A 社は `no|校正日` をキーにするが、この実装は成績書番号まで含める。同じ機器・同じ日で成績書番号だけ違う 2 行（例: `MI0004,…,2026-11-02,PASS,B1` と `MI-0004,…,2026-11-02,PASS,B2`）が両方取り込まれ、記録が二重になる（実際に 2 行とも imported を確認）。\n- 直し方: ファイル内の重複キーを `no|date` にする。DB に対する「取込済み」の判定は A 社と同じく成績書番号を含めたままでよい。\n\n## 3. テストの不足（重要度: 中）\n\n- 場所: `tests/calib-import-nishinihon.test.ts`\n- 問題: BOM 付き（指摘 1）と、同じ機器・同じ日で成績書番号違いの重複（指摘 2）のテストが無く、上の 2 件が通ってしまっている。END 件数の不一致で 0 件取込になることも、A 社へのフォールバックを含む HTTP 経由では確かめていない。\n- 直し方: 両方のケースを追加し、END 件数不一致で 0 件取込のテストも補う。\n\n## 4. 重複の登録が台帳照合より前にある（重要度: 低）\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の行ループ（`seen.add(key)` が台帳照合の前）\n- 問題: 台帳に無い機器番号の行でも重複キーが登録されるため、同じキーの後続行は誤り（台帳に無い）ではなく「重複」として読み飛ばされ、誤りが 1 件分しか出ない。A 社と同じ挙動なので致命的ではないが、要件 8「誤りは errors に入れる」の意図とは差がある。\n- 直し方: 台帳照合に通った行だけをキー登録する。A 社と同じ挙動に揃える意図なら、そのことを PR に書く。\n",
+  "review_chars": 1675,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4043,
+    "tokens": {
+      "input": 46,
+      "output": 9520,
+      "cache_read": 1146986,
+      "cache_creation": 48577
+    },
+    "turns": 26,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -n 100,125p src/lib/calibrations.ts; (npm run build 2>&1 | tail -8); cat docs/operations.md | head -30; (PORT=3917 nohup npm run start -- -p 3917 > /tmp/srv.log 2>&1 &); sleep 5; tail"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run start -- -p 3917 > /tmp/srv.log 2>&1 &\\nsleep 6; tail -3 /tmp/srv.log\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c4-2-app/8f4efce3-59ba-4244-94af-a43cdd53f3f4/scratchpad && sleep 4; curl -s -c cj -X POST localhost:3917/api/login -H 'content-type: app"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c4-2-app/8f4efce3-59ba-4244-94af-a43cdd53f3f4/scratchpad && curl -s -c cj -X POST localhost:3917/api/login -H 'content-type: application/"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add -f REVIEW.md 2>&1; git reset -q HEAD -- docs src tests 2>&1; git commit -q -m \\\"REVIEW.md: 西日本校正センター CSV 取込のレビュー指摘\\n\\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>\\nCl"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 18,
+      "Write": 4,
+      "TaskStop": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 90,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘 4 件を、場所・問題・直し方・重要度の形式で `REVIEW.md` に書き直し、`REVIEW.md` だけをコミットしました（0899821）。新しい指摘は足しておらず、コードも直していません。\n\n1. **【高】** BOM 付きの B 社 CSV が B 社形式と判定されず、A 社の取込に回って 400 になる（`isNishinihonCsv`）。\n2. **【高】** ファイル内の重複キーに成績書番号が入っていて、A 社の「機器番号＋校正日」と違う。同じ機器・同じ日で成績書番号違いの行が二重に取り込まれる。\n3. **【中】** BOM 付きと同日別成績書番号の重複のテストが無い。\n4. **【低】** 重複キーの登録が台帳照合より前にあり、台帳に無い行でも後続行が「重複」になる。\n\n前回の `REVIEW.md` にあった「過去分の取込の確認のみ・指摘なし」の項は指摘ではないので外しました。"
+  },
+  "interventions": 0
+}

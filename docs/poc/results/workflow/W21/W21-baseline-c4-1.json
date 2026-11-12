@@ -1,0 +1,38 @@
+{
+  "trial": "W21-baseline-c4-1",
+  "scenario": "W21",
+  "config": "baseline",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー: 期限が近いタスクの表示\n\n## 1. 【高】日付を日本時間で数えていない（`src/lib/due.ts` `daysUntilDue`）\n\n`Date.parse(\"YYYY-MM-DD\")` は UTC の 0:00（= JST 9:00）になる。これと `now` の時刻差を 24 時間で割って切り捨てているため、「日本時間の暦日で数える」という仕様になっていない。時刻によって結果が変わる。\n\n- 例: 2026-11-12 10:00 JST（01:00 UTC）に期限 `2026-11-12` を判定すると、差は -1 時間で `floor` は -1。当日期限なのに「期限切れ」扱いで、バッジが出ない。毎日 JST 9:00〜24:00 の間は、当日期限のタスクにバッジが付かない。\n- 同様に、すべての期限が日中は 1 日分ずれる。\n- サーバーの TZ にも依存しない設計にする必要がある（サーバーは UTC の可能性が高い）。\n\n直し方: `now` を JST の暦日（`YYYY-MM-DD`）に変換する。`new Date(now.getTime() + 9*3600*1000).toISOString().slice(0,10)` か、`Intl.DateTimeFormat(\"en-CA\", { timeZone: \"Asia/Tokyo\" })`。そのうえで、日付どうしを UTC 0:00 として引き算して日数にする。\n\n## 2. 【高】「3 日後」が対象外（`isDueSoon`）\n\n`days < DUE_SOON_DAYS`（< 3）だと対象は 0・1・2 日後の 3 日分。PR の仕様は「今日・明日・明後日・3 日後」の 4 日分なので、3 日後の期限にバッジが付かない。\n\n直し方: `days >= 0 && days <= DUE_SOON_DAYS`。\n\n## 3. 【中】テストが上記 2 件を検出できない（`tests/due.test.ts`）\n\n- `now` を JST 0:00 ちょうどに固定しているため、時刻によるずれ（指摘 1）が出ない。この時刻だけ偶然通る。\n- 境界の「3 日後（`2026-11-15`）は true」「4 日後は false」が無い。`2026-11-14`（2 日後）だけを確認している。\n\n直し方: 同じ日の 0:00 / 12:00 / 23:59 JST（UTC では前日・当日にまたがる時刻）で `daysUntilDue` が同じ値になるテストを追加する。3 日後が true、4 日後が false の境界テストも追加する。JST 0:00 より前の UTC 日付（例: 2026-11-11T15:00:00Z）も試す。\n\n## 4. 【低】`due-soon` クラスは未使用（`src/app/tasks/page.tsx`）\n\n`className=\"due-soon\"` に対応する CSS が無く、効果がない。`isDueSoon` も行ごとに 2 回呼んでいる。変数に 1 回だけ代入して使うか、クラスを削除する。\n",
+  "review_chars": 1333,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.1723,
+    "tokens": {
+      "input": 20,
+      "output": 3029,
+      "cache_read": 314038,
+      "cache_creation": 27649
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && git ls-files --others --exclude-standard | xargs -I{} sh -c 'echo \\\"=== {}\\\"; cat {}'\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 35,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、前のターンの 4 件がすでに「場所・何が問題か・直し方・重要度」の形式で書いてあります。`REVIEW.md` だけのコミット（`e0fc09b`）も済んでいます。そのため今回は書き換えもコミットもしていません。指摘の追加も削除もありません。\n\n| # | 重要度 | 場所 | 内容 |\n|---|---|---|---|\n| 1 | 高 | `src/lib/due.ts` の `daysUntilDue` | 日付を日本時間で数えていない |\n| 2 | 高 | `src/lib/due.ts` の `isDueSoon` | 「3 日後」が対象外になっている（`< 3` を `<= 3` にする） |\n| 3 | 中 | `tests/due.test.ts` | 時刻のずれと 3 日後・4 日後の境界を検出できない |\n| 4 | 低 | `src/app/tasks/page.tsx` | `due-soon` クラスが未使用で、`isDueSoon` を 2 回呼んでいる |\n\nコードの 3 ファイルの変更は、未コミットのまま残しています。"
+  },
+  "interventions": 0
+}

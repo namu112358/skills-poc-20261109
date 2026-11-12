@@ -1,0 +1,39 @@
+{
+  "trial": "W21-cr-high-c7-1",
+  "scenario": "W21",
+  "config": "cr-high",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# コードレビュー: 担当者変更の監査ログ PR\n\n`/code-review high` の指摘 8 件を、重要度順に転記したものです（コードは変更していません）。\n\n## 1. [高] 購読者の例外が呼び出し元（`updateTask`）に伝わり、保存済みの更新が 500 になる\n\n- 場所: `src/lib/notify/events.ts:21`（`emit`）。呼び出し元は `src/lib/tasks.ts` の `updateTask`\n- 問題: `emit` は購読者を同期で呼び、try/catch がありません。`updateTask` は UPDATE を実行したあとに `eventBus.emit` を呼びます。`NOTIFIER_KIND=slack` または `email` のときは `send()` が必ず「未実装です」を投げます。その例外が `updateTask` から出て、`PATCH /api/tasks/:id` が 500 を返します。担当者の変更は DB に保存済みなので、クライアントには成功した書き込みが失敗に見えます。監査用の副次的な処理が本処理を止めてしまいます。また、失敗した購読者より後に登録された購読者は実行されません。\n- 直し方: `emit` で各ハンドラ呼び出しを try/catch で囲み、エラーはログに出して握りつぶします。\n\n## 2. [中] `registry[kind]` が `Object.prototype` の継承キーに反応し、「不明な kind は console にフォールバック」が成立しない\n\n- 場所: `src/lib/notify/notifier.ts:45`（`NotifierFactory.create` のレジストリ参照）\n- 問題: `create('constructor')` や `create('toString')` では、`Object` や `Object.prototype.toString` が見つかります。値が undefined ではないので `??` でフォールバックしません。`make()` は文字列、または `send` を持たないオブジェクトを返します。すると `index.ts` のモジュール直下の `notifier.send(...)` が、担当者を変更するたびに TypeError になります。`NOTIFIER_KIND=__proto__` でも同様です。\n- 直し方: `Object.hasOwn(registry, kind)` で確認する、`Map` を使う、または `Object.create(null)` のレジストリにします。\n\n## 3. [中] import の副作用で通知器の生成と購読登録を行っており、冪等でない\n\n- 場所: `src/lib/notify/index.ts:7`\n- 問題: `tasks.ts` が `./notify/index.ts` を import するため、単体テストを含むすべての利用側が、意図せず購読登録と `console.log` 出力を受けます。Next の dev HMR や、ルートのバンドルがモジュールを複数回評価する場合は、評価のたびに購読が追加され、古い購読は解除されません。`eventBus` は `globalThis` に置かれていない単なるモジュール変数です。バンドルごとに別のバスのインスタンスができる可能性もあります。その結果、監査行が重複したり欠けたりします。`NOTIFIER_KIND` もロード時に 1 回だけ読まれます。値が不正でも起動時には分からず、最初の担当者変更で失敗します。\n- 直し方: 明示的で冪等な `initNotify()` を用意し、アプリの起動処理から呼びます。バスは `globalThis` に保持します。\n\n## 4. [中] `updateTask` → `emit` の配線にテストがなく、監査記録に操作者も含まれない\n\n- 場所: `src/lib/tasks.ts:121`、`tests/notify.test.ts`\n- 問題: `emit` が失敗の影響を隔離されていない点は指摘 1 のとおりです。さらに、テストはバスとファクトリを単体でしか検証していません。次の 3 点を確認するテストがありません。\n  - 担当者の変更時に `updateTask` が emit すること\n  - 担当者が変わらない更新では emit しないこと\n  - 購読者が失敗しても更新が保たれること\n\n  これは CLAUDE.md の規約 5（ロジックを追加・変更したら `tests/` に単体テストを追加する）に反します。また、`[audit]` の行は前の担当者・後の担当者・日時だけで、誰が変更したかがありません。監査の記録としては価値が低くなります。\n- 直し方: 上記 3 点の `updateTask` 統合テストを追加します。操作者（ユーザー ID）をイベントとログ行に含めることを検討します。\n\n## 5. [中] `SlackNotifier` / `EmailNotifier` は常に throw するスタブで、依頼範囲を超えている\n\n- 場所: `src/lib/notify/notifier.ts:20`\n- 問題: `console.log` 1 行のために、ファクトリ・レジストリ・インターフェース・`NotifierKind` と約 30 行の未使用の抽象化が加わっています。記録先は当面サーバーのログだけという合意でした。`NOTIFIER_KIND=slack` は有効な設定として選べますが、設定すると担当者の再割り当てがすべて失敗します（指摘 1）。これは CLAUDE.md の規約 6（変更は依頼された範囲にとどめる）に反します。\n- 直し方: スタブと不要な抽象化を削除します。残す場合は、throw せずに動くように実装します。\n\n## 6. [低] 宣言だけで発行されないイベント型（`task.status_changed` / `task.created`）\n\n- 場所: `src/lib/notify/events.ts:2`\n- 問題: この 2 つの型は、どのコードからも emit されません。`createTask` は emit しません。購読しても発火しない API が残ります。単体テストは `task.created` を手動で emit して確認するだけなので、カバーされているように見えてしまいます。\n- 直し方: `createTask` / `updateTask` から実際に emit するか、型を削除します。依頼範囲からは削除が妥当です。\n\n## 7. [低] unsubscribe が同一ハンドラの登録をすべて外し、emit 中の subscribe が反復中の配列を変更する\n\n- 場所: `src/lib/notify/events.ts:15`\n- 問題: 同じハンドラ参照を 2 回 subscribe し、片方の unsubscribe を呼ぶと、両方の登録が外れます。ハンドラが emit 中に同じ型で `subscribe` すると、`for...of` で反復中の配列に追加されます。そのため、新しいハンドラが同じ emit の中で実行されます。また、unsubscribe 後も空の配列が Map に残ります。\n- 直し方: 反復の前に配列をコピーします。unsubscribe では該当する 1 件だけを取り除き、空になったら Map のキーを削除します。\n\n## 8. [低] 宣言順と kind の二重管理、`ConsoleNotifier.send` が `event` 引数を使っていない\n\n- 場所: `src/lib/notify/notifier.ts:8`\n- 問題: `NotifierKind` が最初の使用より後で宣言されており、レジストリのキーと暗黙に重複しています。kind を追加するには、ユニオン・レジストリ・クラスを別々に編集する必要があります。クラスの `kind` フィールドとレジストリのキーが一致することを、コンパイラが保証できません。`ConsoleNotifier.send` は `event` を無視します。実行時の不具合ではなく、保守性の問題です。\n- 直し方: レジストリのキーから `NotifierKind` を導出するか、`satisfies` で整合性を保証します。宣言順も整理します。\n",
+  "review_chars": 3636,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2549,
+    "tokens": {
+      "input": 18,
+      "output": 7040,
+      "cache_read": 270806,
+      "cache_creation": 46467
+    },
+    "turns": 5,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -50; echo ---; git diff HEAD\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 66,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` に 8 件の指摘を書き、`REVIEW.md` だけをコミットしました（コミット `5058260`）。コードは直していません。PR の変更は、これまでどおりステージ済みまたは未コミットのままです。\n\n重要度の内訳は、高が 1 件、中が 4 件、低が 3 件です。各指摘に、場所、何が問題か、直し方を書いています。\n\n| 重要度 | 内容 |\n|---|---|\n| 高 | `emit` が購読者の例外を握りつぶさず、保存済みの更新が `PATCH /api/tasks/:id` で 500 になる（`events.ts:21`） |\n| 中 | `registry[kind]` が `Object.prototype` のキーに反応し、`constructor` などを指定するとフォールバックしない（`notifier.ts:45`） |\n| 中 | 通知器の生成と購読登録が import の副作用で、冪等でない（`index.ts:7`） |\n| 中 | `updateTask` から `emit` までのテストがなく、監査行に操作者が入らない（`tasks.ts:121`） |\n| 中 | `slack` / `email` の通知器が常に throw するスタブで、依頼範囲を超えている（`notifier.ts:20`） |\n| 低 | `task.status_changed` と `task.created` は宣言だけで、どこからも発行されない（`events.ts:2`） |\n| 低 | unsubscribe が同じハンドラの登録をすべて外し、emit 中の subscribe が反復中の配列を変える（`events.ts:15`） |\n| 低 | `NotifierKind` の宣言順とキーの二重管理、`ConsoleNotifier.send` が `event` を使っていない（`notifier.ts:8`） |\n\nレビュー出力では 4 番に、テスト不足と「失敗の隔離がない」点が一緒に入っていました。後者は 1 番と同じ内容なので、`REVIEW.md` の 4 番ではテスト不足と操作者の欠如だけにし、隔離の話は 1 番にまとめています。\n\n重要度（高・中・低）は、レビュー出力に書かれていなかったので、こちらで付けました。"
+  },
+  "interventions": 0
+}

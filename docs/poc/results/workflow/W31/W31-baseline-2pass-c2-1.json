@@ -1,0 +1,71 @@
+{
+  "trial": "W31-baseline-2pass-c2-1",
+  "scenario": "W31",
+  "config": "baseline-2pass",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: 計測器ごとの定期点検（担当者・周期・点検記録）\n\n結論: マージ前に直すべき点があります（高 3 件・中 4 件・低 4 件）。1 回目はコードを読んで、2 回目は本番ビルド・本番モード起動で実際に動かして確認しました（再現できたものは各指摘に「再現」として書いています）。コードは直していません。\n\n## 要件ごとの確認\n\n| # | 要件 | 実装の場所 | 判定 |\n|---|---|---|---|\n| 1 | 担当者は在籍中の利用者 1 人。退職・休職は新しく選べない。既存の担当は表示してよい | `validatePlanInput`（`src/lib/inspections.ts`）、`[id]/page.tsx` の `planChoices` | 満たす |\n| 2 | 点検記録（点検日・点検した人=在籍中・結果・メモ）を何回分も残す。担当者以外でもよい | `validateInspectionInput`、`recordInspection`、マイグレーション 6 | 概ね満たす（指摘 5・8） |\n| 3 | 点検記録は消さない。間違えたら訂正の記録を足す | 削除 API は無い | 一部満たさない（指摘 6） |\n| 4 | 周期は計測器ごと（既定 3 か月）。次回予定日 = 最後の点検日 + 周期。記録が無ければ「未点検」で目立たせる | `judgeDue`、`addMonths`、一覧・詳細の `<strong>` | 満たす（日付が読めない旧記録の扱いは指摘 9） |\n| 5 | 担当者で絞り込み・並べ替えができる | `listInstruments` / `instruments/page.tsx` | **満たさない**（指摘 1） |\n| 6 | 担当者ごとに、点検が遅れている台数を毎朝知りたい | `src/app/api/jobs/` には overdue-loans のみ | **満たさない**（指摘 2） |\n| 7 | 要修理で使用停止にする | `recordInspection` | 満たす。ただし貸出中の扱いに問題（指摘 4） |\n| 8 | 旧 extra の点検者・最終点検日を引き継ぐ（名前が分かれば担当者、分からない・読めないものは元の書き方を残す） | `importLegacyInspections` / `parseLegacyDate` | 概ね満たす。ただし他の書き込み元が抜けている（指摘 3） |\n| 9 | 約 5 万件で一覧が遅くならない | `listInspectionPlans`、一覧ページ | 懸念あり（指摘 7） |\n| 10 | extra の dept は持ち方を変えない | extra 自体は変更していない | 満たす |\n| 11 | 不具合時に前の版へ戻せる（DB はそのまま） | マイグレーション 6 は列・表の追加のみで、extra も消さない | 満たす（指摘 11 の注意あり） |\n\n---\n\n## 指摘\n\n### 1. [高] 担当者での絞り込み・並べ替えが無い（要件に反する）\n- 場所: `src/lib/instruments.ts` の `InstrumentFilter` / `listInstruments`、`src/app/instruments/page.tsx`\n- 問題: 一覧に担当者の列は増えたが、`searchParams` で担当者を受け取る処理も、並べ替えの指定も、画面の入力部品もありません。`inspector_id` に索引（`instruments_inspector`）だけが作られており、使われていません。\n- 直し方: `isInspectorFilter` のような型ガードで `inspector`（利用者 ID / 未設定）と `sort`（担当者・次の点検予定日など）を検証し（規約 2）、`src/lib/` の関数で SQL の WHERE / ORDER BY にプレースホルダで渡す。不正な値は「指定なし」とする。画面には label 付きの選択欄を足す。テストも追加する。\n- 再現: 本番モードで `/instruments?inspector=sato` を開いても 10 台すべてが出る。絞り込みの入力欄は「状態」「担当部署」のみ。\n\n### 2. [高] 担当者ごとの「点検が遅れている台数」を毎朝知る手段が無い（要件未実装）\n- 場所: `src/app/api/jobs/`（`overdue-loans` のみ）、`docs/operations.md`\n- 問題: 遅れ台数の集計・通知・画面がどこにもありません。一覧の「期限切れ」「未点検」の表示を人が数えるしかありません。\n- 直し方: `listOverdueInspectionCounts(db, now)` のような集計関数（担当者ごとの期限切れ台数と未点検台数。担当者未設定の分も別に数える）を `src/lib/` に置く。SQL の GROUP BY で数え、全件を読み出してから数えない。`POST /api/jobs/overdue-inspections` を `requireJobAuth()` つきで追加し、`docs/operations.md` に毎朝の実行時刻（日本時間）を書いて運用チームに依頼する。何度動いても同じ結果になるようにする（規約 13）。\n\n### 3. [高] 旧 extra の `inspector` / `last_inspected` を、API からまだ書ける（黙って捨てられる）\n- 場所: `src/lib/instruments.ts` の `validateInstrumentInput`（`extra`）、`createInstrument`、`updateInstrument`。`src/app/api/instruments` の POST / PATCH。`[id]/page.tsx` の extra の絞り込み。\n- 問題: 画面は extra の点検者・最終点検日を表示から外し、点検の表は新しい表だけを読みます。しかし `POST /api/instruments` や `PATCH /api/instruments/:id` に `{\"extra\": {\"inspector\": \"佐藤\", \"last_inspected\": \"2026-11-01\"}}` を送ると、これまでどおり受け付けて 200/201 を返します。このデータはマイグレーション 6 の移行（1 回限り）の対象外で、詳細画面からも非表示になるため、利用者には「保存できたのに、どこにも出ない」状態になります。前の版へ戻したあとの書き込みや、別システムの書き込みも同様に取り残されます。\n- 直し方: どちらかに決める。\n  (a) API の検証で `extra.inspector` / `extra.last_inspected` を拒否（400。「点検の担当者・記録は /inspection・/inspections から登録してください」）。\n  (b) 受け取ったら点検の担当者・記録に反映する。\n  どちらにしても、画面で extra の同名キーを一律に隠すのはやめ、取り込まれていない値は見えるままにする。移行をもう一度走らせる場合は `importLegacyInspections` が冪等であることを利用する。テストを追加する。\n- 再現: `PATCH /api/instruments/1` に `{\"extra\":{\"inspector\":\"田中\",\"last_inspected\":\"2026-11-01\"}}` を送ると 200 で保存され、応答の `extra` にも入る。しかし `GET /api/instruments/1/inspection` は担当者 `sato`・最後の点検日 `2026-09-01` のままで、詳細画面にも「田中」「2026-11-01」は出ない。\n\n### 4. [中] 貸出中の計測器を「要修理」で使用停止にすると、貸出中の状態が操作によらず変わる\n- 場所: `recordInspection`（`src/lib/inspections.ts`）の `UPDATE instruments SET status = 'suspended' WHERE id = ? AND status <> 'disposed'`\n- 問題: CLAUDE.md の「貸出中は貸出・返却の操作でだけ変わる」に反します。`on_loan` の計測器に要修理を記録すると状態が `suspended` になり、未返却の貸出（`loans`）は開いたまま残ります。返却操作は `WHERE status = 'on_loan'` のため状態を戻さず、台帳の状態と貸出の実態が食い違います。校正中（`calibrating`）の計測器も同様に上書きされます。\n- 直し方: 貸出中のときの扱いを決める（例: 要修理は記録するが状態は変えず、返却時に使用停止にする。または要修理の入力を拒否して返却を先に求める）。決めた仮定を PR に書き、`on_loan` / `calibrating` のテストを足す。校正の不合格（`calibrations.ts`）の扱いと揃えるのが望ましい。\n- 再現: 貸出中・未返却の `MI-0002`（貸出 id=1）に `POST /api/instruments/2/inspections`（要修理）を送ると 201。直後の `GET /api/instruments/2` は `status: \"suspended\"` で `currentLoan` は返却前のまま。一覧でも「使用停止」と出る。\n\n### 5. [中] 点検記録のフォームで、退職・休職中の担当者を「点検した人」として選べてしまう\n- 場所: `src/app/instruments/[id]/page.tsx` の `planChoices` を `InspectionForms` の `users` に渡している箇所、`inspection-forms.tsx` の「点検した人」の `<select>`\n- 問題: `planChoices` は担当者用に「在籍していません」の既存担当を含めた一覧ですが、同じ一覧を点検記録フォームにも使っています。退職者を選ぶと、API が 400（「点検した人は、在籍中の利用者から選んでください」）を返すだけで、画面で選べる理由が無いのに選べる状態です（要件: 点検した人は在籍中の利用者）。\n- 直し方: 点検記録フォームには `listActiveUsers()` の結果だけを渡し、担当者フォームにだけ現在の担当者を足す（props を 2 つに分ける）。\n- 再現: `/instruments/4`（担当者が退職者の井上）の HTML に「井上（在籍していません）」の選択肢があり、担当者と「点検した人」の両方の選択欄に出る。点検記録で井上を選んで `POST` すると 400「点検した人は、在籍中の利用者から選んでください」。\n\n### 6. [中] 「間違えたら訂正の記録を足す」が成り立たない\n- 場所: `judgeDue` / `PLAN_SELECT` の `MAX(r.inspected_on)`\n- 問題: 最後の点検日を「点検日の最大値」で決めるため、誤って遅い日付（例: 実際は 10/10 なのに 11/10）で登録した場合、正しい日付の記録を足しても最後の点検日は 11/10 のままで、次の予定日が直りません。結果の誤り（良好 → 要修理）も、訂正しても使用停止は戻らず、訂正の記録であることを示す仕組みもありません。\n- 直し方: 記録に「訂正元の記録 ID（corrects_id）」を持たせ、訂正された記録は最後の点検日の計算から除く。または「最後の点検日 = 登録が新しい有効な記録の点検日」とするなど、訂正の意味を決めて実装し、テストを足す。\n\n### 7. [中] 5 万件での一覧の作りが重い\n- 場所: `listInspectionPlans`（全計測器を無条件に取得して Map 化）、`PLAN_SELECT` の相関サブクエリ、`src/app/instruments/page.tsx`\n- 問題: 一覧は全件の絞り込みをアプリ側で行う既存の作りのうえに、毎回 5 万件分の点検の状況を計算して全部 Map に載せます。担当者・期限切れでの絞り込み（指摘 1・2）が SQL でできず、毎朝全件を読んで画面側で数えることになります。相関サブクエリ自体は `inspection_records(instrument_id, inspected_on)` の索引で 1 件ずつ引けますが、5 万回の実行になります。\n- 直し方: 絞り込み・並べ替え・集計を SQL で行い（`LEFT JOIN` で最後の点検日をまとめて取る、または `instruments` に最後の点検日の列を持ち記録の登録時に同じトランザクションで更新する）、画面に出す分だけ（ページ分割）取得する。`EXPLAIN QUERY PLAN` で索引が使われることを確かめ、5 万件の計測データでの所要時間を PR に書く。期限切れの絞り込みには「担当者・最後の点検日」の索引が効く形にする。\n\n### 8. [低] 点検日の下限・点検記録のメモの扱い\n- 場所: `validateInspectionInput`\n- 問題: 点検日は「今日以前」だけを確かめており、`0001-01-01` のような極端に古い日付も通ります。最後の点検日にはならないが履歴の並びを乱します。\n- 直し方: 下限（例: 2000-01-01）を設けるか、計測器の登録以降に限る。\n\n### 9. [低] 日付が読めない旧記録のある計測器が「未点検」と表示される\n- 場所: `judgeDue` に渡される `last_inspected_on`（`MAX(inspected_on)` は NULL を無視）、`importLegacyInspections`\n- 問題: 旧データで日付が読めなかった（例: 「2026年9月1日」「令和8年9月」）計測器は、記録（`legacy_date` つき）があるのに最後の点検日が NULL となり「未点検」と出ます。元の書き方は詳細画面に残りますが、一覧からは点検済みか不明か分かりません。また `parseLegacyDate` は「2026年9月1日」のような西暦の漢字区切りを読めません（和暦の `年/月/日` は読める）。\n- 直し方: 西暦の「年・月・日」区切りにも対応する。読めない場合の表示は「日付不明（旧データ）」など、「未点検」と区別する。\n\n### 10. [低] 旧データの名前の照合が、空白のある利用者名に一致しない\n- 場所: `importLegacyInspections` / `normalizeInspectorName`（`src/lib/inspections-legacy.ts`）\n- 問題: `importLegacyInspections` は `users.name` との完全一致（空白・敬称を除いたもの）だけを見ます。利用者名に空白がある（「鈴木 太郎」）と、旧データ側の空白を除くため一致せず、元の書き方が残る側に倒れます（安全側だが引き継ぎ漏れ）。- 直し方: DB 側の名前も同じ正規化（空白・敬称を除く）で比べる。\n\n### 11. [低] 前の版へ戻すときの注意が運用手順に無い\n- 場所: `docs/operations.md`（リリース・戻しの手順）\n- 問題: 前の版へ戻したとき、新しい版で登録した担当者・点検記録は前の版からは見えません（extra は消していないので旧データは見える）。戻す手順に、この点と、要修理で使用停止になった計測器は自動では戻りません。\n- 直し方: 戻す手順に、この 2 点を `docs/operations.md` に書く。\n\n---\n\n## 付録: 本番ビルド・本番モードでの実動作の確認（2 回目のレビュー。`npm run build` → `npm run start`、ポート 3917）\n\n`npm run build` は成功。ログイン後、一覧・詳細画面（curl で HTML 取得）と、変更された API を呼んで確かめた。指摘 1・3・4・5 は各指摘の「再現」に書いたとおり実際に再現した（以下は一覧）。\n\n| 指摘 | 実際に確かめたこと |\n|---|---|\n| 3（高）| `PATCH /api/instruments/1` に `{\"extra\":{\"inspector\":\"田中\",\"last_inspected\":\"2026-11-01\"}}` を送ると 200 で保存され、応答の `extra` にも入った。しかし `GET /api/instruments/1/inspection` は担当者 `sato`・最後の点検日 `2026-09-01` のまま変わらず、詳細画面にも「田中」「2026-11-01」は出ない（点検の項目として表示しない）。保存したのにどこにも反映されない。 |\n| 1（高）| `/instruments?inspector=sato` を開いても、10 台すべてが出る（担当者の絞り込みは無視される）。絞り込みの入力欄は「状態」「担当部署」のみ。 |\n| 4（中）| `MI-0002`（貸出中・未返却の貸出 id=1）に `POST /api/instruments/2/inspections`（要修理）を送ると 201。直後の `GET /api/instruments/2` は `status: \"suspended\"` で、`currentLoan` は返却前のまま。一覧でも「使用停止」と出る。貸出と状態が食い違う。 |\n| 5（中）| `/instruments/4`（担当者が退職者の井上）の HTML に「井上（在籍していません）」の選択肢が含まれ、点検記録の「点検した人」と担当者の両方の選択欄に出る。点検記録で井上を選んで `POST` すると 400「点検した人は、在籍中の利用者から選んでください」。 |\n\n### 問題なく動いたこと\n- 本番モードの起動時のマイグレーション 6 と seed の移行: `MI-0001`（佐藤・2026-09-01）、`MI-0003`（「鈴木さん」→ suzuki・「2026/8/20」→ 2026-08-20）、`MI-0006`（「R8.9.10」→ 2026-09-10）、`MI-0009`（「外部委託」は担当者を未設定にして元の書き方を保持）は期待どおり。`MI-0004` は退職者の井上がそのまま担当者になり、2026-10-15 の予定日を過ぎて「期限切れ」と強調表示される。日付なしは「未点検」を太字で表示。\n- 認証・検証: 未ログインの `GET /api/instruments/1/inspection` は 401。存在しない計測器は 404。JSON として壊れた本文・退職者の担当者指定は 400 で、利用者向けの日本語のメッセージが返る。\n- 一覧・詳細画面は本番ビルドでも崩れず表示でき、dept 列は従来どおり表示される。\n\n### 確かめられなかったこと\n- ブラウザ操作（Playwright）でのフォーム送信は行っていない（フォームは curl で API を呼んで確認した）。\n- 5 万件規模での一覧の速度は未測定（指摘 7 はコードからの判断のまま）。\n",
+  "review_chars": 8309,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.8282,
+    "tokens": {
+      "input": 62,
+      "output": 23773,
+      "cache_read": 2117025,
+      "cache_creation": 94667
+    },
+    "turns": 44,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 JOBS_TOKEN=t nohup npm run start > /tmp/claude-0/srv.log 2>&1 &) ; sleep 5; B=http://localhost:3917; C=/tmp/claude-0/c.txt\\ncurl -s -c $C -X POST $B/api/login -H 'content-type:"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"PORT=3917 JOBS_TOKEN=t nohup npm run start > /tmp/claude-0/srv.log 2>&1 &\\nsleep 6; cat /tmp/claude-0/srv.log\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sleep 4; B=http://localhost:3917; C=/tmp/claude-0/c.txt\\ncurl -s -c $C -X POST $B/api/login -H 'content-type: application/json' -d '{\\\"userId\\\":\\\"sato\\\",\\\"password\\\":\\\"password\\\"}'; echo\\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0; H='content-type: application/json'; U=http://localhost:3917/api/instruments\\necho A; curl -s -b c.txt -X PATCH $U/2/inspection -H \\\"$H\\\" -d '{\\\"inspectorId\\\":\\\"inoue\\\"}'"
+      },
+      {
+        "tool": "Write",
+        "input": "{\"file_path\": \"/tmp/claude-0/t.sh\", \"content\": \"cd /tmp/claude-0\\nH='content-type: application/json'; U=http://localhost:3917/api/instruments\\necho A; curl -s -b c.txt -X PATCH $U/2/inspection -H \\\"$H"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/t.sh\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c2-1-app/dbc25f39-0295-4200-bd28-1f74730c7dc6/scratchpad/t.sh\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np='REVIEW.md'\\ns=open(p,encoding='utf-8').read()\\ndef rep(a,b):\\n    global s\\n    assert s.count(a)==1,a\\n    s=s.replace(a,b)\\nrep(\\\"結論: マージ前に直すべき点があります（高 3 件・中 4 件・低"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 24,
+      "Write": 3,
+      "ReadNotifications": 1,
+      "TaskStop": 1,
+      "Read": 1,
+      "Edit": 10
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 193,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "2 回のレビューの指摘は、どれも既に `REVIEW.md` に入っていました。そのため新しく書き写さず、体裁を整えて `REVIEW.md` だけをコミットしました（`2854d26`）。新しい指摘は足しておらず、削った指摘もありません。コードも直していません。\n\n- **見出しの件数:** 高 3 件・中 4 件・低 4 件に直しました。1 回目はコードを読み、2 回目は本番ビルドで起動して確認した、という説明も添えています。\n- **2 回目の再現結果:** 付録の表にあった内容を、該当する指摘 1・3・4・5 の「再現」行に移しました。付録は一覧として残しています。\n- **付記の独立:** 付記にまとめていた 2 件を、場所・問題・直し方つきの指摘 10（名前の照合）と指摘 11（戻すときの運用手順）に分けました。要件の表の参照も指摘 11 に直しています。\n\n最終的な指摘は 11 件です。\n\n| 重要度 | 件数 | 内容 |\n|---|---|---|\n| 高 | 3 件 | 担当者での絞り込み、毎朝の遅れ台数、旧 extra への書き込み |\n| 中 | 4 件 | 貸出中の状態、退職者の選択、訂正の記録、5 万件の一覧 |\n| 低 | 4 件 | 点検日の下限、日付が読めない旧記録、名前の照合、戻す手順 |"
+  },
+  "interventions": 0
+}

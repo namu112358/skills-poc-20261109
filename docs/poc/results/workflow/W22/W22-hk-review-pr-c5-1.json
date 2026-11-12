@@ -1,0 +1,50 @@
+{
+  "trial": "W22-hk-review-pr-c5-1",
+  "scenario": "W22",
+  "config": "hk-review-pr",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# レビュー: タスクの担当者の項目名を `assigneeId` / `assignee_id` にする\n\n対象: 未コミットの差分（`git diff HEAD`、8 ファイル）。\n確認: `npm run typecheck` は通過。`npm test` は 19 件すべて通過。\nただし指摘 1 と 2 は既存テストで検出されず、実行で再現した。\n\n## 指摘事項\n\n**1. 一覧 `listTasks` の結果に `assigneeId` が入らない**\n- 場所: `src/lib/tasks.ts` の `listTasks`（37 行目の SQL）と `toTask`（31–32 行目）\n- 何が問題か: SQL が `assignee_id AS assignee` と別名を付けているのに、`toTask` は `row.assignee_id` を読む。そのため一覧の全要素で `assigneeId` が `undefined` になる。`as TaskRow[]` の型キャストで型検査にも引っかからない。\n  - 再現（実行済み）: `listTasks({}, db)[0]` → `{\"id\":1,\"title\":\"要件定義書のレビュー\",\"status\":\"done\",\"dueDate\":\"2026-11-02\"}`（担当者が無い）。`getTask(1, db)` は `assigneeId: \"sato\"` を返す。\n  - 影響: `/tasks` 一覧の「担当者」列が空になる（画面の表示が変わる）。`GET /api/tasks` の応答から担当者が消える。`status` で絞り込んだ場合も同様。\n- 直し方: `AS assignee` を外し、`getTask` と同じ列指定にする。列指定の文字列は 1 つの定数にまとめ、両方の SELECT で使うと食い違いを防げる。テストは `listTasks` の結果を `getTask` の結果と `deepEqual` で比べるものを追加する（`status` フィルタ時も）。\n- 重要度: 高\n\n**2. API の入出力のキー名が `assignee` から `assigneeId` に変わる（PR の説明と矛盾）**\n- 場所: `src/lib/tasks.ts` の `Task` 型（9 行目）と `validateTaskInput`（87–92 行目）。`src/app/api/tasks/route.ts`、`src/app/api/tasks/[id]/route.ts` は `Task` をそのまま JSON にして返している。\n- 何が問題か: PR は「画面の表示と API の入出力は変えません」と書いているが、実際には次が変わる。\n  - 応答: `GET /api/tasks/:id`、`GET /api/tasks`、`POST`、`PATCH` の担当者のキーが `assignee` → `assigneeId`。\n  - 入力: `POST` に従来どおり `{ \"assignee\": \"sato\", … }` を送ると、「担当者が存在しません」で 400 になる。\n- 直し方: 次のどちらかにする。\n  - (a) 外から見える契約を守る（推奨）。ルートで応答を組み立て直して `assignee` を返し、検証関数も `assignee` を受け付ける。内部の `assigneeId` は保つ。\n  - (b) 契約を変えるなら PR の説明を「API の変更あり」に直し、新旧のキーの扱い（旧キーを受けるか）を決め、API のテストで固定する。\n  どちらの場合も、外から見えるキー名を固定するテストを追加する。\n- 重要度: 高\n\n**3. PATCH で旧キー `assignee` を送ると 200 で無言のまま無視される**\n- 場所: `src/lib/tasks.ts` の `validateTaskInput`（`need(\"assigneeId\")`、partial 時）、`src/app/api/tasks/[id]/route.ts` の `PATCH`\n- 何が問題か: 部分更新では `assigneeId` が含まれないと検証対象にならない。そのため `{ \"assignee\": \"tanaka\" }` は検証を通って `{ ok: true, value: {} }` となり、`updateTask` は何も変えずに 200 を返す。利用側は失敗に気づけない。\n- 直し方: 部分更新で既知の項目が 1 つも無い場合、また未知のキーがある場合は 400 を返す。少なくとも `assignee` が送られたら明示的にエラーにする。\n- 重要度: 中\n\n**4. マイグレーション 3 のデータ保持・外部キーを確かめるテストが無い**\n- 場所: `tests/db.test.ts`、`src/lib/db/migrations.ts`（version 3）\n- 何が問題か: 既存のテストは新規 DB（最初から v3）しか見ていない。バージョン 2 の DB に行を入れてから `migrate` した場合のデータ保持、`listTasks` で値が読めること、移行後も外部キーが効くことは未検証。\n- 直し方: `MIGRATIONS.slice(0, 2)` で旧スキーマを作り、旧データを入れてから `migrate(db)` を実行する。`user_version` が 3、`assignee_id` の値が残る、存在しない担当者の INSERT が失敗する、を確かめる。（検証の結果、SQLite は列名変更に合わせて外部キーとインデックスを付け替えていた。テストで固定すると安心。）\n- 重要度: 中\n\n**5. API の振る舞いのテストが無い**\n- 場所: `tests/`（API 層のテストは存在しない）\n- 何が問題か: 指摘 2 と 3 の契約（入力キー、応答のキー、PATCH の未知キー）を固定するテストが無いため、変更があっても検出されない。\n- 直し方: 最低限 `validateTaskInput({ ...valid, assignee: \"sato\" })` が `ok: false` になること、一覧・詳細の応答に担当者のキーが期待どおり含まれることを確かめる。可能なら Route Handler を直接呼ぶテストを追加する。\n- 重要度: 中\n\n**6. `updateTask` で担当者の値が検証されていない**\n- 場所: `tests/tasks.test.ts`（`createTask / updateTask` のテスト）、`src/lib/tasks.ts` の `updateTask`（`assignee_id = ?` の割り当て）\n- 何が問題か: 既存のテストは `status` だけを更新している。`assignee_id` の割り当てが別の列に入っても検出できない。\n- 直し方: `updateTask(id, { assigneeId: \"suzuki\" }, db)` の結果と、`getTask` で再取得した値が一致することを確かめるテストを追加する。\n- 重要度: 中\n\n**7. 画面の担当者表示のテストが無い**\n- 場所: `src/app/tasks/page.tsx`（47 行目）、`src/app/tasks/[id]/page.tsx`（15・27 行目）。画面テストの仕組みは無い。\n- 何が問題か: 一覧の担当者列が空になる（指摘 1）、詳細画面の担当者名が解決されない、といった表示の崩れを検出する手段が無い。\n- 直し方: 画面テストを追加しないなら、指摘 1 のテストで間接的にカバーする。\n- 重要度: 中\n\n**8. 型と SQL の対応が型で保証されていない**\n- 場所: `src/lib/tasks.ts` の `TaskRow`（29 行目）、`listTasks` と `getTask` の `as` キャスト\n- 何が問題か: SQL の文字列と `TaskRow` が別々に書かれており、列名や別名がずれても型エラーにならない。指摘 1 の不具合はこれが原因。\n- 直し方: 列指定の定数を 1 つ作り、`TaskRow` の定義と両方の SELECT をそこから組み立てる。\n- 重要度: 低\n\n**9. 索引名が古い列名のまま**\n- 場所: `src/lib/db/migrations.ts` の version 3（`ALTER TABLE tasks RENAME COLUMN assignee TO assignee_id;`）。索引名は version 1 の `tasks_assignee`。\n- 何が問題か: 列は `assignee_id` になったが、索引名は `tasks_assignee` のまま。動作には影響しない。\n- 直し方: 同じマイグレーションに `DROP INDEX tasks_assignee; CREATE INDEX tasks_assignee_id ON tasks(assignee_id);` を加える（未リリースならこのままでもよい。その場合はコメントで理由を書く）。\n- 重要度: 低\n\n**10. 新規作成の検証結果が `Partial` 型のままで、route でキャストしている**\n- 場所: `src/app/api/tasks/route.ts`（`result.value as TaskInput`）、`src/lib/tasks.ts` の `ValidationResult<Partial<TaskInput>>`\n- 何が問題か: 新規作成では全項目が検証済みだが、型は `Partial` のまま。将来の変更で必須項目の欠落を型が見逃す可能性がある。現時点で実害は無い。\n- 直し方: 新規作成用の検証関数を分け、`TaskInput` を返す型にしてキャストを消す。\n- 重要度: 低\n\n**11. seed の `assigneeId` が DB の `assignee_id` に正しく入るかのテストが無い**\n- 場所: `src/lib/db/index.ts` の `seed()`（`SEED_TASKS` の投入）、`tests/`\n- 何が問題か: 現在のテストは件数だけを見ている。ただし `getTask(1)` が `sato` を返すことは既存テストで間接的に確認できている。\n- 直し方: 必要なら各タスクの担当者を確かめるテストを追加する（任意）。\n- 重要度: 低\n\n**12. `updateTask` が `assigneeId: undefined` を許容する**\n- 場所: `src/lib/tasks.ts` の `updateTask`（110 行目）、`Partial<TaskInput>`\n- 何が問題か: `updateTask(id, { assigneeId: undefined })` は `{ ...current, ...changes }` で既存の値を `undefined` で上書きし、SQL のバインドに `undefined` を渡す。現在の API 経路では、検証関数が定義済みのキーだけを設定するため到達しない。\n- 直し方: `exactOptionalPropertyTypes` を有効にするか、検証済みの型を引数に使う。\n- 重要度: 低\n\n## 良い点\n- 項目名（`Task.assigneeId`、`TaskRow.assignee_id`、DB の `assignee_id`、`SEED_TASKS.assigneeId`）は一貫している。\n- マイグレーションは既存の番号を書き換えず、末尾に version 3 を追加している（規約 7）。\n- SQL はすべてプレースホルダを使っている（規約 8）。外部ライブラリの追加は無い（規約 4）。\n- `getTask` の既存テストは新しい形（`assigneeId`）を正しく期待している。\n\n## 対象外（この PR に該当しない観点）\n- silent-failure（エラー処理・catch の変更が無い）。\n- comment-analyzer: 追加されたコメントは 2 件（`// users.id`、マイグレーションのコメント）。どちらも内容は正しい。\n- code-simplifier: コードを書き換える観点のため、今回のレビューでは実行していない。\n\n## 推奨する対応の順番\n1. 指摘 1 を直し、`listTasks` の結果を検証するテストを追加する。\n2. 指摘 2 の方針（a か b）を決める。PR の説明と実際の API が一致するようにする。\n3. 指摘 3 と 5 を直し、API の契約を固定するテストを追加する。\n4. 指摘 4 のマイグレーション テストを追加する。\n5. 指摘 6 と 7 を含め、中の残りを対応する。低の指摘は必要に応じて対応する。\n",
+  "review_chars": 5555,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3727,
+    "tokens": {
+      "input": 62,
+      "output": 38660,
+      "cache_read": 1427969,
+      "cache_creation": 198348
+    },
+    "turns": 22,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 25,
+      "TaskStop": 1,
+      "Write": 3,
+      "Agent": 3,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 3,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:type-design-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 260,
+    "answer_key_access": [],
+    "isolation_suspects": [
+      {
+        "step": "step2.jsonl",
+        "tool": "Bash",
+        "reasons": [
+          "他の試行の作業用コピー"
+        ],
+        "input": "{\"command\": \"cat > /tmp/poc-trials/repro-scratch.ts 2>/dev/null; mkdir -p \\\"$HOME/..\\\" >/dev/null 2>&1; SCR=/tmp/claude-0/-tmp-poc-trials-W22-hk-review-pr-c5-1-app/9df58284-7408-4646-82f6-4da4d77786fc/scratchpad; mkdir -p \\\"$SCR\\\"; cat > \\\"$SCR/repro.ts\\\" <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-t"
+      }
+    ],
+    "final_message": "REVIEW.md を最初の依頼の形式（場所・何が問題か・直し方・重要度）に書き直し、REVIEW.md だけをコミットしました（コミット `3fb95ee`）。コードは変更していません。\n\n- 指摘は各項目に「場所」「何が問題か」「直し方」「重要度」を付けました。重要度は項目ごとに明記しています。\n- 新しい指摘は追加していません。\n- 既存の指摘は削っていません。さらに、直前のレビューのサブエージェントの報告にあったのに REVIEW.md に書かれていなかった 4 件を書き加えました。`updateTask` で担当者の値が検証されていないこと、画面の担当者表示のテストが無いこと、seed のテストが無いこと、`updateTask` が `undefined` を許容することです。\n- 同じ内容の指摘（API の契約、テストの欠如など）は、項目をまとめています。\n\nコミットの後も、元の 8 ファイルの変更は未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

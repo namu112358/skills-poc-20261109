@@ -1,0 +1,65 @@
+{
+  "trial": "W32-baseline-e2e-report-c2-2",
+  "scenario": "W32",
+  "config": "baseline-e2e-report",
+  "case": "c2",
+  "rep": 2,
+  "review_md": "# レビュー: 計測器ごとの定期点検の追加\n\n## 実際に確かめた結果（`npm run build` → `npm run start -p 3457`、sato でログイン）\n\nビルドは成功。以下は本番モードのサーバーに対する結果。\n\n| 画面・API | 状態コード | エラー表示 |\n|---|---|---|\n| `GET /instruments` | 200 | なし。点検列 10 行が描画された |\n| `GET /instruments/1` | **500** | **あり**（下の指摘 1） |\n| `GET /instruments/3` | **500** | **あり**（同上） |\n| `GET /instruments/999` | 404 | 想定どおり |\n| `GET /api/instruments/{1,3,4,9}/inspection` | 200 | なし。移行結果は妥当（9 は「外部委託」が legacyInspector に残る） |\n| `GET /api/instruments/6/inspections` | 200 | なし（`R8.9.10` → 2026-09-10 に移行） |\n| `GET /api/instruments/999/inspection` | 404 | 想定どおり |\n| 未ログインで `GET .../inspection` | 401 | 想定どおり |\n| `PATCH .../1/inspection`（退職者 kondo／周期 0） | 400 | 想定どおり |\n| `POST .../1/inspections`（未来日／壊れた JSON） | 400 | 想定どおり |\n| `POST .../2/inspections`（要修理、貸出中の計測器） | 201 | 指摘 2 を参照 |\n| `POST .../1/inspections`（有効な記録） | 201 | なし |\n\n## 指摘\n\n### 1. 【高】計測器の詳細画面が 500 になる\n- 場所: `src/app/instruments/[id]/page.tsx`（`planChoices` を `<InspectionForms users={...}>` に渡している箇所）、`src/lib/users.ts` の `listActiveUsers`\n- 問題: 詳細画面（`/instruments/1`・`/instruments/3`。存在する全計測器で同じ）が 500 になる。サーバーログは `Only plain objects ... can be passed to Client Components`。`node:sqlite` の `.all()` が返す行は null プロトタイプのオブジェクトで、サーバーコンポーネントからクライアントコンポーネントへ、そのまま渡せない。点検の担当者・記録の画面が使えず、既存の詳細画面（校正・貸出）も開けなくなる退行。\n- 直し方: `listActiveUsers` で `rows.map((r) => ({ id: r.id, name: r.name }))` と通常のオブジェクトにする（または page 側で `planChoices` を詰め替える）。`npm run build` は通るので、本番起動して詳細画面を開くテストか確認手順を足す。typecheck・単体テストでは検出できていない。\n\n### 2. 【高】要修理の登録で「貸出中」「校正中」の計測器まで使用停止になる\n- 場所: `src/lib/inspections.ts` `recordInspection`（`UPDATE instruments SET status = 'suspended' ... status <> 'disposed'`）\n- 問題: 仕様は「貸出中は貸出・返却の操作でだけ変わる」。実際に貸出中の MI-0002 に要修理を登録すると `status: suspended` になった。貸出（未返却）は残ったまま、状態だけが変わり、貸出と状態が食い違う。校正中も同様に上書きされる。\n- 直し方: 貸出中・校正中は状態を変えず点検記録だけ残し、画面・応答で「返却後に使用停止にしてください」と知らせる。または返却処理側で、未対応の要修理があれば返却時に使用停止にする。どちらにするか依頼者に確認する。更新できる条件は `status IN ('in_use')` のように絞る。テストも追加する。\n\n### 3. 【中】点検日を間違えて登録すると、訂正の記録を足しても直せない\n- 場所: `src/lib/inspections.ts` `PLAN_SELECT`（`MAX(r.inspected_on)`）\n- 問題: 「記録は消さない、間違えたら訂正の記録を足す」という要件に対して、最後の点検日は `MAX(inspected_on)` で決まる。確認では、MI-0001 に誤って 2026-11-11 を登録し、2026-09-02 で訂正を足しても、最後の点検日は 2026-11-11（次回 2027-02-11、期限内）のままだった。誤入力の日付が今日に近いほど「期限内」と誤判定され続け、遅れの把握（この機能の目的）が崩れる。\n- 直し方: 訂正の記録を表せるようにする（例: `corrects_id` 列で訂正元を指し、訂正された記録は最終点検日の計算から除く。訂正記録の点検日が正とする）。マイグレーション・API・画面・テストを足す。\n\n### 4. 【中】要件の「担当者での絞り込み・並べ替え」「担当者ごとの遅れ台数」が無い\n- 場所: `src/app/instruments/page.tsx`、`src/lib/inspections.ts`\n- 問題: 一覧は担当者・状況の列を表示するだけ。クエリパラメータ（担当者・点検の状況）での絞り込み・並べ替え、担当者ごとの期限切れ台数の集計（毎朝知りたい）が実装されていない。\n- 直し方: `src/lib/` に担当者・状況での絞り込み（型ガードで検証）と、担当者別の遅れ台数の集計関数を追加し、画面に出す。毎朝の通知が要るなら `docs/operations.md` の方式のジョブにする。\n\n### 5. 【中】一覧の性能（約 5 万件）\n- 場所: `src/app/instruments/page.tsx`、`listInspectionPlans`（`PLAN_SELECT`）\n- 問題: 一覧が全件を取得して画面に出すうえ、`listInspectionPlans()` が絞り込みと無関係に全 5 万台分のプランを毎回計算して Map にする（相関サブクエリ × 5 万行）。状態・部署で絞っても同じコストがかかる。`inspection_records(instrument_id, inspected_on)` の索引はあるが、毎朝のアクセスで負荷が増える。\n- 直し方: 表示する計測器に対してだけ取得する（JOIN するか、ID 指定）。ページングを入れる。5 万件のデータでの所要時間を確かめる。\n\n### 6. 【中】移行（マイグレーション 6）の取りこぼしと、元の書き方の保全\n- 場所: `src/lib/inspections-legacy.ts` `importLegacyInspections`\n- 問題:\n  - `extra` が壊れた JSON の行は黙って `continue` され、記録も警告ログも残らない（「黙って捨てない」に反する）。\n  - 点検者名が利用者と一致しても `users.name` の完全一致のみ。同姓が複数いる場合は `legacy_inspector` に残るが、移行件数・理由のログが無く、運用側が確認できない。\n  - 点検日が無く点検者だけの旧データは記録が作られないため、最後の点検日は無し＝「未点検」になる（意図どおりか要確認）。\n- 直し方: 移行できなかった行・曖昧な行の件数と管理番号を `logger` に出す。壊れた `extra` は `legacy_*` に残すか明示的に警告する。実データの書き方（`R8.9.10`・全角数字・「様」など）を境界値としてテストに足す。\n\n### 7. 【中】前の版に戻したときの整合\n- 場所: `src/lib/db/migrations.ts`（version 6）、`src/lib/inspections-legacy.ts`\n- 問題: 前の版では旧 `extra` の点検者・点検日を画面に出す。新しい版で登録した点検・担当者変更は `extra` に反映されないため、戻すと古い値が表示される。`extra` を消さず `dept` を変えていない点は良いが、戻すと食い違うことを PR に書く必要がある。また、前の版は `user_version` が 6 の DB を開けるかを確認していない。\n- 直し方: ロールバック手順（戻した場合の食い違い、必要ならバックアップからの復元）を PR／`docs/operations.md` に書く。前の版で DB を開けることを確認する。\n\n### 8. 【低】検証と登録が別のトランザクション\n- 場所: `src/app/api/instruments/[id]/inspection/route.ts` PATCH、`.../inspections/route.ts` POST\n- 問題: 在籍確認（`isActiveUser`）と更新が別々で、その間に退職処理が入ると退職者が登録できる。実害は小さい。\n- 直し方: 検証を `updateInspectionPlan` / `recordInspection` の同じトランザクションの中で行う。\n\n### 9. 【低】テストが画面の実行を含まない\n- 場所: `tests/inspections.test.ts`\n- 問題: ロジックのテストのみで、ページ描画のテストが無い。指摘 1 のような 500 が検出できなかった（PR の検証欄は typecheck・test・build のみ）。\n- 直し方: 本番起動での画面確認（詳細・一覧）を検証手順に入れる。\n",
+  "review_chars": 4355,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4818,
+    "tokens": {
+      "input": 52,
+      "output": 11607,
+      "cache_read": 1354490,
+      "cache_creation": 57542
+    },
+    "turns": 30,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"inspect\\\\|extra\\\" src/lib/db/seed.ts | head -30; (npm run build 2>&1 | tail -25)\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run build > /tmp/claude-0/build.log 2>&1; echo exit=$?; tail -30 /tmp/claude-0/build.log\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"npm run build > build.log 2>&1; echo exit=$?; tail -30 build.log; rm -f build.log\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3457 nohup npm run start > /tmp/claude-0/server.log 2>&1 &) ; sleep 5; curl -s -o /dev/null -w \\\"%{http_code}\\\\n\\\" localhost:3457/login; grep -n \\\"id:\\\\|active\\\" src/lib/db/seed.ts "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"H='content-type: application/json'; c(){ echo \\\"--- $*\\\"; curl -s -b cj -w \\\"\\\\n[%{http_code}]\\\\n\\\" \\\"$@\\\" | cut -c1-700; }\\nc localhost:3457/instruments -o /dev/null\\nfor p in /instrumen"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for p in /instruments /instruments/1 /instruments/3 /instruments/999 \\\"/instruments?status=on_loan\\\"; do curl -s -b cj -o p.html -w \\\"$p %{http_code} \\\" \\\"localhost:3457$p\\\"; grep -c -i \\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for i in 1 3 4 6 9 999; do echo \\\"--- GET inspection $i\\\"; curl -s -b cj -w \\\" [%{http_code}]\\\\n\\\" localhost:3457/api/instruments/$i/inspection; done; for i in 1 3 6 999; do echo \\\"--- GE"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 24,
+      "ToolSearch": 1,
+      "TaskStop": 1,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 113,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しく書き写す作業はありませんでした。直前のレビューの 9 件は、すでに最初の依頼の形式で `REVIEW.md` に入っています。前回のコミット（`a300844`）に入っていて、`REVIEW.md` に未コミットの変更もありません。\n\n各指摘には、見出しに重要度（高・中・低）、本文に「場所」「問題」「直し方」を書いています。指摘は追加も削除もしていません。今回は何もコミットしておらず、コードにも触れていません。\n\n| 重要度 | 件数 | 内容 |\n|---|---|---|\n| 高 | 2 | 詳細画面の 500、貸出中の計測器が使用停止になる |\n| 中 | 5 | 訂正記録で日付を直せない、絞り込み・並べ替えと遅れ台数の集計が無い、5 万件での性能、移行の取りこぼし、前の版に戻したときの食い違い |\n| 低 | 2 | 検証と登録が別トランザクション、画面描画のテストが無い |\n\n`REVIEW.md` の先頭には、画面と API ごとの状態コードとエラー表示の確認結果の表も入っています。"
+  },
+  "interventions": 0
+}

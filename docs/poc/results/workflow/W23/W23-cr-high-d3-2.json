@@ -1,0 +1,39 @@
+{
+  "trial": "W23-cr-high-d3-2",
+  "scenario": "W23",
+  "config": "cr-high",
+  "case": "d3",
+  "rep": 2,
+  "review_md": "# コードレビュー: ダッシュボードとタスクのコメントの追加\n\n重要度の内訳: 高 6 件（1, 2, 3, 4, 6, 7）／中 3 件（5, 8, 9）／低 1 件（10）\n\n## 1. 【高】ダッシュボードのキャッシュキーがユーザーごとになっておらず、他ユーザーのデータが見える\n\n- 場所: `src/lib/dashboard.ts:69`（キャッシュ処理 `cached()`、`src/lib/cache.ts`）\n- 問題: キャッシュのキーが固定文字列 `\"dashboard\"` で、ユーザー・`db`・`now` を区別していない。sato が `/dashboard` を開くと結果が 30 秒キャッシュされ、その間に suzuki が `/dashboard` や `GET /api/dashboard` を開くと、sato の件数・タスク名（`userId: 'sato'`）が返る。他人のデータが漏れる。\n- 直し方: キーに `userId` を含める（例: `dashboard:${userId}`）。テストで `db` や `now` を変えて呼ぶ場合も考え、キャッシュ自体を外すか、`db`・`now` もキーに含める。（9 番も参照）\n\n## 2. 【高】SQL インジェクション（userId を文字列連結で埋め込んでいる）\n\n- 場所: `src/lib/dashboard.ts:28`（`listAssignedTasks`）\n- 問題: `userId` をテンプレートリテラルでクエリに連結している。`listAssignedTasks(\"x' OR '1'='1\")` で全ユーザーのタスクが返る。CLAUDE.md の規約 8（プレースホルダを使う）に違反している。\n- 直し方: `WHERE assignee = ?` とし、`.all(userId)` で値を渡す。\n\n## 3. 【高】コメント本文経由の格納型 XSS\n\n- 場所: `src/lib/comments.ts:63`（`renderBody`）と、`dangerouslySetInnerHTML` で出力しているタスク詳細画面 `src/app/tasks/[id]/page.tsx`\n- 問題: `[text](URL)` を `<a href>` に変換する際、URL のスキームを検査していない。`[click](javascript:alert(document.cookie))` というコメントを書くと `<a href=\"javascript:...\">` になり、閲覧者がクリックするとスクリプトが実行される。`data:` など他のスキームも同様。\n- 直し方: URL は `http:` / `https:`（必要なら `mailto:`）だけ許可し、それ以外はリンク化しない。本文は先に HTML エスケープし、属性値もエスケープする。可能なら `dangerouslySetInnerHTML` をやめ、React 要素として描画する。XSS のテスト（`javascript:` や `\"` を含む入力）を追加する。\n\n## 4. 【高】`TASK_STATUSES` を `.reverse()` で破壊的に変更している\n\n- 場所: `src/lib/dashboard.ts:36`（`countByStatus`）\n- 問題: 型キャストで readonly を外して共有配列 `TASK_STATUSES` に `.reverse()` を呼んでおり、呼ぶたびに全体の順序が反転する。2 回目のダッシュボード表示では `todo` が先頭になり、以降は交互に入れ替わる。`/tasks/page.tsx` のフィルタリンクも同じ配列を使うため、ダッシュボードを開くたびに並びが変わる。「done が先頭」のテストは 1 回目の呼び出しでしか通らない。\n- 直し方: `[...TASK_STATUSES].reverse()` のようにコピーしてから並べ替える（キャストはやめる）。複数回呼ぶテストを追加する。\n\n## 5. 【中】担当タスクが 0 件のとき完了率が NaN になる\n\n- 場所: `src/lib/dashboard.ts:47`（`completionRate`）\n- 問題: `tasks.length` が 0 のとき `Math.round(0/0)` で `NaN` になる。tanaka など担当タスクが無いユーザーの画面に「完了率 NaN%」と出て、JSON API では `completionRate` が `null` になる。0 件のテストが無い。\n- 直し方: 0 件なら 0（または null と決めて画面側で「—」表示）を返す。空の場合のテストを追加する。\n\n## 6. 【高】コメントの PATCH で投稿者チェックがない\n\n- 場所: `src/app/api/comments/[commentId]/route.ts:16`（PATCH）\n- 問題: DELETE は投稿者を確認しているが PATCH は確認していない。suzuki が `PATCH /api/comments/<satoのコメントID>` で sato のコメント本文を書き換えられる。3 番の XSS と組み合わさると、他人のコメントに悪意あるリンクを仕込める。\n- 直し方: DELETE と同様に、コメントの存在確認（無ければ 404）と投稿者の一致確認（他人なら 403）を行ってから更新する。共通関数にまとめ、他人のコメントを PATCH するテストを追加する。\n\n## 7. 【高】存在しないタスクへのコメント投稿が 500 になる\n\n- 場所: `src/app/api/tasks/[id]/comments/route.ts:19`（POST）\n- 問題: GET はタスクの存在を確認するが、POST は ID が数値として解釈できるかしか見ていない。`POST /api/tasks/9999/comments` に正しい本文を送ると `addComment` まで進み、`foreign_keys=ON` のため FOREIGN KEY 制約違反が投げられ、未処理の 500 になる。規約 9（対象が無いときは 404）に反する。\n- 直し方: POST でもタスクの存在を確認し、無ければ 404 を返す。存在しないタスクへの POST のテストを追加する。\n\n## 8. 【中】`created_at` をロケール表示文字列で保存し、文字列順で並べている\n\n- 場所: `src/lib/comments.ts:22`（保存）と `listComments`（`ORDER BY created_at`）\n- 問題: `created_at` が `'2026/11/11 9:30:00'` のような時刻のゼロ埋めがない表示用文字列で保存されている。10:05 の `'2026/11/11 10:05:00'` は文字列として 9:30 より前に並ぶため、コメントが時系列にならない。テストはたまたま正しく並ぶ時刻を使っている。\n- 直し方: ISO 8601 形式（`toISOString()`）で保存し、表示時だけ整形する。`id` を第 2 キーにして並べる。9 時台と 10 時台をまたぐテストを追加する。\n\n## 9. 【中】キャッシュが更新で無効化されず、キーが `db`・`now` を無視し、増え続ける\n\n- 場所: `src/lib/dashboard.ts:68`（`cached()` の利用）、`src/lib/cache.ts`\n- 問題: `PATCH /api/tasks/:id` などでタスクを更新しても、ダッシュボードのキャッシュは消えない。更新後に再読み込みしても最大 30 秒は古い件数が表示される。キーが引数の `db`・`now` を見ないため、別の `db` や `now` でテストすると古い結果が返ることがある。期限切れのエントリが削除されず、無制限に増える。`cached()` のテストも無い。\n- 直し方: 最も簡単なのはキャッシュをやめて毎回集計すること（SQLite で軽い）。残す場合は、キーを `userId` 単位にし、タスク更新時に無効化し、期限切れを削除する。`db`・`now` を引数に取る関数でモジュールのグローバルなキャッシュを使わない。`cached()` のテストを追加する。\n\n## 10. 【低】「今週が期限」に期限切れのタスクも含まれ、2 つの一覧で重複する\n\n- 場所: `src/lib/dashboard.ts:60`（`dueThisWeek`）、`overdueTasks` の JSDoc\n- 問題: 今週の月曜から日曜までを対象にしているため、水曜に「月曜が期限で未完了」のタスクが「期限切れ」と「今週が期限」の両方に出る。既存テストも、期限切れの task 1 を含む `[1, 2]` を期待値にしている。`overdueTasks` の JSDoc は「古い順」と書いているが、実際は SQL の並びに依存している。新しい API ルートのテストも無い。\n- 直し方: `dueThisWeek` は「今日以降〜週末」にするか、期限切れを除外する。仕様を決めてテストを直す。並び順は `ORDER BY due_date ASC, id ASC` を明記する。新しい API ルートのテストを追加する。\n",
+  "review_chars": 4024,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2913,
+    "tokens": {
+      "input": 22,
+      "output": 7677,
+      "cache_read": 372385,
+      "cache_creation": 54082
+    },
+    "turns": 6,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -500; echo ----; git diff HEAD\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 64,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "レビューの 10 件を、場所・問題・直し方・重要度の形式で `REVIEW.md` に書き、`REVIEW.md` だけをコミットしました。コードは直していません。PR の変更ファイルは、これまでと同じくステージ済みでコミットしていません。\n\n重要度の内訳は次のとおりです。\n\n- **高（6 件）**: ダッシュボードのキャッシュが全ユーザー共通、SQL インジェクション、コメントの XSS、`TASK_STATUSES` の破壊的な `.reverse()`、コメント PATCH の投稿者チェック漏れ、存在しないタスクへのコメント投稿が 500 になる件。\n- **中（3 件）**: 担当タスク 0 件のとき完了率が NaN になる件、`created_at` を表示用文字列で保存して並べている件、キャッシュが更新で無効化されない件。\n- **低（1 件）**: 「今週が期限」に期限切れが重複する件。\n\nなお、キャッシュに関する指摘は 1 番と 9 番に分けています。どちらも `dashboard.ts` のキャッシュが原因ですが、1 番は他ユーザーのデータが見える件、9 番は古い値が残る件と範囲が違うためです。\n\n重要度は、他人のデータの漏えい、任意スクリプトの実行、権限チェックの漏れ、500 エラーを「高」にしました。"
+  },
+  "interventions": 0
+}

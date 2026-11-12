@@ -3,6 +3,7 @@
 # 使い方: scripts/poc/run-trial.sh <シナリオ> <候補> <回>
 #   候補: baseline | superpowers | feature-dev | compound-engineering | gstack
 #         | baseline-conventions（W12 で追加。候補なしで、作業用コピーの CLAUDE.md の末尾に開発規約だけを足す）
+#         | ui-none | ui-all | ui-a | ui-fd | ui-pm | ui-fd-md | ui-a-md | ui-all-md | ui-fd-md-wdg | ui-fd-md-imp | ui-wdg-rv | ui-a-rv（U1 の課題だけ。*-rv は U4。*-md は U2、*-md-* は U3。UI/UX 系ツールの組み合わせ。docs/poc/tasks/wf-U1-design.md）
 #   （gstack の setup 実行は 2026-11-09 にユーザーの許可を得た。専用 HOME の中だけで実行する）
 # 作業用コピー（既定は /tmp/poc-trials/<ID>。POC_TRIAL_ROOT で変更可）で、専用の HOME を使って Claude Code をヘッドレスで起動する。
 # 作業用コピーをリポジトリの外に置くのは、正解データ（docs/poc/answer-key/）や他の試行の結果へ相対パスで辿れないようにするため。
@@ -19,6 +20,10 @@ SCENARIO="$1"; CAND="$2"; RUN="$3"
 CACHE="${POC_CACHE:-$ROOT/.poc-cache}"
 MODEL="${POC_MODEL:-claude-sonnet-5-5}"
 ID="$SCENARIO-$CAND-$RUN"
+# W22・W23（docs/poc/tasks/wf-W22-design.md・wf-W23-design.md）: hk-<設定> は W21 の設定を Haiku で動かす（試行 ID には hk- を残す）
+if [[ ( "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ) && "$CAND" == hk-* ]]; then
+  CAND="${CAND#hk-}"; MODEL="${POC_MODEL:-claude-haiku-5-5}"
+fi
 TRIALS="${POC_TRIAL_ROOT:-/tmp/poc-trials}"
 WORK="$TRIALS/$ID"
 CONTINUE_FROM=""
@@ -85,6 +90,17 @@ rm -f "$APP/.claude/skills/SOURCES.md"
 for own in "$ROOT"/templates/agents/.claude/skills/*/; do
   [[ -d "$own" ]] && rm -rf "${APP:?}/.claude/skills/$(basename "$own")"
 done
+# U1（UI/UX 系ツールの組み合わせの比較。docs/poc/tasks/wf-U1-design.md）: 構成に入らない vendored の UI 系 Skill を除く。
+# ui-none は両方、ui-a・ui-pm は Frontend Design を除く（Web Design Guidelines は ui-none 以外のすべてに入れる）
+case "$CAND" in
+  ui-none) rm -rf "$APP/.claude/skills/frontend-design" "$APP/.claude/skills/web-design-guidelines" ;;
+  ui-a|ui-pm|ui-a-md|ui-a-rv) rm -rf "$APP/.claude/skills/frontend-design" ;;
+esac
+# W21 の principles（自作の設計の原則のレビュー）だけは、その Skill を入れる（比べる対象そのもののため。
+# baseline コミットより前に入れるので、レビュー対象の差分には出ない。docs/poc/tasks/wf-W21-design.md）
+if [[ ( "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ) && "$CAND" == principles ]]; then
+  cp -a "$ROOT/templates/agents/.claude/skills/design-principles-review" "$APP/.claude/skills/"
+fi
 cat > "$APP/.mcp.json" <<'JSON'
 {"mcpServers":{
   "playwright":{"type":"stdio","command":"npx","args":["-y","@playwright/mcp@0.0.84"]},
@@ -112,10 +128,13 @@ fi
 [[ -z "$INJECT" && ( "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 ) ]] && INJECT="$ROOT/docs/poc/answer-key/$SCENARIO/base.patch"
 # W20（レビューの組み合わせの評価。docs/poc/tasks/wf-W20-design.md）: 回の名前は <題材>-<繰り返し>（例 c2-1）。
 # 題材（answer-key/W20/cases/<題材>/）の base に書いた W の初期状態を当てる（base が無ければ poc-app のまま）
+# W21（見つけにくい問題でのレビューの比較。docs/poc/tasks/wf-W21-design.md）も同じ形（answer-key/W21/cases/）。
 E2_DIR=""
-if [[ "$SCENARIO" == W20 ]]; then
-  E2_CASE="${RUN%-*}"; E2_DIR="$ROOT/docs/poc/answer-key/W20/cases/$E2_CASE"
-  [[ -f "$E2_DIR/review.patch" && -f "$E2_DIR/pr.md" ]] || { echo "W20: 題材が無い: $E2_DIR" >&2; exit 1; }
+if [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ]]; then
+  # W22 は W21 の題材と正解をそのまま使う
+  E2_SCN="$SCENARIO"; [[ "$SCENARIO" == W22 || "$SCENARIO" == W25 ]] && E2_SCN=W21; [[ "$SCENARIO" == W26 ]] && E2_SCN=W24; [[ "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 ]] && E2_SCN=W20
+  E2_CASE="${RUN%-*}"; E2_DIR="$ROOT/docs/poc/answer-key/$E2_SCN/cases/$E2_CASE"
+  [[ -f "$E2_DIR/review.patch" && -f "$E2_DIR/pr.md" ]] || { echo "$SCENARIO: 題材が無い: $E2_DIR" >&2; exit 1; }
   echo "$E2_CASE" > "$OUT/e2-case"
   [[ -z "$INJECT" && -f "$E2_DIR/base" ]] && INJECT="$ROOT/docs/poc/answer-key/$(cat "$E2_DIR/base")/base.patch"
 fi
@@ -142,6 +161,19 @@ if [[ "$CAND" == baseline-conventions ]]; then
   cat "$ROOT/docs/poc/tasks/wf-$SCENARIO-conventions.md" >> "$APP/CLAUDE.md"
   sha256sum "$ROOT/docs/poc/tasks/wf-$SCENARIO-conventions.md" | sed "s#$ROOT/##" > "$OUT/conventions"
 fi
+# U2（docs/poc/tasks/wf-U2-design.md）: *-md の構成は、使う Skill の指示（wf-U2-<構成>.md。固定の文言）を CLAUDE.md の末尾に足す。
+# 初期状態の一部なので、候補からは差分に見えない
+# U4 の *-rv は、作る・レビューの両方の指示（wf-U4-<構成>.md）を足す
+if [[ "$CAND" == *-rv ]]; then
+  cat "$ROOT/docs/poc/tasks/wf-U4-$CAND.md" >> "$APP/CLAUDE.md"
+  sha256sum "$ROOT/docs/poc/tasks/wf-U4-$CAND.md" | sed "s#$ROOT/##" > "$OUT/w24-instruction"
+fi
+# U3 の ui-fd-md-* も、作る段階は ui-fd-md と同じ指示を足す（docs/poc/tasks/wf-U3-design.md）
+if [[ "$CAND" == *-md || "$CAND" == *-md-* ]]; then
+  INSTR="$ROOT/docs/poc/tasks/wf-U2-${CAND%%-md*}-md.md"
+  cat "$INSTR" >> "$APP/CLAUDE.md"
+  sha256sum "$INSTR" | sed "s#$ROOT/##" > "$OUT/w22-instruction"
+fi
 # 汎用の開発標準（W12 の追加条件。POC_STANDARD=generic、W12 のときだけ）: docs/poc/standards/generic-dev-standard.md の
 # 区切り（コメント）より下を、そのまま CLAUDE.md の末尾に足す。試行 ID は回の番号 11・12 で区別する（設計書 §5）。
 if [[ "${POC_STANDARD:-}" == generic && "$SCENARIO" == W12 ]]; then
@@ -153,10 +185,15 @@ elif [[ -n "${POC_STANDARD:-}" ]]; then
 fi
 # W13・W14・W15: 全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準（docs/poc/standards/generic-dev-standard.md の
 # 区切りのコメントより下。全 W 同じ文面）を足す（2026-11-10 コーディネーター・ユーザー承認）。初期状態の一部なので候補からは差分に見えない
-if [[ "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 || ( "$SCENARIO" == W20 && -f "$E2_DIR/standard" ) ]]; then
+if [[ "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 || ( ( "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ) && -f "$E2_DIR/standard" ) ]]; then
   STD="$ROOT/docs/poc/standards/generic-dev-standard.md"
   { echo; sed '1,/^-->$/d' "$STD"; } >> "$APP/CLAUDE.md"
   sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/dev-standard"
+fi
+# W26（docs/poc/tasks/wf-W26-design.md）: baseline-std は、W24 の「動かして確かめる」指示を依頼文ではなく、
+# アプリの CLAUDE.md の規約として足す（標準として配るときの置き方）。初期状態の一部なので候補からは差分に見えない
+if [[ "$SCENARIO" == W26 && "$CAND" == baseline-std ]]; then
+  printf '%s\n' "" "## レビューの規約" "" "- コードをレビューするときは、疑わしい箇所（境界値・日付や時刻・並び順・状態の共有など）を読むだけで判断せず、node で関数を呼ぶ小さな再現スクリプト（作業用コピーの外の一時ファイル）を書いて実際に動かし、結果を確かめてから指摘する。" >> "$APP/CLAUDE.md"
 fi
 ( cd "$APP" && git add -A && git -c user.name=poc -c user.email=poc@example.invalid commit -qm baseline )
 git -C "$APP" config user.name poc
@@ -179,9 +216,17 @@ if [[ "$SCENARIO" == W9 ]]; then
   rm -f "$WORK/review-commit-msg"
   git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
 fi
+# U1c・U1g（U4）: W20 と同じく、レビュー対象の差分（answer-key/U1/review.patch・review-g.patch）を未コミットの変更として置く
+if [[ "$SCENARIO" == U1c || "$SCENARIO" == U1g ]]; then
+  RPATCH="$ROOT/docs/poc/answer-key/U1/review.patch"
+  [[ "$SCENARIO" == U1g ]] && RPATCH="$ROOT/docs/poc/answer-key/U1/review-g.patch"
+  git -C "$APP" apply "$RPATCH"
+  git -C "$APP" add -N .
+  sha256sum "$RPATCH" | sed "s#$ROOT/##" > "$OUT/review-patch"
+fi
 # W20: レビュー対象の差分を、作業ブランチの未コミットの変更として置く（/code-review の「今の差分」と、PR Review Toolkit の
 # git diff の両方に出るよう、新しいファイルも intent-to-add で登録する）。パッチ自体は作業用コピーに置かない
-if [[ "$SCENARIO" == W20 ]]; then
+if [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ]]; then
   git -C "$APP" apply "$E2_DIR/review.patch"
   git -C "$APP" add -N .
   sha256sum "$E2_DIR/review.patch" | sed "s#$ROOT/##" > "$OUT/review-patch"
@@ -201,15 +246,25 @@ copy_plugin() {  # W7b は W7a でコピーしたものをそのまま使う
 PLUGINS=()
 copy_plugin "$CPO/security-guidance" security-guidance
 copy_plugin "$CPO/typescript-lsp" typescript-lsp
-copy_plugin "$CACHE/impeccable/plugin" impeccable
-copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max
+# U1 の構成（ui-*）では、Impeccable と UI/UX Pro Max を構成に入るときだけ読み込む。ほかの候補は従来どおり両方
+case "$CAND" in
+  ui-none|ui-fd|ui-fd-md|ui-fd-md-wdg|ui-wdg-rv) ;;
+  ui-a|ui-a-md|ui-fd-md-imp|ui-a-rv) copy_plugin "$CACHE/impeccable/plugin" impeccable ;;
+  ui-pm) copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max ;;
+  *) copy_plugin "$CACHE/impeccable/plugin" impeccable; copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max ;;
+esac
 case "$CAND" in
   baseline|baseline-conventions) ;;
+  ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md|ui-fd-md-wdg|ui-fd-md-imp|ui-wdg-rv|ui-a-rv) [[ "$SCENARIO" == U1? ]] || { echo "ui-* は U1 の構成: $SCENARIO" >&2; exit 1; } ;;
   superpowers) copy_plugin "$CACHE/superpowers" superpowers ;;
   feature-dev) copy_plugin "$CPO/feature-dev" feature-dev ;;
   # W20 のレビューの設定: cr-low・cr-high は組み込みの /code-review、review-pr・combo は PR Review Toolkit、sp-review は Superpowers
   cr-low|cr-high) ;;
   review-pr|combo) copy_plugin "$CPO/pr-review-toolkit" pr-review-toolkit ;;
+  # W21: principles は自作の Skill（上でコピー済み）、ce-review は Compound Engineering の ce-code-review
+  principles|baseline-run|baseline-std|baseline-e2e|baseline-req|baseline-both|baseline-2pass|baseline-e2e-report) ;;
+  ce-review|ce-full) copy_plugin "$CACHE/compound-engineering" compound-engineering ;;
+  review-pr-full) copy_plugin "$CPO/pr-review-toolkit" pr-review-toolkit ;;
   sp-review) copy_plugin "$CACHE/superpowers" superpowers ;;
   compound-engineering) copy_plugin "$CACHE/compound-engineering" compound-engineering ;;
   gstack)
@@ -251,6 +306,11 @@ if [[ "$SCENARIO" != W11-* ]]; then
   ALLOWED+=("Bash(curl -s:*)" "Bash(npx next:*)")
 fi
 CHILD_ENV=()
+if [[ "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ]]; then
+  # W21・W22: レビューの中で、再現用のスクリプトを node で動かして確かめられるようにする（全設定で同じ。依存のインストールは許可しない）。
+  # 動作確認の試行で、CE が書いた再現スクリプトの実行が拒否されたため（docs/poc/results/workflow/W21/decisions.md）
+  ALLOWED+=("Bash(node:*)" "Bash(timeout * node*)" "Bash(npx tsc:*)" "Bash(npm test:*)" "Bash(npm run test:*)")
+fi
 if [[ "$SCENARIO" == W11-* ]]; then
   # W11: 課題のテストと、再現用のスクリプトの実行を許可する（2026-11-09 ユーザー承認）。依存のインストールは許可しない。
   ALLOWED+=(
@@ -296,6 +356,9 @@ if [[ "$SCN_NUM" -ge 6 && "$SCN_NUM" != 7 && "$SCN_NUM" != 11 ]]; then
   # 子セッションが起動したサーバー・ブラウザが試行後に残らないよう、終了時にも止める（reap_servers は下で定義）
   trap 'declare -F reap_servers >/dev/null && reap_servers end' EXIT
 fi
+# U1: Web Design Guidelines がルールを取得できるよう、取得先だけ WebFetch を許可する（全構成に同じく足す。
+# 2026-11-11 コーディネーター判断。CLAUDE.md の例外: 子セッションの許可リストの変更。U1 の report.md の「判断の記録」）
+[[ "$SCENARIO" == U1? ]] && ALLOWED+=("WebFetch(domain:raw.githubusercontent.com)")
 # W12: 依頼者への質問コマンド ask-po を作業用コピーの外（$WORK/bin）に置き、子セッションの PATH に入れて実行を許可する
 #（2026-11-10 コーディネーター承認。CLAUDE.md の例外: 子セッションの許可リストの変更）。依頼者役は下で裏に起動する。
 if [[ "$SCENARIO" == W12 ]]; then
@@ -354,7 +417,7 @@ else
 $SUFFIX"
 fi
 # W20: 課題文（レビューの依頼の形式）のあとに題材の PR の説明を付ける（定型文は最後）
-if [[ "$SCENARIO" == W20 ]]; then
+if [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ]]; then
   TASK="$(cat "$ROOT/docs/poc/tasks/wf-W20.md")
 
 ---
@@ -376,6 +439,8 @@ if [[ "$SCENARIO" == W3 ]]; then
 else
   case "$CAND" in
     baseline|baseline-conventions|superpowers) STEPS=("$TASK") ;;
+    # U1: どの構成も課題文を渡すだけ（Skill の自動発火）
+    ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md|ui-fd-md-wdg|ui-fd-md-imp|ui-wdg-rv|ui-a-rv) STEPS=("$TASK") ;;
     feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
     compound-engineering) STEPS=("/ce-plan $TASK" "/ce-work" "/ce-code-review") ;;
     gstack) STEPS=("$TASK" "/review") ;;
@@ -436,7 +501,7 @@ $TASK") ;;
     gstack) STEPS=("/review $TASK") ;;
   esac
 fi
-if [[ "$SCENARIO" == W20 ]]; then
+if [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ]]; then
   # W20 の手順（docs/poc/tasks/wf-W20-design.md）: ① 依頼（PR の説明）を渡すだけ → ② レビューの道具 → ③ 出た指摘を REVIEW.md に書き写す。
   # 道具ごとの差を測るため、③ では新しい指摘を足させない
   INTRO="$TASK
@@ -449,8 +514,34 @@ if [[ "$SCENARIO" == W20 ]]; then
     review-pr) STEPS=("$INTRO" "/pr-review-toolkit:review-pr all（対象は未コミットの差分。git diff HEAD で見られる）" "$WRITE") ;;
     combo) STEPS=("$INTRO" "/code-review high" "/pr-review-toolkit:review-pr all（対象は未コミットの差分。git diff HEAD で見られる）" "${WRITE/直前のレビュー/直前の 2 つのレビュー}") ;;
     sp-review) STEPS=("$INTRO" "/superpowers:requesting-code-review 未コミットの差分（git diff HEAD）を、最初の依頼の PR の説明に照らしてレビューする" "$WRITE") ;;
-    *) echo "W20 の候補ではない: $CAND" >&2; exit 1 ;;
+    # W21 の設定（docs/poc/tasks/wf-W21-design.md）。baseline は道具を指定せずにレビューさせる
+    baseline) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。" "$WRITE") ;;
+    principles) STEPS=("$INTRO" "/design-principles-review 未コミットの差分（git diff HEAD）を、最初の依頼の PR の説明に照らしてレビューする" "$WRITE") ;;
+    ce-review) STEPS=("$INTRO" "/ce-code-review base:HEAD" "$WRITE") ;;
+    # W28: 道具なし + 本番ビルドして起動し、変更した画面・API を実際に開いて確かめる指示（docs/poc/tasks/wf-W28-design.md）
+    baseline-e2e) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。コードを読むだけで判断せず、本番ビルド（npm run build）をしてから本番モードでアプリを起動し（npm run start。空いているポートで、バックグラウンドで起動する）、ログインして、変更された画面を実際に開き・変更された API を実際に呼んで、動きを確かめてから指摘してください。画面は Playwright MCP のブラウザで開くか curl で取得してください。確かめ終わったらサーバーを止めてください。" "$WRITE") ;;
+    # W29: 道具なし + 合意した要件を 1 つずつ実装と照らす指示（docs/poc/tasks/wf-W29-design.md）
+    baseline-req) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。まず、最初の依頼の PR の説明にある合意した要件・依頼の内容を 1 つずつ書き出し、それぞれについて、実装の該当箇所（ファイルと関数）を探して、満たしているか・満たしていないか・反しているかを確かめてください。似た要件どうし（例: 画面・API と、ほかの送信元）の違いにも注意してください。そのうえで、要件に反する点と不具合を指摘してください。" "$WRITE") ;;
+    # W30: W28（本番で起動して確かめる）と W29（要件を 1 つずつ照らす）の指示を合わせる（docs/poc/tasks/wf-W30-design.md）
+    baseline-both) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。次の 2 つを行ってから、要件に反する点と不具合を指摘してください。(1) 最初の依頼の PR の説明にある合意した要件・依頼の内容を 1 つずつ書き出し、それぞれについて、実装の該当箇所（ファイルと関数）を探して、満たしているか・満たしていないか・反しているかを確かめる。似た要件どうし（例: 画面・API と、ほかの送信元）の違いにも注意する。(2) コードを読むだけで判断せず、本番ビルド（npm run build）をしてから本番モードでアプリを起動し（npm run start。空いているポートで、バックグラウンドで起動する）、ログインして、変更された画面を実際に開き・変更された API を実際に呼んで、動きを確かめる。画面は Playwright MCP のブラウザで開くか curl で取得する（応答の状態コードとエラーの表示を確かめる）。確かめ終わったらサーバーを止める。" "$WRITE") ;;
+    # W31: W29（要件を照らす）と W28（本番で起動して確かめる）を、1 つの依頼に詰めず別々の段で順に頼む（docs/poc/tasks/wf-W31-design.md）
+    baseline-2pass) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。まず、最初の依頼の PR の説明にある合意した要件・依頼の内容を 1 つずつ書き出し、それぞれについて、実装の該当箇所（ファイルと関数）を探して、満たしているか・満たしていないか・反しているかを確かめてください。似た要件どうし（例: 画面・API と、ほかの送信元）の違いにも注意してください。そのうえで、要件に反する点と不具合を指摘してください。" "続けて、同じ変更を別の見方でレビューしてください。コードを読むだけで判断せず、本番ビルド（npm run build）をしてから本番モードでアプリを起動し（npm run start。空いているポートで、バックグラウンドで起動する）、ログインして、変更された画面を実際に開き・変更された API を実際に呼んで、動きを確かめてから指摘してください。画面は Playwright MCP のブラウザで開くか curl で取得してください。確かめ終わったらサーバーを止めてください。" "${WRITE/直前のレビュー/直前の 2 つのレビュー}") ;;
+    # W32: W28 の指示 + 確かめた結果（状態コード・エラー）を書き、エラーはそれ自体を指摘する（docs/poc/tasks/wf-W32-design.md）
+    baseline-e2e-report) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。コードを読むだけで判断せず、本番ビルド（npm run build）をしてから本番モードでアプリを起動し（npm run start。空いているポートで、バックグラウンドで起動する）、ログインして、変更された画面を実際に開き・変更された API を実際に呼んで、動きを確かめてから指摘してください。画面は Playwright MCP のブラウザで開くか curl で取得してください。開いた画面・呼んだ API ごとに、状態コードと、エラーの表示（500・例外・Application error など）があったかを確かめた結果として書き、エラーが出たものは、原因が分からなくてもそれ自体を指摘してください。確かめ終わったらサーバーを止めてください。" "$WRITE") ;;
+    # W26: 依頼文は道具なしと同じ（指示は CLAUDE.md の規約として足してある）
+    baseline-std) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。" "$WRITE") ;;
+    # W24: 道具なし + 疑わしい所を実際に動かして確かめる指示（docs/poc/tasks/wf-W24-design.md）
+    baseline-run) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。疑わしい箇所（境界値・日付や時刻・並び順・状態の共有など）は、読むだけで判断せず、node で関数を呼ぶ小さな再現スクリプト（作業用コピーの外の一時ファイル）を書いて実際に動かし、結果を確かめてから指摘してください。" "$WRITE") ;;
+    # W22: 道具の手順を最後まで踏ませる設定
+    ce-full) STEPS=("$INTRO" "/ce-code-review base:HEAD depth:full" "$WRITE") ;;
+    review-pr-full) STEPS=("$INTRO" "/pr-review-toolkit:review-pr all（対象は未コミットの差分。git diff HEAD で見られる）。コマンドの手順どおり、当てはまる専門のレビューエージェント（code-reviewer・silent-failure-hunter・pr-test-analyzer・comment-analyzer・type-design-analyzer など）を Task ツールで並列に起動し、その結果をまとめてください。専門エージェントを起動せずに自分だけでレビューして済ませないでください。" "$WRITE") ;;
+    *) echo "$SCENARIO の候補ではない: $CAND" >&2; exit 1 ;;
   esac
+fi
+# W34（docs/poc/tasks/wf-W34-design.md）: レビューの指摘を REVIEW.md に書いた後、同じ会話でその指摘に沿って直させる。
+# 直した後のコードの質（隠しテスト・差分・変異・時間がたった状態でのテスト）を grade_w34.py が測る
+if [[ "$SCENARIO" == W34 ]]; then
+  STEPS+=("REVIEW.md の指摘に沿って、直すべきものを直してください。直さない指摘は、理由を REVIEW.md の末尾に追記してください。型検査（npm run typecheck）とテスト（npm test）が通ることを確かめてから、変更（PR の差分と、あなたの修正）をすべて git にコミットしてください。")
 fi
 
 # 1 試行の費用の上限（米ドル。空なら上限なし）。
@@ -489,7 +580,7 @@ if [[ "${POC_DISABLE_AUTO_MEMORY:-}" == 1 ]] || [[ -z "${POC_DISABLE_AUTO_MEMORY
   echo 1 > "$OUT/auto-memory-disabled"
 fi
 [[ "$SCENARIO" == W6 ]] && NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、PR.md を含めて変更を git にコミットしてください。"
-[[ "$SCENARIO" == W9 || "$SCENARIO" == W20 ]] && NUDGE="お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。"
+[[ "$SCENARIO" == W9 || "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 || "$SCENARIO" == U1c || "$SCENARIO" == U1g ]] && NUDGE="お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。"
 # W19 の代理人ありの試行は「お任せ」と言わない（代理人の判断 D7。代理人なしの対照は従来の文）
 [[ "$SCENARIO" == W19 && "${POC_PROXY:-1}" != 0 ]] && NUDGE="ここまでの回答のとおりに進めてください。課題を最後まで実装し、変更を git にコミットしてください。"
 
@@ -682,13 +773,13 @@ for _ in $(seq 1 "$MAX_NUDGES"); do
   # W6 以降の Playwright MCP が自動で書き出すページの記録（.playwright-mcp/）も数えない（W5 までは出ない）
   dirty="$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' ':!.playwright-mcp' | head -1)"
   # W20 はレビュー対象の差分を未コミットで置くので、未コミットの変更は見ない（REVIEW.md のコミットだけで判定する）
-  [[ "$SCENARIO" == W20 ]] && dirty=""
+  [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 || "$SCENARIO" == U1c || "$SCENARIO" == U1g ]] && dirty=""
   # W3 は要件文書（REQUIREMENTS.md）がコミットされていることも完了の条件にする
   if [[ "$SCENARIO" == W3 ]] && ! git -C "$APP" cat-file -e HEAD:REQUIREMENTS.md 2>/dev/null; then commits=0; fi
   # W6 は PR の本文（PR.md）がコミットされていることも完了の条件にする
   if [[ "$SCENARIO" == W6 ]] && ! git -C "$APP" cat-file -e HEAD:PR.md 2>/dev/null; then commits=0; fi
   # W9 はレビューの指摘（REVIEW.md）がコミットされていることも完了の条件にする
-  if [[ ( "$SCENARIO" == W9 || "$SCENARIO" == W20 ) ]] && ! git -C "$APP" cat-file -e HEAD:REVIEW.md 2>/dev/null; then commits=0; fi
+  if [[ ( "$SCENARIO" == W9 || "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 || "$SCENARIO" == U1c || "$SCENARIO" == U1g ) ]] && ! git -C "$APP" cat-file -e HEAD:REVIEW.md 2>/dev/null; then commits=0; fi
   [[ "$commits" -gt 0 && -z "$dirty" ]] && break
   if over_budget; then echo "nudge skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
   i=$((i+1))
@@ -752,6 +843,16 @@ if [[ "$SCENARIO" == W13 ]]; then
     run_step "$i" "$NUDGE"
     qa_loop
   done
+fi
+# U3: 作る段階（手順と介入）が終わった時点を「仕上げの前」として記録し、仕上げの工程を後の手順として行う
+if [[ "$CAND" == ui-fd-md-wdg || "$CAND" == ui-fd-md-imp ]]; then
+  ( cd "$APP" && git add -A && git commit -qm "poc: uncommitted leftovers before polish" ) || true
+  git -C "$APP" rev-parse HEAD > "$OUT/pre-polish-commit"
+  echo "$i" > "$OUT/pre-polish-step"
+  case "$CAND" in
+    ui-fd-md-wdg) POST_STEPS=("web-design-guidelines Skill を使って、今回作った画面をレビューしてください。見つかった問題のうち直すべきものを直し、ブラウザで見た目を確かめてから、変更を git にコミットしてください。") ;;
+    ui-fd-md-imp) POST_STEPS=("/impeccable:impeccable polish 今回作った画面（課題で依頼された画面）を仕上げてください。直したら、ブラウザで見た目を確かめてから、変更を git にコミットしてください。") ;;
+  esac
 fi
 for step in "${POST_STEPS[@]}"; do
   if over_budget; then echo "post step skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi

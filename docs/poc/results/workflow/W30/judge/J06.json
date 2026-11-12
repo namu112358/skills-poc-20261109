@@ -1,0 +1,127 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "計測器の一覧（instruments/page.tsx・listInspectionPlans）に担当者での絞り込み・並べ替えが無く、?inspector= や sort= が無視される。",
+   "severity": "高",
+   "match": "G1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "担当者ごとに点検が遅れている台数を数える集計（API・画面）が実装されていない。",
+   "severity": "高",
+   "match": "G2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "recordInspection が要修理の記録で貸出中の計測器まで suspended にし、返却処理でも戻らず台帳と貸出が食い違う。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "一覧が全計測器の点検計画を相関サブクエリ付きで全件読み込み、ページ分割も無いため 5 万件で遅くなる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "マイグレーション 6 の後、新しい版で登録した点検・担当者が前の版から見えず、戻した版で extra に書かれた値は user_version=6 のため再移行されない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "PATCH /api/instruments/:id で extra.inspector を書くと 200 が返るのに新しい版では反映されず、GET の extra も古い値のまま残る。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "最後の点検日を MAX(inspected_on) で決めているので訂正の仕組みが無く、誤って新しい日付で登録した記録を直せない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "誤って要修理として使用停止にした計測器は、良好の記録を足しても in_use に戻らない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "normalizeInspectorName が入力側だけを正規化するため、空白入りの利用者名や重複する名前が担当者として一致しない。",
+   "severity": "低〜中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 10,
+   "summary": "importLegacyInspections の catch { continue; } が、壊れた extra の JSON をログも出さずに黙って飛ばす。",
+   "severity": "低〜中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 11,
+   "summary": "parseLegacyDate で読めない日付しか無い計測器は「未点検」と表示され、旧記録があることと矛盾して見える。",
+   "severity": "低〜中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "結果の無い旧データを result='good' で移行しているため、集計で「良好」に数えられる。",
+   "severity": "低〜中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 13,
+   "summary": "updateInspectionPlan が legacy_inspector を NULL にするので、担当者を変えると旧来の点検者の書き方が失われる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 14,
+   "summary": "recordInspection で廃棄済みの計測器にも点検記録を登録できる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 15,
+   "summary": "一覧で、退職・休職の担当者に「在籍していません」の印が出ない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 16,
+   "summary": "PATCH .../inspection で現在の担当者を読む処理と更新が別のトランザクションになっており、競合の余地がある。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 17,
+   "summary": "API Route の状態コード（401・404・400）のテストが無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0891518
+ }
+}

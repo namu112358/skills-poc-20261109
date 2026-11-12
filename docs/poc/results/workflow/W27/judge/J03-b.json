@@ -1,0 +1,64 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "マイグレーション5の after で location_id だけを設定し、表記ゆれの行の instruments.location 列を正式名に書き換えないため、経理が読む列に旧表記が残る（要件7）",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 2,
+   "summary": "location-master.ts の updateLocation で場所の名前を変えても、その場所の計測器の location 列が旧名のまま残る",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "登録・編集APIで locationId を送って保存しても、updateInstrument などが location 列を更新せず旧値のまま残る",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "recordInventory でハンディ端末の文字が正式な場所に一致しても、location 列にマスタ名ではなく端末が送った生の文字が入る",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "validateLocation の locationId の分岐で locationOriginal が未設定のため、createInstrument が undefined を bind して例外になり、locationId を指定した登録が500になる",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "前の版に戻して旧アプリで場所を編集しても、新しい版に戻すと location_id が優先されて編集が反映されず、運用メモにも書かれていない（要件8）",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 7,
+   "summary": "ハンディ端末で、確定済みの計測器に一致しない文字が来ると保存せずログだけを出し、要件6の「確認中として残す」と異なる",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 8,
+   "summary": "ALIASES で末尾が切れた表記（大阪営・名古屋営）を営業所に寄せるのは根拠のない推測で、要件2の「同じ場所と分かるものだけ」を超える",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.030099800000000003
+ }
+}

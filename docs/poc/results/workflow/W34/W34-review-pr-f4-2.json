@@ -1,0 +1,152 @@
+{
+ "trial": "W34-review-pr-f4-2",
+ "scenario": "W34",
+ "config": "review-pr",
+ "case": "f4",
+ "rep": 2,
+ "review_md": "# レビュー: タスク集計 API（`GET /api/tasks/summary`）\n\n実装本体（`src/lib/summary.ts`・ルート）は、JST の日付計算、プレースホルダの使用、ログイン確認、400 の返し方とも規約どおりで、重大な欠陥は見つかりませんでした。問題はテストに集中しています。\n\n## 1. 【高】初期データの集計テストが実行日に依存する\n- 場所: `tests/summary.test.ts` の `summarizes the seed data`（`summarizeTasks(openDb())`）\n- 問題: `now` を渡さないため実際の現在日時で集計します。一方、初期データの期限は `2026-11-02`〜`2026-11-25` の固定日付です。期待値 `{ overdue: 0, dueToday: 1, dueSoon: 2 }` は 2026-11-12 の JST にだけ成り立ちます。翌日（11-13）以降は dueToday が 0 になるなど、CI で必ず落ちます。今回の「通る」は、たまたま今日が 11-12 だからです。\n- 直し方: 固定の `now`（例: `new Date(\"2026-11-12T03:00:00+09:00\")`）を渡す。\n\n## 2. 【高】「今日が期限」のテストが UTC の日付を使っていて、JST と食い違う\n- 場所: `tests/summary.test.ts` の `counts a new task that is due today`（`new Date().toISOString().slice(0, 10)`）\n- 問題: 実装は日本時間で数えますが、テストは UTC の日付で「今日」を作ります。UTC 15:00〜24:00（JST 翌日 0:00〜9:00）は日付がずれ、`dueToday` が 2 にならず落ちます。さらに seed の期限日にも依存します（#1 と同じ）。このずれはまさにこの機能が守るべき点なのに、テストが逆に検証していません。\n- 直し方: 固定の `now` を渡し、期限もその JST 日付から作る。\n\n## 3. 【中】実行時間を測るテストは不安定\n- 場所: `tests/summary.test.ts` の `is fast enough for the dashboard`\n- 問題: 300 ms の壁時計判定は、負荷の高い CI で偶然落ちます。また `openDb()`（マイグレーション・seed 投入）の時間も含み、集計の性能を測れていません。機能の検証にもなりません。\n- 直し方: 削除する。\n\n## 4. 【中】集計の中身を検証するテストが足りない\n- 場所: `tests/summary.test.ts`\n- 問題: PR の要点が未検証です。\n  - 完了タスクが期限の件数に入らないこと（`status != 'done'`）。`total` には完了も含む点も固定すべきです。\n  - 境界: 昨日（overdue）・今日・明日・`soonDays` 日後（含む）・その翌日（含まない）。\n  - `soonDays` を変えたときの結果。月またぎ・年またぎ（`addDays`）。\n  - JST の日付境界（例: `2026-11-12T16:00:00Z` は JST で 11-13）。\n  - `parseSoonDays` の `1`・`90` が通ること、`91`・`07`・`1.5`・空文字が 400 になること。\n  - ルートの 401（未ログイン）と 400。\n- 直し方: 固定の `now` と最小の DB を使って上記を追加する。\n\n## 5. 【低】`total` の定義が説明にない\n- 場所: `src/lib/summary.ts` の `summarizeTasks`（`COUNT(*)`）、関数コメント「未完了のタスクを…数える」\n- 問題: コメントは未完了を数えると読めますが、`total` は完了も含む全件です。PR の説明（完了は期限の数に入れない）とは矛盾しませんが、コメントと食い違います。\n- 直し方: コメントに「total は完了を含む全件」と書く（または仕様どおりか確認する）。\n\n## 6. 【低】日付整形が ICU のロケールデータに依存する\n- 場所: `src/lib/summary.ts` の `JST_DATE`（`Intl.DateTimeFormat(\"sv-SE\", …)`）\n- 問題: `YYYY-MM-DD` になるのは sv-SE の書式に頼った挙動です。ICU が最小構成の Node では書式が変わるおそれがあります。\n- 直し方: `formatToParts` で年・月・日を組み立てるか、`en-CA` と合わせてテストで書式を固定する。\n",
+ "review_commit": "1f596357e251b3a1122d7f637093de63db8eac29",
+ "review_md_final": "# レビュー: タスク集計 API（`GET /api/tasks/summary`）\n\n実装本体（`src/lib/summary.ts`・ルート）は、JST の日付計算、プレースホルダの使用、ログイン確認、400 の返し方とも規約どおりで、重大な欠陥は見つかりませんでした。問題はテストに集中しています。\n\n## 1. 【高】初期データの集計テストが実行日に依存する\n- 場所: `tests/summary.test.ts` の `summarizes the seed data`（`summarizeTasks(openDb())`）\n- 問題: `now` を渡さないため実際の現在日時で集計します。一方、初期データの期限は `2026-11-02`〜`2026-11-25` の固定日付です。期待値 `{ overdue: 0, dueToday: 1, dueSoon: 2 }` は 2026-11-12 の JST にだけ成り立ちます。翌日（11-13）以降は dueToday が 0 になるなど、CI で必ず落ちます。今回の「通る」は、たまたま今日が 11-12 だからです。\n- 直し方: 固定の `now`（例: `new Date(\"2026-11-12T03:00:00+09:00\")`）を渡す。\n\n## 2. 【高】「今日が期限」のテストが UTC の日付を使っていて、JST と食い違う\n- 場所: `tests/summary.test.ts` の `counts a new task that is due today`（`new Date().toISOString().slice(0, 10)`）\n- 問題: 実装は日本時間で数えますが、テストは UTC の日付で「今日」を作ります。UTC 15:00〜24:00（JST 翌日 0:00〜9:00）は日付がずれ、`dueToday` が 2 にならず落ちます。さらに seed の期限日にも依存します（#1 と同じ）。このずれはまさにこの機能が守るべき点なのに、テストが逆に検証していません。\n- 直し方: 固定の `now` を渡し、期限もその JST 日付から作る。\n\n## 3. 【中】実行時間を測るテストは不安定\n- 場所: `tests/summary.test.ts` の `is fast enough for the dashboard`\n- 問題: 300 ms の壁時計判定は、負荷の高い CI で偶然落ちます。また `openDb()`（マイグレーション・seed 投入）の時間も含み、集計の性能を測れていません。機能の検証にもなりません。\n- 直し方: 削除する。\n\n## 4. 【中】集計の中身を検証するテストが足りない\n- 場所: `tests/summary.test.ts`\n- 問題: PR の要点が未検証です。\n  - 完了タスクが期限の件数に入らないこと（`status != 'done'`）。`total` には完了も含む点も固定すべきです。\n  - 境界: 昨日（overdue）・今日・明日・`soonDays` 日後（含む）・その翌日（含まない）。\n  - `soonDays` を変えたときの結果。月またぎ・年またぎ（`addDays`）。\n  - JST の日付境界（例: `2026-11-12T16:00:00Z` は JST で 11-13）。\n  - `parseSoonDays` の `1`・`90` が通ること、`91`・`07`・`1.5`・空文字が 400 になること。\n  - ルートの 401（未ログイン）と 400。\n- 直し方: 固定の `now` と最小の DB を使って上記を追加する。\n\n## 5. 【低】`total` の定義が説明にない\n- 場所: `src/lib/summary.ts` の `summarizeTasks`（`COUNT(*)`）、関数コメント「未完了のタスクを…数える」\n- 問題: コメントは未完了を数えると読めますが、`total` は完了も含む全件です。PR の説明（完了は期限の数に入れない）とは矛盾しませんが、コメントと食い違います。\n- 直し方: コメントに「total は完了を含む全件」と書く（または仕様どおりか確認する）。\n\n## 6. 【低】日付整形が ICU のロケールデータに依存する\n- 場所: `src/lib/summary.ts` の `JST_DATE`（`Intl.DateTimeFormat(\"sv-SE\", …)`）\n- 問題: `YYYY-MM-DD` になるのは sv-SE の書式に頼った挙動です。ICU が最小構成の Node では書式が変わるおそれがあります。\n- 直し方: `formatToParts` で年・月・日を組み立てるか、`en-CA` と合わせてテストで書式を固定する。\n\n## 対応状況\n\n指摘 1〜6 はすべて修正した（直さなかった指摘は無い）。\n- 1・2・3: テストを固定の `now` に変更し、実行時間のテストを削除した。\n- 4: 境界・完了除外・日本時間の日付境界・月/年またぎ・`parseSoonDays` の各値のテストを追加した。ルートの 401・400 は、既存に API Route のテスト基盤が無く（`next/headers` に依存）、検証ロジックは `parseSoonDays` のテストで押さえたため、ルート単体のテストは追加していない。\n- 5: コメントを「total は完了を含む全件」に直した。\n- 6: `formatToParts` で日付を組み立てる形にした。\n",
+ "fixed": {
+  "diff_added": 126,
+  "diff_deleted": 0,
+  "pr_added": 89,
+  "pr_deleted": 0,
+  "commits": [
+   "3202808 タスク集計 API を追加し、レビュー指摘（テストの日付依存・JST・日付整形）を修正",
+   "1f59635 PR レビュー: タスク集計 API の指摘を REVIEW.md に追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 26,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "初期データを、渡した時刻を基準に数える",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "日本時間の日付で数える（日本時間の朝 = UTC の前日でも）",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "期限が近いの日数を変えられる",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "日数の検証",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 4,
+   "log": ""
+  },
+  "mutation": {
+   "items": [
+    {
+     "id": "M1",
+     "status": "killed"
+    },
+    {
+     "id": "M2",
+     "status": "killed"
+    },
+    {
+     "id": "M3",
+     "status": "killed"
+    },
+    {
+     "id": "M4",
+     "status": "killed"
+    },
+    {
+     "id": "M5",
+     "status": "killed"
+    },
+    {
+     "id": "M6",
+     "status": "killed"
+    }
+   ],
+   "killed": 6,
+   "applicable": 6
+  },
+  "perturb": {
+   "files": [
+    "tests/summary.test.ts"
+   ],
+   "tests": 7,
+   "baseline_fail": 0,
+   "perturbations": [
+    {
+     "id": "P1",
+     "status": "pass",
+     "failed_tests": 0
+    },
+    {
+     "id": "P2",
+     "status": "pass",
+     "failed_tests": 0
+    },
+    {
+     "id": "P3",
+     "status": "fail",
+     "failed_tests": 1
+    },
+    {
+     "id": "P4",
+     "status": "fail",
+     "failed_tests": 1
+    },
+    {
+     "id": "P5",
+     "status": "pass",
+     "failed_runs": 0
+    }
+   ],
+   "fragile": 2
+  }
+ },
+ "transcript": {
+  "cost_usd": 0.3385,
+  "tokens": {
+   "input": 34,
+   "output": 9928,
+   "cache_read": 673435,
+   "cache_creation": 42948
+  },
+  "turns": 18,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cat > tests/summary.test.ts <<'EOF'\\nimport { describe, it } from \\\"node:test\\\";\\nimport assert from \\\"node:assert/strict\\\";\\nimport { openDb } from \\\"../src/lib/db/index.ts\\\";\\nimport { "
+   }
+  ],
+  "tool_calls": {
+   "Bash": 9,
+   "Write": 1,
+   "Read": 1,
+   "Edit": 3
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 97,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "指摘 6 件をすべて直し、コミットしました（3202808）。型検査は通り、テストは 26 件とも通りました。作業ツリーに未コミットの変更は残っていません。\n\n- **指摘 1・2・3（テストの日付依存・UTC・実行時間）:** テストを固定の「今」（日本時間 2026-11-12 12:00）で動かすようにしました。実行時間を測るテストは削除しました。\n- **指摘 4（テスト不足）:** 次のテストを追加しました。\n  - 昨日・今日・明日・`soonDays` 日後とその翌日の境界\n  - 完了タスクを期限の数に入れないこと\n  - UTC と日本時間の日付がずれる時刻\n  - 月またぎ・年またぎ\n  - `parseSoonDays` の 1・90 が通ることと、0・91・07・1.5・-1・abc・空文字が弾かれること\n- **指摘 5（`total` のコメント）:** コメントを「total は完了を含む全件」に直しました。\n- **指摘 6（日付整形）:** `sv-SE` の書式に頼るのをやめ、`formatToParts` で年月日を組み立てるようにしました。\n\nAPI ルートの 401 と 400 のテストは追加していません。ルートは `next/headers` に依存し、既存にルートのテスト基盤が無いためです。400 の判定は `parseSoonDays` のテストで押さえています。この理由は `REVIEW.md` の末尾の「対応状況」にも書きました。"
+ },
+ "interventions": 0
+}

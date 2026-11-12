@@ -1,0 +1,33 @@
+{
+  "trial": "W21-review-pr-c3-2",
+  "scenario": "W21",
+  "config": "review-pr",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# レビュー: タスク一覧の CSV ダウンロード API\n\n対象: `src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`\n\n## 1. ダブルクォートをエスケープしていない\n\n- **重要度**: 高\n- **場所**: `src/lib/export.ts` の `field`\n- **問題**: 値を `\"${value}\"` で囲むだけで、値の中の `\"` を `\"\"` に置き換えていない。PR の説明は「引用符が含まれても列がずれない」とあるが、実装は満たしていない。タイトルが `彼は\"急ぎ\"と言った` のとき、出力は `\"3\",\"彼は\"急ぎ\"と言った\",...` となり、Excel では列がずれるか行全体が壊れる。タイトルは任意の文字列（200 字まで）を受け付けるため、実際に起こる。カンマと改行は、全項目を囲んでいるので問題ない。\n- **直し方**: `field` で `String(value).replace(/\"/g, '\"\"')` をしてから囲む。\n\n## 2. 不正な `status` が「指定なし」にならない\n\n- **重要度**: 中\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`\n- **問題**: `searchParams.get(\"status\") as TaskStatus | null` と型をキャストしているだけで、検証していない。`?status=foo` では `listTasks` が `status = 'foo'` で絞り込み、0 件（見出しだけの CSV）になる。PR の説明と、CLAUDE.md の規約 2（クエリは型ガードで検証し、不正値は「指定なし」）に反する。`/api/tasks` は `isTaskStatus` を使っている。\n- **直し方**: `isTaskStatus(status) ? status : undefined` にする。`as` のキャストをやめる。\n\n## 3. CSV インジェクション（数式の実行）\n\n- **重要度**: 中\n- **場所**: `src/lib/export.ts` の `field`（タイトル・担当者などの文字列項目）\n- **問題**: タイトルは任意のログインユーザーが登録できる。`=HYPERLINK(...)`、`=cmd|...`、`+`、`-`、`@` で始まるタイトルは、Excel で開いたときに数式として評価される。週次の報告で Excel に貼ることが前提なので、他のユーザーが作ったタイトルで閲覧者が被害を受けうる。ダブルクォートで囲んでも防げない。\n- **直し方**: 先頭が `= + - @` やタブ・CR の文字列項目は、先頭に `'` を付ける（または半角スペースを付ける。OWASP の推奨）。数値の ID と日付は対象外。\n\n## 4. テストが説明どおりの内容を確認していない\n\n- **重要度**: 中\n- **場所**: `tests/export.test.ts`（「escapes quotes and commas in titles」、先頭のテスト）\n- **問題**: 「escapes quotes and commas in titles」のタイトルは `週次 定例の準備`（記号なし）で、引用符・カンマ・改行のどれも含まない。そのため指摘 1 のバグを検出できず、通っている。`status` の絞り込み（不正値を含む）と、API Route（401、Content-Type、BOM、Content-Disposition）のテストもない。CLAUDE.md の規約 5 の趣旨を満たしていない。また先頭のテストは seed の 7 件に依存している（`lines.length === 9`）ので、seed が変わると壊れる。\n- **直し方**: タイトルに `a,\"b\"` と改行を含むタスクで、`\"a,\"\"b\"\"\"` のような期待値を確認する。`=` で始まるタイトルのテストも足す。`status` の検証は `src/lib/` の関数に出してテストし、BOM の先頭付与も確認する。件数は `listTasks` の結果から計算する。\n\n## 5. 数値の ID も文字列として囲んでいる\n\n- **重要度**: 低\n- **場所**: `src/lib/export.ts` の `field`（ID の列）\n- **問題**: ID を `\"1\"` と囲むため、Excel に貼り付けたときの扱いは取り込み方によるが、数値として並べ替えや集計ができない場合がある。\n- **直し方**: 数値は囲まずに出力する（テストの期待値も更新する）。必須ではない。\n",
+  "review_chars": 2077,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2353,
+    "tokens": {
+      "input": 20,
+      "output": 5312,
+      "cache_read": 343844,
+      "cache_creation": 36931
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 50,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` の 5 件を、各指摘に重要度・場所・問題・直し方を並べた形に整理し直してコミットしました。指摘の追加と削除はなく、内容は前回と同じです。コードは触っていません。コミットしたのは `REVIEW.md` だけで、PR の 3 ファイルは未コミットのままです。\n\n| # | 重要度 | 場所 | 内容 |\n|---|---|---|---|\n| 1 | 高 | `src/lib/export.ts` の `field` | `\"` を `\"\"` にしておらず、列がずれる |\n| 2 | 中 | `route.ts` の `GET` | `status` を検証せず、不正値が 0 件になる |\n| 3 | 中 | `export.ts` の `field` | `=`、`+`、`-`、`@` で始まる値が Excel で数式になる |\n| 4 | 中 | `tests/export.test.ts` | 引用符・カンマ・改行のテストがなく、`status` と API のテストも不足 |\n| 5 | 低 | `export.ts` の `field` | 数値の ID も文字列として囲んでいる |\n\nテストの指摘は、前回 4 の補足に書いていた「先頭のテストが seed の 7 件に依存している」点を、4 の本文に取り込みました。"
+  },
+  "interventions": 0
+}

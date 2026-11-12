@@ -1,0 +1,42 @@
+{
+  "trial": "W22-review-pr-full-c5-1",
+  "scenario": "W22",
+  "config": "review-pr-full",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# PR レビュー: `assignee` → `assigneeId` / `assignee_id` への改名\n\n結論: **このままではマージ不可**。PR の目的は「画面の表示と API の入出力を変えない」ことだが、一覧画面の担当者欄が空になり、API の入出力も変わっている。`npm run typecheck` と `npm test`（19 件）は通るが、どちらもこれらを検出できない（`as TaskRow[]` のキャストで型検査をすり抜け、`listTasks` のテストが件数と絞り込みしか見ていないため）。\n\nレビューは code-reviewer・silent-failure-hunter・pr-test-analyzer・comment-analyzer・type-design-analyzer の 5 エージェントで実施した。`listTasks` の不具合と API キーの変更は、複数のエージェントが実行して確認している。\n\n## 指摘一覧\n\n### 1. [高] `listTasks` の SQL が列を `assignee` に別名付けしており、一覧の担当者が常に `undefined` になる\n\n- 場所: `src/lib/tasks.ts` の `listTasks`（SELECT 文、37 行目付近）。対応するマッピングは `toTask`（32 行目）と `TaskRow`（29 行目）。\n- 問題: `SELECT ... assignee_id AS assignee ...` としているが、`TaskRow` / `toTask` は `row.assignee_id` を読む。そのため `assigneeId` が `undefined` になる。`as TaskRow[]` のキャストで tsc も通る。`getTask` は別名なしで正しく動くので、詳細画面だけ正常で一覧が壊れる。\n- 起きること（実行で確認済み）:\n  - `/tasks` の「担当者」列（`src/app/tasks/page.tsx` 47 行目）が全行で空になる。エラーは出ない。\n  - `GET /api/tasks` の各タスクから担当者のキーが消える（`JSON.stringify` が `undefined` を落とす）。例: `{\"id\":1,\"title\":\"要件定義書のレビュー\",\"status\":\"done\",\"dueDate\":\"2026-11-02\"}`。`GET /api/tasks/:id` には含まれるので、一覧と詳細で食い違う。\n- 直し方: `AS assignee` を外し、`getTask` と同じく `assignee_id` をそのまま選ぶ。列リストを定数（例: `TASK_COLUMNS`）にして両方のクエリで共有すると再発しにくい。`toTask` で必須列が無いときに例外を投げる、または `as unknown as TaskRow[]` と書いて信頼境界を見えるようにするのも有効。\n\n### 2. [高] API のレスポンスのキーが `assignee` から `assigneeId` に変わっている\n\n- 場所: `src/lib/tasks.ts` の `Task` 型（9 行目）。これをそのまま JSON で返す `src/app/api/tasks/route.ts`（GET・POST）と `src/app/api/tasks/[id]/route.ts`（GET・PATCH）。\n- 問題: 各 Route は `Task` をそのままシリアライズするため、内部の改名が API の出力に漏れる。PR の「API の入出力は変えない」に反する。CLAUDE.md にも API の仕様変更は書かれていない。\n- 起きること: `GET /api/tasks/1` が `\"assignee\":\"sato\"` ではなく `\"assigneeId\":\"sato\"` を返す。`task.assignee` を読んでいる既存クライアントは `undefined` になる。\n- 直し方: `src/lib/` に API 用の変換関数（例: `toTaskJson(task) => ({ id, title, status, assignee: task.assigneeId, dueDate })`）を置き、4 つのレスポンスすべてで使う（コーディング規約 1 にも合う）。API の名前も変えると決めるなら、CLAUDE.md と PR の説明に破壊的変更として明記する。ただしその場合は「変えない」という前提が崩れる。\n\n### 3. [高] `validateTaskInput` が本文のキーを `assigneeId` に変えたため、既存のリクエストが失敗する、または黙って無視される\n\n- 場所: `src/lib/tasks.ts` の `validateTaskInput`（87〜92 行目、`need(\"assigneeId\")` と `b.assigneeId`）。\n- 問題と起きること:\n  - `POST /api/tasks` に `{\"title\":\"a\",\"status\":\"todo\",\"assignee\":\"sato\",\"dueDate\":\"2026-12-01\"}` を送ると、400「担当者が存在しません」になる。担当者を送っているのに誤解を招くエラーで、既存の作成クライアントはすべて壊れる。\n  - `PATCH /api/tasks/1` に `{\"assignee\":\"suzuki\"}` を送ると、partial モードでは `need(\"assigneeId\")` が偽になり、検証は `{ ok: true, value: {} }` を返す。Route は 200 で変更なしのタスクを返し、担当者の変更は黙って捨てられる。クライアントには成功に見えるため、こちらのほうが悪質。\n  - 未知のキーを検査していないため、PATCH ではキーの打ち間違いも同様に黙って無視される。\n- 直し方: 外部に見せる本文のキーは `assignee` のままにして、関数の中で `value.assigneeId` に詰め替える。テストの入力（`tests/tasks.test.ts` の 48・56・77 行目付近）は `validateTaskInput` に渡す本文だけ `assignee` に戻す。あわせて PATCH で空の `value`（更新項目なし）を 400 にする、または未知のキーを拒否することを検討する。\n\n### 4. [中] 変更したロジックのテストが無い（CLAUDE.md 規約 5）\n\n- 場所: `tests/tasks.test.ts`（`listTasks` のテスト）、`tests/db.test.ts`。\n- 問題: 既存テストは項目名を機械的に置き換えただけで、`listTasks` が返すデータの形を検査していない。そのため指摘 1 が通ってしまった。マイグレーション 3 を既存データ付きの DB に適用するテストも無い（`openDb()` は常に新規作成）。\n- 追加すべきテスト:\n  - `listTasks({}, db)` の各要素が `getTask(id, db)` と `deepEqual` になること（または `assigneeId` が文字列であること）。\n  - `validateTaskInput({ assignee: \"suzuki\" }, { partial: true }, db)` が `{ assigneeId: \"suzuki\" }` を返すこと（指摘 3 を直した場合）。API 用の変換関数を作った場合は、JSON のキーが `assignee` であること。\n  - `MIGRATIONS.slice(0, 2)` で v2 の DB を作ってデータを入れ、`migrate(db)` 後に、データが残ること、`user_version` が 3 になること、`PRAGMA table_info(tasks)` に `assignee_id` があり `assignee` が無いことを確認するテスト。\n  - 外部キーのテストは、挿入が失敗するだけでは列が無くても通る。エラーメッセージが外部キー違反であることか、`PRAGMA foreign_key_list(tasks)` の `from=assignee_id` を確認する。\n  - `updateTask` を `assigneeId` だけで呼ぶテスト（現状は `status` のみ）。\n\n### 5. [低] `validateTaskInput` と `TaskInput` の型がつながっておらず、改名の取りこぼしをコンパイラが検出できない\n\n- 場所: `src/lib/tasks.ts` の `need(key: string)`（76 行目付近）、`b.assigneeId as string`（92 行目）、`src/app/api/tasks/route.ts` の `result.value as TaskInput`。\n- 問題: キーが文字列リテラルのため、打ち間違いや改名の一部漏れがコンパイルを通る。非 partial でも戻り値が `Partial<TaskInput>` のため、Route 側でキャストが必要になっている。\n- 直し方: `need(key: keyof TaskInput)` にする。オーバーロードやジェネリクスで、非 partial なら `TaskInput`、partial なら `Partial<TaskInput>` を返すようにしてキャストをなくす。`b.assigneeId` はローカル変数に取り出して `typeof` で絞り込み、冗長な `as string` をやめる。\n\n### 6. [低] `updateTask` の `{ ...current, ...changes }` が明示的な `undefined` で上書きされうる\n\n- 場所: `src/lib/tasks.ts` の `updateTask`（111〜118 行目）。\n- 問題: `changes` に `assigneeId: undefined` が入ると `current` の値を上書きし、`node:sqlite` の束縛で例外になる（偶然に大きな音で失敗するだけ）。現状は検証関数が `undefined` を作らないため影響は小さい。\n- 直し方: `undefined` の項目を除いてからマージする、または項目ごとに `changes.assigneeId ?? current.assigneeId` で組み立てる。\n\n### 7. [低] マイグレーション 3 のコメントにインデックス名が変わらないことが書かれていない\n\n- 場所: `src/lib/db/migrations.ts` のマイグレーション 3 のコメント（43 行目付近）。\n- 状況: コメントの「インデックス・外部キーは SQLite が付け替える」は正確（SQLite 3.53.4 で、インデックスが `assignee_id` を指すこと、外部キーが `assignee_id → users.id` になり制約も効くこと、データが残ることを確認済み。マイグレーション自体に問題は無い）。ただしインデックス名は `tasks_assignee` のまま残る。\n- 直し方: 「インデックス名 `tasks_assignee` は変わらない」と一言足す。名前も揃えたいなら、マイグレーション 3 に `DROP INDEX tasks_assignee; CREATE INDEX tasks_assignee_id ON tasks(assignee_id);` を足す（マイグレーション 1 は規約 7 により書き換えない）。\n\n### 8. [低] 画面側の `??` フォールバックと一覧の ID 表示が、データ欠落を隠す\n\n- 場所: `src/app/tasks/[id]/page.tsx` の 15 行目・27 行目（`assignee?.name ?? task.assigneeId`）、`src/app/tasks/page.tsx` の 47 行目（`{task.assigneeId}`）。\n- 問題: `assigneeId` が `undefined` になっても、`getUser(undefined)` が `undefined` を返し、表示は空になるだけでエラーにも警告にもならない。指摘 1 のような不具合を画面側では検出できない。また一覧は ID（`sato` など）をそのまま表示し、詳細は名前を引いて表示しており不揃い。ただし表示の不揃いは変更前からの挙動で、今回の回帰ではない（「画面は変えない」方針なので表示そのものは今回直さなくてよい）。\n- 直し方: 根本は指摘 1 を直す。詳細画面では、ID があるのに `getUser` が見つけられない場合に `console.error` などで気づけるようにする。`??` を欠落した項目の隠れ蓑にしない。\n\n### 9. [低] `assigneeId` が単なる `string` で、利用者 ID であることが型で表現されていない\n\n- 場所: `src/lib/tasks.ts` の `Task.assigneeId`（9 行目、現状はコメント `// users.id` のみ）。\n- 問題: この PR の目的は「利用者の ID であることを分かりやすくする」ことだが、型の上では他の文字列と区別できず、名前と ID の取り違え（PR の動機）をコンパイラが防げない。コメントの `// users.id` 自体は正確。\n- 直し方: 任意の改善として、ブランド型（例: `type UserId = string & { readonly __brand: \"UserId\" }`）を導入する。規約 6（変更は依頼の範囲内）の観点から、今回の PR で入れず別 PR にしてもよい。\n\n## 指摘の対応表（出どころ）\n\n| REVIEW.md | 指摘したエージェント |\n|---|---|\n| 1 | code-reviewer / silent-failure-hunter / pr-test-analyzer / type-design-analyzer / comment-analyzer（全員） |\n| 2 | code-reviewer / type-design-analyzer / silent-failure-hunter / pr-test-analyzer |\n| 3 | code-reviewer / silent-failure-hunter / type-design-analyzer / pr-test-analyzer |\n| 4 | pr-test-analyzer / code-reviewer |\n| 5 | type-design-analyzer |\n| 6 | silent-failure-hunter / type-design-analyzer |\n| 7 | comment-analyzer / pr-test-analyzer / type-design-analyzer / silent-failure-hunter |\n| 8 | silent-failure-hunter / type-design-analyzer |\n| 9 | type-design-analyzer |\n",
+  "review_chars": 6653,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 1.0091,
+    "tokens": {
+      "input": 76,
+      "output": 25720,
+      "cache_read": 1243189,
+      "cache_creation": 163601
+    },
+    "turns": 7,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 17,
+      "Agent": 5,
+      "Write": 1,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 5,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:comment-analyzer": 1,
+      "pr-review-toolkit:type-design-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 58,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回の `REVIEW.md` にはほとんどの指摘がすでに書いてあったので、足りなかった分だけ整理し直しました。`REVIEW.md` だけを新しくコミットしています。コードは直しておらず、元の差分は未コミットのままです。\n\n- **補足を番号付きの指摘にした。** 前回「補足」としていたものを、場所・問題・直し方・重要度の形式の指摘 8 にしました。内容は、`??` のフォールバックと一覧の ID 表示が、データの欠落を隠すというものです。\n- **指摘 9 を追加した。** `assigneeId` が型の上では単なる `string` で、ID と名前の取り違えを防げない、という type-design-analyzer の指摘です(重要度は低)。\n- **対応表を追加した。** 各指摘をどのエージェントが挙げたかを末尾に載せました。重複した指摘は 1 つにまとめてあります。\n- **既存の指摘 1〜7 は変えていません。** 新しい指摘は足しておらず、5 つのエージェントが出した指摘はすべて残っています。"
+  },
+  "interventions": 0
+}

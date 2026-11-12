@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "listTasks の SELECT が assignee_id AS assignee と別名を付けたままなので、toTask が row.assignee_id を読めず、一覧画面と GET /api/tasks で担当者が undefined になる。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "validateTaskInput と Task 型の項目名が assigneeId に変わり、API の入出力が非互換になる。assignee を送ると作成は 400、PATCH は黙って無視されて 200 になる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "tasks/page.tsx の一覧の担当者列が名前ではなく ID を表示している（変更前からの既存の不整合なので別 PR で扱う）。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 4,
+   "summary": "マイグレーション 3 の列名変更後も、インデックス名 tasks_assignee が旧名のまま残っている。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "バージョン 2 のスキーマにデータを入れてからマイグレーション 3 を適用し、データが残ることを確かめるテストを追加すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.048791799999999996
+ }
+}

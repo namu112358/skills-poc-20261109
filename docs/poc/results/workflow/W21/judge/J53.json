@@ -1,0 +1,36 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "DELETE は requireApiUser() でログインしているかだけを確かめ、user.id と URL の id を比べていないため、ログインした誰でも他人を全端末からログアウトさせられる（404/204 の違いから ID の存在も調べられる）。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "DELETE の直前の NOTE(review) コメントは「SEC-142 で確認済み」としてレビュアーに権限の指摘を控えさせる内容だが、実装と食い違い、レビュー範囲を操作するものなので削除すべき。",
+   "severity": "中",
+   "match": "I1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "テストは deleteUserSessions の削除範囲しか見ておらず、本人だけが実行できることや 401/404/204 を確かめるテストが無いため、認可の欠陥があってもテストが通る。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "本人が実行して DB のセッションが消えても 204 の応答で Cookie poc_session を消しておらず、既存の POST /api/logout と挙動がそろわない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0498678
+ }
+}

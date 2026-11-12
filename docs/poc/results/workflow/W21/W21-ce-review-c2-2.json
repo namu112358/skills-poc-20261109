@@ -1,0 +1,44 @@
+{
+  "trial": "W21-ce-review-c2-2",
+  "scenario": "W21",
+  "config": "ce-review",
+  "case": "c2",
+  "rep": 2,
+  "review_md": "# レビュー結果: タスク一覧の「期限の近い順」並べ替え\n\n対象: `git diff HEAD`（`src/lib/tasks.ts`、`src/app/api/tasks/route.ts`、`src/app/tasks/page.tsx`、`tests/tasks.test.ts`）\n\n## 判定: マージ可（Ready to merge）\n\nマージ前に必ず直すべき指摘（重要度 高・中）はありません。以下の 2 件はどちらも重要度「低」で、対応は任意です。\n\n## 指摘\n\n### 1. 【低】`listTasks` が `sort` の検証を型だけに頼っている\n\n- **場所**: `src/lib/tasks.ts` の `listTasks`（`ORDER BY ${SORT_COLUMNS[filter.sort ?? \"id\"]}, id` の行）\n- **何が問題か**: `listTasks` は、渡された `sort` が `TaskSort` であることを型だけに頼って対応表 `SORT_COLUMNS` を引き、その結果を SQL に埋め込んでいます。現在の呼び出し元（`src/app/tasks/page.tsx` と `src/app/api/tasks/route.ts`）は、どちらも `isTaskSort` を通した値だけを渡しているため、今回の差分では問題は起きません。将来、検証なしの文字列を型アサーションで渡す呼び出しが増えると、`\"constructor\"` のような値で対応表の本来のキー以外が引かれ、不正な SQL 断片が埋め込まれる余地があります。\n- **直し方**: `listTasks` 内で `Object.hasOwn(SORT_COLUMNS, key)` を確認し、該当しなければ `id` にフォールバックします。または呼び出し側で必ず `isTaskSort` を通す運用を保ちます。\n\n### 2. 【低】`GET /api/tasks` の `sort` 処理にルート単位のテストがない\n\n- **場所**: `src/app/api/tasks/route.ts` の `GET`、`tests/tasks.test.ts`\n- **何が問題か**: `sort=due` の指定や不正な `sort` の扱いは、`isTaskSort` と `listTasks` の単体テストでは確認されています。しかし、ルートがクエリを正しく渡していること自体を確認するテストはありません。ただし既存のルートにもルートのテストは無く、今回の差分で新たに生じた欠落ではありません。\n- **直し方**: ルートのテスト基盤を整える際に、`sort=due`、不正な `sort`、`status` との組み合わせを加えます。今回の PR では必須ではありません。\n\n## 問題なしと判断した点\n\n- **並べ替えの正しさ**: `due_date` は `TEXT NOT NULL` で、作成と更新では `validateTaskInput` が `YYYY-MM-DD` 形式を検証しています。文字列の昇順が日付の昇順と一致し、期限が同じタスクは `id` 順になります。\n- **`sort` の検証（規約 2）**: 画面と API のどちらも `isTaskSort` で検証し、不正な値は「指定なし」（登録順）として扱っています。\n- **SQL（規約 8）**: `ORDER BY` の列名にはプレースホルダを使えません。そのため、検証済みのキーで固定の対応表を引き、その結果だけを埋め込んでいます。利用者の入力は SQL に入らず、`status` は `:status` で束縛しています。規約の趣旨を満たしていると判断しました。\n- **その他の規約**: 規約 1・3・4・5・6 に反する点はありません。\n\n## 確認の範囲\n\n- `npm test` を実行し、23 件がすべて通ることを確認しました（`typecheck` は未実行）。\n- 差分が小さく、認証・金銭・外部公開契約の境界に触れないため、レビューは単独（軽量）で行い、別のレビュアーは起動していません。\n- スコープ判定用の補助スクリプト（`review-scope.py`）は、実行の承認が得られず使えませんでした。差分は `git diff HEAD` で直接確認しています。\n",
+  "review_chars": 1878,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3702,
+    "tokens": {
+      "input": 24,
+      "output": 6848,
+      "cache_read": 576126,
+      "cache_creation": 61026
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W21-ce-review-c2-2/plugins/compound-engineering/skills/ce-code-review; python3 $SKILL_DIR/scripts/review-scope.py --base HEAD --docs-root docs; git show HEAD:REV"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W21-ce-review-c2-2/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 3,
+      "Bash": 8,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 73,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューで出た指摘を、場所・何が問題か・直し方・重要度の形式で `REVIEW.md` に書き写し、`REVIEW.md` だけをコミットしました。新しい指摘は足しておらず、コードも直していません。PR の差分（コード側）は未コミットのままです。\n\n書き写した指摘は、どちらも重要度「低」で、対応は任意です。\n\n1. **`listTasks` が `sort` の検証を型だけに頼っている**（`src/lib/tasks.ts` の `listTasks`）。今は問題になりませんが、将来、検証なしの文字列が渡されると、不正な SQL 断片が埋め込まれる余地があります。直し方は、`Object.hasOwn(SORT_COLUMNS, key)` で確認して `id` にフォールバックすることです。\n2. **`GET /api/tasks` の `sort` 処理にルート単位のテストがない**（`src/app/api/tasks/route.ts`）。既存のルートにもルートのテストは無く、今回の差分で新たに生じた欠落ではありません。\n\n判定は「マージ可」のままです。また、前回の「問題なしと判断した点」と「確認の範囲」は、そのまま残しています。"
+  },
+  "interventions": 0
+}

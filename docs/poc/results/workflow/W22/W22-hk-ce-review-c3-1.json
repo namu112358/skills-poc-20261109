@@ -1,0 +1,61 @@
+{
+  "trial": "W22-hk-ce-review-c3-1",
+  "scenario": "W22",
+  "config": "hk-ce-review",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の CSV ダウンロード\n\n**判定: Not ready**（マージ前に、重要度「高」の指摘 1 件を直す必要があります）\n\n## 確認した範囲\n\n- 対象: `git diff HEAD` の未コミット差分（新規 3 ファイル: `src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`）。基準は `b8c1ac1`（baseline）。\n- 方法: 差分を全文読み、既存の `src/app/api/tasks/route.ts`・`src/lib/tasks.ts`・`src/lib/api.ts` と比べました。`src/lib/export.ts` の `toCsv` と `listTasks` は、`node --experimental-strip-types` で実際に動かして次の結果を確認しました（下の指摘 1〜3 の根拠）。\n- `npm run typecheck` と `npm test` は通過（テスト 22 件、失敗 0）。ただし、テストが引用符のエスケープを検証していないことは、下の指摘 4 のとおりです。\n- 基準にしたルール: ルート直下の `CLAUDE.md`（`CODING_STANDARDS.md` と `REVIEW.md` は無いため、これが唯一の基準）。\n- 未実施・限界: レビュー支援スクリプト（`review-scope.py`）は実行許可が得られず動かしていません。差分が小さいため、変更行数は差分から直接数えました。外部モデルによる独立レビュー（cross-model）は、このリポジトリに設定が無いため行っていません。学習データ・デプロイ手順・画面からのボタン（別 PR）は評価していません。\n\n---\n\n## 指摘\n\n### 1. [高] `toCsv` の引用符がエスケープされず、CSV が壊れる\n\n- **場所:** `src/lib/export.ts` の `field()`（11 行目 `return \\`\"${value}\"\\`;`）\n- **問題:** 値をダブルクォートで囲むだけで、値の中の `\"` を `\"\"` に置き換えていません。タイトルに `\"` が含まれると、その行の列がずれます。\n  - 再現（実行結果）: タイトル `He said \"hi\", ok` の行が次になります。\n    `\"9\",\"He said \"hi\", ok\",\"未着手\",\"sato\",\"2026-12-01\"`\n    この行は CSV として正しく読めず、Excel では列がずれます。\n  - PR の「タイトルにカンマ・引用符・改行が含まれていても、列がずれないようにする」という説明は、引用符の場合には成り立ちません。\n- **直し方:** 値を文字列にして `\"` を `\"\"` に置き換えてから囲みます。\n  ```ts\n  function field(value: string | number): string {\n    return `\"${String(value).replace(/\"/g, '\"\"')}\"`;\n  }\n  ```\n  あわせて、引用符を含むタイトルの単体テストを追加してください（指摘 4 と同じテストです）。\n\n### 2. [中] 先頭が `=` `+` `-` `@` のタイトルが、Excel で数式として実行される（CSV インジェクション）\n\n- **場所:** `src/lib/export.ts` の `field()`（同上）。影響を受けるのは `toCsv` を通るすべての項目です。\n- **問題:** タイトルは `POST /api/tasks` で、ログインしている誰でも作成できます（長さ以外の制限はありません）。たとえばタイトルを `=HYPERLINK(\"http://...\")` にすると、その値は CSV にそのまま出ます（実行結果: `\"=HYPERLINK(\"\"http://x\"\")\"` の形）。PR の目的は Excel に貼り付けることなので、Excel がこれを数式として評価する可能性があります。作成者と、ダウンロードする別のユーザーが異なる場合にも問題になります。\n- **直し方:** 項目が `=` `+` `-` `@` `\\t` `\\r` のいずれかで始まる場合は、先頭に `'` を付けて数式にさせないようにします（OWASP の CSV インジェクション対策と同じ方法）。数値の ID は対象外にしてかまいません。対象の判定と、その単体テストを `src/lib/export.ts` に入れてください。\n\n### 3. [中] `?status=` の不正な値が「指定なし」として扱われず、0 件の CSV になる\n\n- **場所:** `src/app/api/tasks/export/route.ts` の `GET`（10 行目 `searchParams.get(\"status\") as TaskStatus | null`）\n- **問題:** 値を型だけで変換していて、`isTaskStatus` で検証していません。既存の `src/app/api/tasks/route.ts` は `isTaskStatus(status) ? status : undefined` としています。\n  - 再現（実行結果）: `listTasks({ status: \"bogus\" })` は 0 件を返し、`listTasks({})` は 7 件を返します。つまり `?status=bogus` の CSV は見出しだけになり、エラーも出ません。\n  - PR の「不正な値は、一覧と同じく『指定なし』」という要件に反します。`CLAUDE.md` の規約 2（不正な値は「指定なし」として扱う）にも反します。\n- **直し方:** 既存の一覧と同じく検証します。\n  ```ts\n  const raw = new URL(request.url).searchParams.get(\"status\");\n  const csv = toCsv(listTasks({ status: isTaskStatus(raw) ? raw : undefined }));\n  ```\n  あわせて、`?status=bogus` が全件を返すことを確かめるテストを追加してください。`CLAUDE.md` の規約 1 に従い、絞り込みの判定を `src/lib/` の関数に移すのが望ましいです。\n\n### 4. [中] テストが、PR で主張している引用符のエスケープを検証していない\n\n- **場所:** `tests/export.test.ts` の 15 行目 `it(\"escapes quotes and commas in titles\")`\n- **問題:** テスト名は「引用符とカンマ」ですが、使っているタイトル `週次 定例の準備` にはカンマも引用符も含まれていません。そのため、指摘 1 の不具合が残ったままでもテストは通ります（実際に `npm test` は通過しています）。テストが、壊れている箇所を見逃しています。\n- **直し方:** タイトルに `\"`・`,`・改行を入れ、出力の完全な一行を比べます。例:\n  ```ts\n  const task: Task = { id: 9, title: 'a \"b\", c', status: \"todo\", assignee: \"sato\", dueDate: \"2026-12-01\" };\n  assert.equal(toCsv([task]).split(\"\\r\\n\")[1], '\"9\",\"a \"\"b\"\", c\",\"未着手\",\"sato\",\"2026-12-01\"');\n  ```\n  指摘 2 の対象（`=` 始まり）のテストも同じ場所に加えてください。\n\n### 5. [低] 応答ヘッダと BOM を検証するテストが無い\n\n- **場所:** `src/app/api/tasks/export/route.ts`、`tests/export.test.ts`\n- **問題:** BOM（`CSV_BOM`）の付与、`Content-Type` と `Content-Disposition`、未ログイン時の 401 を確かめるテストがありません。`CLAUDE.md` の規約 5（ロジックを変えたら単体テストを追加）に照らすと、BOM を付けるのは `CSV_BOM + csv` という route の 1 行なので、まず指摘 3 の絞り込みと、`toCsv` の出力を確かめれば足ります。BOM の文字（U+FEFF）が `export.ts` の定数に正しく入っているかも、テストで固定してください。\n- **直し方:** `CSV_BOM` が `﻿` であることを確かめるテストを追加します。route の 401 は既存の認証テストの書き方に合わせてください。\n\n---\n\n## 問題が無いと判断した点（参考）\n\n- 認証: 新しい route は最初に `requireApiUser()` を呼び、未ログインなら 401 を返します。既存の一覧と同じ扱いです。\n- 見出しと行数: 見出し 1 行と 7 件の行は、テストの期待どおりに出ています（実行結果: 全件 7 件）。\n- 空の一覧: 見出しだけの CSV になります。\n- 改行の扱い: 項目は引用符で囲まれるため、タイトル内の改行は同じ行として読めます。\n- 依存関係: 新しいライブラリは追加されていません（規約 4）。\n- DB: SQL は既存の `listTasks` を使い、値はプレースホルダで渡しています（規約 8）。\n",
+  "review_chars": 4189,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0386,
+    "tokens": {
+      "input": 44,
+      "output": 16749,
+      "cache_read": 1494847,
+      "cache_creation": 76480
+    },
+    "turns": 28,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"BASE=$(git merge-base HEAD HEAD 2>/dev/null) || BASE=HEAD; echo \\\"BASE:$BASE\\\" && git status --short && echo \\\"FILES:\\\" && git diff --name-only $BASE && echo \\\"UNTRACKED:\\\" && git ls-file"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W22-hk-ce-review-c3-1/plugins/compound-engineering/skills/ce-code-review; PY=python3; RUN_DIR=$(mktemp -d /tmp/claude-0/review-XXXX 2>/dev/null || echo /tmp/clau"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-hk-ce-review-c3-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base b8c1ac1323fc7fe405ce46c01a020281f3c03cb5 --docs-root docs\","
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/review-check && cat > /tmp/claude-0/review-check/check.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W22-hk-ce-review-c3-1/app/src/lib/db/index.ts\\\";\\nimport"
+      },
+      {
+        "tool": "Write",
+        "input": "{\"file_path\": \"/tmp/claude-0/review-check/check.ts\", \"content\": \"import { openDb } from \\\"/tmp/poc-trials/W22-hk-ce-review-c3-1/app/src/lib/db/index.ts\\\";\\nimport { toCsv } from \\\"/tmp/poc-trials/W22-"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'Add code review notes for the CSV export\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.ai/c"
+      }
+    ],
+    "tool_calls": {
+      "Read": 3,
+      "Bash": 15,
+      "Write": 4,
+      "Edit": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 97,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "REVIEW.md の指摘は、すでに依頼の形式（場所・問題・直し方・重要度）で書かれていました。そのため内容は書き直していません。行番号だけ 3 か所直し、REVIEW.md だけをコミットしました（コミット `aa9a5bb`）。\n\n- 指摘 1（高）: `field()` は 18 行目付近と書いていましたが、正しくは **11 行目**です。\n- 指摘 3（中）: route の該当行は **10 行目**と追記しました。\n- 指摘 4（中）: テストは **15 行目**と追記しました。\n\n指摘の数は前回と同じ 5 件（高 1、中 3、低 1）で、新しい指摘は足していません。コードは変更していません。残っている未コミットの変更は、レビュー対象の 3 つの新規ファイル（`git add -N` 済み）だけです。"
+  },
+  "interventions": 0
+}

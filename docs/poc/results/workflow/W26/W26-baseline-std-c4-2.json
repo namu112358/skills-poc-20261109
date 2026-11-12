@@ -1,0 +1,43 @@
+{
+  "trial": "W26-baseline-std-c4-2",
+  "scenario": "W26",
+  "config": "baseline-std",
+  "case": "c4",
+  "rep": 2,
+  "review_md": "# レビュー: 期限が近いタスクを一覧で目立たせる\n\n指摘は 3 件です（高 2・低 1）。1・2 は `node` で関数を実際に呼んで確認しました（2026-11-12 の日本時間 0:00 / 8:59 / 9:00 / 23:59 を `now` に与えた結果）。\n\n## 1. 日付を日本時間で数えていない\n\n- **重要度**: 高\n- **場所**: `src/lib/due.ts` の `daysUntilDue`\n- **何が問題か**: `Date.parse(\"2026-11-12\")` は UTC の 0:00（日本時間 9:00）を返します。これと `now.getTime()` の差を 24 時間で割って切り捨てているので、「日本の暦日の差」ではなく「現在時刻から UTC 0:00 までの経過時間」を数えています。日本時間の 9:00 を境に残り日数が 1 つ減り、サーバーのタイムゾーンにも依存します。\n\n  再現結果（今日 = 2026-11-12、期限 = 2026-11-12 のタスク）:\n\n  | `now`（日本時間） | `daysUntilDue` | 表示 |\n  |---|---|---|\n  | 11/12 0:00 〜 9:00 | 0 | 「期限間近」が付く |\n  | 11/12 23:59 | -1 | 付かない（期限切れ扱い） |\n\n  期限が今日のタスクなのに、日本時間の午前 9 時以降は付かなくなります。11/13 の期限なども同様に 1 日ずれます。追加テストが通っているのは、`now` が日本時間 0:00 ちょうどという、ずれが出ない時刻だけだからです。\n- **直し方**: `now` を日本時間の暦日（`YYYY-MM-DD`）に直し、日付どうしの差を日数で数える。例:\n\n  ```ts\n  const jstDate = (d: Date) =>\n    new Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" }).format(d); // \"2026-11-12\"\n  const dayNumber = (ymd: string) => Date.parse(ymd + \"T00:00:00Z\") / DAY_MS; // UTC 同士で比較\n  export function daysUntilDue(dueDate: string, now = new Date()) {\n    return Math.round(dayNumber(dueDate) - dayNumber(jstDate(now)));\n  }\n  ```\n\n  テストには、日本時間の 8:59・9:00・23:59 など 0:00 以外の時刻を加える。\n\n## 2. 「3 日後」が対象に入っていない\n\n- **重要度**: 高\n- **場所**: `src/lib/due.ts` の `isDueSoon`（`days >= 0 && days < DUE_SOON_DAYS`）\n- **何が問題か**: PR の説明は「今日・明日・明後日・3 日後」の 4 日分が対象ですが、`DUE_SOON_DAYS = 3` に対して `days < 3` なので 0・1・2 日後の 3 日分だけです。再現: 日本時間 11/12 0:00 で、期限 11/15（3 日後）は `daysUntilDue` が 3、`isDueSoon` が `false` でした。コメント「DUE_SOON_DAYS 日以内」とも合っていません。`tests/due.test.ts` は 2 日後（11/14）までしか確かめておらず、この境界を検出できません。\n- **直し方**: `days <= DUE_SOON_DAYS` にする。テストに境界値（3 日後が true、4 日後が false）を追加する。\n\n## 3. 同じ判定を行ごとに 2 回呼んでいる\n\n- **重要度**: 低\n- **場所**: `src/app/tasks/page.tsx` の `tasks.map`（`<tr>` の `className` と期限セル）\n- **何が問題か**: `isDueSoon(task, now)` を同じ行で 2 回呼んでいます。動作に問題はありませんが冗長です。\n- **直し方**: `map` をブロック（`{}`）にして `const soon = isDueSoon(task, now)` を 1 回だけ計算し、両方で使う。\n",
+  "review_chars": 1952,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2366,
+    "tokens": {
+      "input": 22,
+      "output": 6901,
+      "cache_read": 371251,
+      "cache_creation": 32609
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"dueDate\\\\|due_date\\\" -r src | head -20; S=/tmp/claude-0/-tmp-poc-trials-W26-baseline-std-c4-2-app/63d6706f-4752-4908-9fc2-9266ce3cc33c/scratchpad/r.ts\\ncat > $S <<'EOF'\\nimport "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"dueDate\\\" src/lib/tasks.ts src/lib/db/*.ts | head; cat > /tmp/claude-0/-tmp-poc-trials-W26-baseline-std-c4-2-app/63d6706f-4752-4908-9fc2-9266ce3cc33c/scratchpad/r.ts <<'EOF'\\nim"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 56,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き直してコミットしました。指摘ごとに「重要度・場所・何が問題か・直し方」の項目に分けています。指摘は前回と同じ 3 件で、足したものも削ったものもありません。\n\n1. **高**: `src/lib/due.ts` の `daysUntilDue` が日本時間で日付を数えていません。\n2. **高**: `isDueSoon` の `days < 3` では、3 日後のタスクが対象から外れます。\n3. **低**: `src/app/tasks/page.tsx` で、同じ行に `isDueSoon` を 2 回呼んでいます。\n\n前回の末尾にあった「補足」は指摘ではないので外しました。\n\nコミットしたのは `REVIEW.md` だけです。コードは直しておらず、PR の変更（`page.tsx`・`due.ts`・`due.test.ts`）は未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

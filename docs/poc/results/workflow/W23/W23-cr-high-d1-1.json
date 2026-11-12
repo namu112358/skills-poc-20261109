@@ -1,0 +1,39 @@
+{
+  "trial": "W23-cr-high-d1-1",
+  "scenario": "W23",
+  "config": "cr-high",
+  "case": "d1",
+  "rep": 1,
+  "review_md": "# コードレビュー: ダッシュボードを追加する\n\n指摘は 9 件です（高 2・中 5・低 2）。\n\n## 1. [高] キャッシュキーがユーザーごとになっておらず、他ユーザーのダッシュボードが見える\n\n- 場所: `src/lib/dashboard.ts:64`（キャッシュのキー \"dashboard\"）\n- 問題: キャッシュキーが定数 `\"dashboard\"` で、`userId` を含まない。sato が `/dashboard` を開いて結果が 30 秒キャッシュされ、その間に suzuki が `/dashboard` または `GET /api/dashboard` を開くと、sato のオブジェクト（sato の userId・タスクのタイトル・件数・完了率）が返る。ユーザー間の情報漏えい。見出しは suzuki の名前なのに中身は sato のデータになる。キャッシュは `db` も無視するため、テストで別 DB を使っても古い値が返りうる。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。`db` ごとに分けるか、テストではキャッシュを無効化・クリアできるようにする。\n\n## 2. [高] SQL に userId を文字列連結で埋め込んでいる（SQL インジェクション）\n\n- 場所: `src/lib/dashboard.ts:29`（`WHERE assignee = '${userId}'`）\n- 問題: CLAUDE.md 規約 8（値の埋め込みには必ずプレースホルダを使う）に違反している。`userId` に `x' OR '1'='1` のような引用符を含む値が入ると、全ユーザーのタスクが返る。\n- 直し方: `WHERE assignee = ?` にして `.all(userId)` で値を渡す。指摘 9 のとおり `listTasks` を再利用すれば、この問題自体がなくなる。\n\n## 3. [中] `TASK_STATUSES` を `reverse()` で破壊的に並べ替えている\n\n- 場所: `src/lib/dashboard.ts:36`（`countByStatus` の `TASK_STATUSES as TaskStatus[]` と `order.reverse()`）\n- 問題: `as TaskStatus[]` は型のキャストだけで、コピーではない。`order.reverse()` が共有の定数 `TASK_STATUSES` を毎回その場で反転する。1 回目の呼び出しで `[done, in_progress, todo]` になり、次の（キャッシュされない）呼び出しで元に戻るので、「done が先」になるのは奇数回目だけ。`TASK_STATUSES` を使う他の箇所（ステータスの絞り込み UI、検証メッセージ、他のページ）も、実行中に順序が変わる。`readonly` 宣言はキャストで隠れている。テストは `countByStatus` を 1 回しか呼ばないので検知できない。\n- 直し方: `[...TASK_STATUSES].reverse()` にしてコピーを反転する（キャストも不要にする）。複数回呼ぶテストを足す。\n\n## 4. [中] `weekRange` が日曜日に翌週を返す\n\n- 場所: `src/lib/week.ts:20`（`weekRange` の開始日の計算）\n- 問題: `getUTCDay() === 0`（日曜）のとき `1 - dow` が +1 になり、範囲が「次の月曜〜次の日曜」になる。例: 2026-11-15（日・JST）は dow が 0 なので start が 11-16、範囲は 11-16〜11-22 になる。その日が期限のタスク（今週の最終日）が「今週」から消え、来週のタスクが出る。テストは水曜日だけを確認している。\n- 直し方: start を `addDays(today, dow === 0 ? -6 : 1 - dow)` にする。日曜・月曜・土曜の境界日のテストを足す。\n\n## 5. [中] タスクが 0 件のとき完了率が NaN になる\n\n- 場所: `src/lib/dashboard.ts:47`（`completionRate` の `done / tasks.length`）\n- 問題: 担当タスクが無いユーザーでは 0/0 になり、`Math.round` の結果が NaN になる。画面には「完了率 NaN%」と出る。API では `JSON.stringify` が NaN を `null` にするので、型宣言の `number` に反して `completionRate: null` が返る。\n- 直し方: `tasks.length === 0` のときは 0 を返す。\n\n## 6. [中] キャッシュで更新が反映されず、期限切れのエントリも削除されない\n\n- 場所: `src/lib/dashboard.ts:62`（キャッシュの利用部分。あわせて `src/lib/cache.ts`）\n- 問題:\n  - 30 秒の TTL キャッシュに無効化の仕組みが無い。タスクを PATCH で完了にしてすぐ `/dashboard` を再読み込みしても、件数・完了率・期限切れ一覧が古いまま。`updateTask` / `createTask` からキャッシュが消されない。\n  - キーをユーザーごとに直すと、モジュール内の `Map` がユーザー数ぶん増え続け、期限切れのエントリは削除されない。\n  - `now` 引数がキャッシュの時計も兼ねているので、固定値や古い `now` を渡す呼び出し元では、エントリが期限切れにならない、またはすぐ切れる。\n- 直し方: 基本はキャッシュをやめる（この規模の集計は都度計算で足りる）。残すなら、タスクの作成・更新時に該当ユーザーのキーを消す、読み出し時や書き込み時に期限切れを削除する、キャッシュの時計は `now` 引数とは別にする。\n\n## 7. [中] 今週期限の一覧に期限切れタスクが重複して出る\n\n- 場所: `src/lib/dashboard.ts:56`（`dueThisWeek` の絞り込み）\n- 問題: `dueThisWeek` の下限が週の開始日なので、今週の過去日が期限の未完了タスクが「期限切れ」と「今週が期限」の両方に入る。例: 2026-11-11（水）に、期限 2026-11-10 の未完了タスクは `due < today` でも「start（11-09）<= due」でも該当するため、2 回表示される。既存のテストもこの重複（`[1, 2]`）を正しい結果として検証している。\n- 直し方: `dueThisWeek` の下限を `max(start, today)` にするか、期限切れのタスクを除外する。テストの期待値も直す。\n\n## 8. [低] テストが不足しており、上記の不具合を検出できない\n\n- 場所: `tests/dashboard.test.ts:49` 付近\n- 問題: CLAUDE.md 規約 5（ロジックを変えたらテストを足す）を満たしていない。次のテストが無い。\n  - タスク 0 件のユーザー（NaN）\n  - 日曜日の `weekRange`\n  - 別ユーザーが TTL 内に `buildDashboard` を呼ぶケース\n  - `countByStatus` の複数回呼び出し（破壊的な `reverse`）\n  - キャッシュの TTL\n  - `/api/dashboard` の 401 と 200\n\n  「自分のタスクだけを一覧する」テストと「ダッシュボードを作る」テストは、ユーザー間キャッシュの不具合があっても通ってしまう。\n- 直し方: 上記のケースのテストを追加し、既存のテストも不具合を検出できるよう強くする（指摘 7 の重複を正とする期待値は修正する）。\n\n## 9. [低] `tasks.ts` の処理をコピーしており、重複している\n\n- 場所: `src/lib/dashboard.ts:12` 付近（`Row` 型、`toTask`、タスクの SELECT、`listAssignedTasks`）\n- 問題: `tasks.ts` にある `TaskRow`・`toTask`・`listTasks`（プレースホルダでの絞り込み付き）と同じ内容が重複している。カラムやスキーマを変えると（規約 7）コピーだけ取り残されうる。しかも、そのコピーが SQL インジェクション（指摘 2）を生んだ。\n- 直し方: `TaskFilter` に `assignee` オプションを追加し、`listTasks` と `toTask` を再利用する。コピーした型と関数は削除する。\n",
+  "review_chars": 3755,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2744,
+    "tokens": {
+      "input": 20,
+      "output": 7367,
+      "cache_read": 313908,
+      "cache_creation": 51084
+    },
+    "turns": 5,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; git diff main...HEAD --stat 2>&1 | tail -5; git diff HEAD --stat\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 62,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` に 9 件の指摘を書き写し、`REVIEW.md` だけをコミットしました（コミット `6d2564f`）。コードは直していません。\n\n重要度の内訳は高 2 件、中 5 件、低 2 件です。\n\n- **高**\n  - キャッシュキーにユーザーが入っておらず、他のユーザーのダッシュボードが見える。\n  - SQL に `userId` を文字列連結で埋め込んでいる。\n- **中**\n  - `TASK_STATUSES` を `reverse()` で破壊的に並べ替えている。\n  - `weekRange` が日曜日に翌週を返す。\n  - タスク 0 件で完了率が NaN になる。\n  - キャッシュが更新後も古いままで、期限切れのエントリが消えない。\n  - 今週期限の一覧に、期限切れのタスクが重複して出る。\n- **低**\n  - テストが不足していて、上記の不具合を検出できない。\n  - `tasks.ts` の処理をコピーして重複させている。\n\n重要度は、前のレビュー出力には付いていなかったので、こちらで判断して付けました。指摘 6 は、キャッシュの無効化と期限切れエントリの削除、`now` を時計に使う問題を 1 件にまとめています。\n\nダッシュボードの変更ファイルは、これまでどおりステージされたままで未コミットです。"
+  },
+  "interventions": 0
+}

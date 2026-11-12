@@ -1,0 +1,99 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "seed 集計テストが now を渡さず本物の現在時刻で集計しているため、期待値が 2026-11-12 だけで成り立ち、翌日から落ちる。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "「今日が期限」テストが new Date().toISOString() の UTC 日付を使うため、JST の 0〜9 時は日付がずれて dueToday が合わず落ちる。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "同じテストの dueToday 期待値 2 は seed の 11-12 のタスクを含むので、11-12 以外の日は常に落ちる。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "完了除外・dueSoon 境界・JST 切り替え・parseSoonDays の境界・ルートの 401/400 など、仕様を固定するテストが不足している。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "openDb を含めて実時間 300 ms 以内かを測る性能テストは、CI の負荷で偶然落ちるうえ意味が無いので削除すべき。",
+   "severity": "中",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "total は完了タスクを含む全件なのに、JSDoc は未完了を数えると書いており食い違う。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "不正な形式の due_date が文字列比較のため、黙って overdue に数えられるか集計から外れる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "summarizeTasks が soonDays を検証せず、NaN では RangeError、0 や小数では無意味な集計になる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "ルートで DB 例外を捕まえていないため、{ error } 形式の JSON にならずログも残らない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "?? 0 と number | null へのキャストが実態とずれており、フィールド名の取り違えを隠す。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "parseSoonDays の戻り値の形が、既存の ValidationResult<T> と揃っていない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "?soonDays= の空文字が 400 になる点など、不正クエリの扱いを仕様として明記すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 13,
+   "summary": "JST_DATE や dueSoon の範囲、ルートのレスポンス形式についてのコメントを正確にすべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0839918
+ }
+}

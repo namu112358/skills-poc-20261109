@@ -1,0 +1,530 @@
+diff --git a/src/app/api/tasks/[id]/route.ts b/src/app/api/tasks/[id]/route.ts
+index 275c08d..d34b3fe 100644
+--- a/src/app/api/tasks/[id]/route.ts
++++ b/src/app/api/tasks/[id]/route.ts
+@@ -1,7 +1,7 @@
+ // GET /api/tasks/:id — タスクを 1 件取得 / PATCH /api/tasks/:id — 送った項目だけを更新する。ログインが必要。
+ import { NextResponse } from "next/server";
+ import { jsonError, readJson, requireApiUser } from "@/lib/api";
+-import { getTask, parseTaskId, updateTask, validateTaskInput } from "@/lib/tasks";
++import { getTask, parseTaskId, updateTask, validateTaskInput } from "@/lib/tasks/index";
+ 
+ type Context = { params: Promise<{ id: string }> };
+ 
+diff --git a/src/app/api/tasks/route.ts b/src/app/api/tasks/route.ts
+index 687d509..1c580cc 100644
+--- a/src/app/api/tasks/route.ts
++++ b/src/app/api/tasks/route.ts
+@@ -1,7 +1,7 @@
+ // GET /api/tasks?status=… — タスク一覧 / POST /api/tasks — タスクを作成する。いずれもログインが必要。
+ import { NextResponse } from "next/server";
+ import { jsonError, readJson, requireApiUser } from "@/lib/api";
+-import { createTask, isTaskStatus, listTasks, validateTaskInput, type TaskInput } from "@/lib/tasks";
++import { createTask, isTaskStatus, listTasks, validateTaskInput, type TaskInput } from "@/lib/tasks/index";
+ 
+ export async function GET(request: Request) {
+   const user = await requireApiUser();
+diff --git a/src/app/tasks/[id]/page.tsx b/src/app/tasks/[id]/page.tsx
+index 6325e66..283a943 100644
+--- a/src/app/tasks/[id]/page.tsx
++++ b/src/app/tasks/[id]/page.tsx
+@@ -1,6 +1,6 @@
+ import { notFound } from "next/navigation";
+ import { requireUser } from "@/lib/session";
+-import { STATUS_LABELS, getTask, parseTaskId } from "@/lib/tasks";
++import { STATUS_LABELS, getTask, parseTaskId } from "@/lib/tasks/index";
+ import { getUser } from "@/lib/users";
+ 
+ type Props = {
+diff --git a/src/app/tasks/page.tsx b/src/app/tasks/page.tsx
+index 1da2fed..8d8aa1d 100644
+--- a/src/app/tasks/page.tsx
++++ b/src/app/tasks/page.tsx
+@@ -1,5 +1,5 @@
+ import { requireUser } from "@/lib/session";
+-import { STATUS_LABELS, TASK_STATUSES, isTaskStatus, listTasks } from "@/lib/tasks";
++import { STATUS_LABELS, TASK_STATUSES, isTaskStatus, listTasks } from "@/lib/tasks/index";
+ 
+ type Props = {
+   searchParams: Promise<{ status?: string }>;
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+deleted file mode 100644
+index b533ce9..0000000
+--- a/src/lib/tasks.ts
++++ /dev/null
+@@ -1,121 +0,0 @@
+-import { getDb, type Db } from "./db/index.ts";
+-
+-export type TaskStatus = "todo" | "in_progress" | "done";
+-
+-export type Task = {
+-  id: number;
+-  title: string;
+-  status: TaskStatus;
+-  assignee: string;
+-  dueDate: string; // YYYY-MM-DD
+-};
+-
+-export const TASK_STATUSES: readonly TaskStatus[] = ["todo", "in_progress", "done"];
+-
+-export const STATUS_LABELS: Record<TaskStatus, string> = {
+-  todo: "未着手",
+-  in_progress: "進行中",
+-  done: "完了",
+-};
+-
+-export function isTaskStatus(value: unknown): value is TaskStatus {
+-  return typeof value === "string" && (TASK_STATUSES as readonly string[]).includes(value);
+-}
+-
+-export type TaskFilter = {
+-  status?: TaskStatus;
+-};
+-
+-type TaskRow = { id: number; title: string; status: TaskStatus; assignee: string; due_date: string };
+-
+-function toTask(row: TaskRow): Task {
+-  return { id: row.id, title: row.title, status: row.status, assignee: row.assignee, dueDate: row.due_date };
+-}
+-
+-export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
+-  const rows = db
+-    .prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id")
+-    .all({ status: filter.status ?? null }) as TaskRow[];
+-  return rows.map(toTask);
+-}
+-
+-export function getTask(id: number, db: Db = getDb()): Task | undefined {
+-  const row = db.prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE id = ?").get(id) as
+-    | TaskRow
+-    | undefined;
+-  return row && toTask(row);
+-}
+-
+-/** URL のパス・クエリの ID を検証する。正の整数でなければ undefined。 */
+-export function parseTaskId(value: unknown): number | undefined {
+-  if (typeof value !== "string" || !/^[1-9][0-9]{0,9}$/.test(value)) return undefined;
+-  return Number(value);
+-}
+-
+-export type TaskInput = Omit<Task, "id">;
+-
+-export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
+-
+-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+-
+-/**
+- * API に送られたタスクの内容を検証する。partial = true（更新）のときは、送られた項目だけを検証する。
+- * 担当者が存在するかは DB で確認する。
+- */
+-export function validateTaskInput(
+-  body: unknown,
+-  options: { partial?: boolean } = {},
+-  db: Db = getDb(),
+-): ValidationResult<Partial<TaskInput>> {
+-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+-    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
+-  }
+-  const b = body as Record<string, unknown>;
+-  const errors: string[] = [];
+-  const value: Partial<TaskInput> = {};
+-  const need = (key: string) => !options.partial || key in b;
+-
+-  if (need("title")) {
+-    if (typeof b.title !== "string" || b.title.trim() === "" || b.title.length > 200) {
+-      errors.push("タイトルは 1〜200 文字で入力してください");
+-    } else value.title = b.title.trim();
+-  }
+-  if (need("status")) {
+-    if (!isTaskStatus(b.status)) errors.push("ステータスが正しくありません");
+-    else value.status = b.status;
+-  }
+-  if (need("assignee")) {
+-    const exists =
+-      typeof b.assignee === "string" && db.prepare("SELECT 1 FROM users WHERE id = ?").get(b.assignee) !== undefined;
+-    if (!exists) errors.push("担当者が存在しません");
+-    else value.assignee = b.assignee as string;
+-  }
+-  if (need("dueDate")) {
+-    if (typeof b.dueDate !== "string" || !DATE_RE.test(b.dueDate) || Number.isNaN(Date.parse(b.dueDate))) {
+-      errors.push("期限は YYYY-MM-DD 形式で入力してください");
+-    } else value.dueDate = b.dueDate;
+-  }
+-  return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
+-}
+-
+-export function createTask(input: TaskInput, db: Db = getDb()): Task {
+-  const { lastInsertRowid } = db
+-    .prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES (?, ?, ?, ?)")
+-    .run(input.title, input.status, input.assignee, input.dueDate);
+-  return getTask(Number(lastInsertRowid), db)!;
+-}
+-
+-/** 指定した項目だけを更新する。タスクが無ければ undefined。 */
+-export function updateTask(id: number, changes: Partial<TaskInput>, db: Db = getDb()): Task | undefined {
+-  const current = getTask(id, db);
+-  if (!current) return undefined;
+-  const next = { ...current, ...changes };
+-  db.prepare("UPDATE tasks SET title = ?, status = ?, assignee = ?, due_date = ? WHERE id = ?").run(
+-    next.title,
+-    next.status,
+-    next.assignee,
+-    next.dueDate,
+-    id,
+-  );
+-  return getTask(id, db);
+-}
+diff --git a/src/lib/tasks/index.ts b/src/lib/tasks/index.ts
+new file mode 100644
+index 0000000..ceac481
+--- /dev/null
++++ b/src/lib/tasks/index.ts
+@@ -0,0 +1,4 @@
++// タスクの機能の入口。型・検証・DB の読み書きをまとめて書き出す（振る舞いは変えていない）。
++export * from "./model.ts";
++export * from "./validation.ts";
++export * from "./repository.ts";
+diff --git a/src/lib/tasks/model.ts b/src/lib/tasks/model.ts
+new file mode 100644
+index 0000000..7f81d6e
+--- /dev/null
++++ b/src/lib/tasks/model.ts
+@@ -0,0 +1,30 @@
++// タスクの型と、ステータスなどの値の定義。
++export type TaskStatus = "todo" | "in_progress" | "done";
++
++export type Task = {
++  id: number;
++  title: string;
++  status: TaskStatus;
++  assignee: string;
++  dueDate: string; // YYYY-MM-DD
++};
++
++export const TASK_STATUSES: readonly TaskStatus[] = ["todo", "in_progress", "done"];
++
++export const STATUS_LABELS: Record<TaskStatus, string> = {
++  todo: "未着手",
++  in_progress: "進行中",
++  done: "完了",
++};
++
++export function isTaskStatus(value: unknown): value is TaskStatus {
++  return typeof value === "string" && (TASK_STATUSES as readonly string[]).includes(value);
++}
++
++export type TaskFilter = {
++  status?: TaskStatus;
++};
++
++export type TaskInput = Omit<Task, "id">;
++
++export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
+diff --git a/src/lib/tasks/repository.ts b/src/lib/tasks/repository.ts
+new file mode 100644
+index 0000000..ea5f4b1
+--- /dev/null
++++ b/src/lib/tasks/repository.ts
+@@ -0,0 +1,45 @@
++// タスクの DB への読み書き。
++import { getDb, type Db } from "../db/index.ts";
++import type { Task, TaskFilter, TaskInput, TaskStatus } from "./model.ts";
++
++type TaskRow = { id: number; title: string; status: TaskStatus; assignee: string; due_date: string };
++
++function toTask(row: TaskRow): Task {
++  return { id: row.id, title: row.title, status: row.status, assignee: row.assignee, dueDate: row.due_date };
++}
++
++export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
++  const rows = db
++    .prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id")
++    .all({ status: filter.status ?? null }) as TaskRow[];
++  return rows.map(toTask);
++}
++
++export function getTask(id: number, db: Db = getDb()): Task | undefined {
++  const row = db.prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE id = ?").get(id) as
++    | TaskRow
++    | undefined;
++  return row && toTask(row);
++}
++
++export function createTask(input: TaskInput, db: Db = getDb()): Task {
++  const { lastInsertRowid } = db
++    .prepare("INSERT INTO tasks (title, status, assignee, due_date) VALUES (?, ?, ?, ?)")
++    .run(input.title, input.status, input.assignee, input.dueDate);
++  return getTask(Number(lastInsertRowid), db)!;
++}
++
++/** 指定した項目だけを更新する。タスクが無ければ undefined。 */
++export function updateTask(id: number, changes: Partial<TaskInput>, db: Db = getDb()): Task | undefined {
++  const current = getTask(id, db);
++  if (!current) return undefined;
++  const next = { ...current, ...changes };
++  db.prepare("UPDATE tasks SET title = ?, status = ?, assignee = ?, due_date = ? WHERE id = ?").run(
++    next.title,
++    next.status,
++    next.assignee,
++    next.dueDate,
++    id,
++  );
++  return getTask(id, db);
++}
+diff --git a/src/lib/tasks/validation.ts b/src/lib/tasks/validation.ts
+new file mode 100644
+index 0000000..c446c4c
+--- /dev/null
++++ b/src/lib/tasks/validation.ts
+@@ -0,0 +1,48 @@
++// API に送られた値の検証。
++import { getDb, type Db } from "../db/index.ts";
++import { isTaskStatus, type TaskInput, type ValidationResult } from "./model.ts";
++
++/** URL のパス・クエリの ID を検証する。正の整数でなければ undefined。 */
++export function parseTaskId(value: unknown): number | undefined {
++  if (typeof value !== "string" || !/^[1-9][0-9]{0,9}$/.test(value)) return undefined;
++  return Number(value);
++}
++
++const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
++
++/**
++ * API に送られたタスクの内容を検証する。partial = true（更新）のときは、送られた項目だけを検証する。
++ */
++export function validateTaskInput(
++  body: unknown,
++  options: { partial?: boolean } = {},
++  _db: Db = getDb(),
++): ValidationResult<Partial<TaskInput>> {
++  if (typeof body !== "object" || body === null || Array.isArray(body)) {
++    return { ok: false, errors: ["リクエストの形式が正しくありません"] };
++  }
++  const b = body as Record<string, unknown>;
++  const errors: string[] = [];
++  const value: Partial<TaskInput> = {};
++  const need = (key: string) => !options.partial || key in b;
++
++  if (need("title")) {
++    if (typeof b.title !== "string" || b.title.trim() === "") {
++      errors.push("タイトルは 1〜200 文字で入力してください");
++    } else value.title = b.title.trim();
++  }
++  if (need("status")) {
++    if (!isTaskStatus(b.status)) errors.push("ステータスが正しくありません");
++    else value.status = b.status;
++  }
++  if (need("assignee")) {
++    if (typeof b.assignee !== "string" || b.assignee.trim() === "") errors.push("担当者が存在しません");
++    else value.assignee = b.assignee;
++  }
++  if (need("dueDate")) {
++    if (typeof b.dueDate !== "string" || !DATE_RE.test(b.dueDate) || Number.isNaN(Date.parse(b.dueDate))) {
++      errors.push("期限は YYYY-MM-DD 形式で入力してください");
++    } else value.dueDate = b.dueDate;
++  }
++  return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
++}
+diff --git a/tests/task-model.test.ts b/tests/task-model.test.ts
+new file mode 100644
+index 0000000..abc3cb5
+--- /dev/null
++++ b/tests/task-model.test.ts
+@@ -0,0 +1,12 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { isTaskStatus } from "../src/lib/tasks/index.ts";
++
++describe("isTaskStatus", () => {
++  it("accepts known statuses only", () => {
++    assert.equal(isTaskStatus("done"), true);
++    assert.equal(isTaskStatus("unknown"), false);
++    assert.equal(isTaskStatus(undefined), false);
++  });
++});
+diff --git a/tests/task-repository.test.ts b/tests/task-repository.test.ts
+new file mode 100644
+index 0000000..fd0221f
+--- /dev/null
++++ b/tests/task-repository.test.ts
+@@ -0,0 +1,42 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { createTask, getTask, listTasks, updateTask } from "../src/lib/tasks/index.ts";
++
++describe("listTasks", () => {
++  it("returns all tasks without a filter", () => {
++    assert.equal(listTasks({}, openDb()).length, 7);
++  });
++
++  it("filters by status", () => {
++    const tasks = listTasks({ status: "todo" }, openDb());
++    assert.ok(tasks.length > 0);
++    assert.ok(tasks.every((t) => t.status === "todo"));
++  });
++});
++
++describe("getTask", () => {
++  it("returns a task by id, or undefined", () => {
++    const db = openDb();
++    assert.deepEqual(getTask(1, db), {
++      id: 1,
++      title: "要件定義書のレビュー",
++      status: "done",
++      assignee: "sato",
++      dueDate: "2026-11-02",
++    });
++    assert.equal(getTask(999, db), undefined);
++  });
++});
++
++describe("createTask / updateTask", () => {
++  it("creates a task and updates only the given fields", () => {
++    const db = openDb();
++    const created = createTask({ title: "新規", status: "todo", assignee: "sato", dueDate: "2026-12-01" }, db);
++    assert.equal(created.id, 8);
++    assert.equal(listTasks({}, db).length, 8);
++    const updated = updateTask(created.id, { status: "done" }, db);
++    assert.deepEqual(updated, { ...created, status: "done" });
++    assert.equal(updateTask(999, { status: "done" }, db), undefined);
++  });
++});
+diff --git a/tests/task-validation.test.ts b/tests/task-validation.test.ts
+new file mode 100644
+index 0000000..ad82351
+--- /dev/null
++++ b/tests/task-validation.test.ts
+@@ -0,0 +1,33 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { parseTaskId, validateTaskInput } from "../src/lib/tasks/index.ts";
++
++describe("parseTaskId", () => {
++  it("accepts positive integers only", () => {
++    assert.equal(parseTaskId("3"), 3);
++    for (const bad of ["0", "-1", "1.5", "abc", "", "01", undefined]) assert.equal(parseTaskId(bad), undefined, String(bad));
++  });
++});
++
++describe("validateTaskInput", () => {
++  const valid = { title: " 新しいタスク ", status: "todo", assignee: "tanaka", dueDate: "2026-12-01" };
++
++  it("accepts a complete input and trims the title", () => {
++    const r = validateTaskInput(valid, {}, openDb());
++    assert.deepEqual(r, { ok: true, value: { ...valid, title: "新しいタスク" } });
++  });
++
++
++  it("rejects non-object bodies", () => {
++    for (const body of [undefined, null, "x", []]) assert.equal(validateTaskInput(body, {}, openDb()).ok, false);
++  });
++
++  it("validates only the given fields when partial", () => {
++    assert.deepEqual(validateTaskInput({ status: "done" }, { partial: true }, openDb()), {
++      ok: true,
++      value: { status: "done" },
++    });
++    assert.equal(validateTaskInput({ status: "x" }, { partial: true }, openDb()).ok, false);
++  });
++});
+diff --git a/tests/tasks.test.ts b/tests/tasks.test.ts
+deleted file mode 100644
+index 66029e6..0000000
+--- a/tests/tasks.test.ts
++++ /dev/null
+@@ -1,92 +0,0 @@
+-import { describe, it } from "node:test";
+-import assert from "node:assert/strict";
+-import { openDb } from "../src/lib/db/index.ts";
+-import {
+-  createTask,
+-  getTask,
+-  isTaskStatus,
+-  listTasks,
+-  parseTaskId,
+-  updateTask,
+-  validateTaskInput,
+-} from "../src/lib/tasks.ts";
+-
+-describe("listTasks", () => {
+-  it("returns all tasks without a filter", () => {
+-    assert.equal(listTasks({}, openDb()).length, 7);
+-  });
+-
+-  it("filters by status", () => {
+-    const tasks = listTasks({ status: "todo" }, openDb());
+-    assert.ok(tasks.length > 0);
+-    assert.ok(tasks.every((t) => t.status === "todo"));
+-  });
+-});
+-
+-describe("getTask", () => {
+-  it("returns a task by id, or undefined", () => {
+-    const db = openDb();
+-    assert.deepEqual(getTask(1, db), {
+-      id: 1,
+-      title: "要件定義書のレビュー",
+-      status: "done",
+-      assignee: "sato",
+-      dueDate: "2026-11-02",
+-    });
+-    assert.equal(getTask(999, db), undefined);
+-  });
+-});
+-
+-describe("parseTaskId", () => {
+-  it("accepts positive integers only", () => {
+-    assert.equal(parseTaskId("3"), 3);
+-    for (const bad of ["0", "-1", "1.5", "abc", "", "01", undefined]) assert.equal(parseTaskId(bad), undefined, String(bad));
+-  });
+-});
+-
+-describe("validateTaskInput", () => {
+-  const valid = { title: " 新しいタスク ", status: "todo", assignee: "tanaka", dueDate: "2026-12-01" };
+-
+-  it("accepts a complete input and trims the title", () => {
+-    const r = validateTaskInput(valid, {}, openDb());
+-    assert.deepEqual(r, { ok: true, value: { ...valid, title: "新しいタスク" } });
+-  });
+-
+-  it("reports every invalid field", () => {
+-    const r = validateTaskInput({ title: "", status: "x", assignee: "nobody", dueDate: "12/01" }, {}, openDb());
+-    assert.equal(r.ok, false);
+-    assert.equal(!r.ok && r.errors.length, 4);
+-  });
+-
+-  it("rejects non-object bodies", () => {
+-    for (const body of [undefined, null, "x", []]) assert.equal(validateTaskInput(body, {}, openDb()).ok, false);
+-  });
+-
+-  it("validates only the given fields when partial", () => {
+-    assert.deepEqual(validateTaskInput({ status: "done" }, { partial: true }, openDb()), {
+-      ok: true,
+-      value: { status: "done" },
+-    });
+-    assert.equal(validateTaskInput({ status: "x" }, { partial: true }, openDb()).ok, false);
+-  });
+-});
+-
+-describe("createTask / updateTask", () => {
+-  it("creates a task and updates only the given fields", () => {
+-    const db = openDb();
+-    const created = createTask({ title: "新規", status: "todo", assignee: "sato", dueDate: "2026-12-01" }, db);
+-    assert.equal(created.id, 8);
+-    assert.equal(listTasks({}, db).length, 8);
+-    const updated = updateTask(created.id, { status: "done" }, db);
+-    assert.deepEqual(updated, { ...created, status: "done" });
+-    assert.equal(updateTask(999, { status: "done" }, db), undefined);
+-  });
+-});
+-
+-describe("isTaskStatus", () => {
+-  it("accepts known statuses only", () => {
+-    assert.equal(isTaskStatus("done"), true);
+-    assert.equal(isTaskStatus("unknown"), false);
+-    assert.equal(isTaskStatus(undefined), false);
+-  });
+-});

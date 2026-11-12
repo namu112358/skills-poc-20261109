@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "updateTask の後に eventBus.emit を同期で呼び、例外を捕まえていないため、NOTIFIER_KIND=slack/email を選ぶと未実装の送り先が例外を投げ、DB は更新済みなのに API が 500 になる。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "要件は「ログに 1 行」なのに、src/lib/notify/ にイベントバス・NotifierFactory・Slack/メールのスタブ・使われないイベント型などを作りすぎている。console.log 1 行にすべき。",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "tests/notify.test.ts はバスとファクトリの動作だけを確かめており、担当者が変わったときだけ出る・変わらないときは出ない、という要件の振る舞いをテストしていない。",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "notify/index.ts の import 時にグローバルのバスへ購読が登録され、環境変数も読み込み時に評価されるため、updateTask を使うだけ（テストを含む）で通知の副作用が起きる。",
+   "severity": "低",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "監査ログの行に操作したユーザー（誰が変えたか）が含まれていないので、要件を確認すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0536638
+ }
+}

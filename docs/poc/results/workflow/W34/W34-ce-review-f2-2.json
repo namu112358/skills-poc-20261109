@@ -1,0 +1,99 @@
+{
+ "trial": "W34-ce-review-f2-2",
+ "scenario": "W34",
+ "config": "ce-review",
+ "case": "f2",
+ "rep": 2,
+ "review_md": "# コードレビュー: タスク機能のファイル分割 PR\n\n対象: 未コミット差分（`git diff HEAD`）。`src/lib/tasks.ts` を `src/lib/tasks/{model,validation,repository,index}.ts` に分割し、テストも 3 つに分けた変更。\n\n## 結論: 修正してからマージ（Ready with fixes）\n\nPR の説明は「振る舞いは変えていない」としていますが、`validateTaskInput` を `validation.ts` に移す際に **検証が 2 つ消えています**。消えた検証を確認するテストも、一緒に削除されています。そのため `npm test` は通りますが、元の振る舞いとは違います。\n\n## 指摘\n\n### 1. [重要度: 高] 担当者が存在するかの確認が消えた（不正な担当者で 500 エラーになる）\n\n- 場所: `src/lib/tasks/validation.ts` `validateTaskInput` の `if (need(\"assignee\"))` ブロック。引数 `_db` は使われていません。\n- 変更前: `db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee)` で担当者が `users` にいるかを確認し、いなければ 400 とエラー文言「担当者が存在しません」を返していました。\n- 変更後: 空文字でない文字列なら何でも通ります。エラー文言「担当者が存在しません」は残っているので、実際の確認と合っていません。\n- 起きること:\n  - `POST /api/tasks` に `{\"title\":\"a\",\"status\":\"todo\",\"assignee\":\"nobody\",\"dueDate\":\"2026-12-01\"}` を送ります。\n  - 検証を通過し、`createTask` の INSERT が外部キー制約（`tasks.assignee REFERENCES users(id)`、`PRAGMA foreign_keys = ON`）で例外を投げます。\n  - API Route は例外を捕まえていないので、400 ではなく 500 になります。\n  - `PATCH /api/tasks/:id` に `{\"assignee\":\"nobody\"}` を送っても、`updateTask` で同じ 500 になります。\n- CLAUDE.md の規約 9「入力誤りは 400」に反します。「振る舞いは変えない」という PR の趣旨にも反します。\n- 直し方:\n  - 変更前の確認を戻します。引数名も `_db` から `db` に戻します。\n\n    ```ts\n    const exists =\n      typeof b.assignee === \"string\" && db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee) !== undefined;\n    if (!exists) errors.push(\"担当者が存在しません\");\n    else value.assignee = b.assignee as string;\n    ```\n\n  - 「型・検証・DB の読み書きを分ける」方針に合わせたい場合も、検証は DB 参照を残したまま `validation.ts` に置きます。分割のために検証を削ってはいけません。\n  - 関数の説明コメントにあった「担当者が存在するかは DB で確認する。」の一文も戻します。\n\n### 2. [重要度: 中] タイトルの 200 文字上限の検証が消えた\n\n- 場所: `src/lib/tasks/validation.ts` `validateTaskInput` の `if (need(\"title\"))` の条件式。\n- 変更前: `|| b.title.length > 200` がありました。\n- 変更後: 長さの上限がありません。エラー文言は「タイトルは 1〜200 文字で入力してください」のままです。\n- 起きること: 201 文字以上、たとえば数 MB のタイトルを `POST /api/tasks` や `PATCH /api/tasks/:id` で送ると、そのまま保存されます。DB 側にも長さの制約はありません。一覧画面などの表示も崩れる恐れがあります。\n- 直し方: 条件に `|| b.title.length > 200` を戻します。\n\n### 3. [重要度: 中] 検証の退行を検出していたテストが削除され、残りのテストでは検出できない\n\n- 場所: `tests/task-validation.test.ts`（変更前の `tests/tasks.test.ts` の `describe(\"validateTaskInput\")`）。\n- 削除されたテスト: 「reports every invalid field」。`{ title: \"\", status: \"x\", assignee: \"nobody\", dueDate: \"12/01\" }` に対して、エラーがちょうど 4 件になることを確かめていました。\n- このテストが残っていれば、指摘 1 の退行（`assignee: \"nobody\"` が通る）でエラーが 3 件になり、失敗していました。PR の「`npm test` が通る」は、このテストを消した結果でもあります。\n- 変更前から、タイトル 201 文字の拒否と、存在しない担当者の拒否を個別に確かめるテストはありませんでした。\n- CLAUDE.md の規約 5（ロジックを追加・変更したらテスト）と規約 6（変更は依頼された範囲にとどめる）の観点でも問題です。分割するだけの PR で、検証を確かめるテストを減らす理由はありません。\n- 直し方:\n  - 「reports every invalid field」を `tests/task-validation.test.ts` に戻します。\n  - 次の 2 つを追加します。\n    - 201 文字のタイトルが `ok: false` になること。\n    - 存在しない担当者（`\"nobody\"`）が `ok: false` になり、部分更新（`partial: true`）でも同じになること。\n  - 検証が戻れば、これらのテストは通ります。\n\n### 4. [重要度: 低] PR の説明が実際の変更と合っていない\n\n- 「振る舞いは変えていません」は、指摘 1 と 2 の分だけ事実と違います。マージ前に説明を直すか、上の修正で説明を事実にしてください。「テストも同じ単位に分けた」とありますが、実際は 1 件削除しています（指摘 3）。\n\n### 5. [重要度: 低] テストの小さな整理漏れ\n\n- `tests/task-model.test.ts`: `openDb` を import していますが使っていません。削除します。\n- `tests/task-validation.test.ts`: 「accepts a complete input」のテストの後ろに空行が 2 行あります（削除したテストの跡）。1 行にします。\n\n## 問題なしと判断した点\n\n- `model.ts` と `repository.ts` は、変更前の `tasks.ts` と内容が同じです。SQL はプレースホルダを使っており、規約 8 にも合っています。\n- `index.ts` が `model`・`validation`・`repository` を `export *` で書き出しています。呼び出し側（`src/app/` の API Route とページ 4 ファイル）の import 先の変更は、書き出される名前に過不足がなく問題ありません。\n- `tests/tasks.test.ts` の他のテストは、分割後のテストに内容を変えずに移っています。\n- 削除した `src/lib/tasks.ts` と `tests/tasks.test.ts` を参照する場所は、残りのソースにありません。\n\n## Coverage\n\n- 範囲: `base:HEAD`（未コミットの差分）。変更前のファイルは `git show HEAD:...` で比較しました。\n- 実施: 軽量レビュー（この文脈のみ。レビュー用のサブエージェントは使っていません）。基準は `CLAUDE.md` です（`CODING_STANDARDS.md` はありません）。`npm test` は 18 件が通ることを確認しました。\n- 実施できなかったこと:\n  - スコープ判定の補助スクリプト（`review-scope.py`）は、無人実行で承認が得られず実行できませんでした。差分の大きさ（実行コード約 130 行・認証や金銭に関わる変更なし）から、手作業で軽量レビューと判断しました。\n  - 別モデルによる独立レビュー（敵対的レビュー）は実施していません。\n- 既存の `REVIEW.md` は無いので、レビューポリシーは適用していません。\n",
+ "review_commit": "8e2a03b0c1527ca7a117fafa87c6a0c36af66cdc",
+ "review_md_final": "# コードレビュー: タスク機能のファイル分割 PR\n\n対象: 未コミット差分（`git diff HEAD`）。`src/lib/tasks.ts` を `src/lib/tasks/{model,validation,repository,index}.ts` に分割し、テストも 3 つに分けた変更。\n\n## 結論: 修正してからマージ（Ready with fixes）\n\nPR の説明は「振る舞いは変えていない」としていますが、`validateTaskInput` を `validation.ts` に移す際に **検証が 2 つ消えています**。消えた検証を確認するテストも、一緒に削除されています。そのため `npm test` は通りますが、元の振る舞いとは違います。\n\n## 指摘\n\n### 1. [重要度: 高] 担当者が存在するかの確認が消えた（不正な担当者で 500 エラーになる）\n\n- 場所: `src/lib/tasks/validation.ts` `validateTaskInput` の `if (need(\"assignee\"))` ブロック。引数 `_db` は使われていません。\n- 変更前: `db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee)` で担当者が `users` にいるかを確認し、いなければ 400 とエラー文言「担当者が存在しません」を返していました。\n- 変更後: 空文字でない文字列なら何でも通ります。エラー文言「担当者が存在しません」は残っているので、実際の確認と合っていません。\n- 起きること:\n  - `POST /api/tasks` に `{\"title\":\"a\",\"status\":\"todo\",\"assignee\":\"nobody\",\"dueDate\":\"2026-12-01\"}` を送ります。\n  - 検証を通過し、`createTask` の INSERT が外部キー制約（`tasks.assignee REFERENCES users(id)`、`PRAGMA foreign_keys = ON`）で例外を投げます。\n  - API Route は例外を捕まえていないので、400 ではなく 500 になります。\n  - `PATCH /api/tasks/:id` に `{\"assignee\":\"nobody\"}` を送っても、`updateTask` で同じ 500 になります。\n- CLAUDE.md の規約 9「入力誤りは 400」に反します。「振る舞いは変えない」という PR の趣旨にも反します。\n- 直し方:\n  - 変更前の確認を戻します。引数名も `_db` から `db` に戻します。\n\n    ```ts\n    const exists =\n      typeof b.assignee === \"string\" && db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee) !== undefined;\n    if (!exists) errors.push(\"担当者が存在しません\");\n    else value.assignee = b.assignee as string;\n    ```\n\n  - 「型・検証・DB の読み書きを分ける」方針に合わせたい場合も、検証は DB 参照を残したまま `validation.ts` に置きます。分割のために検証を削ってはいけません。\n  - 関数の説明コメントにあった「担当者が存在するかは DB で確認する。」の一文も戻します。\n\n### 2. [重要度: 中] タイトルの 200 文字上限の検証が消えた\n\n- 場所: `src/lib/tasks/validation.ts` `validateTaskInput` の `if (need(\"title\"))` の条件式。\n- 変更前: `|| b.title.length > 200` がありました。\n- 変更後: 長さの上限がありません。エラー文言は「タイトルは 1〜200 文字で入力してください」のままです。\n- 起きること: 201 文字以上、たとえば数 MB のタイトルを `POST /api/tasks` や `PATCH /api/tasks/:id` で送ると、そのまま保存されます。DB 側にも長さの制約はありません。一覧画面などの表示も崩れる恐れがあります。\n- 直し方: 条件に `|| b.title.length > 200` を戻します。\n\n### 3. [重要度: 中] 検証の退行を検出していたテストが削除され、残りのテストでは検出できない\n\n- 場所: `tests/task-validation.test.ts`（変更前の `tests/tasks.test.ts` の `describe(\"validateTaskInput\")`）。\n- 削除されたテスト: 「reports every invalid field」。`{ title: \"\", status: \"x\", assignee: \"nobody\", dueDate: \"12/01\" }` に対して、エラーがちょうど 4 件になることを確かめていました。\n- このテストが残っていれば、指摘 1 の退行（`assignee: \"nobody\"` が通る）でエラーが 3 件になり、失敗していました。PR の「`npm test` が通る」は、このテストを消した結果でもあります。\n- 変更前から、タイトル 201 文字の拒否と、存在しない担当者の拒否を個別に確かめるテストはありませんでした。\n- CLAUDE.md の規約 5（ロジックを追加・変更したらテスト）と規約 6（変更は依頼された範囲にとどめる）の観点でも問題です。分割するだけの PR で、検証を確かめるテストを減らす理由はありません。\n- 直し方:\n  - 「reports every invalid field」を `tests/task-validation.test.ts` に戻します。\n  - 次の 2 つを追加します。\n    - 201 文字のタイトルが `ok: false` になること。\n    - 存在しない担当者（`\"nobody\"`）が `ok: false` になり、部分更新（`partial: true`）でも同じになること。\n  - 検証が戻れば、これらのテストは通ります。\n\n### 4. [重要度: 低] PR の説明が実際の変更と合っていない\n\n- 「振る舞いは変えていません」は、指摘 1 と 2 の分だけ事実と違います。マージ前に説明を直すか、上の修正で説明を事実にしてください。「テストも同じ単位に分けた」とありますが、実際は 1 件削除しています（指摘 3）。\n\n### 5. [重要度: 低] テストの小さな整理漏れ\n\n- `tests/task-model.test.ts`: `openDb` を import していますが使っていません。削除します。\n- `tests/task-validation.test.ts`: 「accepts a complete input」のテストの後ろに空行が 2 行あります（削除したテストの跡）。1 行にします。\n\n## 問題なしと判断した点\n\n- `model.ts` と `repository.ts` は、変更前の `tasks.ts` と内容が同じです。SQL はプレースホルダを使っており、規約 8 にも合っています。\n- `index.ts` が `model`・`validation`・`repository` を `export *` で書き出しています。呼び出し側（`src/app/` の API Route とページ 4 ファイル）の import 先の変更は、書き出される名前に過不足がなく問題ありません。\n- `tests/tasks.test.ts` の他のテストは、分割後のテストに内容を変えずに移っています。\n- 削除した `src/lib/tasks.ts` と `tests/tasks.test.ts` を参照する場所は、残りのソースにありません。\n\n## Coverage\n\n- 範囲: `base:HEAD`（未コミットの差分）。変更前のファイルは `git show HEAD:...` で比較しました。\n- 実施: 軽量レビュー（この文脈のみ。レビュー用のサブエージェントは使っていません）。基準は `CLAUDE.md` です（`CODING_STANDARDS.md` はありません）。`npm test` は 18 件が通ることを確認しました。\n- 実施できなかったこと:\n  - スコープ判定の補助スクリプト（`review-scope.py`）は、無人実行で承認が得られず実行できませんでした。差分の大きさ（実行コード約 130 行・認証や金銭に関わる変更なし）から、手作業で軽量レビューと判断しました。\n  - 別モデルによる独立レビュー（敵対的レビュー）は実施していません。\n- 既存の `REVIEW.md` は無いので、レビューポリシーは適用していません。\n\n## 対応状況\n\n- 指摘 1・2・3・5: 修正しました（`validation.ts` に担当者の DB 確認とタイトル 200 文字上限を戻し、`tests/task-validation.test.ts` にテストを戻して追加し、`tests/task-model.test.ts` の未使用 import と余分な空行を削除）。\n- 指摘 4（PR の説明）: 直していません。PR の説明文はリポジトリ内のファイルではなく、このブランチから直せません。指摘 1・2 を直したので「振る舞いは変えていない」は事実になりましたが、「テストを同じ単位に分けた」の記述（テスト 1 件の削除）は、PR 作成者が説明文を確認してください。\n",
+ "fixed": {
+  "diff_added": 236,
+  "diff_deleted": 217,
+  "pr_added": 218,
+  "pr_deleted": 217,
+  "commits": [
+   "2eccf23 タスク機能をファイル分割し、レビュー指摘を反映する",
+   "8e2a03b REVIEW.md: タスク機能の分割 PR のレビュー指摘を追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 21,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "タイトルは 200 文字まで（201 文字は入力の誤り）",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "存在しない担当者は入力の誤り",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "すべての項目が誤っていれば、4 つとも報告する",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "一覧・取得・作成・更新は元のとおり",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 4,
+   "log": ""
+  }
+ },
+ "transcript": {
+  "cost_usd": 0.5455,
+  "tokens": {
+   "input": 46,
+   "output": 10867,
+   "cache_read": 1418950,
+   "cache_creation": 73713
+  },
+  "turns": 28,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"BASE=$(git rev-parse HEAD) && echo \\\"BASE:$BASE\\\" && git ls-files --others --exclude-standard && SKILL_DIR=/tmp/poc-trials/W34-ce-review-f2-2/plugins/compound-engineering/skills/ce-code-r"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 /tmp/poc-trials/W34-ce-review-f2-2/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base \\\"$(git rev-parse HEAD)\\\" --docs-root docs; git ls-files | gre"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 /tmp/poc-trials/W34-ce-review-f2-2/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs 2>&1 | head -50\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 /tmp/poc-trials/W34-ce-review-f2-2/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+   }
+  ],
+  "tool_calls": {
+   "Read": 4,
+   "Bash": 13,
+   "Write": 1,
+   "Edit": 6
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 123,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "指摘 1・2・3・5 を直し、PR の差分と修正をまとめて 1 つのコミット（`2eccf23`）にしました。`npm run typecheck` は通り、`npm test` は 21 件すべて通りました。\n\n- **指摘 1（担当者の存在確認）:** `src/lib/tasks/validation.ts` で、`users` テーブルを引く確認を元の形に戻しました。引数名も `_db` から `db` に戻しています。\n- **指摘 2（タイトルの 200 文字上限）:** 同じファイルで、上限の条件を戻しました。\n- **指摘 3（削除されたテスト）:** `tests/task-validation.test.ts` に「reports every invalid field」を戻しました。次の 2 つも追加しています。\n  - タイトルが 200 文字なら通り、201 文字なら拒否されること。\n  - 存在しない担当者は、更新（部分更新）でも拒否されること。\n- **指摘 5（テストの整理漏れ）:** `tests/task-model.test.ts` の未使用の import と、`tests/task-validation.test.ts` の余分な空行を削除しました。\n\n**指摘 4（PR の説明）は直していません。** 説明文はリポジトリ内のファイルではなく、このブランチから直せないためです。指摘 1・2 を直したので「振る舞いは変えていない」は事実になりました。ただ、「テストを同じ単位に分けた」の記述（実際は 1 件削除していた）は、PR 作成者に確認してもらう必要があります。この理由は `REVIEW.md` の末尾に「対応状況」として追記しました。"
+ },
+ "interventions": 0
+}

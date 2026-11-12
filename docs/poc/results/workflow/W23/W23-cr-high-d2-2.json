@@ -1,0 +1,39 @@
+{
+  "trial": "W23-cr-high-d2-2",
+  "scenario": "W23",
+  "config": "cr-high",
+  "case": "d2",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスクにコメントを付けられるようにする\n\n指摘は 7 件（重要度: 高 2 件、中 3 件、低 2 件）。\n\n## 1. 【高】リンクの URL スキームを検証しておらず、保存型 XSS になる\n\n- 場所: `src/lib/comments.ts:64`（`renderBody`）と、その結果を `dangerouslySetInnerHTML` で埋め込むタスク詳細ページ\n- 問題: `renderBody` は `[text](url)` を `<a href>` に変換するが、URL のスキームを確認していない。ページはその結果を生の HTML として埋め込む。\n  - 例: `[click](javascript:alert(document.cookie))` というコメントを投稿する。`escapeHtml` では変化しないので、`<a href=\"javascript:...\">click</a>` になる。\n  - このタスクページを見た人がリンクをクリックすると、アプリのオリジンで攻撃者のスクリプトが動く。`rel=noopener` では防げない。\n- 直し方: http / https / 相対 URL だけを許可し、それ以外は変換せずテキストのまま出す。または本文を HTML 文字列にせず、React の要素として描画して `dangerouslySetInnerHTML` をやめる。\n\n## 2. 【高】PATCH に投稿者チェックが無く、他人のコメントを編集できる\n\n- 場所: `src/app/api/comments/[commentId]/route.ts:20`（PATCH ハンドラ）\n- 問題: 同じファイルの DELETE は、自分のコメントでなければ 403 を返す。PATCH は、コメントが存在するかしか見ていない。\n  - 例: suzuki が、sato の書いたコメントに `PATCH /api/comments/<id>` を送る。200 が返り、sato のコメント本文が書き換わる。\n- 直し方: PATCH でも DELETE と同じ投稿者チェックを行い、投稿者でなければ 403 を返す。判定は `src/lib/comments.ts` の関数にまとめ、両方のハンドラで使う。\n\n## 3. 【中】`created_at` をロケール文字列で保存し、その文字列で並べ替えている\n\n- 場所: `src/lib/comments.ts:55`（保存時の日時生成）と `listComments` の並べ替え\n- 問題: `toLocaleString('ja-JP')` は時を 0 埋めしない。9:05 JST は `'2026/11/11 9:05:00'` になる（実行して確認済み）。文字列として比べると `'2026/11/11 10:00:00'` のほうが先に来る。\n  - 結果: 10:00 に投稿したコメントが 9:05 のコメントより上に出る。古い順にするという仕様に反する。\n  - この形式の文字列は、確実にパースしたり日時として比較したりすることもできない。\n- 直し方: ISO 8601 の UTC 文字列かエポック値で保存し、並べ替えもそれで行う。ロケール形式への変換は表示時だけにする。\n\n## 4. 【中】POST でタスクの存在を確認しておらず、存在しないタスクで 500 になる\n\n- 場所: `src/app/api/tasks/[id]/comments/route.ts:20`（POST ハンドラ）\n- 問題: GET はタスクの存在を確認するが、POST は直接 `addComment` を呼ぶ。\n  - 例: `POST /api/tasks/9999/comments` に正しい本文を送ると INSERT まで進む。`foreign_keys` が ON なので FOREIGN KEY 制約エラーが出る。ルートに catch が無いので、クライアントには 500 が返る。\n  - CLAUDE.md の規約 9（対象が無いときは 404）に反する。\n- 直し方: POST でも先にタスクを取得し、無ければ 404 を返す。\n\n## 5. 【低】リクエスト本文の形式チェックが不十分で、コメント ID の検証も流用している\n\n- 場所: `src/app/api/comments/[commentId]/route.ts:17`、および POST ルートの同じ書き方\n- 問題:\n  - `(await readJson(request))` の結果をそのまま `body?.body` として使っている。JSON の本文が文字列や数値だと `.body` は undefined になる。\n  - その結果、`validateTaskInput` なら返すはずの「リクエストの形式が正しくありません」ではなく、「コメントを入力してください」という的外れなメッセージが返る。\n  - コメント ID の検証に、タスク用の `parseTaskId` を流用している。2 つの概念が結びついてしまう。\n- 直し方: 本文がオブジェクトかどうかを先に確認し、違えば形式エラー（400）にする。コメント ID 用の検証関数（例: `parseCommentId`）を用意する。\n\n## 6. 【低】文字数チェックを trim 前の本文に対して行っている\n\n- 場所: `src/lib/comments.ts:21`（`validateCommentBody`）\n- 問題: 長さを trim 前の本文で判定するので、保存される値は上限内でも弾かれる。\n  - 例: 1990 文字の本文に末尾の空白を 20 文字付けると、「コメントは 2000 文字以内」で拒否される。trim 後は 1990 文字なので、本来は通るはず。\n- 直し方: 本文を trim してから、その値で空チェックと長さチェックを行い、同じ値を保存する。\n\n## 7. 【中】テストが主要な不具合を検出できない\n\n- 場所: `tests/comments.test.ts:22` ほか\n- 問題:\n  - `renderBody` のテストは https のリンクだけを確認している。`javascript:` などの危険なスキームを確認していない。\n  - 並べ替えのテストは 10 時と 11 時しか使っておらず、9 時台と 10 時台の比較を確認していない。\n  - ルートの認可（投稿者以外の PATCH）や、存在しないタスクへの POST が 404 になることのテストが無い。\n  - CLAUDE.md の規約 5（ロジックを追加・変更したらテストを追加する）を満たしておらず、指摘 1〜4 の不具合はテストで検出できない。\n- 直し方: 次のテストを追加する。\n  - 危険なスキームのリンク（`javascript:` など）\n  - 9 時台と 10 時台の並び順\n  - 投稿者以外の PATCH が 403 になること\n  - 存在しないタスクへの POST が 404 になること\n  - 前後に空白を付けた長い本文\n  - JSON の本文がオブジェクトではない場合\n",
+  "review_chars": 3073,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2535,
+    "tokens": {
+      "input": 20,
+      "output": 5910,
+      "cache_read": 312605,
+      "cache_creation": 49391
+    },
+    "turns": 5,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; git diff main...HEAD --stat 2>&1 | tail -5; git diff HEAD --stat\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 54,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "レビューの 7 件を `REVIEW.md` に書き写し、`REVIEW.md` だけをコミットしました。コードは直していません。PR の変更ファイルはコミットに含めず、元のステージ状態のままです。\n\n各指摘には、場所・問題・直し方・重要度を書いています。\n\n- **高**\n  1. `renderBody` が `javascript:` リンクを通してしまい、保存型 XSS になる。\n  2. PATCH に投稿者チェックが無く、他人のコメントを編集できる。\n- **中**\n  3. `created_at` をロケール文字列で保存して並べ替えているため、9 時台と 10 時台の順序が崩れる。\n  4. 存在しないタスクへの POST が 404 ではなく 500 になる。\n  7. テストが上の不具合を検出できない。\n- **低**\n  5. 本文の形式チェックが不十分で、コメント ID の検証にタスク用の `parseTaskId` を流用している。\n  6. 文字数チェックが trim 前の本文に対して行われている。\n\nレビューで「中」と「低」の区別は出ていなかったため、3・4・5・6・7 の重要度は、影響の大きさを見て私が付けました。"
+  },
+  "interventions": 0
+}

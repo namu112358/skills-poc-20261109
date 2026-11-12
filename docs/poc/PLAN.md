@@ -277,6 +277,8 @@ W7 では、各候補の記憶の仕組み（Compound Engineering の `docs/solu
 
 ### 5.3 PR レビュー（Week 4 後半）
 
+> 実施状況（2026-11-12）: この手順の代わりに、W20〜W34 でレビュー用の Skill（内蔵 `/code-review`・PR Review Toolkit・`design-principles-review`・Compound Engineering の `ce-code-review`・道具なし）を、作り物と実際の変更の題材で比べた。まとめは [results/review-skills.md](results/review-skills.md)。公式プラグインの Code Review（GitHub の PR を読む前提）と、GitHub へのコメント投稿は、まだ比べていない。
+
 1. レビュー用 PR 7 本を GitHub 上に作成する（PoC 専用リポジトリまたは本リポジトリの PoC ブランチ）。
 2. 各 PR に対して実行する。
    - Code Review: `/code-review`（まずターミナル出力、最後に 1 本だけ `--comment` で投稿を確認）

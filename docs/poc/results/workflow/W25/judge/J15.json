@@ -1,0 +1,36 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "listTasks の SQL が assignee_id AS assignee と別名を付けているのに toTask が row.assignee_id を読むため、一覧の assigneeId が全件 undefined になる。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "validateTaskInput と toTask で API の入出力の JSON キーが assignee から assigneeId に変わり、旧キーでの POST は 400 になって既存クライアントが壊れる。これは PR 説明の「API の入出力は変えない」に反する。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "PATCH で旧キー assignee を送ると、validateTaskInput が空の更新として通すため、担当者を変えないまま 200 を返し、利用者は更新できたと誤解する。",
+   "severity": "中",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "マイグレーション 3 の後もインデックス名が tasks_assignee のまま残るので、version 4 で名前を付け直すべきだという指摘（動作への影響はないと本人も述べている）。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0569558
+ }
+}

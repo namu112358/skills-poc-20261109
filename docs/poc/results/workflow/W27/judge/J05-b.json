@@ -1,0 +1,99 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "validateLocation の locationId の枝で locationOriginal が未設定のまま createInstrument の INSERT に undefined が渡り、SQLite のバインドエラーで登録 API が 500 になる",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "マイグレーション 5 が location_id を付けるだけで location 列を正式名に直さず、表記ゆれのまま経理に渡る",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "updateInstrument で画面から場所を選んで保存しても location 列が古い値のまま変わらない",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "location-master.ts の updateLocation で場所の名称を変えても、その場所の計測器の location 列が旧名のまま更新されない",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "recordInventory のハンディの確定時に location 列へマスタ名ではなく端末の元の文字が入る",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "前の版にロールバック中に location だけ変わると location_id が古いまま残り、再度上げたとき画面が古い場所を表示する",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "recordInventory で確定済みの計測器に照合できない端末の文字が来ると捨ててログに出すだけで、確認中にならない",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 8,
+   "summary": "locations.ts の ALIASES が「大阪営」「名古屋営」を推測で正式な場所に寄せており、決められない値は寄せない要件に反する恐れがある",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 9,
+   "summary": "移行のログ locations.migrated に確認中になった値の種類や上位が出ず、0 件の環境ではログが残らない",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "linkInstrumentsToLocations が 5 万行を 1 行ずつ照合・UPDATE しており遅く、移行時間の実測も PR に無い",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "場所の名称を自由に変えられるため、名称変更後はハンディ端末の旧名が一致せず確認中に溜まる点を運用文書に書くべき",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "空白判定が SQL の TRIM（列挙した文字）と JS の trim()（NBSP なども含む）で違い、画面と一覧の絞り込みで件数が合わない",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 13,
+   "summary": "使用終了の場所の再開・名称変更・重複エラー表示の UI とテストが薄い",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.03911680000000001
+ }
+}

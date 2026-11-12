@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "isNishinihonCsv が先頭の BOM で false を返すため、BOM 付きの B 社 CSV が A 社の取込に回されて 400 になり、要件 3 に反する（テストもこの誤りを期待値にしている）",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "importNishinihonCsv のファイル内の重複のキーに成績書番号が含まれているため、同じ機器・同じ校正日で番号だけ違う行が両方取り込まれ、A 社の決まり（機器 + 校正日）と食い違う",
+   "severity": "中",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "importNishinihonCsv に、合意していない行の誤り（未来の校正日・成績書番号の空欄・50 文字超え）を足しており、要件 8 と依頼の範囲を超えて正当な行を落とすおそれがある",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "csv.ts の parseCsvLine と normalizeManagementNo が legacy の処理を複製しており、今後 A 社側とずれるおそれがある",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 5,
+   "summary": "BOM 付き・CRLF・同日で成績書番号違いの重複・誤り行の行番号・route 経由の応答を確かめるテストが無い",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0550678
+ }
+}

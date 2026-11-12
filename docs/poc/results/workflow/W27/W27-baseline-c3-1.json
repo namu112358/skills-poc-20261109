@@ -1,0 +1,47 @@
+{
+  "trial": "W27-baseline-c3-1",
+  "scenario": "W27",
+  "config": "baseline",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: 設置場所を場所マスタから選べるようにする\n\nマージ前に直すべき問題を重要度順に並べる。「高」は合意した要件を満たさない、または動かないもの。\n\n## 高\n\n### 1. 場所 ID を指定した計測器の登録（POST /api/instruments）が 500 になる\n- 場所: `src/lib/instruments.ts` の `validateLocation`（`locationId` が数値のとき）と `createInstrument`（`input.locationOriginal` を INSERT に渡す箇所）\n- 問題: `locationId` だけを送ると `validateLocation` は `value.locationId` しか設定せず、`locationOriginal` が `undefined` のままになる。`createInstrument` がそれを SQLite に束縛し、`TypeError: Provided value cannot be bound to SQLite parameter 4` で落ちる。実際に `openDb()` で `{managementNo:\"MI-0999\", …, locationId:1}` を検証して `createInstrument` に渡すと再現した。要件 3（登録は場所を一覧から選ぶ）の正規の入力形式が壊れている。既存のテストは `locationId: null` か `location` 文字列だけで、場所 ID を指定した登録を確かめていない。\n- 直し方: `locationId` が確定したときは、その場所の名称を `locationOriginal`（= `location` 列）に入れる（指摘 2 と同じ修正）。登録・更新で `locationId` を指定するテストを追加する。\n\n### 2. `instruments.location` 列に場所の名前が入った状態が保たれない（要件 7 違反）\n- 場所: `src/lib/db/migrations.ts` の version 5 `after`、`src/lib/locations.ts` の `linkInstrumentsToLocations`、`src/lib/location-master.ts` の `updateLocation`、`src/lib/instruments.ts` の `recordInventory` と `updateInstrument`\n- 問題: 経理部は毎月末、DB のコピーから `location` 列を直接読む。いまの実装では次のとおり、列の中身が正式な名前にならない。\n  - 移行は `location_id` を設定するだけで、`location` 列は元の書き方（`製造第1ライン`、`品証 測定室 `、全角スペース入りなど）のまま。約 5 万件の大半が表記ゆれのまま経理に渡る。\n  - 場所の名前を変えても（`updateLocation`）、その場所の計測器の `location` 列は古い名前のまま。要件 5 は画面では満たすが、列では満たさない。\n  - 画面（LocationForm）から場所を選んで保存しても、`location` 列は更新されない（`locationOriginal` が変わらない）。\n  - ハンディ端末で正式な場所に一致したとき（`outcome: \"linked\"`）も、`location` 列には端末が送った生の文字を書いている。\n- 直し方: 確定した計測器（`location_id` あり）の `location` 列は常に場所マスタの現在の名称にする。\n  - 移行で、結び付けた行の `location` を名称で上書きする。ただし、元の文字列は確認中を除いて失われるため、移行前に退避するか（例: 新列 `location_original`）、バックアップ前提で運用メモに明記する。\n  - `updateLocation` で名称を変えたら、同じトランザクションで `UPDATE instruments SET location = ? WHERE location_id = ?` を実行する。\n  - `updateInstrument`・`createInstrument` では、`locationId` があれば名称を `location` に入れる。\n  - 確認中の行は元の文字列のままにする。\n  - 来期（4 月）まで残す列なので、同期のテスト（移行後・改名後・選択後・端末受信後）を追加する。\n\n### 3. 前の版に戻すと、場所の食い違いが起きる（要件 8）\n- 場所: 同上（`location_id` を正とし、`location` 列は表示に使わない設計）\n- 問題: 前の版は `location` 列だけを読み書きする。現状では次のようになる。\n  - 戻した直後は、移行で正規化されていない元の文字列が見える。\n  - 戻している間に前の版で場所を直すと、`location` 列だけが変わり、`location_id` は古いまま残る。再び新しい版を出すと、`location_id` が優先されて、その修正が画面から消える。移行は `location_id IS NULL` の行しか見ないので再照合もされない。\n  - 新しい版で場所を消す操作（未設定）をしたあと戻すと、前の版では `location` 列が空のまま、または古い名称のまま。\n- 直し方: 指摘 2 で `location` 列を常に最新の名称に保てば、戻した直後は正しく動く。さらに、新しい版の起動時（または移行の再実行時）に「`location_id` があるのに `location` が名称と食い違う行」を検出して、ログに出すか `location` 側を正として再照合する手順を決め、運用メモに書く。ロールバック手順（DB は戻さず、`user_version` が 5 のままで前の版が起動できること）をテストか運用メモで確かめる。\n\n## 中\n\n### 4. ハンディ端末で正式な場所に寄らない文字を、確定済みの計測器では「確認中」にせず無視している（要件 6 との差）\n- 場所: `src/lib/instruments.ts` の `recordInventory`（`outcome: \"unmatched_kept\"`）、`docs/handheld-api.md`\n- 問題: 合意した要件は「分からなければ確認中として送られた文字を残す」。実装は、すでに場所が確定している計測器では端末の値を捨て、ログ（`handheld.inventory.unmatched`）に出すだけにしている。品質保証部の修正を守るという意図は理解できるが、要件にない判断で、依頼者への確認もない（PR の説明にも仮定として書かれていない）。端末が棚卸しで実際に別の場所を見つけた場合、台帳に反映されず、応答の `location` は古い場所のままなのに端末は `ok` を見て「送信済み」と表示する。\n- 直し方: 要件どおり確認中に戻して送られた文字を残すか、現状の動きを依頼者に確認して仮定として PR に明記する。後者なら、棚卸しの結果が捨てられたことを運用で拾えるよう、ログの検索方法を運用メモに書く。どちらの場合も `unmatched_kept` を確かめるテストの期待値は要件に沿って見直す。\n\n### 5. 移行の件数ログが「全体の内訳」で、「今回寄せた件数」にならず、0 件のときは出ない\n- 場所: `src/lib/locations.ts` の `linkInstrumentsToLocations`、`src/lib/db/migrations.ts` の `after`（`if (result.total > 0)`）\n- 問題: 要件 9 は「何件寄せ、何件が確認中になったか」を後で確かめられること。`linked` は全計測器の `location_id IS NOT NULL` の件数で、今回の移行で寄せた件数ではない（再実行すると同じ数が出るので、移行前から結び付いていたものと区別できない）。また、`total` が 0 のときはログを出さないため、移行が走ったかどうかが残らない。「寄せた件数」と「確認中の件数」が合っていることを確認する材料（移行前の件数）も無い。\n- 直し方: 今回の更新件数（`update.run` の `changes` の合計）を `matchedNow` として別に数えて出す。常に（0 件でも）ログに出す。ログの項目名と、運用メモの確認手順（`CSV` の件数との突き合わせ）を合わせる。\n\n## 低\n\n### 6. 末尾が切れた表記を別名として寄せている（推測にならないか確認が必要）\n- 場所: `src/lib/locations.ts` の `ALIASES`（`大阪営` → 大阪営業所、`名古屋営` → 名古屋営業所）\n- 問題: 要件 2 は「同じ場所と分かるものだけ」。`大阪営`（580 件）・`名古屋営`（245 件）は現場の慣習として妥当そうだが、依頼者が「同じ場所」と合意した表記ゆれの例（全角・半角、第1／第一、空白、品証・品保、号車）には含まれていない。コメントの「現場で多い」だけが根拠になっている。\n- 直し方: 依頼者に確認して合意を PR に残す。確認できなければ、確認中のままにする（確認中の一覧から品質保証部が確かめられる）。\n\n### 7. 移行が行ごとに全場所の照合キーを計算し直している\n- 場所: `src/lib/locations.ts` の `matchLocationName`（呼び出しごとに `normalizeLocationKey(l.name)` を全場所分計算）\n- 問題: 約 5 万件 × 16 か所で、正規化（`normalize(\"NFKC\")` と正規表現）を約 80 万回行う。再起動 1 回・数分も止められない要件（9）に対して、計測した裏付けが PR に無い。ほとんどは秒単位に収まる見込みだが、起動時の同期処理なので確かめておきたい。\n- 直し方: 場所のキーを 1 回だけ計算して `Map<key, id>` にし、行ごとの処理は 1 回の正規化と引くだけにする。5 万件の合成データで移行の所要時間を測り、結果を PR に書く。\n\n### 8. 場所の名称変更・追加を行った人と内容のログが無い\n- 場所: `src/app/api/locations/route.ts`、`src/app/api/locations/[id]/route.ts`\n- 問題: 誰でも変更できる仕様（要件 4）なので、名称変更や使用終了が経理への出力（`location` 列）や画面の表示に影響する。開発標準 15 の「何が・どの対象で・どうなったか」を残すログが無く、後から原因を調べられない。\n- 直し方: `logger.info(\"locations.updated\", { locationId, userId, before, after })` のようなログを追加する。\n",
+  "review_chars": 4754,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.5015,
+    "tokens": {
+      "input": 44,
+      "output": 12096,
+      "cache_read": 1259199,
+      "cache_creation": 63629
+    },
+    "turns": 22,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/t.test.ts <<'EOF'\\nEOF\\ncat > $TMPDIR/x.ts 2>/dev/null; cat > /tmp/poc-trials/W27-baseline-c3-1/app/tests/zz.test.ts <<'EOF'\\nimport test from \\\"node:test\\\";\\nimport { openDb }"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > tests/zz.test.ts <<'EOF'\\nimport test from \\\"node:test\\\";\\nimport { openDb } from \\\"../src/lib/db/index.ts\\\";\\nimport { validateInstrumentInput, createInstrument } from \\\"../src/lib"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > tests/zz.test.ts <<'EOF'\\nimport test from \\\"node:test\\\";\\nimport { openDb } from \\\"../src/lib/db/index.ts\\\";\\nimport { validateInstrumentInput, createInstrument, recordInventory } "
+      }
+    ],
+    "tool_calls": {
+      "Bash": 15,
+      "Write": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 108,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの 8 件がすべて、場所・何が問題か・直し方・重要度（高・中・低）の形式で書かれています。内容もコミット済み（7be4ea0）で、未コミットの差分はありません。そのため、書き足しも削除も新しいコミットも行っていません。\n\n内訳は高が 3 件、中が 2 件、低が 3 件です。コードには手を付けていません。"
+  },
+  "interventions": 0
+}

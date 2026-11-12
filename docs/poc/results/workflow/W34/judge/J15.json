@@ -1,0 +1,57 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "「summarizes the seed data」が now を渡さず実時刻で集計し、seed の固定日付から逆算した件数を決め打ちしているため、2026-11-12 以外の日には落ちる。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "「counts a new task that is due today」が UTC の日付（toISOString）で今日を作るため、日本時間 0:00〜9:00 は前日扱いになり dueToday が合わず落ちる。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "同じテストが seed の件数（dueToday=1）に依存しているので、追加前後の差分で検証すべき。",
+   "severity": "高",
+   "match": "T3",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "「is fast enough for the dashboard」は壁時計で 300ms 以内を判定しており、負荷の高い CI で落ちる上に性能回帰も検出できないので削除すべき。",
+   "severity": "中",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "done 除外・期限切れ・dueSoon 境界・JST 境界・addDays・parseSoonDays の境界値・Route の 401/400 など、仕様の主要部分にテストが無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "parseSoonDays が空文字・07・%207 を 400 にすることや、soonDays の複数指定で最初の値だけを使うことが PR に明記されていないので、テストで固定すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "total が完了タスクも含む COUNT(*) である点がダッシュボードの意図と合っているか未確認なので、明記してテストで固定すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.05933580000000001
+ }
+}

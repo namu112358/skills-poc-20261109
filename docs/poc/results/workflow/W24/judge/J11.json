@@ -1,0 +1,57 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で userId を含まないため、30 秒以内に別ユーザーが開くと前のユーザーのダッシュボード（担当タスク・件数）が返る。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり、規約 8 に違反し、引用符を含む値で SQL が壊れる（インジェクションになる）。",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "weekRange が getUTCDay() の日曜=0 を考慮せず 1 - dow で開始日を出すため、日曜には翌週の月〜日を返し、テストは水曜しか確かめていない。",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "countByStatus が共有定数 TASK_STATUSES にその場で reverse() を呼ぶため、呼ぶたびに並びが反転し、他の箇所にも影響する。",
+   "severity": "中",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "completionRate が担当タスク 0 件のとき 0/0 で NaN になり、画面に「完了率 NaN%」、API では null が出る。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "30 秒キャッシュのためタスクを更新してもダッシュボードの数字が最大 30 秒古いままで、キャッシュが db 引数も区別しない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "テストが並び・0 件・日曜・別ユーザー・キャッシュ更新のケースを含まず、上の問題を検出できない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0680238
+ }
+}

@@ -1,0 +1,64 @@
+{
+  "trial": "W22-hk-ce-review-c2-1",
+  "scenario": "W22",
+  "config": "hk-ce-review",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の「期限の近い順」並べ替え\n\n対象: 未コミットの差分（`git diff HEAD`、base:HEAD）\n変更ファイル: `src/lib/tasks.ts`, `src/app/api/tasks/route.ts`, `src/app/tasks/page.tsx`, `tests/tasks.test.ts`\n\n## 結論\n\n**Ready with fixes**（指摘 1 を直してからマージ）\n\n- `npm run typecheck`: 通過\n- `npm test`: 23 件すべて通過（失敗 0）\n\n## レビューの範囲と限界\n\n- 単独の観点（正しさ・プロジェクト規約）で、このセッション内で読んだ。複数のレビュー担当による並列レビューと、外部モデルによる独立レビューは実行していない。\n- 範囲判定用のスクリプト（`scripts/review-scope.py`）は承認が必要な実行として拒否されたため動かしていない。そのため、レビューの深さ判定で求められる全件レビュー（full）の条件を確認できないまま、単独の読解で進めた。\n\n## 指摘\n\n### 1. ORDER BY を文字列テンプレートで組み立てている（重要度: 中）\n\n- **場所**: `src/lib/tasks.ts` の `listTasks`（ORDER BY を組み立てている行）\n- **何が問題か**: 並べ替えの列名を `${SORT_COLUMNS[filter.sort ?? \"id\"]}` で SQL 文字列に埋め込んでいる。CLAUDE.md の規約 8（SQL に値を埋め込むときはプレースホルダを使い、文字列連結で組み立てない）に反する。\n  - 現状は `isTaskSort` で検証した値だけが `SORT_COLUMNS` を経由するので、API からの注入は起きない。\n  - ただし `filter.sort` は型 `TaskSort` で受けるだけなので、型を外れた値（型キャストや将来の呼び出し元）を渡すと、そのまま SQL に入る。\n- **直し方**: 列名の切り替えをプレースホルダで行う。例:\n  ```ts\n  .prepare(\"SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY CASE WHEN :sort = 'due' THEN due_date END, id\")\n  .all({ status: filter.status ?? null, sort: filter.sort ?? \"id\" })\n  ```\n  `sort` が `\"id\"` のとき CASE は常に NULL になり、結果は `id` 順のまま。`SORT_COLUMNS` は不要になる。テストは既存のものがそのまま使える。\n\n### 2. 並べ替えの配線（API と画面）にテストがない（重要度: 低）\n\n- **場所**: `src/app/api/tasks/route.ts` の `GET`（`sort` を `listTasks` に渡す行）、`src/app/tasks/page.tsx` の `sort` 取り出し\n- **何が問題か**: 並べ替えのロジック本体（`listTasks`、`isTaskSort`）は単体テストで確認されているが、`?sort=due` が正しく `listTasks` に届くこと、不正な値が既定（登録順）になることは、テストされていない。規約 5 は「ロジックを追加・変更したら tests/ に単体テストを追加する」。配線の誤りは検出されない。\n- **直し方**: 現在の `tests/` の作りに合わせ、`isTaskSort` で振り分けた結果を `listTasks` に渡す小さな関数（例: `parseTaskListQuery(params)`）を `src/lib/` に切り出し、その関数を単体テストする。ルートや画面は薄いまま保てる。切り出しが大げさなら、このまま見送って残留リスクとして記録してもよい。\n\n## 問題が無いと判断した点\n\n- `due_date` は `NOT NULL` のため、期限が空のタスクで並べ替えが崩れることはない。\n- `due_date` は `YYYY-MM-DD` 形式で保存されるため、TEXT の辞書順が日付順と一致する。\n- 同じ期限のタスクは `id` 順になる（`ORDER BY ..., id`）。テストで確認済み。\n- 不正な `sort`（例: `due_date`、`title; DROP TABLE tasks`、`__proto__`、空文字）は既定の登録順として扱われる。`isTaskSort` のテストで確認済み。\n- 画面の並べ替え欄は、URL の値が不正なとき既定（登録順）を選ぶ。文言は日本語。\n- 絞り込み（`status`）と並べ替え（`sort`）の組み合わせは、テストで確認済み。\n",
+  "review_chars": 2199,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0364,
+    "tokens": {
+      "input": 52,
+      "output": 13064,
+      "cache_read": 1670794,
+      "cache_creation": 65624
+    },
+    "turns": 25,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"BASE=$(git merge-base HEAD HEAD 2>/dev/null) || BASE=HEAD; echo \\\"BASE:$BASE\\\" && echo \\\"FILES:\\\" && git diff --name-only $BASE && echo \\\"DIFF:\\\" && git diff -U10 --irreversible-delete $B"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SCRATCH_ROOT=\\\"/tmp/compound-engineering-$(id -u)\\\";\\n[ ! -L \\\"$SCRATCH_ROOT\\\" ] && (umask 077; mkdir -p \\\"$SCRATCH_ROOT\\\") 2>/dev/null && [ ! -L \\\"$SCRATCH_ROOT\\\" ] && [ -O \\\"$SCRATCH_RO"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/compound-engineering-$(id -u)/ce-code-review && chmod 700 /tmp/compound-engineering-$(id -u) /tmp/compound-engineering-$(id -u)/ce-code-review && RUN_ID=$(date +%Y%m%d-%H%M%"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/compound-engineering-0/ce-code-review/run-w22-base-head && chmod 700 /tmp/compound-engineering-0 /tmp/compound-engineering-0/ce-code-review /tmp/compound-engineering-0/ce-co"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-hk-ce-review-c2-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\", \"description\": \"Run the determinist"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-hk-ce-review-c2-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\", \"description\": \"Run scope helper sc"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -q -m \\\"$(printf 'Add code review notes for the due-date sort change\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https:"
+      }
+    ],
+    "tool_calls": {
+      "Read": 2,
+      "Bash": 18,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 85,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの指摘がすでに依頼どおりの形式で入っており、コミット `a089834` に含まれています。書き写す内容が無いので、今回は変更もコミットもしていません。\n\n- **指摘 1**（中）: `src/lib/tasks.ts` の `listTasks` で ORDER BY を文字列テンプレートで組み立てている。場所、問題、直し方（`CASE WHEN :sort = 'due' …` のプレースホルダ化）を記載済み。\n- **指摘 2**（低）: 並べ替えの API・画面の配線にテストがない。場所、問題、直し方（小さな関数に切り出してテストする、または残留リスクとして記録する）を記載済み。\n\nどちらも、新しく足したり削ったりはしていません。`git status` では、コードの 4 ファイルが未コミットの変更のまま残っています。これらには触れていません。"
+  },
+  "interventions": 0
+}

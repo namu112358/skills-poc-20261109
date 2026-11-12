@@ -1,0 +1,33 @@
+{
+  "trial": "W23-review-pr-d3-1",
+  "scenario": "W23",
+  "config": "review-pr",
+  "case": "d3",
+  "rep": 1,
+  "review_md": "# レビュー: ダッシュボードとタスクのコメント\n\nマージ前に直すべき問題を重要度順に並べます。`npm run typecheck` と `npm test` は通りますが、下の問題の多くはテストが通ったまま残ります（テストの不足も指摘に含めています）。\n\n## 高\n\n### 1. ダッシュボードのキャッシュキーがユーザーごとに分かれていない（他人のデータが見える）\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", …)`）、`src/lib/cache.ts`\n- 問題: キーが固定文字列 `\"dashboard\"` なので、30 秒以内に別のユーザーがアクセスすると、先にアクセスした人のダッシュボード（タスク名・件数）がそのまま返る。例: sato が `/dashboard` を開いた直後に suzuki が開くと、suzuki の画面に sato のタスクが出る（`userId` も sato のまま）。`/api/dashboard` も同じ。また `db` / `now` もキーに入っていないため、テストでは `clearCache()` が必須になっている。\n- 直し方: キーに `userId` を含める（例: `dashboard:${userId}`）。そもそも必要性が薄い（SQLite の集計は軽い）ので、キャッシュ自体をやめるのが最も安全。残す場合は、タスク更新時に無効化されない（最大 30 秒古い表示になる）ことも考慮する。ユーザーが違うと結果が変わることを確かめるテストを追加する。\n\n### 2. `countByStatus` が共有定数 `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` `countByStatus`（`order.reverse()`）\n- 問題: `TASK_STATUSES as TaskStatus[]` は型の読み替えだけでコピーにならず、`reverse()` は元の配列をその場で逆順にする。呼ぶたびに `TASK_STATUSES` の順序が反転し、「完了が先頭」になるのは奇数回目の呼び出しだけ（2 回目は「未着手」が先頭）。さらに `TASK_STATUSES` を使う他の箇所（タスク一覧のフィルタ表示など）の並びも、ダッシュボードを開くたびに変わる。\n- 直し方: `[...TASK_STATUSES].reverse()` とコピーしてから並べ替える。同じ入力で 2 回続けて呼んでも先頭が `done` であること、`TASK_STATUSES` が変わらないことをテストする（現状のテストは 1 回目の呼び出ししか見ていないので気付けない）。\n\n### 3. コメント本文のリンクで `javascript:` URL が使える（XSS）\n- 場所: `src/lib/comments.ts` `renderBody`、`src/app/tasks/[id]/page.tsx`（`dangerouslySetInnerHTML`）\n- 問題: `[クリック](javascript:alert(document.cookie))` と書いたコメントは `<a href=\"javascript:…\">` になり、タスク詳細を開いた人がクリックするとスクリプトが実行される（コメントは誰でも投稿でき、他のユーザーが読む）。`escapeHtml` は `\"` や `<` を防ぐが、URL のスキームは検査していない。`data:` なども同様。\n- 直し方: リンクは `https?://` で始まる URL だけに限定し、それ以外は `[…](…)` のまま（エスケープ済みの文字）で出す。より安全には `dangerouslySetInnerHTML` をやめ、本文を解析して React 要素（`<a>` / `<br>`）で描画する。`javascript:` / `JAVASCRIPT:` / `data:` のテストを追加する。\n\n### 4. コメントの編集（PATCH）に投稿者の確認が無い\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`\n- 問題: ログインしていれば誰でも他人のコメントを書き換えられる（`DELETE` では `authorId` を確認しているのと不整合）。他人の発言を改ざんできる。\n- 直し方: `PATCH` でも `comment.authorId !== user.id` を確認し、違えば拒否する（`DELETE` と同じ扱いにそろえる）。他人のコメントを PATCH すると拒否されるテストを追加する。\n\n### 5. `weekRange` が日曜日に翌週の月〜日を返す\n- 場所: `src/lib/week.ts` `weekRange`（`addDays(today, 1 - dow)`）\n- 問題: 日曜は `getUTCDay()` が 0 なので `start = today + 1`（翌日の月曜）になる。日曜日の「今週が期限」は来週の範囲になり、その日が期限のタスクや、その週の月〜土のタスクが出なくなる。テストは水曜日しか見ていない。\n- 直し方: `const offset = (dow + 6) % 7; start = addDays(today, -offset)` とする（月曜 = 0、日曜 = 6）。日曜・月曜・土曜のテストを追加する。\n\n## 中\n\n### 6. `listAssignedTasks` が SQL を文字列連結で組み立てている\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`（`assignee = '${userId}'`）\n- 問題: コーディング規約 8（プレースホルダ必須）に反する。現状 `userId` はセッションから来る値なので直ちに悪用はできないが、引数が `string` の公開関数であり、呼び出し元が変われば SQL インジェクションになる。ID に `'` を含むと壊れる。\n- 直し方: `WHERE assignee = ?` にして `.all(userId)` と渡す。\n\n### 7. `completionRate` が担当タスク 0 件のとき `NaN` になる\n- 場所: `src/lib/dashboard.ts` `completionRate`、`src/app/dashboard/page.tsx`\n- 問題: `0 / 0` が `NaN` になり、画面に「完了率 NaN%」と出る。`/api/dashboard` の JSON では `null` になる。担当が無い新規ユーザーで起きる。\n- 直し方: `tasks.length === 0` のときは 0 を返す（または「未計算」と表示する）。0 件のテストを追加する。\n\n### 8. コメント追加（POST）で、存在しないタスクが 404 にならない\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` `POST`\n- 問題: `GET` は `getTask` で確認しているが `POST` は ID の形式しか見ていない。存在しない ID（例: `/api/tasks/9999/comments`）だと外部キー制約（`foreign_keys = ON`）違反の例外になり、規約 9 の 404 ではなく 500 になる。\n- 直し方: `POST` でも `getTask(id)` で確認して 404 を返す。\n\n### 9. コメントの `created_at` を表示用の文字列で保存しており、並び順が崩れる\n- 場所: `src/lib/comments.ts` `formatCreatedAt` / `addComment` / `listComments`（`ORDER BY created_at, id`）\n- 問題: `toLocaleString(\"ja-JP\")` は `2026/11/9 9:05:03` のようにゼロ埋めしない形式で、文字列として比較される。`2026/11/10 …` が `2026/11/9 …` より前に並ぶなど、「古い順」が日付・時刻の桁が変わるところで入れ替わる。また、ロケール出力に依存した値を DB に入れるのは、形式の変更や再解釈が難しい。\n- 直し方: DB には ISO 8601（`now.toISOString()`）を保存し、表示するときだけ `formatCreatedAt` で日本時間に変換する。または並び順を `id` だけにする。マイグレーション 3 はまだ未リリースなので、書き換えずに済むなら保存形式だけ変えればよい（リリース済みなら新しい番号で対応）。\n\n### 10. 画面からコメントを書けない・テストが足りない\n- 場所: `src/app/tasks/[id]/page.tsx`、`tests/comments.test.ts`\n- 問題: PR の説明は「画面でコメントを読み書きできる」だが、詳細画面は一覧表示だけで、投稿フォームも編集・削除の操作も無い（書けるのは API 経由のみ）。また API Route のテストが無く、上記 4・8 のような認可・404 の漏れが検出されない。`PATCH` / `DELETE` の挙動、`javascript:` リンク、`listComments` の並び順の境界も未検証。\n- 直し方: 画面の説明を実態に合わせるか、投稿フォームを追加する。`src/lib/` に認可の判定を関数として切り出して単体テストを追加する。\n\n## 低\n\n### 11. 「今週が期限」に期限切れのタスクが重複して出る\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`\n- 問題: 今週の月曜〜昨日が期限の未完了タスクは、「期限切れ」と「今週が期限」の両方に載る（テストもこの動作を前提にしている）。意図したものか不明。\n- 直し方: 意図でなければ `dueThisWeek` は今日以降だけに絞る。意図なら画面の文言とコメントに明記する。\n\n### 12. 命名・コメントのずれ\n- 場所: `src/app/api/comments/[commentId]/route.ts`（`parseTaskId` をコメント ID に使用）、`src/lib/dashboard.ts` `overdueTasks`（「期限の古い順」と書いているが、並びは取得時の `ORDER BY` に依存）\n- 直し方: `parseId` のような汎用名にする（または別名で再エクスポート）。コメントは実態に合わせるか、`overdueTasks` 内で明示的に並べる。\n",
+  "review_chars": 4651,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2834,
+    "tokens": {
+      "input": 20,
+      "output": 6166,
+      "cache_read": 379709,
+      "cache_creation": 45924
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 59,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "すでに対応済みです。直前のレビューで出た指摘 12 件は、依頼の形式で `REVIEW.md` に書き写してあり、コミット済みです（コミット `4bc089b`）。`REVIEW.md` に未コミットの変更は無いので、今回は新しいコミットを作っていません。\n\n各指摘は、重要度（高・中・低）、場所（ファイルと関数・行）、何が問題か（どういう入力・状況で何が起きるか）、直し方の順で書いてあります。内容は前回の指摘そのままで、足したものも削ったものもありません。コードは直しておらず、PR の変更は未コミットのままです。"
+  },
+  "interventions": 0
+}

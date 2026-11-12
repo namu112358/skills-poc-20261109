@@ -1,0 +1,59 @@
+{
+  "trial": "W31-baseline-2pass-c3-2",
+  "scenario": "W31",
+  "config": "baseline-2pass",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# レビュー: 設置場所を場所マスタから選べるようにする\n\n## 要件ごとの確認\n\n| # | 要件 | 判定 | 該当箇所 |\n|---|------|------|----------|\n| 1 | 正式 16 か所で開始 | 満たす | `migrations.ts` OFFICIAL_LOCATIONS（16 件） |\n| 2 | 表記ゆれだけ寄せる／決められない値は確認中／確認中を一覧で探せる／空欄は未設定 | ほぼ満たす（指摘 5） | `locations.ts` normalizeLocationKey・linkInstrumentsToLocations、`listInstruments` の location フィルタ |\n| 3 | 登録・編集は一覧から選ぶ。自由記述はやめる | **反する（API）**。画面は満たす（指摘 3） | `LocationForm.tsx`、`validateLocation`（`instruments.ts`） |\n| 4 | 追加・改名は誰でも／消さず使用終了／使用終了は新規に選べない・既存は表示 | 満たす | `api/locations/*`、`validateLocation`、`LocationForm` |\n| 5 | 改名で計測器の表示も変わる | 画面は満たす（`location_id` の JOIN）。**`location` 列は追随しない**（指摘 1） | `COLUMNS`/`FROM` |\n| 6 | ハンディ端末は受け付けを止めない。正式な場所なら確定、分からなければ確認中として文字を残す | **一部反する**（指摘 2、4） | `recordInventory` |\n| 7 | `location` 列に場所の名前が入った状態を 4 月まで保つ | **反する**（指摘 1） | `createInstrument`／`updateInstrument`／migration 5 |\n| 8 | 前の版に戻しても DB はそのまま動く | 列は残るが、戻した後の整合が崩れる（指摘 1） | migration 5 |\n| 9 | 5 万件・再起動 1 回・移行件数の記録 | 満たす（ログ `locations.migrated`）。性能は低（指摘 6） | `migrate`、`linkInstrumentsToLocations` |\n\n## 指摘\n\n### 1. 【高】`instruments.location` 列に場所の名前が入らない（要件 7・8 に反する）\n\n- 場所: `src/lib/instruments.ts` の `createInstrument`／`updateInstrument`／`validateLocation`、`src/lib/db/migrations.ts` migration 5 の `after`、`src/lib/location-master.ts` の `updateLocation`\n- 問題:\n  - 経理部は DB のコピーから `location` 列を直接読む。この変更で `location` 列は「元の書き方」の保存先に変わり、場所の名前を持たなくなった。\n  - 画面から `locationId` を選んで新規登録（`POST /api/instruments`）すると、`validateLocation` が `locationOriginal = \"\"` を入れるのは `locationId: null` のときだけで、`locationId` を指定した場合は `locationOriginal` が未設定になる。`createInstrument` は `input.locationOriginal` を書くので、新規の計測器の `location` 列は空（または `undefined` で失敗）になる。\n  - `PATCH` で `locationId` を選び直しても、`location` 列は古い文字列のまま。確認中から確定に直しても「倉庫」「不明」などが残る。\n  - 移行は `location_id` を付けるだけで `location` 列を書き換えない。「製造 検査室」「製造部第３ライン」などの表記ゆれが約 5 万件のうち大半でそのまま残る。経理部は正式名で集計できない。\n  - 場所を改名しても `location` 列は古い名前のまま（要件 5 は画面の表示だけ満たす）。\n  - 前の版に戻すと、前の版は `location` 列だけを見る。改名・選び直し後の内容が反映されず、前の版で書き換えた値には `location_id` が追随しない。再度新しい版に上げると、古い `location_id` が優先されて前の版での修正が消える。\n- 直し方: `location` 列を「場所の名前（確定時）／元の文字列（確認中時）」の常時書き込み先とする。\n  - 確定時は常にマスタの名称を `location` に書く（作成・更新・ハンディ端末のすべての経路）。\n  - 改名時は同じトランザクションで `UPDATE instruments SET location = ? WHERE location_id = ?` を行う。\n  - 移行（`linkInstrumentsToLocations`）でも、結び付けた計測器の `location` を正式名に更新する。ただし元の文字列は消えるので、先に元の値を別の列かバックアップ表に退避する。前の版に戻すときの整合のため、`location_id` が付いた行の `location` が常にマスタの名称と一致することをテストで確かめる。\n  - 「元の書き方」は `location` と分けて持つ（例: `location_original` 列）。\n- 注: テスト `tests/instrument-location.test.ts` などに `location` 列の中身を確かめるものが無い。確定した計測器の `location` 列がマスタ名と同じであるテスト（作成・選び直し・改名・移行・ハンディ端末）を足すこと。\n\n### 2. 【中】ハンディ端末: 分からない文字で、確定済みの計測器を確認中にしない（要件 6 の読み方と食い違う）\n\n- 場所: `src/lib/instruments.ts` の `recordInventory`（`unmatched_kept`）、`docs/handheld-api.md`\n- 問題: 要件 6 は「分からなければ確認中として送られた文字を残す」。実装は、すでに確定している計測器では送られた文字を捨てて（ログに残すだけ）確定のままにする。端末の現場確認（「実際は別の場所にあるかもしれない」）が台帳に現れず、確認中の一覧にも出ない。\n- 直し方: 合意どおり、分からない文字のときは `location_id = NULL`・元の文字列を保存して確認中にする。品質保証部の手修正を守りたいなら、その方針を依頼者に確認して要件として合意する。確認が取れないなら、仮定を PR に書く。\n\n### 3. 【中】計測器の登録・編集 API が自由記述の `location` をまだ受け付ける（要件 3）\n\n- 場所: `src/lib/instruments.ts` の `validateLocation`（`\"location\" in b` の分岐）、`POST /api/instruments`、`PATCH /api/instruments/:id`\n- 問題: 画面は選択式だが、API は `location` 文字列を受け、分からなければ確認中として登録する。要件が自由記述の許容を求めているのはハンディ端末だけ（要件 6）。台帳の API からは誰でも自由記述で確認中を作れ、要件 3 の「自由に書けるのはやめる」に反する。さらに `PATCH` で分からない `location` を送ると、確定済みの計測器が確認中に戻る。\n- 直し方: ハンディ端末の経路（`recordInventory`）だけ文字列を受け、`validateInstrumentInput` からは `location` を外す（送られたら 400「設置場所は一覧から選んでください」）。他システムが `location` を使っているか確認できないなら、互換を残す期限と理由を PR に書く。\n\n### 4. 【中】ハンディ端末: 確定時に `location` 列へ送られた生の文字を書く\n\n- 場所: `src/lib/instruments.ts` の `recordInventory`（`linked` の分岐: `locationOriginal: input.location`）\n- 問題: 正式な場所と分かった場合でも、`location` 列に端末の生の文字（「製造 検査室」など）が入る。指摘 1 と同じ原因で、経理部の集計に表記ゆれが入り込む。\n- 直し方: 確定時はマスタの名称を書く（指摘 1）。送られた文字はログに残す。\n\n### 5. 【低】`大阪営`・`名古屋営` を ALIASES で寄せている（要件 2「推測で寄せない」）\n\n- 場所: `src/lib/locations.ts` の `ALIASES`\n- 問題: 合意した表記ゆれ（全角・半角、第1／第一、空白、品証・品保、号車など）に「末尾が切れた表記」は無い。件数が多く妥当に見えるが、他の場所の略かもしれない。「工事倉庫」「製造検査室」のように部署名を略した寄せも同様に、依頼者に確認していない。\n- 直し方: 依頼者に確認する。確認できないときは確認中のままにし、PR に仮定を書く。寄せたものが何件かを `locations.migrated` に内訳として出す。\n\n### 6. 【低】移行の効率と記録\n\n- 場所: `linkInstrumentsToLocations`、`matchLocationName`\n- 問題: 計測器 1 件ごとに全場所の名称を `normalizeLocationKey` し直している（約 5 万 × 16 回）。起動時の 1 回で済むが、本番の件数で所要時間を確かめていない。また、ログは全体の件数だけで、移行で「何件を寄せたか」ではなく、再実行時に既存の確定分も含めて数える（要件 9 の「何件寄せ、何件が確認中」と数え方がずれる）。\n- 直し方: 場所のキーを一度だけ作って `Map` で引く。移行で寄せた件数（今回の `UPDATE` の数）と、確認中になった件数を分けて出す。\n\n## 問題が無いと判断した点（参考）\n\n- 場所の追加・改名・使用終了は未ログインを 401 で止め、名称の重複（正規化後）は 409 で返す。\n- 使用終了の場所の計測器を、`PATCH` の `location` エコーで確認中に戻さない処理（`currentLocationId`）。\n- 確認中・未設定の絞り込みと、ハンディ端末の応答の形・認証は変わっていない。\n\n## 確認方法についての注記\n\n- 上の指摘 1〜6 は、差分とコードを読んで判断したもの（1 回目のレビュー）。\n- 2 回目のレビューでは `npm run build` が通ることを確かめた（`/locations`・`/api/locations*` を含む全ルートが生成される）。\n  本番モードでの起動（`npm run start`）は、実行環境が承認を求めたため行えず、画面表示・API 呼び出しによる動作確認はできていない。\n  このため、指摘 1〜4 は実際の動作では未確認（コード上の判断）。2 回目のレビューで新しい指摘は出ていない。\n",
+  "review_chars": 4975,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4989,
+    "tokens": {
+      "input": 48,
+      "output": 11998,
+      "cache_read": 1324915,
+      "cache_creation": 61581
+    },
+    "turns": 22,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git diff HEAD -- src/lib/db src/app/api/handheld src/app/api/instruments > /tmp/d1.txt; cat /tmp/d1.txt; cat src/lib/location-master.ts src/lib/locations.ts\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat package.json | grep -A8 scripts; (npm run build 2>&1 | tail -15)\", \"timeout\": 300000}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c3-2-app/da7a120b-fc63-40bc-8754-a5796be01083/scratchpad && rm -f $S/t.db && DATABASE_PATH=$S/t.db HANDHELD_TOKEN=tok npx next start -p "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c3-2-app/da7a120b-fc63-40bc-8754-a5796be01083/scratchpad && DATABASE_PATH=/tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c3-2-a"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c3-2-app/da7a120b-fc63-40bc-8754-a5796be01083/scratchpad/start.sh\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c3-2-app/da7a120b-fc63-40bc-8754-a5796be01083/scratchpad/start.sh\", \"description\": \"Start production server in background on port 391"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 17,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 125,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には 1 回目のレビューの指摘 1〜6 が、場所・問題・直し方・重要度の形式で書いてあります。2 回目のレビューでは新しい指摘が出なかったので、本文は変えていません。指摘は 1 件も削っていません。\n\n追記したのは、確認方法の注記だけです。\n- 指摘 1〜6 はコードを読んだ判断です。\n- 2 回目は `npm run build` が通ることだけを確かめました。\n- 本番モードでの起動は承認が下りず、画面と API の動作確認はできていません。そのため指摘 1〜4 は動作では未確認だと明記しました。\n\nコミットは `REVIEW.md` だけで、コードは変えていません。"
+  },
+  "interventions": 0
+}

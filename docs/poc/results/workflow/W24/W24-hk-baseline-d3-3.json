@@ -1,0 +1,52 @@
+{
+  "trial": "W24-hk-baseline-d3-3",
+  "scenario": "W24",
+  "config": "hk-baseline",
+  "case": "d3",
+  "rep": 3,
+  "review_md": "# コードレビュー: ダッシュボードとタスクのコメント\n\n対象: 未コミットの差分（`git diff HEAD`、新規ファイルを含む）。\n確認: `npm test` 30 件すべて成功、`npm run typecheck` エラーなし。\n「再現」は `node --experimental-strip-types` で該当関数を直接呼んで確認したものです。\n\n各指摘は「場所」「問題」「直し方」「重要度」の順に書いています。重要度の高い順です。\n\n---\n\n### 1. コメント本文の `[文字](URL)` で `javascript:` リンクを作れる（保存型 XSS）\n\n- 場所: `src/lib/comments.ts` の `renderBody`、`src/app/tasks/[id]/page.tsx` の `dangerouslySetInnerHTML`\n- 問題: 本文を HTML エスケープしたあと、`[...](URL)` を `<a href=\"URL\">` に変換しているが、URL の形式を検証していない。`[x](javascript:...)` の形の本文を書かれると、そのタスクの詳細画面を開いた人がリンクを押したときに任意のスクリプトが動く。\n  - 再現: `renderBody(\"[x](javascript:alert(1))\")` → `<a href=\"javascript:alert(1\" rel=\"noopener noreferrer\">x</a>)`（スクリプトとして有効な `href` が出力される）。\n- 直し方: 許可するスキームを `http:` / `https:` に限定し、それ以外のリンクは通常のテキストとして出す。できれば `dangerouslySetInnerHTML` をやめ、本文をパースして React の要素（`<a>` と文字列）として組み立てる。テストに `javascript:` / `data:` の場合を追加する。\n- 重要度: 高\n\n### 2. ダッシュボードのキャッシュがユーザーを区別しない（他人のダッシュボードが見える）\n\n- 場所: `src/lib/dashboard.ts` の `buildDashboard`（キー `\"dashboard\"` は固定）、`src/lib/cache.ts`\n- 問題: キャッシュのキーに `userId` が入っていない。30 秒以内に別のユーザーがアクセスすると、直前のユーザーのダッシュボードが返る。\n  - 再現: `buildDashboard(\"sato\", db, now)` の直後に `buildDashboard(\"suzuki\", db, now)` を呼ぶと、`userId` が `sato` のままで、同じオブジェクトが返る（確認済み）。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。あわせて、タスクの更新後にキャッシュが古いままにならないかを確認する（今の 30 秒キャッシュは、タスクを完了にしても 30 秒間は画面に反映されない）。テストに「2 人のユーザーで結果が混ざらない」ケースを追加する。\n- 重要度: 高\n\n### 3. コメントを他人が編集できる（PATCH に作成者の確認が無い）\n\n- 場所: `src/app/api/comments/[commentId]/route.ts` の `PATCH`、`src/lib/comments.ts` の `updateComment`\n- 問題: `PATCH` はログインしていれば誰でも、どのコメントも書き換えられる。`DELETE` には `authorId` の確認があるのに、`PATCH` には無い。\n  - 再現: `updateComment(c1.id, \"edited\", db)` が、作成者 `sato` のコメントを作成者以外の操作として書き換えられる（ライブラリ層で確認済み。ルートも同じ経路）。\n- 直し方: `PATCH` でも `comment.authorId !== user.id` のとき 403 を返す（`DELETE` と同じ形）。テストに「他人のコメントは編集できない」ケースを追加する。\n- 重要度: 高\n\n### 4. `countByStatus` が共有の定数 `TASK_STATUSES` を書き換える\n\n- 場所: `src/lib/dashboard.ts` の `countByStatus`（`order.reverse()`）、`src/lib/tasks.ts` の `TASK_STATUSES`\n- 問題: `reverse()` は配列を破壊的に並べ替える。`TASK_STATUSES` はアプリ全体で共有されているので、呼ばれるたびに並び順が反転する。ダッシュボードの「完了が先頭」は一回目は合うが、次のリクエストでは「未着手」が先頭に来て、表示順がリクエストごとに入れ替わる。また、ほかの画面の並び順も壊れる。\n  - 再現: `countByStatus([])` を一回呼ぶと `TASK_STATUSES` が `done,in_progress,todo` になる（確認済み）。\n- 直し方: `[...TASK_STATUSES].reverse()` にコピーしてから並べ替える。テストに「呼んでも `TASK_STATUSES` が変わらない」ケースを追加する。\n- 重要度: 高\n\n### 5. 担当タスクが 0 件のとき完了率が `NaN%` になる\n\n- 場所: `src/lib/dashboard.ts` の `completionRate`、`src/app/dashboard/page.tsx` の `完了率` 表示\n- 問題: `tasks.length === 0` のとき `0 / 0` になり、`NaN` が表示される。タスクを担当していない人は必ずこの画面を見る。\n  - 再現: `completionRate([])` → `NaN`（確認済み）。\n- 直し方: 件数が 0 のとき 0 を返す。テストに空配列のケースを追加する。\n- 重要度: 中\n\n### 6. コメントの `created_at` が表示用の文字列で保存され、並び順が狂う\n\n- 場所: `src/lib/comments.ts` の `formatCreatedAt`（`toLocaleString(\"ja-JP\", ...)`）と `addComment`、`listComments` の `ORDER BY created_at, id`\n- 問題: 保存される値が `2026/9/5 10:00:00` のような、ゼロ埋めされていない文字列になる。`ORDER BY created_at` は文字列の順で並ぶため、月をまたぐと順序が狂う。また、この列は他の日時（セッションの `expires_at` は ISO 8601 UTC）と形式が違う。\n  - 再現: 2026-09-05 のコメント `a` と 2026-10-01 のコメント `b` を作ると、`listComments` は `[b, a]` を返す（確認済み）。\n- 直し方: `created_at` は ISO 8601（UTC）で保存し、表示するときだけ日本時間の文字列に変換する。既存の `ORDER BY created_at, id` は、そのままで正しく並ぶようになる。テストに月をまたぐ並び順のケースを追加する。\n- 重要度: 中\n\n### 7. `listAssignedTasks` で SQL に値を埋め込んでいる\n\n- 場所: `src/lib/dashboard.ts` の `listAssignedTasks`（`` `... WHERE assignee = '${userId}' ...` ``）\n- 問題: プレースホルダを使わず文字列を埋め込んでいる。CLAUDE.md の規約 8（SQL の値は必ずプレースホルダを使う）に反する。`userId` は今はセッションの `users.id` 由来なので直ちには悪用できないが、ID に `'` が入ると SQL が壊れ、将来ユーザー ID の形式が変わったときに注入が成立する。\n- 直し方: `WHERE assignee = ?` にして `.all(userId)` を渡す。\n- 重要度: 中\n\n### 8. テストが今回の問題を見逃せる形になっている\n\n- 場所: `tests/dashboard.test.ts`、`tests/comments.test.ts`\n- 問題: ユーザーを変えたキャッシュ、`javascript:` リンク、0 件の完了率、他人のコメントの編集、月またぎの並び順、`TASK_STATUSES` の不変性を検査していない。ルートの認可（401/403/404）も検査されていない。\n- 直し方: 上の 1〜7 の修正と一緒に、それぞれのケースをテストに追加する。\n- 重要度: 低\n\n### 9. コメントの編集・削除 API が PR の説明に無い\n\n- 場所: `src/app/api/comments/[commentId]/route.ts`\n- 問題: PR の説明は「コメントの読み書き」と「API の追加」だが、実際には `PATCH` と `DELETE` も入っている。CLAUDE.md の規約 6（変更は依頼された範囲にとどめる）に照らすと、必要かどうか確認が要る。残す場合は PR の説明に書く。`parseTaskId` を `commentId` に使っているのも分かりにくいので、名前を分けるか、コメント ID 用の検証関数を用意する。\n- 直し方: 不要なら削除する。残すなら、指摘 3 の認可を入れたうえで PR の説明に加える。\n- 重要度: 低\n\n### 10. コメントはログインしていれば誰でも読める（確認事項）\n\n- 場所: `src/app/api/tasks/[id]/comments/route.ts`、`src/app/tasks/[id]/page.tsx`\n- 問題: 既存の `GET /api/tasks/:id` も担当者で絞っていないので、今回の挙動は既存の方針と揃っている。ただし「自分の担当タスク」に絞ったダッシュボードと比べると、コメントは他人のタスクにも読み書きできる。この方針でよいかは、マージ前に確認してください。\n- 直し方: 方針を決める。絞るなら、担当者や関係者だけを返すよう `listComments` の前に認可を入れる。現状の方針を維持するなら、その旨を PR の説明に書く。\n- 重要度: 低（確認事項）\n",
+  "review_chars": 4572,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.033,
+    "tokens": {
+      "input": 40,
+      "output": 18596,
+      "cache_read": 1170103,
+      "cache_creation": 60093
+    },
+    "turns": 24,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-d3-3-app/ad94808b-076c-4c04-8cfa-fb742cc80630/scratchpad && mkdir -p \\\"$S/verify\\\" && cat > \\\"$S/verify/check.ts\\\" <<'EOF'\\nimport { openDb"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-d3-3-app/ad94808b-076c-4c04-8cfa-fb742cc80630/scratchpad && ls \\\"$S/verify\\\" && node --experimental-strip-types --no-warnings \\\"$S/verify/c"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm test 2>&1 | tail -12); echo \\\"--- typecheck\\\"; (npm run typecheck 2>&1 | tail -5); echo \\\"--- git\\\"; git status --short; git log --oneline -3; ls REVIEW.md 2>/dev/null || echo \\\"no R"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'Add review notes for dashboard and comments\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.a"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 17,
+      "Write": 3,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 96,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を最初の依頼の形式（場所・問題・直し方・重要度）に書き直し、`REVIEW.md` だけを `4cefba8` としてコミットしました。コードは変更していません。\n\n- 指摘は前回と同じ 10 件です。新しい指摘は足していません。削った指摘もありません。\n- 各指摘に「重要度」を明記しました。高が 1〜4、中が 5〜7、低が 8〜10 です。\n- 指摘 10 は確認事項なので、重要度は「低（確認事項）」にしました。\n- 前回あった「優先順位」の節は、各指摘の重要度で代わりになるので外しました。"
+  },
+  "interventions": 0
+}

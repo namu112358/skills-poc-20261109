@@ -1,0 +1,133 @@
+{
+ "trial": "W34-review-pr-full-f3-1",
+ "scenario": "W34",
+ "config": "review-pr-full",
+ "case": "f3",
+ "rep": 1,
+ "review_md": "# レビュー: タスクの期限を延長できるようにする（POST /api/tasks/:id/extend）\n\n対象: `src/app/api/tasks/[id]/extend/route.ts`、`src/lib/extend.ts`、`tests/extend.test.ts`（すべて新規）\n\nレビューは code-reviewer、pr-test-analyzer、silent-failure-hunter、comment-analyzer、type-design-analyzer の 5 エージェントで行った。\n\n## 総評\n\nエンドポイントの本体は仕様どおりに動く。確認した点は次のとおり。\n\n- ログインの確認が最初にあり、未ログインは 401 になる。\n- 日数は 1〜30 の整数だけを受け付ける。\n- 月・年・うるう日をまたぐ計算は正しい。\n- 完了したタスクは 400、無いタスクは 404 になる。\n\nマージ前に直すべき点は、**テストが何も検証していない**ことと、**延長の結果が壊れた日付になる場合がある**ことの 2 つ。\n\n---\n\n## 指摘事項\n\n### 1. 【高】テストが実質何も検証しておらず、仕様の主要な挙動が未検証\n\n- **場所**: `tests/extend.test.ts` の全テスト（`extendDueDate` / `validateExtendInput` / `extendTask`）\n- **問題**\n  - `extendDueDate` の \"adds days to the due date\" は、期待値を `extendDueDate` 自身の戻り値から作って同じ呼び出しと比べている。実装がどうなっても通る。\n  - \"works across months\" と \"handles a completed task\" は `doesNotThrow` だけを見ている。日付が間違っていても、完了済みのタスクを延長できる実装でも通る。\n  - `validateExtendInput` は正常系 1 件だけ。0、31、1.5、文字列、`null`、`undefined` などの拒否と、1 と 30 の境界が未検証。\n  - `extendTask` は `result.ok` しか見ていない。期限が実際に延びたか、DB に保存されたかを確認していない。\n  - `done` と `not_found` の結果は未検証。\n  - たとえば `setUTCDate(getUTCDate() - days)` に書き換えても、`days > MAX_EXTEND_DAYS` の判定を消しても、全テストが通る。PR の「検証結果」にある「テストが通る」は品質の裏付けにならない。CLAUDE.md の規約 5 は形式だけ満たしていて、実質は満たしていない。\n- **直し方**: 固定の期待値で検証する。\n  - 日付: `(\"2026-11-20\", 5)` は `\"2026-11-25\"`、`(\"2026-11-30\", 3)` は `\"2026-12-03\"`、`(\"2026-12-31\", 1)` は `\"2027-01-01\"`、`(\"2028-02-28\", 1)` は `\"2028-02-29\"`。\n  - 検証: `{days: 0 / 31 / -1 / 1.5 / NaN / \"7\" / null}` と、本文が `undefined` / `null` / `{}` / `[]` のときの拒否。1 と 30 の受理。\n  - `extendTask(4, 3, db)` の `task.dueDate` が `\"2026-11-21\"` で、`getTask(4, db)` も同じ値であること。他の項目が変わっていないこと。\n  - `extendTask(1, 3, db)` が `{ ok: false, reason: \"done\" }` を返し、`dueDate` が `\"2026-11-02\"` のままであること。\n  - `extendTask(9999, 3, db)` が `{ ok: false, reason: \"not_found\" }` を返すこと。\n  - `getTask` は `../src/lib/tasks.ts` から import する。\n\n### 2. 【高】年が 9999 を超えると、壊れた日付が DB に保存され 200 が返る\n\n- **場所**: `src/lib/extend.ts` の `extendDueDate`（11 行目、`toISOString().slice(0, 10)`）\n- **問題**\n  - 期限が `9999-12-31` のタスクに `{ \"days\": 1 }` を送ると、`toISOString()` が `\"+010000-01-01T...\"` を返す。`slice(0, 10)` で `\"+010000-01\"` になり、そのまま保存されて 200 で返る。失敗が表に出ない。\n  - この値は `validateTaskInput` の `DATE_RE` を通らない形式。以降、一覧や延長のたびに壊れたデータとして扱われる。\n- **直し方**: 計算結果が `/^\\d{4}-\\d{2}-\\d{2}$/` に合うか確認する。合わなければエラーにする（`ExtendResult` に理由を足して 400 で返す。または年が 9999 を超える延長を入口で拒否する）。\n\n### 3. 【中】期限が解釈できない値のタスクで、延長が 500 になる\n\n- **場所**: `src/lib/extend.ts` の `extendDueDate`（8〜12 行目）、呼び出し元は `extendTask` と `route.ts` の `extendTask(...)`\n- **問題**\n  - `due_date` が `\"\"`、`\"garbage\"`、`\"2026-13-01\"` のように解釈できない値だと、`new Date(...)` が Invalid Date になり、`toISOString()` が `RangeError` を投げる。\n  - route に try/catch が無いため、Next.js の汎用 500 が返る。API の規約の `{ error, details? }` JSON にならず、原因の手掛かりもログに残らない。\n  - `tasks.due_date` は `TEXT NOT NULL` で CHECK 制約が無い（`src/lib/db/migrations.ts`）。直接の DB 編集などで壊れた行が入りうる。\n- **直し方**: `extendDueDate` の冒頭で `Number.isNaN(d.getTime())` を確認する。`extendTask` で `reason: \"invalid_due_date\"` のような理由として返し、route で明確なメッセージにして返す。リクエスト自体は正しいので、400 より 409 / 422 が適切。ただし CLAUDE.md の規約 9 は 400 / 401 / 404 だけを定めているので、既存規約に合わせるなら 400 でもよい。\n\n### 4. 【中】`validateExtendInput` の戻り値が既存の `ValidationResult<T>` と不揃い\n\n- **場所**: `src/lib/extend.ts` の `validateExtendInput`（15 行目）、`src/app/api/tasks/[id]/extend/route.ts` の 16 行目\n- **問題**\n  - 既存の `src/lib/tasks.ts` は `ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] }` で統一している。新規の検証関数は成功側が `days`、失敗側が `error`（単数 string）という無名の union になっている。\n  - その結果、route が `[input.error]` と配列に包み直している。同じ API Route 群に 2 種類の検証結果の形が混ざる。\n- **直し方**: 戻り値を `ValidationResult<{ days: number }>` にそろえ、route は `input.value.days` と `input.errors` を使う。\n\n### 5. 【中】本文が JSON として読めない場合も「日数は 1〜30 の整数」と案内される\n\n- **場所**: `src/lib/extend.ts` の `validateExtendInput`（16 行目）、`src/lib/api.ts` の `readJson`\n- **問題**\n  - 本文が空、`{bad json`、`Content-Type: text/plain` などだと、`readJson` が `undefined` を返す。`validateExtendInput` は `(body as {...} | null)?.days` で `undefined` を受け、「延長の日数は 1〜30 の整数で…」を返す。クライアントには本文が読めなかったことが伝わらない。\n  - 本文が配列やプリミティブのときも、型を `as` で偽って読んでいる。既存の `validateTaskInput`（`tasks.ts` 70〜72 行目）は `typeof body !== \"object\" || body === null || Array.isArray(body)` を先に判定して「リクエストの形式が正しくありません」を返す。\n  - ステータスは 400 で仕様どおり。メッセージの誤解を招く点が問題。\n- **直し方**: `validateExtendInput` の先頭で、`validateTaskInput` と同じ形式チェックと文言を使う。\n\n### 6. 【低】`updateTask(...)!` の非 null アサーション\n\n- **場所**: `src/lib/extend.ts` の `extendTask`（30 行目）\n- **問題**\n  - `updateTask` は行が無ければ `undefined` を返す契約。現状は `getTask` の直後で、`node:sqlite` が同期なので実際には起きない。\n  - ただし、削除 API の追加や処理の非同期化などで成り立たなくなると、`result.task` が `undefined` のまま `ok: true` になる。route は `NextResponse.json({ task: undefined })` で `200 {}` を返し、失敗が見えなくなる。\n- **直し方**: `const updated = updateTask(...); if (!updated) return { ok: false, reason: \"not_found\" };` として `!` を外す。\n\n### 7. 【低】`extendTask` が日数の範囲を保証しない\n\n- **場所**: `src/lib/extend.ts` の `extendDueDate`・`extendTask`（引数 `days: number`）\n- **問題**: 「1〜30 の整数」という制約が `validateExtendInput` の実行時チェックにしか無い。`extendTask` は公開関数で、route 以外から呼ばれると 0、負数（期限が短縮される）、`NaN`（`RangeError`）が通る。\n- **直し方**: `extendTask` の入口で同じ範囲チェックをする。`isExtendDays(value): value is number` のような型ガードに切り出して、検証関数と共有する方法もある（`isTaskStatus` と同じ流儀）。\n\n### 8. 【低】route の失敗理由の分岐が二択で、理由が増えると黙って 404 になる\n\n- **場所**: `src/app/api/tasks/[id]/extend/route.ts` の 18〜20 行目（`result.reason === \"done\" ? 400 : 404`）\n- **問題**: `ExtendResult` の `reason` が増える（指摘 2・3 で足す場合を含む）と、新しい理由が自動的に 404 になる。\n- **直し方**: `switch` と `never` による網羅チェックにする。\n\n### 9. 【低】本文の検証がタスクの存在確認より先に走る（既存の PATCH と順序が違う）\n\n- **場所**: `src/app/api/tasks/[id]/extend/route.ts` の 14〜16 行目\n- **問題**: `POST /api/tasks/999/extend` に `{ \"days\": 0 }` を送ると 400 が返る。既存の `PATCH /api/tasks/:id`（`[id]/route.ts` 20 行目）は存在確認が先で、404 になる。仕様に優先順位の記載は無いが、同じ API 群で挙動が違う。\n- **直し方**: 既存の PATCH にそろえるなら、ID の確認に `|| !getTask(id)` を足して先に 404 を返す。\n\n### 10. 【低】コメント・定数の細かい点\n\n- **場所**: `src/lib/extend.ts` の 7 行目と 14〜18 行目、25 行目\n- **問題と直し方**\n  - `extendDueDate` の説明に、日付は UTC のカレンダー日付として扱うこと、`dueDate` が `YYYY-MM-DD` の正しい日付であることが前提、と書く。\n  - `extendTask` の説明に、`not_found` を返す場合と、成功時は DB を更新して更新後のタスクを返すことを足す。\n  - 日数の下限 `1` が式とメッセージに直書きされている。上限の `MAX_EXTEND_DAYS` と同じく `MIN_EXTEND_DAYS` を定数にする。\n\n---\n\n## 参考（この PR の範囲外。別の機会に対応）\n\n- `src/lib/tasks.ts` の `validateTaskInput` は `Date.parse` で日付を検証するため、`2026-02-31` のような存在しない日付を受け付ける（V8 は 3/3 に繰り上げる）。そのようなタスクを延長すると、期待より日数が余分に進む。往復チェック（`new Date(s).toISOString().slice(0, 10) === s`）で防げる。\n\n## 問題が無かった点\n\n- CLAUDE.md の規約 1（ロジックは `src/lib/` に分離）、3（日本語の文言）、4（外部ライブラリの追加なし）、6（変更範囲）、7（スキーマ変更なし）、8（SQL のプレースホルダ）、9（最初にログイン確認、本文は検証関数を通す）は守られている。\n- `npm run typecheck` と `npm test`（24 件）は通る。\n",
+ "review_commit": "796c97aa7df9134269b089a3f6af12c14dc29016",
+ "review_md_final": "# レビュー: タスクの期限を延長できるようにする（POST /api/tasks/:id/extend）\n\n対象: `src/app/api/tasks/[id]/extend/route.ts`、`src/lib/extend.ts`、`tests/extend.test.ts`（すべて新規）\n\nレビューは code-reviewer、pr-test-analyzer、silent-failure-hunter、comment-analyzer、type-design-analyzer の 5 エージェントで行った。\n\n## 総評\n\nエンドポイントの本体は仕様どおりに動く。確認した点は次のとおり。\n\n- ログインの確認が最初にあり、未ログインは 401 になる。\n- 日数は 1〜30 の整数だけを受け付ける。\n- 月・年・うるう日をまたぐ計算は正しい。\n- 完了したタスクは 400、無いタスクは 404 になる。\n\nマージ前に直すべき点は、**テストが何も検証していない**ことと、**延長の結果が壊れた日付になる場合がある**ことの 2 つ。\n\n---\n\n## 指摘事項\n\n### 1. 【高】テストが実質何も検証しておらず、仕様の主要な挙動が未検証\n\n- **場所**: `tests/extend.test.ts` の全テスト（`extendDueDate` / `validateExtendInput` / `extendTask`）\n- **問題**\n  - `extendDueDate` の \"adds days to the due date\" は、期待値を `extendDueDate` 自身の戻り値から作って同じ呼び出しと比べている。実装がどうなっても通る。\n  - \"works across months\" と \"handles a completed task\" は `doesNotThrow` だけを見ている。日付が間違っていても、完了済みのタスクを延長できる実装でも通る。\n  - `validateExtendInput` は正常系 1 件だけ。0、31、1.5、文字列、`null`、`undefined` などの拒否と、1 と 30 の境界が未検証。\n  - `extendTask` は `result.ok` しか見ていない。期限が実際に延びたか、DB に保存されたかを確認していない。\n  - `done` と `not_found` の結果は未検証。\n  - たとえば `setUTCDate(getUTCDate() - days)` に書き換えても、`days > MAX_EXTEND_DAYS` の判定を消しても、全テストが通る。PR の「検証結果」にある「テストが通る」は品質の裏付けにならない。CLAUDE.md の規約 5 は形式だけ満たしていて、実質は満たしていない。\n- **直し方**: 固定の期待値で検証する。\n  - 日付: `(\"2026-11-20\", 5)` は `\"2026-11-25\"`、`(\"2026-11-30\", 3)` は `\"2026-12-03\"`、`(\"2026-12-31\", 1)` は `\"2027-01-01\"`、`(\"2028-02-28\", 1)` は `\"2028-02-29\"`。\n  - 検証: `{days: 0 / 31 / -1 / 1.5 / NaN / \"7\" / null}` と、本文が `undefined` / `null` / `{}` / `[]` のときの拒否。1 と 30 の受理。\n  - `extendTask(4, 3, db)` の `task.dueDate` が `\"2026-11-21\"` で、`getTask(4, db)` も同じ値であること。他の項目が変わっていないこと。\n  - `extendTask(1, 3, db)` が `{ ok: false, reason: \"done\" }` を返し、`dueDate` が `\"2026-11-02\"` のままであること。\n  - `extendTask(9999, 3, db)` が `{ ok: false, reason: \"not_found\" }` を返すこと。\n  - 2 回続けて延長したとき、日数が累積すること。\n  - ルートハンドラのテストが一切無い。401（未ログイン）、404（不正な ID）、400（本文が不正で `details` が付く）、`done` が 400・無いタスクが 404 になること、成功時に 200 で `{ task }` が返ることは、ルートの分岐でしか決まらない。`reason` の 400 / 404 の対応を取り違えても現状は検知できない。ルートはグローバルの `getDb()` を使うため直接のテストは難しい。その場合は、ステータスの対応付けを `src/lib/` の関数に切り出して単体テストする。\n  - `getTask` は `../src/lib/tasks.ts` から import する。\n\n### 2. 【高】年が 9999 を超えると、壊れた日付が DB に保存され 200 が返る\n\n- **場所**: `src/lib/extend.ts` の `extendDueDate`（11 行目、`toISOString().slice(0, 10)`）\n- **問題**\n  - 期限が `9999-12-31` のタスクに `{ \"days\": 1 }` を送ると、`toISOString()` が `\"+010000-01-01T...\"` を返す。`slice(0, 10)` で `\"+010000-01\"` になり、そのまま保存されて 200 で返る。失敗が表に出ない。\n  - この値は `validateTaskInput` の `DATE_RE` を通らない形式。以降、一覧や延長のたびに壊れたデータとして扱われる。\n- **直し方**: 計算結果が `/^\\d{4}-\\d{2}-\\d{2}$/` に合うか確認する。合わなければエラーにする（`ExtendResult` に理由を足して 400 で返す。または年が 9999 を超える延長を入口で拒否する）。\n\n### 3. 【中】期限が解釈できない値のタスクで、延長が 500 になる\n\n- **場所**: `src/lib/extend.ts` の `extendDueDate`（8〜12 行目）、呼び出し元は `extendTask` と `route.ts` の `extendTask(...)`\n- **問題**\n  - `due_date` が `\"\"`、`\"garbage\"`、`\"2026-13-01\"` のように解釈できない値だと、`new Date(...)` が Invalid Date になり、`toISOString()` が `RangeError` を投げる。\n  - route に try/catch が無いため、Next.js の汎用 500 が返る。API の規約の `{ error, details? }` JSON にならず、原因の手掛かりもログに残らない。\n  - `tasks.due_date` は `TEXT NOT NULL` で CHECK 制約が無い（`src/lib/db/migrations.ts`）。直接の DB 編集などで壊れた行が入りうる。\n- **直し方**: `extendDueDate` の冒頭で `Number.isNaN(d.getTime())` を確認する。`extendTask` で `reason: \"invalid_due_date\"` のような理由として返し、route で明確なメッセージにして返す。リクエスト自体は正しいので、400 より 409 / 422 が適切。ただし CLAUDE.md の規約 9 は 400 / 401 / 404 だけを定めているので、既存規約に合わせるなら 400 でもよい。\n\n### 4. 【中】`validateExtendInput` の戻り値が既存の `ValidationResult<T>` と不揃い\n\n- **場所**: `src/lib/extend.ts` の `validateExtendInput`（15 行目）、`src/app/api/tasks/[id]/extend/route.ts` の 16 行目\n- **問題**\n  - 既存の `src/lib/tasks.ts` は `ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] }` で統一している。新規の検証関数は成功側が `days`、失敗側が `error`（単数 string）という無名の union になっている。\n  - その結果、route が `[input.error]` と配列に包み直している。同じ API Route 群に 2 種類の検証結果の形が混ざる。\n- **直し方**: 戻り値を `ValidationResult<{ days: number }>` にそろえ、route は `input.value.days` と `input.errors` を使う。\n\n### 5. 【中】本文が JSON として読めない場合も「日数は 1〜30 の整数」と案内される\n\n- **場所**: `src/lib/extend.ts` の `validateExtendInput`（16 行目）、`src/lib/api.ts` の `readJson`\n- **問題**\n  - 本文が空、`{bad json`、`Content-Type: text/plain` などだと、`readJson` が `undefined` を返す。`validateExtendInput` は `(body as {...} | null)?.days` で `undefined` を受け、「延長の日数は 1〜30 の整数で…」を返す。クライアントには本文が読めなかったことが伝わらない。\n  - 本文が配列やプリミティブのときも、型を `as` で偽って読んでいる。既存の `validateTaskInput`（`tasks.ts` 70〜72 行目）は `typeof body !== \"object\" || body === null || Array.isArray(body)` を先に判定して「リクエストの形式が正しくありません」を返す。\n  - ステータスは 400 で仕様どおり。メッセージの誤解を招く点が問題。\n- **直し方**: `validateExtendInput` の先頭で、`validateTaskInput` と同じ形式チェックと文言を使う。\n\n### 6. 【低】`updateTask(...)!` の非 null アサーション\n\n- **場所**: `src/lib/extend.ts` の `extendTask`（30 行目）\n- **問題**\n  - `updateTask` は行が無ければ `undefined` を返す契約。現状は `getTask` の直後で、`node:sqlite` が同期なので実際には起きない。\n  - ただし、削除 API の追加や処理の非同期化などで成り立たなくなると、`result.task` が `undefined` のまま `ok: true` になる。route は `NextResponse.json({ task: undefined })` で `200 {}` を返し、失敗が見えなくなる。\n- **直し方**: `const updated = updateTask(...); if (!updated) return { ok: false, reason: \"not_found\" };` として `!` を外す。\n\n### 7. 【低】`extendTask` が日数の範囲を保証しない\n\n- **場所**: `src/lib/extend.ts` の `extendDueDate`・`extendTask`（引数 `days: number`）\n- **問題**: 「1〜30 の整数」という制約が `validateExtendInput` の実行時チェックにしか無い。`extendTask` は公開関数で、route 以外から呼ばれると 0、負数（期限が短縮される）、`NaN`（`RangeError`）が通る。\n- **直し方**: `extendTask` の入口で同じ範囲チェックをする。`isExtendDays(value): value is number` のような型ガードに切り出して、検証関数と共有する方法もある（`isTaskStatus` と同じ流儀）。\n\n### 8. 【低】route の失敗理由の分岐が二択で、理由が増えると黙って 404 になる\n\n- **場所**: `src/app/api/tasks/[id]/extend/route.ts` の 18〜20 行目（`result.reason === \"done\" ? 400 : 404`）\n- **問題**: `ExtendResult` の `reason` が増える（指摘 2・3 で足す場合を含む）と、新しい理由が自動的に 404 になる。\n- **直し方**: `switch` と `never` による網羅チェックにする。\n\n### 9. 【低】本文の検証がタスクの存在確認より先に走る（既存の PATCH と順序が違う）\n\n- **場所**: `src/app/api/tasks/[id]/extend/route.ts` の 14〜16 行目\n- **問題**: `POST /api/tasks/999/extend` に `{ \"days\": 0 }` を送ると 400 が返る。既存の `PATCH /api/tasks/:id`（`[id]/route.ts` 20 行目）は存在確認が先で、404 になる。仕様に優先順位の記載は無いが、同じ API 群で挙動が違う。\n- **直し方**: 既存の PATCH にそろえるなら、ID の確認に `|| !getTask(id)` を足して先に 404 を返す。\n\n### 10. 【低】コメント・定数の細かい点\n\n- **場所**: `src/lib/extend.ts` の 7 行目と 14〜18 行目、25 行目\n- **問題と直し方**\n  - `extendDueDate` の説明に、日付は UTC のカレンダー日付として扱うこと、`dueDate` が `YYYY-MM-DD` の正しい日付であることが前提、と書く。\n  - `extendTask` の説明に、`not_found` を返す場合と、成功時は DB を更新して更新後のタスクを返すことを足す。\n  - 日数の下限 `1` が式とメッセージに直書きされている。上限の `MAX_EXTEND_DAYS` と同じく `MIN_EXTEND_DAYS` を定数にする。\n\n---\n\n## 参考（この PR の範囲外。別の機会に対応）\n\n- `src/lib/tasks.ts` の `validateTaskInput` は `Date.parse` で日付を検証するため、`2026-02-31` のような存在しない日付を受け付ける（V8 は 3/3 に繰り上げる）。そのようなタスクを延長すると、期待より日数が余分に進む。往復チェック（`new Date(s).toISOString().slice(0, 10) === s`）で防げる。\n\n## 問題が無かった点\n\n- CLAUDE.md の規約 1（ロジックは `src/lib/` に分離）、3（日本語の文言）、4（外部ライブラリの追加なし）、6（変更範囲）、7（スキーマ変更なし）、8（SQL のプレースホルダ）、9（最初にログイン確認、本文は検証関数を通す）は守られている。\n- `npm run typecheck` と `npm test`（24 件）は通る。\n\n---\n\n## 対応結果（修正後の追記）\n\n指摘 1〜10 は `src/lib/extend.ts`・`route.ts`・`tests/extend.test.ts` で直した。`npm run typecheck` と `npm test`（35 件）が通ることを確認した。次の 2 点は直していない。\n\n- **指摘 1 のうち、ルートハンドラ自体（401・本文の読み取りなど）のテスト**: 直していない。ルートはグローバルの `getDb()` とセッション Cookie に依存し、このリポジトリには API Route を直接呼ぶテストの仕組みが無い。テストのためだけに仕組みを足すのは、変更を依頼された範囲にとどめる規約 6 に反する。代わりに、失敗理由と HTTP ステータス・メッセージの対応を `src/lib/extend.ts` の `EXTEND_FAILURES` に切り出して単体テストした（理由の取り違え・追加漏れは型エラーまたはテストで検知できる）。ID・本文・認証の分岐は、既存の `PATCH` と同じ形で書いてある。\n- **「参考」の `validateTaskInput` が `2026-02-31` のような存在しない日付を受け付ける件**: 直していない。この PR の変更範囲外（既存コード）で、規約 6 に反するため。別の PR で対応する。なお、この PR の `extendDueDate` は、存在しない日付の期限を `invalid_due_date`（400）として拒否するようにしたので、延長が黙ってずれることはない。\n\n補足（判断した点）\n- 指摘 3 の期限を計算できない場合のステータスは、規約 9 の 400 / 401 / 404 に合わせて 400 にした（409 / 422 にはしていない）。\n- 指摘 7 の `extendTask` の範囲チェックは、失敗理由 `invalid_days` を追加して実装した。\n",
+ "fixed": {
+  "diff_added": 216,
+  "diff_deleted": 0,
+  "pr_added": 89,
+  "pr_deleted": 0,
+  "commits": [
+   "0c785ee 期限延長 API の追加と、レビュー指摘への対応",
+   "1875b6c REVIEW.md: ルートのテスト不足など書き漏らした指摘を追記",
+   "796c97a REVIEW.md: 期限延長 PR のレビュー指摘を追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 35,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "日数を足し、月・年をまたげる",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "1〜30 の整数だけを受け付ける",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "延長すると期限が変わって保存される",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "完了したタスクは延長できず、期限も変わらない",
+     "pass": true
+    },
+    {
+     "id": "H5",
+     "name": "無いタスクは not_found",
+     "pass": true
+    }
+   ],
+   "passed": 5,
+   "total": 5,
+   "log": ""
+  },
+  "mutation": {
+   "items": [
+    {
+     "id": "M1",
+     "status": "n/a"
+    },
+    {
+     "id": "M2",
+     "status": "n/a"
+    },
+    {
+     "id": "M3",
+     "status": "n/a"
+    },
+    {
+     "id": "M4",
+     "status": "killed"
+    },
+    {
+     "id": "M5",
+     "status": "killed"
+    },
+    {
+     "id": "M6",
+     "status": "killed"
+    },
+    {
+     "id": "M7",
+     "status": "killed"
+    },
+    {
+     "id": "M8",
+     "status": "killed"
+    }
+   ],
+   "killed": 5,
+   "applicable": 5
+  }
+ },
+ "transcript": {
+  "cost_usd": 1.2454,
+  "tokens": {
+   "input": 90,
+   "output": 33629,
+   "cache_read": 1605559,
+   "cache_creation": 196750
+  },
+  "turns": 13,
+  "permission_denials": [],
+  "tool_calls": {
+   "Bash": 21,
+   "Agent": 5,
+   "ReadNotifications": 1,
+   "Write": 4,
+   "Edit": 1
+  },
+  "skills_used": [],
+  "subagents": 5,
+  "subagent_types": {
+   "pr-review-toolkit:code-reviewer": 1,
+   "pr-review-toolkit:pr-test-analyzer": 1,
+   "pr-review-toolkit:silent-failure-hunter": 1,
+   "pr-review-toolkit:comment-analyzer": 1,
+   "pr-review-toolkit:type-design-analyzer": 1
+  },
+  "questions": 0,
+  "active_seconds": 122,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "指摘 1〜10 は直して、PR の差分と修正を 1 つのコミット（0c785ee）にまとめました。型検査（`npm run typecheck`）はエラーなしで、テスト（`npm test`）は 35 件すべて通りました。\n\n直した内容は次のとおりです。\n- **テスト（指摘 1）:** 固定の期待値で書き直しました。次のケースを足しました。\n  - 月・年・うるう日をまたぐ延長\n  - 不正な日数の拒否\n  - done の拒否（期限が変わらないこと）\n  - 無いタスクの 404\n  - DB への保存\n  - 2 回続けて延長したときの累積\n- **年 9999 超過と壊れた期限（指摘 2・3）:** `extendDueDate` は、存在しない日付の期限や、結果が `YYYY-MM-DD` に収まらないときに `undefined` を返します。`extendTask` はそれを `invalid_due_date`（400）にします。壊れた日付は保存されず、500 にもなりません。\n- **検証の形（指摘 4・5）:** `validateExtendInput` の戻り値は既存の `ValidationResult` にそろえました。本文の形が不正なときは、既存と同じ「リクエストの形式が正しくありません」を返します。\n- **`!` の除去と範囲チェック（指摘 6・7）:** `updateTask(...)!` をやめ、`extendTask` の入口にも 1〜30 の範囲チェックを入れました（失敗理由 `invalid_days`）。\n- **失敗理由の対応表と存在確認（指摘 8・9）:** 失敗理由ごとの HTTP ステータスとメッセージを `EXTEND_FAILURES` にまとめました。理由を足して対応表を直し忘れると、型エラーになります。存在確認は PATCH と同じく、本文の検証より先にしました。\n- **コメントと定数（指摘 10）:** コメントを直し、下限を `MIN_EXTEND_DAYS` にしました。\n\n直していないものが 2 点あり、理由は `REVIEW.md` の末尾に追記しました。\n- **ルートハンドラ自体のテスト:** ルートはグローバルの DB とセッション Cookie に依存し、API Route を直接呼ぶテストの仕組みがこのリポジトリに無いためです。代わりにステータスの対応表を単体テストしました。\n- **`validateTaskInput` が `2026-02-31` のような日付を受け付ける件:** 既存コードで、この PR の範囲外だからです。\n\n期限を計算できないときのステータスは、規約 9 の 400 / 401 / 404 に合わせて 400 にしました。\n\n作業の途中で、`REVIEW.md` がディスク上で変わっていたという通知が来ました。内容は読み直しておらず、変更の中身は確認できていません。私が追記して、そのままコミットした内容は上のとおりです。"
+ },
+ "interventions": 0
+}

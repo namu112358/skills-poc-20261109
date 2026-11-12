@@ -1,0 +1,48 @@
+{
+  "trial": "W22-ce-full-c7-2",
+  "scenario": "W22",
+  "config": "ce-full",
+  "case": "c7",
+  "rep": 2,
+  "review_md": "# レビュー: 担当者変更の監査ログ\n\n対象: `git diff HEAD`（未コミットの差分、新規ファイル含む）。\n\n**結論: 修正してからマージ（Ready with fixes）。**\n\n要件（担当者が変わったときだけ、サーバーのログに 1 行出す）は、既定設定で動くはずです。ただし次の 3 点が残っています。\n\n- 要件の中心である `updateTask` からの出力にテストがありません。\n- 環境変数が 1 つ違うだけで、更新 API が 500 を返すようになります。\n- 合意されていない仕組みが大量に入っています。\n\n## カバレッジ\n\n- 本来は複数のレビュアーを並列で動かす手順です。この無人実行ではレビュー補助スクリプトの実行が承認されませんでした。そのため、差分と関連コード（`src/lib/tasks.ts`、`src/app/api/tasks/[id]/route.ts`）を直接読んで判断しています。\n- `npm test` と `npm run typecheck` は実行していません。PR の説明にある「通った」は未確認です。\n- 範囲は未コミットの 5 ファイルです（`src/lib/notify/*` 3 件、`src/lib/tasks.ts`、`tests/notify.test.ts`）。\n\n## 指摘\n\n### 1. [高] 監査ログの出力に関するテストがない（規約 5 違反）\n\n- 場所: `tests/notify.test.ts` 全体、`src/lib/tasks.ts` の `updateTask`（追加された `if (next.assignee !== current.assignee)` のブロック）、`src/lib/notify/index.ts` の購読ブロック。\n- 問題:\n  - 追加テストが確認しているのは、イベントバスの購読と解除、そして `NotifierFactory` が返す種類だけです。\n  - 要件そのものである次の 3 点は、どのテストにもありません。\n    - 担当者が変わると `[audit] task <ID>: assignee <前> -> <後> at <日時>` が出ること。\n    - 担当者が変わらない更新では出ないこと。\n    - 存在しない ID では出ないこと。\n  - `updateTask` の `if` を消す、`from` と `to` を逆にする、といった退行をしても、テストはすべて通ります。\n  - `index.ts` は読み込み時の副作用で購読を登録します。今のテストはこのファイルを読み込まないので、購読が登録されること自体も検証されていません。\n- 直し方:\n  - `openDb()` で作った独立 DB を `updateTask(id, changes, db)` に渡し、`console.log` を差し替えて、出力を検証するテストを `tests/tasks.test.ts` などに追加します。\n  - 次のケースを確認します。\n    - 担当者を変えると、期待どおりの 1 行がちょうど 1 回出る。\n    - 担当者を変えない更新（タイトルだけの変更、同じ担当者の再指定）では出ない。\n    - 存在しない ID では出ない。\n  - 日時はテストで固定できるようにします（後述の 3 の直し方と合わせます）。\n\n### 2. [中] `NOTIFIER_KIND=slack` / `email` にすると、更新 API が 500 になる\n\n- 場所: `src/lib/notify/notifier.ts` の `SlackNotifier.send` と `EmailNotifier.send`（どちらも無条件に throw）。`src/lib/notify/index.ts` の購読ブロック。`src/lib/tasks.ts` の `updateTask` の `emit` 呼び出し。\n- 問題:\n  - `NOTIFIER_KIND=slack` または `email` を設定する（設定ミスも含む）と、担当者を変えるたびに `send` が例外を投げます。\n  - `EventBus.emit` は購読者の例外を捕まえません。例外は `updateTask` を抜けて `PATCH /api/tasks/:id` まで届き、API が 500 になります。\n  - その時点で `UPDATE` はすでに実行済みです。クライアントにはエラーが返るのに、担当者は実際に変わっています。再試行すると、今度は「変更なし」として扱われ、記録は一度も出ません。\n  - 監査のための記録が、本来の更新を壊す形になっています。\n- 直し方:\n  - まず、未実装の送り先は削除します（指摘 4）。\n  - そのうえで、購読者の例外が呼び出し側へ伝わらないようにします。`emit` で購読者ごとに `try/catch` し、失敗は `console.error` に出す、という形が簡単です。\n  - 「記録できなかったら更新も失敗させる」という要件なら、更新と同じトランザクションで記録を書く設計にします。現状はどちらにも当てはまりません。\n\n### 3. [中] 依頼されていない仕組みを大量に追加している（規約 6 違反、過剰設計）\n\n- 場所: `src/lib/notify/events.ts`、`src/lib/notify/notifier.ts`、`src/lib/notify/index.ts`。\n- 問題:\n  - PR の合意は「当面はサーバーのログだけ。ほかの記録先にする予定は今のところない」です。実際に必要なのは、`updateTask` の中の `console.log` 1 行です。\n  - 追加された約 90 行のうち、次のものはどこからも使われていません。使われない部分が増えるほど、保守の負担になります。\n    - `task.status_changed` と `task.created` のイベント型。\n    - `clear()`。\n    - `SlackNotifier`、`EmailNotifier`、`NotifierFactory`、`NotifierKind`、環境変数 `NOTIFIER_KIND` と `SLACK_WEBHOOK_URL`。\n  - 新しい設定項目（環境変数）が増えています。誤って設定すると指摘 2 の障害になります。\n  - `index.ts` の副作用で、`tasks.ts` が `./notify/index.ts` を読み込んだときにだけ購読が登録されます。登録の有無が import の経路に左右されます。\n  - 日時は `new Date()` が `updateTask` に直書きされており、テストで固定できません。\n- 直し方:\n  - `src/lib/notify/` を削除します。`updateTask` の UPDATE の直後（担当者が変わったときだけ）に、小さな関数を呼びます。例は `logAssigneeChange(taskId, from, to, now = new Date())` です。この関数は `src/lib/` に置き、`console.log` で同じ書式の 1 行を出します。\n  - 日時を引数で渡せるようにして、テストで固定できるようにします。\n  - 記録先が増える予定が出た時点で、そのときに必要な形で抽象化します。\n\n### 4. [低] 未実装の `SlackNotifier` / `EmailNotifier` が選択肢として公開されている\n\n- 場所: `src/lib/notify/notifier.ts` の `NotifierKind`、`registry`、`SlackNotifier`、`EmailNotifier`。\n- 問題:\n  - 実装のない送り先が環境変数で選べます。選ぶと、利用者向けの案内なしに指摘 2 の障害になります。\n  - テストの `NotifierFactory.create(\"slack\").kind` は、ここが「選べる状態」であることを確認しているだけです。\n- 直し方: 指摘 3 の直しで丸ごと消えます。残す場合も、未実装の種類は `registry` から外すか、起動時に分かる明示的なエラーにします。\n\n### 5. [低] 記録に「誰が変更したか」がない\n\n- 場所: `src/lib/notify/index.ts` の記録文字列、`src/lib/tasks.ts` の `updateTask`。\n- 問題:\n  - 依頼文の要件は「いつ誰から誰に変わったか」で、記録の書式もそれに合わせてあります。\n  - 一方、監査の用途では、変更したログインユーザー（`requireApiUser()` の結果）が分かると追跡しやすくなります。今の書式には含まれません。\n  - 書式は PR の説明で指定されたものです。変えるかどうかは依頼元に確認します。\n- 直し方: 変更しないのであれば、そのままで構いません。足す場合は、API Route から `updateTask` へ操作者を渡し、`by <ユーザー>` を書式に加えます。\n\n## 問題なしと判断した点\n\n- 担当者の値は `validateTaskInput` が `users` テーブルの ID と照合します（`src/lib/tasks.ts:88-92`）。そのため、改行や制御文字を含む値は記録に入りません。ログへの偽の行の注入は起きません。\n- 担当者が変わらない更新では出力しない、という条件は `next.assignee !== current.assignee` で正しく判定されています（テストが無いことは指摘 1）。\n- SQL は既存どおりプレースホルダを使っており、新しい SQL は追加されていません。\n",
+  "review_chars": 4231,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.401,
+    "tokens": {
+      "input": 32,
+      "output": 6821,
+      "cache_read": 853317,
+      "cache_creation": 61859
+    },
+    "turns": 17,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git diff HEAD -U10 --irreversible-delete; for f in src/lib/notify/*.ts tests/notify.test.ts; do echo \\\"=== $f\\\"; cat -n $f; done; ls; git log --oneline | head -3\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W22-ce-full-c7-2/plugins/compound-engineering/skills/ce-code-review; PY=python3; BASE=$(git rev-parse HEAD); $PY $SKILL_DIR/scripts/review-scope.py --base \\\"$BAS"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-ce-full-c7-2/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 3,
+      "Bash": 10,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 68,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、前回のレビューで出た 5 件の指摘がすべて、依頼された形式で入っています。場所、何が問題か、直し方、重要度の 4 項目です。コミット済み（e1cf0c9）で、未コミットの差分もありません。新しい指摘は足しておらず、削った指摘もありません。そのため、今回は追加のコミットをしていません。コードも直していません。\n\n| # | 重要度 | 内容 |\n|---|---|---|\n| 1 | 高 | 監査ログの出力にテストがない |\n| 2 | 中 | `NOTIFIER_KIND=slack` / `email` にすると更新 API が 500 になる |\n| 3 | 中 | 依頼にない仕組みを大量に追加している |\n| 4 | 低 | 未実装の Slack・メールの送り先が選べる状態になっている |\n| 5 | 低 | 記録に「誰が変更したか」がない |"
+  },
+  "interventions": 0
+}

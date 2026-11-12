@@ -1,0 +1,39 @@
+{
+  "trial": "W21-cr-high-c2-2",
+  "scenario": "W21",
+  "config": "cr-high",
+  "case": "c2",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスク一覧の「期限の近い順」並べ替え\n\n指摘は 5 件です（重要度順）。\n\n## 1. ORDER BY を文字列の埋め込みで組み立てている【重要度: 中】\n\n- 場所: `src/lib/tasks.ts:58`（`listTasks`）\n- 問題: `${SORT_COLUMNS[...]}` を SQL 文字列に埋め込んでいる。CLAUDE.md の規約 8（SQL を文字列連結で組み立てない）に反する。許可リストを通しているので今は安全だが、`listTasks` は export されており、`filter.sort` は TypeScript の型でしか守られていない。`as TaskSort` で未検証の文字列を渡す呼び出しがあると、想定外の SQL になる。将来 `SORT_COLUMNS` に安全でない値が入ると SQL インジェクションになる。\n- 直し方: ソートキーごとに完全な ORDER BY 句の固定文字列を持つ `Record<TaskSort, string>` を用意し、完全一致で選ぶ。\n\n## 2. 許可リスト外の sort をランタイムで防いでいない【重要度: 中】\n\n- 場所: `src/lib/tasks.ts:58`（`listTasks`）\n- 問題: `SORT_COLUMNS[filter.sort ?? \"id\"]` は、未知のキー（JS や型なしの呼び出し元から渡された `'title'` など）で `undefined` を返し、クエリが `ORDER BY undefined, id` になる。SQLite が未知の列としてエラーを投げ、API Route もページも 500 になる。規約 2 の「不正な値は指定なし扱い」にならない。\n- 直し方: 許可リストに無いキーは `listTasks` 内でも既定（`id`）にフォールバックする（1 の `Record` 方式と合わせて、`isTaskSort` 等で判定する）。\n\n## 3. テストが seed データに依存し、一部は弱い。API・ページの sort 処理のテストが無い【重要度: 中】\n\n- 場所: `tests/tasks.test.ts:40` 付近\n- 問題:\n  - seed の中身（7 行、id `[1..7]`、期限 `['2026-11-18','2026-11-20','2026-11-25']`、同日ペア `[2, 8]`）を決め打ちしており、`seed.ts` を編集すると無関係な理由で落ちる。\n  - `assert.deepEqual(keys, [...keys].sort())` は文字列の辞書順ソートで、SQL の並びをなぞるだけの弱い検証になっている。\n  - `GET /api/tasks` の `sort` の扱いと、ページの不正値フォールバック（例: `?sort=bogus`）のテストが無い。生の値をそのまま渡すような退行に気づけない。\n- 直し方: テスト内で `openDb()` に必要な行だけを挿入して検証する。期限の並びは期待値の配列を明示して比較する。API の `sort=due` / `sort=id` / 不正値と、ページの不正値フォールバックのテストを追加する。\n\n## 4. 既定の sort で `ORDER BY id, id` になる／期限順が TEXT の辞書順に依存【重要度: 低】\n\n- 場所: `src/lib/tasks.ts:58`\n- 問題:\n  - 既定（`id`）では同点の解決用の `id` が重複し、`ORDER BY id, id` になる（冗長）。\n  - `due_date` は TEXT で、`YYYY-MM-DD` のゼロ埋め形式の間だけ正しく並ぶ。seed や将来のマイグレーションなど別の書き手が `'2026-1-5'` のような形式を入れると、`'2026-11-..'` より前に並び、エラーも出ない。\n- 直し方: `id` 並びの場合はタイブレーカーを付けない（1 の固定 ORDER BY 句で解決できる）。期限の形式は入力検証（`validateTaskInput`）で `YYYY-MM-DD` に限定されていることを確認し、必要なら制約を設ける。\n\n## 5. 既定の sort の二重定義と、UI の細部【重要度: 低】\n\n- 場所: `src/app/tasks/page.tsx:30`\n- 問題:\n  - 並べ替えの select の既定値 `sort ?? \"id\"` が、`listTasks` 側の既定と二重になっている。片方だけ変えると、UI の表示と実際の並びがずれる。\n  - 既定の並べ替えを選ぶと URL に明示的な `sort=id` が付く。ステータスの絞り込みでは「すべて」が指定なしになるのと不揃い。\n  - フォームが並べ替えも担うようになったのに、送信ボタンの文言が「絞り込む」のまま。\n- 直し方: 既定値は定数（例: `DEFAULT_TASK_SORT`）を `src/lib/` に一つ置いて両方から参照する。既定の選択肢は値を空にして URL に出さない。ボタンの文言を「適用」などに変える。\n",
+  "review_chars": 2225,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2411,
+    "tokens": {
+      "input": 20,
+      "output": 5458,
+      "cache_read": 308637,
+      "cache_creation": 46608
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD) | head -500; echo ----; git diff HEAD\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 52,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` に指摘 5 件を書き、`REVIEW.md` だけをコミットしました（a602680）。コードは直していません。PR の未コミットの差分は、そのまま作業ツリーに残っています。\n\n各指摘に場所・問題・直し方・重要度を付けました。\n\n1. **中**: `src/lib/tasks.ts:58` で ORDER BY 句を文字列に埋め込んでおり、規約 8 に反する。\n2. **中**: 同じ箇所で、許可リスト外の `sort` がランタイムで防がれず、`ORDER BY undefined` になって 500 になる。\n3. **中**: `tests/tasks.test.ts` が seed に依存し、一部の検証は弱い。API とページの `sort` 処理のテストも無い。\n4. **低**: 既定で `ORDER BY id, id` になる。期限順は TEXT の辞書順に依存する。\n5. **低**: `src/app/tasks/page.tsx:30` で既定値が二重定義されている。既定を選ぶと `sort=id` が URL に付く。ボタンの文言が「絞り込む」のまま。\n\n指摘 1 と 2 は同じ箇所ですが、問題が別なので分けたままにしました。\n\n重要度はレビューの出力に付いていなかったので、私が判断して付けました。「直し方」も、指摘の趣旨に沿って私が書き足した提案です。指摘 4 の「期限の形式は `validateTaskInput` で限定されているか確認する」という点は、コードを開いて確かめてはいません。"
+  },
+  "interventions": 0
+}

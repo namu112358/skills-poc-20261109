@@ -1,0 +1,50 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "NOTIFIER_KIND=slack/email を設定すると未実装の SlackNotifier/EmailNotifier.send が例外を投げ、emit が捕まえないため DB 更新後に updateTask から例外が出て API が 500 を返す。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "「ログに 1 行」の要件に対し、notify/ 配下にイベントバス・ファクトリ・未実装の Slack/Email 送り先・使われないイベントや clear を作りすぎており、console.log 1 行に置き換えるべき。",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "ログ出力が tasks.ts による notify/index.ts の import 時の購読登録という暗黙の副作用に依存しており、updateTask の呼び出しからは通知が起きることが追えず、import の整理で無言で壊れる。",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "tests/notify.test.ts はイベントバスとファクトリの動作だけを確かめ、updateTask で担当者が変わったときだけログが出るという要件を確かめていない。",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "NotifierFactory.create が知らない NOTIFIER_KIND を黙って console にするため、設定の書き間違いに気づけない（早く失敗しない）。",
+   "severity": "低",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "events.ts の subscribe と emit で as unknown as / as never により型検査を回避している。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0601438
+ }
+}

@@ -1,0 +1,49 @@
+{
+  "trial": "W23-ce-review-d3-1",
+  "scenario": "W23",
+  "config": "ce-review",
+  "case": "d3",
+  "rep": 1,
+  "review_md": "# コードレビュー: ダッシュボードとタスクのコメント\n\n対象: `git diff HEAD`（未コミットの差分 12 ファイル）。\n\n## 判定: Not ready（高 4 件・中 5 件・低 2 件）\n\n実行したのは `npm run typecheck` と `npm test` を除く静的レビューです。スコープ集計スクリプトが承認待ちで動かせなかったため、差分を直接読んで確認しました。コードの修正はしていません。\n\n---\n\n## 高\n\n### 1. ダッシュボードのキャッシュキーにユーザーが含まれず、他人の担当タスクが見える\n- 場所: `src/lib/dashboard.ts` の `buildDashboard`。`cached(\"dashboard\", ...)` を呼んでいる行です。\n- 問題: キーが固定文字列 `\"dashboard\"` です。30 秒以内に sato がダッシュボードを開き、続けて suzuki が開くと、suzuki には sato の結果が返ります。タスクの題名、件数、期限が漏れ、`userId` も sato のままです。`GET /api/dashboard` と `/dashboard` の両方に影響します。\n- 直し方: キーを `` `dashboard:${userId}` `` にします。キャッシュが不要なら外すのが最も安全です（キャッシュ自体の問題は低 11 を参照）。他のユーザーのキャッシュを返さないテストを追加します。\n\n### 2. コメント本文のリンクで `javascript:` URL が通り、XSS になる\n- 場所: `src/lib/comments.ts` の `renderBody`。`src/app/tasks/[id]/page.tsx` で `dangerouslySetInnerHTML` に渡しています。\n- 問題: HTML のエスケープ後に `[文字](URL)` を `<a href=\"$2\">` へ置換しており、URL のスキームを検査していません。`[詳細](javascript:alert(document.cookie))` を投稿すると、閲覧者がクリックした時点でスクリプトが動きます。誰でも投稿できるため、保存型 XSS です。\n- 直し方: URL が `https?://` で始まるものだけリンクにします。それ以外は文字のまま出します。そもそも `dangerouslySetInnerHTML` をやめ、React の要素として組み立てるのが望ましいです。`javascript:` と `data:` を拒否するテストを追加します。\n\n### 3. 他人のコメントを誰でも編集できる\n- 場所: `src/app/api/comments/[commentId]/route.ts` の `PATCH`。\n- 問題: `DELETE` には `comment.authorId !== user.id` の確認がありますが、`PATCH` にはありません。ログインしていれば他人のコメント本文を書き換えられ、発言をなりすませます。\n- 直し方: `PATCH` にも作成者の確認を入れ、違えば 403 を返します。API の認可テストを追加します。\n\n### 4. `countByStatus` が共有定数 `TASK_STATUSES` を書き換える\n- 場所: `src/lib/dashboard.ts` の `countByStatus`。`const order = TASK_STATUSES as TaskStatus[]; order.reverse()` の部分です。\n- 問題: `as` は型の読み替えだけで、コピーしません。`reverse()` はアプリ全体で共有している配列を破壊的に逆順にします。呼ぶたびに向きが入れ替わるため、ダッシュボードの表示は「完了が先頭」と「未着手が先頭」を交互に繰り返します。`TASK_STATUSES` を使う他の処理（`isTaskStatus` など）にも影響します。テストは 1 回目の呼び出ししか見ないため通ります。\n- 直し方: `[...TASK_STATUSES].reverse()`（または `toReversed()`）にします。2 回続けて呼んでも同じ順序になることを確かめるテストを追加します。\n\n---\n\n## 中\n\n### 5. SQL に値を文字列連結で埋め込んでいる\n- 場所: `src/lib/dashboard.ts` の `listAssignedTasks`。`WHERE assignee = '${userId}'` の部分です。\n- 問題: CLAUDE.md の規約 8（プレースホルダ必須）に違反しています。今は `userId` がセッション由来のため直ちに悪用はできませんが、ユーザー ID に `'` を含められる経路ができた時点で SQL インジェクションになります。\n- 直し方: `WHERE assignee = ?` にして `.all(userId)` を渡します。\n\n### 6. 担当タスクが 0 件のとき完了率が `NaN` になる\n- 場所: `src/lib/dashboard.ts` の `completionRate`。\n- 問題: `done / tasks.length` が `0 / 0` となり `NaN` です。画面には「完了率 NaN%」と出て、`GET /api/dashboard` の JSON では `null` になります。担当が 1 件もない新しい利用者で起きます。\n- 直し方: `tasks.length === 0` のとき 0 を返します。0 件のテストを追加します。\n\n### 7. 日曜日に「今週」が翌週になる\n- 場所: `src/lib/week.ts` の `weekRange`。`addDays(today, 1 - dow)` の部分です。\n- 問題: 日曜は `getUTCDay()` が 0 なので、`start` は今日の翌日（次の月曜）になります。日曜に開くと「今週が期限」に今週分ではなく翌週の月〜日が出ます。テストは水曜だけを使っているため見つかりません。\n- 直し方: `const offset = (dow + 6) % 7; start = addDays(today, -offset)` にします。日曜と月曜のテストを追加します。\n\n### 8. 存在しないタスクにコメントを投稿できてしまう\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` の `POST`。\n- 問題: `GET` は `getTask(id)` で存在を確かめていますが、`POST` は ID の形式だけを見ています。存在しないタスク ID だと、外部キー制約のエラーで 500 になるか（制約が有効な場合）、孤立したコメントが作られます（無効な場合）。規約 9 は「対象が無いときは 404」としています。\n- 直し方: `GET` と同じく `!getTask(id)` のとき 404 を返します。\n\n### 9. コメントの並び順が日時の文字列比較で、桁がそろわない\n- 場所: `src/lib/comments.ts` の `formatCreatedAt` と `listComments` の `ORDER BY created_at, id`。\n- 問題: `toLocaleString(\"ja-JP\")` の結果は `2026/11/9 9:00:00` のようにゼロ埋めされません。この文字列で並べると、`2026/11/10` が `2026/11/9` より前に来るなど、日付や時刻の桁が変わる境目で順序が狂います。「古い順」という仕様と食い違います。テストは 10 時と 11 時で桁が同じため通ります。他のテーブルは ISO 8601（UTC）で保存しており、形式も不統一です。\n- 直し方: DB には `now.toISOString()` を保存し、表示のときに日本時間へ整形します。または `ORDER BY id` にします。桁が変わる日時のテストを追加します。\n\n---\n\n## 低\n\n### 10. API とページのテストが無い\n- 場所: `tests/`。\n- 問題: 規約 5 に沿って `src/lib/` の関数はテストされていますが、`/api/dashboard`、コメントの 3 つの API の 401・404・403 の動作は検証されていません。上の高 1・高 3・中 8 は、どれもここがテストされていれば見つかります。\n- 直し方: ユーザー切り替え時のキャッシュ、作成者以外の PATCH と DELETE、存在しないタスクへの POST を検証するテストを追加します。\n\n### 11. ダッシュボードが最大 30 秒古く、キャッシュが無制限に増える\n- 場所: `src/lib/cache.ts` と `buildDashboard`。\n- 問題: タスクのステータスを更新してもキャッシュは消えず、最大 30 秒は古い件数が出ます。期限切れの項目も消えません。また、期限切れのエントリを削除せず、キーが増えるほど `Map` が大きくなります（高 1 を直せばユーザー数が上限）。\n- 直し方: そもそも SQLite のメモリ内読み取りなので、キャッシュをやめるのが簡単です。残すなら、タスク更新時に該当ユーザーのキーを消し、期限切れを掃除します。\n",
+  "review_chars": 4070,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4036,
+    "tokens": {
+      "input": 28,
+      "output": 7317,
+      "cache_read": 714218,
+      "cache_creation": 64733
+    },
+    "turns": 15,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W23-ce-review-d3-1/plugins/compound-engineering/skills/ce-code-review; BASE=$(git rev-parse HEAD); echo BASE:$BASE; git ls-files --others --exclude-standard; PY="
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git rev-parse HEAD && git ls-files --others --exclude-standard; python3 /tmp/poc-trials/W23-ce-review-d3-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --bas"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W23-ce-review-d3-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 2,
+      "Bash": 8,
+      "Write": 1,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 69,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新たに書き写すものはありませんでした。前のターンで出した 11 件の指摘は、すでにご指定の形式で `REVIEW.md` に入っていて、コミット済み（`00de971`）です。\n\n- 各指摘には、場所（ファイルと関数）、問題（どういう入力で何が起きるか）、直し方、重要度（高・中・低）が書いてあります。\n- 件数は高 4、中 5、低 2 で、前回の報告と同じです。新しい指摘は足しておらず、削った指摘もありません。\n- `REVIEW.md` に未コミットの変更はありません。\n- コードは直していません。PR の変更は、これまでどおり未コミットの差分のままです。\n\n重複して同じ内容をもう一度コミットすると履歴が増えるだけなので、新しいコミットは作っていません。"
+  },
+  "interventions": 0
+}

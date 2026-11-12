@@ -1,0 +1,167 @@
+diff --git a/src/app/api/tasks/route.ts b/src/app/api/tasks/route.ts
+index 687d509..bb079c3 100644
+--- a/src/app/api/tasks/route.ts
++++ b/src/app/api/tasks/route.ts
+@@ -1,13 +1,17 @@
+-// GET /api/tasks?status=… — タスク一覧 / POST /api/tasks — タスクを作成する。いずれもログインが必要。
++// GET /api/tasks?status=…&sort=… — タスク一覧 / POST /api/tasks — タスクを作成する。いずれもログインが必要。
+ import { NextResponse } from "next/server";
+ import { jsonError, readJson, requireApiUser } from "@/lib/api";
+-import { createTask, isTaskStatus, listTasks, validateTaskInput, type TaskInput } from "@/lib/tasks";
++import { createTask, isTaskSort, isTaskStatus, listTasks, validateTaskInput, type TaskInput } from "@/lib/tasks";
+ 
+ export async function GET(request: Request) {
+   const user = await requireApiUser();
+   if (user instanceof NextResponse) return user;
+-  const status = new URL(request.url).searchParams.get("status");
+-  return NextResponse.json({ tasks: listTasks({ status: isTaskStatus(status) ? status : undefined }) });
++  const params = new URL(request.url).searchParams;
++  const status = params.get("status");
++  const sort = params.get("sort");
++  return NextResponse.json({
++    tasks: listTasks({ status: isTaskStatus(status) ? status : undefined, sort: isTaskSort(sort) ? sort : undefined }),
++  });
+ }
+ 
+ export async function POST(request: Request) {
+diff --git a/src/app/tasks/page.tsx b/src/app/tasks/page.tsx
+index 1da2fed..1e286aa 100644
+--- a/src/app/tasks/page.tsx
++++ b/src/app/tasks/page.tsx
+@@ -1,15 +1,16 @@
+ import { requireUser } from "@/lib/session";
+-import { STATUS_LABELS, TASK_STATUSES, isTaskStatus, listTasks } from "@/lib/tasks";
++import { SORT_LABELS, STATUS_LABELS, TASK_SORTS, TASK_STATUSES, isTaskSort, isTaskStatus, listTasks } from "@/lib/tasks";
+ 
+ type Props = {
+-  searchParams: Promise<{ status?: string }>;
++  searchParams: Promise<{ status?: string; sort?: string }>;
+ };
+ 
+ export default async function TasksPage({ searchParams }: Props) {
+   await requireUser();
+   const params = await searchParams;
+   const status = isTaskStatus(params.status) ? params.status : undefined;
+-  const tasks = listTasks({ status });
++  const sort = isTaskSort(params.sort) ? params.sort : undefined;
++  const tasks = listTasks({ status, sort });
+ 
+   return (
+     <main>
+@@ -26,6 +27,16 @@ export default async function TasksPage({ searchParams }: Props) {
+             ))}
+           </select>
+         </label>{" "}
++        <label>
++          並べ替え{" "}
++          <select name="sort" defaultValue={sort ?? "id"}>
++            {TASK_SORTS.map((s) => (
++              <option key={s} value={s}>
++                {SORT_LABELS[s]}
++              </option>
++            ))}
++          </select>
++        </label>{" "}
+         <button type="submit">絞り込む</button>
+       </form>
+       <table>
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+index b533ce9..a5aac0c 100644
+--- a/src/lib/tasks.ts
++++ b/src/lib/tasks.ts
+@@ -22,8 +22,28 @@ export function isTaskStatus(value: unknown): value is TaskStatus {
+   return typeof value === "string" && (TASK_STATUSES as readonly string[]).includes(value);
+ }
+ 
++export type TaskSort = "id" | "due";
++
++export const TASK_SORTS: readonly TaskSort[] = ["id", "due"];
++
++export const SORT_LABELS: Record<TaskSort, string> = {
++  id: "登録順",
++  due: "期限の近い順",
++};
++
++export function isTaskSort(value: unknown): value is TaskSort {
++  return typeof value === "string" && (TASK_SORTS as readonly string[]).includes(value);
++}
++
++// 並べ替えの列。利用者の値は isTaskSort で検証した後、この表を引いた結果だけを SQL に入れる。
++const SORT_COLUMNS: Record<TaskSort, string> = {
++  id: "id",
++  due: "due_date",
++};
++
+ export type TaskFilter = {
+   status?: TaskStatus;
++  sort?: TaskSort;
+ };
+ 
+ type TaskRow = { id: number; title: string; status: TaskStatus; assignee: string; due_date: string };
+@@ -34,7 +54,9 @@ function toTask(row: TaskRow): Task {
+ 
+ export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
+   const rows = db
+-    .prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id")
++    .prepare(
++      `SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY ${SORT_COLUMNS[filter.sort ?? "id"]}, id`,
++    )
+     .all({ status: filter.status ?? null }) as TaskRow[];
+   return rows.map(toTask);
+ }
+diff --git a/tests/tasks.test.ts b/tests/tasks.test.ts
+index 66029e6..7c7c1c8 100644
+--- a/tests/tasks.test.ts
++++ b/tests/tasks.test.ts
+@@ -4,6 +4,7 @@ import { openDb } from "../src/lib/db/index.ts";
+ import {
+   createTask,
+   getTask,
++  isTaskSort,
+   isTaskStatus,
+   listTasks,
+   parseTaskId,
+@@ -23,6 +24,43 @@ describe("listTasks", () => {
+   });
+ });
+ 
++describe("listTasks の並べ替え", () => {
++  it("sorts by id by default", () => {
++    const ids = listTasks({}, openDb()).map((t) => t.id);
++    assert.deepEqual(ids, [1, 2, 3, 4, 5, 6, 7]);
++  });
++
++  it("sorts by due date, then by id", () => {
++    const db = openDb();
++    createTask({ title: "同じ期限", status: "todo", assignee: "sato", dueDate: "2026-11-12" }, db);
++    const tasks = listTasks({ sort: "due" }, db);
++    const keys = tasks.map((t) => `${t.dueDate}#${String(t.id).padStart(3, "0")}`);
++    assert.deepEqual(keys, [...keys].sort());
++    assert.deepEqual(
++      tasks.filter((t) => t.dueDate === "2026-11-12").map((t) => t.id),
++      [2, 8],
++    );
++  });
++
++  it("combines the status filter and the sort", () => {
++    const tasks = listTasks({ status: "todo", sort: "due" }, openDb());
++    assert.deepEqual(
++      tasks.map((t) => t.dueDate),
++      ["2026-11-18", "2026-11-20", "2026-11-25"],
++    );
++  });
++});
++
++describe("isTaskSort", () => {
++  it("accepts known sort keys only", () => {
++    assert.equal(isTaskSort("due"), true);
++    assert.equal(isTaskSort("id"), true);
++    for (const bad of ["due_date", "title; DROP TABLE tasks", "__proto__", "", undefined]) {
++      assert.equal(isTaskSort(bad), false, String(bad));
++    }
++  });
++});
++
+ describe("getTask", () => {
+   it("returns a task by id, or undefined", () => {
+     const db = openDb();

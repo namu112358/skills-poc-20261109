@@ -1,0 +1,44 @@
+{
+  "trial": "W21-ce-review-c1-0",
+  "scenario": "W21",
+  "config": "ce-review",
+  "case": "c1",
+  "rep": 0,
+  "review_md": "# コードレビュー: タスクに「保留」(`on_hold`) ステータスを追加\n\n対象: `git diff HEAD`（`src/lib/tasks.ts`、`tests/tasks.test.ts`）\n\n結論: **マージ不可（Not ready）**。高 1 件、中 1 件。\n\n## 指摘\n\n### 1. [高] DB の CHECK 制約が `on_hold` を拒否する。作成・更新 API が 500 になる\n\n- 場所: `src/lib/db/migrations.ts` version 1 の `CREATE TABLE tasks`（21 行目 `CHECK (status IN ('todo', 'in_progress', 'done'))`）。これと `src/lib/tasks.ts` の `createTask` / `updateTask` の関係。\n- 問題: PR は TypeScript 側の `TASK_STATUSES` と `TaskStatus` だけに `on_hold` を足していて、DB のスキーマは変えていない。`validateTaskInput` は `on_hold` を通すが、続く `INSERT` / `UPDATE` で SQLite の CHECK 制約に違反する。\n  - 再現: `openDb()` した DB に `createTask({ title: \"a\", status: \"on_hold\", assignee: \"sato\", dueDate: \"2026-11-20\" }, db)` を呼ぶと `Error: CHECK constraint failed: status IN ('todo', 'in_progress', 'done')` が出る。`updateTask(1, { status: \"on_hold\" }, db)` も同じエラーになる。\n  - 影響: `POST /api/tasks` と `PATCH /api/tasks/:id` に `{\"status\":\"on_hold\"}` を送ると、400 ではなく未処理の例外（500）になる。2 つの Route は `createTask` / `updateTask` を try/catch で包んでいない。PR の「API で保留を選べる」という中心機能が動かない。\n  - 一覧の絞り込みだけは動く（`SELECT` なので）。ただし保留のタスクを作れないので、結果は常に空になる。\n- 直し方: `src/lib/db/migrations.ts` の末尾に version 3 のマイグレーションを追加する（規約 7。既存の version 1 は書き換えない）。SQLite は CHECK 制約を `ALTER` で変更できないので、テーブルを作り直す。\n  1. `tasks_new` を新しい CHECK（`'todo','in_progress','on_hold','done'`）付きで作る。\n  2. `INSERT INTO tasks_new SELECT ... FROM tasks` でデータを移す。`id` を保つこと。\n  3. `DROP TABLE tasks` して `ALTER TABLE tasks_new RENAME TO tasks` する。\n  4. `tasks_assignee` インデックスを作り直す。\n  - 参照元は `tasks.assignee → users` のみ。`tasks` を参照するテーブルは無い。\n  - `AUTOINCREMENT` の `sqlite_sequence` が引き継がれるかも確認する。\n\n### 2. [中] 追加したテストが、実際に壊れる箇所（DB への保存）を通っていない\n\n- 場所: `tests/tasks.test.ts` の追加分（`validateTaskInput` の `on_hold` と `isTaskStatus(\"on_hold\")`）。\n- 問題: 追加テストは入力検証と型ガードだけを見ている。そのため指摘 1 の不具合があっても `npm test` と `npm run typecheck` は通る。PR の「検証結果」は、機能が動くことの裏付けになっていない。既存の `createTask / updateTask` のテストにも `on_hold` の例が無い。\n- 直し方: `openDb()` の独立した DB で、次の 3 つを確認するテストを追加する（規約 5）。\n  - `createTask({ ..., status: \"on_hold\" })` が保存でき、`getTask` で `on_hold` が返る。\n  - `updateTask(id, { status: \"on_hold\" })` で更新できる。\n  - `listTasks({ status: \"on_hold\" })` がそのタスクだけを返す。\n- マイグレーション追加後、既存データ（version 2 から 3 への移行）が消えないことを見るテストも 1 件あるとよい。\n\n## 備考（指摘ではない）\n\n- 画面側（`src/app/tasks/page.tsx` の絞り込みセレクト、一覧・詳細の表示）は `TASK_STATUSES` / `STATUS_LABELS` を参照している。そのため、指摘 1 を直せば追加の変更なしで「保留」が出る。\n- 型は `Record<TaskStatus, string>` なので、ラベルの付け忘れは型チェックで検出される。\n",
+  "review_chars": 2411,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3418,
+    "tokens": {
+      "input": 30,
+      "output": 5309,
+      "cache_read": 762337,
+      "cache_creation": 53105
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/repro.test.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W21-ce-review-c1-0/app/src/lib/db/index.ts\\\";\\nimport { createTask, updateTask } from \\\"/tmp/poc-trials"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git show --stat --format=%h\\\\ %s HEAD | head\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 2,
+      "Bash": 9,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 56,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "先ほどのレビューの時点で、指摘 2 件はすべて `REVIEW.md` に書いてコミット済みです（`fe58290`）。今回は新たに書き写す内容も、足す指摘も、削る指摘もありません。\n\nコミットしたのは `REVIEW.md` だけです。PR の変更（`src/lib/tasks.ts` と `tests/tasks.test.ts`）は未コミットのままで、コードは直していません。\n\n`REVIEW.md` の指摘は、どちらも場所・何が問題か・直し方・重要度の形式で書いてあります。\n\n1. **[高] DB の CHECK 制約が `on_hold` を拒否します。**\n   - 場所: `src/lib/db/migrations.ts` の version 1（21 行目）と、`createTask` / `updateTask`。\n   - 問題: `POST /api/tasks` と `PATCH /api/tasks/:id` に `on_hold` を送ると、400 ではなく 500 になります。\n   - 直し方: 末尾に version 3 のマイグレーションを追加し、テーブルを作り直します。\n2. **[中] 追加したテストが DB への保存を通っていません。**\n   - 場所: `tests/tasks.test.ts` の追加分。\n   - 問題: 指摘 1 の不具合があってもテストが通ります。\n   - 直し方: 作成・更新・絞り込みで `on_hold` が保存されるテストを追加します。"
+  },
+  "interventions": 0
+}
