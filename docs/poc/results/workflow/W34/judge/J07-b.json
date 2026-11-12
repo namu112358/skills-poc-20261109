@@ -1,0 +1,50 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "\"summarizes the seed data\" が本物の現在時刻で集計し、今日（2026-11-12）の件数を決め打ちしているため、翌日以降に落ちる。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "\"counts a new task that is due today\" が UTC の日付（toISOString().slice(0,10)）で期限を作るが、集計は JST なので JST 0:00〜9:00 に落ちる。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "summarizeTasks の total が完了タスクを含む全件なのに、docコメントは未完了のみを数えると読め、定義が不明確。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 4,
+   "summary": "\"is fast enough for the dashboard\" の 300 ms しきい値は DB 準備も計測に含み、負荷の高い CI で不規則に落ちるうえ意味が薄いので削除すべき。",
+   "severity": "低",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "API Route（401・400・エラー形式・既定値 7）を検証するテストが無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "parseSoonDays のテストが上限 90/91、\"07\"、\"\" などの境界値を含まない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0250074
+ }
+}

@@ -1,0 +1,136 @@
+{
+ "trial": "W34-baseline-f3-1",
+ "scenario": "W34",
+ "config": "baseline",
+ "case": "f3",
+ "rep": 1,
+ "review_md": "# コードレビュー: タスクの期限延長（POST /api/tasks/:id/extend）\n\n対象: `src/app/api/tasks/[id]/extend/route.ts`、`src/lib/extend.ts`、`tests/extend.test.ts`\n\n実装そのものは概ね仕様どおりです（認証 → ID 検証 → 本文検証 → 延長、1〜30 の整数、完了は 400、無いタスクは 404、プレースホルダ使用、`src/lib/` にロジック配置）。ただしテストに大きな問題があり、マージ前に直すべき点が他に 2 つあります。\n\n## 指摘\n\n### 1. 【高】テストが実質何も検証していない\n場所: `tests/extend.test.ts` 全体\n\n- `extendDueDate` の \"adds days\" は `expected` を `extendDueDate(...)` 自身で作って同じ関数の結果と比べており、常に成功する（トートロジー）。\n- \"works across months\" と \"handles a completed task\" は `assert.doesNotThrow` だけで、結果の日付や `ok` / `reason` を確認していない。完了タスクが延長できてしまっても、`done` の分岐を消しても通る。\n- \"extends a task\" は `result.ok` だけで、期限が実際に何日になったか、DB に保存されたかを見ていない。\n- 検証関数のテストは正常系 1 件のみ。\n\nPR の「延長の計算・入力の検証・延長の処理のテストを追加した」「`npm test` が通る」は、この内容では品質の裏付けにならない。CLAUDE.md 規約 5 を形式的にしか満たしていない。\n\n直し方: 具体的な期待値で書き直す。\n- `extendDueDate`: `(\"2026-11-20\", 5) → \"2026-11-25\"`、月またぎ `(\"2026-11-30\", 3) → \"2026-12-03\"`、年またぎ `(\"2026-12-30\", 5) → \"2027-01-04\"`、うるう年 `(\"2028-02-28\", 2) → \"2028-03-01\"` と `(\"2026-02-28\", 2) → \"2026-03-02\"`。\n- `validateExtendInput`: 0、31、-1、1.5、`\"7\"`（文字列）、`NaN`、`null`、本文なし（`undefined`）、`days` 欠落が `ok: false`。1 と 30 が `ok: true`。\n- `extendTask`: 戻り値の `task.dueDate` と、`getTask` で再取得した値が期待日付になること。完了タスク（seed の id=1）は `{ ok: false, reason: \"done\" }` で期限が変わらないこと。存在しない id は `not_found`。\n- 可能ならルート単位でも 401 / 400 / 404 を確認する。\n\n### 2. 【中】読み取り→計算→全項目 UPDATE が非原子的で、同時操作で更新が失われる\n場所: `src/lib/extend.ts` `extendTask`（`getTask` → `extendDueDate` → `updateTask`）\n\n- 同じタスクへの延長が同時に 2 回来ると、どちらも同じ古い期限を読み、同じ値を書くため、片方の延長が消える（+3 と +5 の結果が +5 のみ）。\n- `updateTask` は title / status / assignee / due_date の全列を、先に読んだ値で上書きする。読んだ後、書く前に別の人がタスクを完了にした（または担当者・タイトルを変えた）場合、その変更が元に戻る。また「完了は延長できない」の判定も、書き込み時点では古い情報に基づく。\n- 現状の `node:sqlite`（同期）＋単一プロセスでは発生しにくいが、複数インスタンスや await を挟む変更が入ると顕在化する。\n\n直し方: 1 文の UPDATE にまとめる。例: `UPDATE tasks SET due_date = date(due_date, '+' || ? || ' days') WHERE id = ? AND status != 'done'`（値はプレースホルダ。`?` を日数の数値として渡す）。変更行数 0 のときだけ `getTask` で存在確認し、`not_found` / `done` を判別する。この場合 `extendDueDate` の TS 実装は不要になるか、あるいは `BEGIN IMMEDIATE` のトランザクションで包む。\n\n### 3. 【低】保存済みの期限が不正・上限を超えると 500 になる\n場所: `src/lib/extend.ts` `extendDueDate`\n\n- `due_date` は `TEXT NOT NULL` で形式の制約がなく、`validateTaskInput` の日付検証も `Date.parse` 頼み。形式不正な値や `9999-12-31` 付近の値に対し、`new Date(...)` が Invalid Date となり `toISOString()` が `RangeError` を投げる（9999 年を超えると `+010000-...` という不正形式が保存される）。`extendTask` は例外を捕捉せず、API は 500 になる。\n- `extendTask` / ルートはこの失敗を 400 や 404 に分類していない。\n\n直し方: `extendDueDate` 内で `Number.isNaN(d.getTime())` を確認し、不正なら `extendTask` が `{ ok: false, reason: \"invalid_due_date\" }` 等を返してルートで 4xx/適切なエラーにする。上限は現実的でないため、重要度は低。指摘 2 の SQL 方式にすれば `date()` が NULL を返すので同様に判定できる。\n\n### 4. 【低】検証と存在確認の順序（400 と 404 が競合する場合）\n場所: `src/app/api/tasks/[id]/extend/route.ts`\n\n存在しない ID に不正な `days` を送ると、404 ではなく 400 が返る。既存の `PATCH /api/tasks/:id` は「存在確認 → 本文検証」の順なので、API 間で挙動が揃っていない。また 404 のあとに完了済み 400 を判定する構造のため、存在確認が `extendTask` 内に分散している。\n\n直し方: 既存 PATCH に合わせるなら、検証前に `getTask(id)` で 404 を返す。どちらの順を採るにしても、仕様として決めてテストに残す。\n\n## 補足（問題なしと判断した点）\n- 認証・SQL のプレースホルダ・ID 検証（`parseTaskId`）・日本語メッセージ・外部ライブラリ不使用は規約どおり。\n- UTC 基準で日付を扱っており、タイムゾーンによる日付のずれは発生しない。\n",
+ "review_commit": "0949bdae76f97832ecbfcc1e6976643851354995",
+ "review_md_final": "# コードレビュー: タスクの期限延長（POST /api/tasks/:id/extend）\n\n対象: `src/app/api/tasks/[id]/extend/route.ts`、`src/lib/extend.ts`、`tests/extend.test.ts`\n\n実装そのものは概ね仕様どおりです（認証 → ID 検証 → 本文検証 → 延長、1〜30 の整数、完了は 400、無いタスクは 404、プレースホルダ使用、`src/lib/` にロジック配置）。ただしテストに大きな問題があり、マージ前に直すべき点が他に 2 つあります。\n\n## 指摘\n\n### 1. 【高】テストが実質何も検証していない\n場所: `tests/extend.test.ts` 全体\n\n- `extendDueDate` の \"adds days\" は `expected` を `extendDueDate(...)` 自身で作って同じ関数の結果と比べており、常に成功する（トートロジー）。\n- \"works across months\" と \"handles a completed task\" は `assert.doesNotThrow` だけで、結果の日付や `ok` / `reason` を確認していない。完了タスクが延長できてしまっても、`done` の分岐を消しても通る。\n- \"extends a task\" は `result.ok` だけで、期限が実際に何日になったか、DB に保存されたかを見ていない。\n- 検証関数のテストは正常系 1 件のみ。\n\nPR の「延長の計算・入力の検証・延長の処理のテストを追加した」「`npm test` が通る」は、この内容では品質の裏付けにならない。CLAUDE.md 規約 5 を形式的にしか満たしていない。\n\n直し方: 具体的な期待値で書き直す。\n- `extendDueDate`: `(\"2026-11-20\", 5) → \"2026-11-25\"`、月またぎ `(\"2026-11-30\", 3) → \"2026-12-03\"`、年またぎ `(\"2026-12-30\", 5) → \"2027-01-04\"`、うるう年 `(\"2028-02-28\", 2) → \"2028-03-01\"` と `(\"2026-02-28\", 2) → \"2026-03-02\"`。\n- `validateExtendInput`: 0、31、-1、1.5、`\"7\"`（文字列）、`NaN`、`null`、本文なし（`undefined`）、`days` 欠落が `ok: false`。1 と 30 が `ok: true`。\n- `extendTask`: 戻り値の `task.dueDate` と、`getTask` で再取得した値が期待日付になること。完了タスク（seed の id=1）は `{ ok: false, reason: \"done\" }` で期限が変わらないこと。存在しない id は `not_found`。\n- 可能ならルート単位でも 401 / 400 / 404 を確認する。\n\n### 2. 【中】読み取り→計算→全項目 UPDATE が非原子的で、同時操作で更新が失われる\n場所: `src/lib/extend.ts` `extendTask`（`getTask` → `extendDueDate` → `updateTask`）\n\n- 同じタスクへの延長が同時に 2 回来ると、どちらも同じ古い期限を読み、同じ値を書くため、片方の延長が消える（+3 と +5 の結果が +5 のみ）。\n- `updateTask` は title / status / assignee / due_date の全列を、先に読んだ値で上書きする。読んだ後、書く前に別の人がタスクを完了にした（または担当者・タイトルを変えた）場合、その変更が元に戻る。また「完了は延長できない」の判定も、書き込み時点では古い情報に基づく。\n- 現状の `node:sqlite`（同期）＋単一プロセスでは発生しにくいが、複数インスタンスや await を挟む変更が入ると顕在化する。\n\n直し方: 1 文の UPDATE にまとめる。例: `UPDATE tasks SET due_date = date(due_date, '+' || ? || ' days') WHERE id = ? AND status != 'done'`（値はプレースホルダ。`?` を日数の数値として渡す）。変更行数 0 のときだけ `getTask` で存在確認し、`not_found` / `done` を判別する。TS 側の計算を残す場合は、読み取りから更新までを `BEGIN IMMEDIATE` のトランザクションで包む。\n\n### 3. 【低】保存済みの期限が不正・上限を超えると 500 になる\n場所: `src/lib/extend.ts` `extendDueDate`\n\n- `due_date` は `TEXT NOT NULL` で形式の制約がなく、`validateTaskInput` の日付検証も `Date.parse` 頼み。形式不正な値や `9999-12-31` 付近の値に対し、`new Date(...)` が Invalid Date となり `toISOString()` が `RangeError` を投げる（9999 年を超えると `+010000-...` という不正形式が保存される）。`extendTask` は例外を捕捉せず、API は 500 になる。\n- `extendTask` / ルートはこの失敗を 400 や 404 に分類していない。\n\n直し方: `extendDueDate` 内で `Number.isNaN(d.getTime())` を確認し、不正なら `extendTask` が `{ ok: false, reason: \"invalid_due_date\" }` 等を返してルートで 4xx/適切なエラーにする。上限は現実的でないため、重要度は低。指摘 2 の SQL 方式にすれば `date()` が NULL を返すので同様に判定できる。\n\n### 4. 【低】検証と存在確認の順序（400 と 404 が競合する場合）\n場所: `src/app/api/tasks/[id]/extend/route.ts`\n\n存在しない ID に不正な `days` を送ると、404 ではなく 400 が返る。既存の `PATCH /api/tasks/:id` は「存在確認 → 本文検証」の順なので、API 間で挙動が揃っていない。また 404 のあとに完了済み 400 を判定する構造のため、存在確認が `extendTask` 内に分散している。\n\n直し方: 既存 PATCH に合わせるなら、検証前に `getTask(id)` で 404 を返す。どちらの順を採るにしても、仕様として決めてテストに残す。\n\n## 補足（問題なしと判断した点）\n- 認証・SQL のプレースホルダ・ID 検証（`parseTaskId`）・日本語メッセージ・外部ライブラリ不使用は規約どおり。\n- UTC 基準で日付を扱っており、タイムゾーンによる日付のずれは発生しない。\n\n## 対応状況\n指摘 1〜4 はすべて修正した。直さなかった指摘はない。\n\n1. テスト: 具体的な期待値（月・年またぎ、うるう年、境界値、完了・無いタスク、保存の確認）に書き直した。\n2. 非原子的な更新: 完了の判定と更新を 1 文の UPDATE（`date(due_date, '+N days')`、プレースホルダ使用）にした。`extendDueDate` の TS 実装は不要になり削除した。\n3. 不正な期限: 計算結果が NULL になる行は更新せず、`invalid_due_date` として 400 を返す（500 にならない）。\n4. 順序: 既存の PATCH に合わせ、存在確認（404）→ 本文検証（400）の順にした。\n\n`npm run typecheck`・`npm test`（33 件）が通ることを確認した。ルート単位（401/400/404）の自動テストは、Cookie セッションが必要で既存のテストにも前例がないため追加していない。\n",
+ "fixed": {
+  "diff_added": 157,
+  "diff_deleted": 0,
+  "pr_added": 89,
+  "pr_deleted": 0,
+  "commits": [
+   "ec7d585 タスクの期限延長 PR とレビュー指摘の修正",
+   "d4a52f1 REVIEW.md: 指摘の書式を整える",
+   "0949bda REVIEW.md: 期限延長 PR のレビュー指摘を追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 33,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "日数を足し、月・年をまたげる",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "1〜30 の整数だけを受け付ける",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "延長すると期限が変わって保存される",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "完了したタスクは延長できず、期限も変わらない",
+     "pass": true
+    },
+    {
+     "id": "H5",
+     "name": "無いタスクは not_found",
+     "pass": true
+    }
+   ],
+   "passed": 5,
+   "total": 5,
+   "log": ""
+  },
+  "mutation": {
+   "items": [
+    {
+     "id": "M1",
+     "status": "killed"
+    },
+    {
+     "id": "M2",
+     "status": "killed"
+    },
+    {
+     "id": "M3",
+     "status": "killed"
+    },
+    {
+     "id": "M4",
+     "status": "n/a"
+    },
+    {
+     "id": "M5",
+     "status": "killed"
+    },
+    {
+     "id": "M6",
+     "status": "n/a"
+    },
+    {
+     "id": "M7",
+     "status": "survived"
+    },
+    {
+     "id": "M8",
+     "status": "killed"
+    }
+   ],
+   "killed": 5,
+   "applicable": 6
+  },
+  "regraded": "2026-11-12: 隠しテストの読み込み方を直して、記録の差分を poc-app に当て直して採点し直した"
+ },
+ "transcript": {
+  "cost_usd": 0.3718,
+  "tokens": {
+   "input": 34,
+   "output": 13580,
+   "cache_read": 653265,
+   "cache_creation": 42641
+  },
+  "turns": 19,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cat > src/lib/extend.ts <<'EOF'\\n// タスクの期限の延長。\\nimport { getDb, type Db } from \\\"./db/index.ts\\\";\\nimport { getTask, type Task } from \\\"./tasks.ts\\\";\\n\\nexport const MAX_EXTEND_DAYS = 30;"
+   }
+  ],
+  "tool_calls": {
+   "Bash": 9,
+   "Write": 4,
+   "Edit": 1,
+   "Read": 1
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 108,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "REVIEW.md の指摘 4 件はすべて直し、PR の差分と修正を `ec7d585` にまとめてコミットしました。`npm run typecheck` は通り、`npm test` は 33 件すべて通りました。\n\n- **指摘 1（テスト）**: `tests/extend.test.ts` を具体的な期待値で書き直しました。\n  - 日付の計算では、月またぎ、年またぎ、うるう年、平年の 2 月、30 日の上限を確かめます。\n  - `days` の検証では、0、31、小数、文字列、`null`、本文なしなどが弾かれることを確かめます。\n  - 延長の処理では、延長後の期限が保存されること、連続した延長が足し算になること、他の項目が変わらないことを確かめます。\n  - 完了したタスクは延長できず期限も変わらないこと、無い ID が `not_found` になること、不正な期限が `invalid_due_date` になることも確かめます。\n- **指摘 2（同時操作で更新が失われる）**: `extendTask` を、完了かどうかの判定と期限の更新を 1 文の UPDATE（`date(due_date, '+N days')`、プレースホルダ使用）で行う形にしました。不要になった `extendDueDate` は削除しました。\n- **指摘 3（不正な期限で 500）**: 計算結果が取れない期限（`9999-12-31` や不正な文字列）は更新せず、400 を返します。\n- **指摘 4（400 と 404 の順序）**: ルートで、存在しないタスクなら先に 404 を返し、そのあとに `days` を検証する順にしました。既存の `PATCH` と同じ順序です。\n\n直さなかった指摘はありません。`REVIEW.md` の末尾に「対応状況」を追記しました。ルート単位（401・400・404）の自動テストは追加していません。Cookie セッションが必要で、既存のテストにも前例がないためです。この理由も `REVIEW.md` に書いています。"
+ },
+ "interventions": 0
+}

@@ -1,0 +1,176 @@
+{
+ "trial": "W34-review-pr-full-f4-2",
+ "scenario": "W34",
+ "config": "review-pr-full",
+ "case": "f4",
+ "rep": 2,
+ "review_md": "# レビュー: タスク集計 API（`GET /api/tasks/summary`）\n\n対象: `src/lib/summary.ts`、`src/app/api/tasks/summary/route.ts`、`tests/summary.test.ts`\n\n実装そのもの（JST の今日の求め方、期限の範囲 `今日 < 期限 <= 今日+soonDays`、完了タスクの除外、プレースホルダ、ログイン確認が最初）は仕様どおりで、`soonDays` の検証も 1〜90 の整数だけを通します。直すべき点は主に「`total` の意味」と「テストの壊れやすさ・不足」です。\n\n## 高\n\n### 1. 「初期データの集計」テストが今日の日付でしか通らない\n- 場所: `tests/summary.test.ts` 9〜10 行（`it(\"summarizes the seed data\")`）\n- 問題: `summarizeTasks(openDb())` が実時計を使う一方、期待値 `{ total: 7, overdue: 0, dueToday: 1, dueSoon: 2 }` は `src/lib/db/seed.ts` の絶対日付（2026-11-02〜11-25）に対して JST の 2026-11-12 でだけ成り立つ。2026-11-13 になると `overdue: 1, dueToday: 0, dueSoon: 3` になり、CI が何も壊していないのに落ちる。\n- 直し方: 固定の `now` を渡す（例: `summarizeTasks(openDb(), new Date(\"2026-11-12T03:00:00Z\"))`）。\n\n### 2. 「今日が期限」テストが UTC の日付を使っている（JST の境界をテストできていない）\n- 場所: `tests/summary.test.ts` 15〜18 行（`it(\"counts a new task that is due today\")`）\n- 問題: `new Date().toISOString().slice(0, 10)` は UTC の日付だが、実装は JST の日付で数える。JST 0:00〜9:00（UTC 15:00〜24:00）はずれ、作成したタスクが `dueToday` に入らず `dueToday === 2` が失敗する。また `dueToday === 2` はシードに今日期限のタスクが 1 件ある前提（問題 1 と同じ依存）。PR の主眼である「日本時間で数える」ことを実際には検証していない。\n- 直し方: 固定の `now`（例: `2026-11-11T15:00:00Z` = JST 11-12 0:00）と、それに合う `dueDate: \"2026-11-12\"` を使う。シードに依存しないよう、件数は作成前後の差で見るか、タスクを空にしてから数える。\n\n## 中\n\n### 3. `total` が完了タスクを含み、doc コメントと食い違う\n- 場所: `src/lib/summary.ts` 27 行（コメント「未完了のタスクを…数える」）と 35 行（`COUNT(*) AS total`）\n- 問題: コメントは「未完了を数える」だが `total` は `status` で絞っておらず、完了済みも数える（シードでは 7 件、うち 2 件が done。テストもこの 7 を固定している）。他の 3 つは完了を除くため、ダッシュボードで「合計」と「期限の内訳」が噛み合わない可能性がある。PR 説明の「完了したタスクは期限の数に入れない」は total を含むか曖昧。\n- 直し方: 意図を決めて揃える。全タスク数なら、コメントを「total は完了を含む全件、他は未完了のみ」に直し、完了を含むことをテストで固定する。未完了のみなら `SUM(CASE WHEN status != 'done' THEN 1 ELSE 0 END) AS total` にする（シードの期待値は 5）。\n\n### 4. 境界・検証のテストが足りない（規約 5）\n- 場所: `tests/summary.test.ts` 全体\n- 問題: PR の中心ロジックの多くが無テスト。\n  - JST の日付またぎ: `2026-11-11T14:59:59Z`（JST 11-11）と `15:00:00Z`（JST 11-12）で `today` が変わること。\n  - `dueSoon` の範囲: 今日+1 は含む、今日+soonDays は含む、今日+soonDays+1 と今日自身（`dueToday` 側）は含まない。`soonDays` 引数をテストが一度も渡していない。`addDays` の月末・年末・うるう日（`2026-12-30`+7 = `2027-01-06`、`2028-02-28`+2 = `2028-03-01`）。\n  - 完了タスクの除外: 今日期限・期限が近い範囲の done が `dueToday` / `dueSoon` に入らないこと（現状のシードは過去日付の done だけで、`overdue` 除外しか確認できていない）。\n  - `parseSoonDays`: 境界 `\"1\"`・`\"90\"`、範囲外 `\"91\"`・`\"100\"`、`\"07\"`、`\"1.5\"`、`\"1e1\"`、`\"7abc\"`、`\"\"`、`\"-1\"`。現状は `null`・`\"0\"`・`\"abc\"` の 3 つだけ。\n  - 空のテーブル（`SUM` が NULL を返す経路の `?? 0`）。\n- 直し方: 固定の `now` と `createTask` で組み立てた最小のデータで、上のケースを 1 つずつ書く。\n\n### 5. API Route にテストが無く、「ログイン確認が検証より先」が固定されていない\n- 場所: `src/app/api/tasks/summary/route.ts` 9〜11 行\n- 問題: 未ログインで 401、`soonDays` 不正で 400（本文 `{ error, details }`）、正常時 `{ summary }` を確認するテストが無い。順序が入れ替わると未認証で集計が見える・不正値と未ログインのどちらが返るかが変わる。他のテストも `src/lib/` 関数のみで、ルート単体のテストの仕組みは無い。\n- 直し方: ルートの判断（`parseSoonDays` → `summarizeTasks` の結線）を `src/lib/` に寄せてテストするか、`GET` を直接呼んで 401/400/200 を確認するテストを足す。\n\n## 低\n\n### 6. `summarizeTasks` が `soonDays` を検証しない\n- 場所: `src/lib/summary.ts` 30 行・8〜12 行（`addDays`）\n- 問題: 1〜90 の制限は `parseSoonDays` にしかない。ルート以外から `NaN` を渡すと `toISOString()` が `RangeError: Invalid time value` を投げ、`0`・負数・小数は黙って受け付けられ `dueSoon` が空や不正確になる。現状の呼び出し元はルートだけで検証済みなので実害は小さい。\n- 直し方: `summarizeTasks` の先頭で `Number.isInteger(soonDays) && 1 <= soonDays <= 90` を確認して `RangeError` を投げる（上限定数を 1 か所に置いて `parseSoonDays` と共有する）。\n\n### 7. 実行時間を測るテストは不安定で価値が低い\n- 場所: `tests/summary.test.ts` 21〜25 行（`it(\"is fast enough for the dashboard\")`）\n- 問題: 7 行のインメモリ DB に対する `< 300 ms` の壁時計の比較。負荷の高い CI で落ちうる一方、性能退行は検出できない。名前の「ダッシュボード」もこの差分に存在しない。\n- 直し方: 削除する。\n\n### 8. コメントの補足\n- 場所: `src/lib/summary.ts` 6 行（`JST_DATE`）、9 行（`addDays`）\n- 問題: `sv-SE` を選んでいる理由（`YYYY-MM-DD` で出力され `due_date` と文字列比較できる）や、`addDays` を UTC で計算している理由が書かれていない。\n- 直し方: 各 1 行のコメントを足す。\n",
+ "review_commit": "79a4c878b045317f665d4f20c2e5fa208d121720",
+ "review_md_final": "# レビュー: タスク集計 API（`GET /api/tasks/summary`）\n\n対象: `src/lib/summary.ts`、`src/app/api/tasks/summary/route.ts`、`tests/summary.test.ts`\n\n実装そのもの（JST の今日の求め方、期限の範囲 `今日 < 期限 <= 今日+soonDays`、完了タスクの除外、プレースホルダ、ログイン確認が最初）は仕様どおりで、`soonDays` の検証も 1〜90 の整数だけを通します。直すべき点は主に「`total` の意味」と「テストの壊れやすさ・不足」です。\n\n## 高\n\n### 1. 「初期データの集計」テストが今日の日付でしか通らない\n- 場所: `tests/summary.test.ts` 9〜10 行（`it(\"summarizes the seed data\")`）\n- 問題: `summarizeTasks(openDb())` が実時計を使う一方、期待値 `{ total: 7, overdue: 0, dueToday: 1, dueSoon: 2 }` は `src/lib/db/seed.ts` の絶対日付（2026-11-02〜11-25）に対して JST の 2026-11-12 でだけ成り立つ。2026-11-13 になると `overdue: 1, dueToday: 0, dueSoon: 3` になり、CI が何も壊していないのに落ちる。\n- 直し方: 固定の `now` を渡す（例: `summarizeTasks(openDb(), new Date(\"2026-11-12T03:00:00Z\"))`）。\n\n### 2. 「今日が期限」テストが UTC の日付を使っている（JST の境界をテストできていない）\n- 場所: `tests/summary.test.ts` 15〜18 行（`it(\"counts a new task that is due today\")`）\n- 問題: `new Date().toISOString().slice(0, 10)` は UTC の日付だが、実装は JST の日付で数える。JST 0:00〜9:00（UTC 15:00〜24:00）はずれ、作成したタスクが `dueToday` に入らず `dueToday === 2` が失敗する。また `dueToday === 2` はシードに今日期限のタスクが 1 件ある前提（問題 1 と同じ依存）。PR の主眼である「日本時間で数える」ことを実際には検証していない。\n- 直し方: 固定の `now`（例: `2026-11-11T15:00:00Z` = JST 11-12 0:00）と、それに合う `dueDate: \"2026-11-12\"` を使う。シードに依存しないよう、件数は作成前後の差で見るか、タスクを空にしてから数える。\n\n## 中\n\n### 3. `total` が完了タスクを含み、doc コメントと食い違う\n- 場所: `src/lib/summary.ts` 27 行（コメント「未完了のタスクを…数える」）と 35 行（`COUNT(*) AS total`）\n- 問題: コメントは「未完了を数える」だが `total` は `status` で絞っておらず、完了済みも数える（シードでは 7 件、うち 2 件が done。テストもこの 7 を固定している）。他の 3 つは完了を除くため、ダッシュボードで「合計」と「期限の内訳」が噛み合わない可能性がある。PR 説明の「完了したタスクは期限の数に入れない」は total を含むか曖昧。\n- 直し方: 意図を決めて揃える。全タスク数なら、コメントを「total は完了を含む全件、他は未完了のみ」に直し、完了を含むことをテストで固定する。未完了のみなら `SUM(CASE WHEN status != 'done' THEN 1 ELSE 0 END) AS total` にする（シードの期待値は 5）。\n\n### 4. 境界・検証のテストが足りない（規約 5）\n- 場所: `tests/summary.test.ts` 全体\n- 問題: PR の中心ロジックの多くが無テスト。\n  - JST の日付またぎ: `2026-11-11T14:59:59Z`（JST 11-11）と `15:00:00Z`（JST 11-12）で `today` が変わること。\n  - `dueSoon` の範囲: 今日+1 は含む、今日+soonDays は含む、今日+soonDays+1 と今日自身（`dueToday` 側）は含まない。`soonDays` 引数をテストが一度も渡していない。`addDays` の月末・年末・うるう日（`2026-12-30`+7 = `2027-01-06`、`2028-02-28`+2 = `2028-03-01`）。\n  - 完了タスクの除外: 今日期限・期限が近い範囲の done が `dueToday` / `dueSoon` に入らないこと（現状のシードは過去日付の done だけで、`overdue` 除外しか確認できていない）。\n  - `parseSoonDays`: 境界 `\"1\"`・`\"90\"`、範囲外 `\"91\"`・`\"100\"`、`\"07\"`、`\"1.5\"`、`\"1e1\"`、`\"7abc\"`、`\"\"`、`\"-1\"`。現状は `null`・`\"0\"`・`\"abc\"` の 3 つだけ。\n  - 空のテーブル（`SUM` が NULL を返す経路の `?? 0`）。\n- 直し方: 固定の `now` と `createTask` で組み立てた最小のデータで、上のケースを 1 つずつ書く。\n\n### 5. API Route にテストが無く、「ログイン確認が検証より先」が固定されていない\n- 場所: `src/app/api/tasks/summary/route.ts` 9〜11 行\n- 問題: 未ログインで 401、`soonDays` 不正で 400（本文 `{ error, details }`）、正常時 `{ summary }` を確認するテストが無い。順序が入れ替わると未認証で集計が見える・不正値と未ログインのどちらが返るかが変わる。他のテストも `src/lib/` 関数のみで、ルート単体のテストの仕組みは無い。\n- 直し方: ルートの判断（`parseSoonDays` → `summarizeTasks` の結線）を `src/lib/` に寄せてテストするか、`GET` を直接呼んで 401/400/200 を確認するテストを足す。\n\n### 5b. 不正な `soonDays` を 400 にする点が、CLAUDE.md の規約 2 と兄弟 API の扱いと異なる\n- 場所: `src/app/api/tasks/summary/route.ts` 10 行、`src/lib/summary.ts` 20〜22 行（`parseSoonDays`）\n- 問題: 規約 2 は「URL のクエリパラメータの不正な値は『指定なし』として扱う」で、`GET /api/tasks` は不正な `status` を `undefined` にしている。`GET /api/tasks/summary?soonDays=7abc`（`\"\"`・`1e1`・`7.5`・`0`・`91` も）は 400 になり、規約と挙動がずれる。`?soonDays=`（空文字）も 400 になり、`null`（未指定）とは扱いが違う。PR の説明は「範囲外は 400」と明記しているため意図的な可能性が高いが、規約からの逸脱であることはどこにも書かれていない。\n- 直し方: 400 を仕様として残すなら、PR 説明か route のコメントに規約 2 から外れる理由を書き、空文字の扱いもテストで固定する。規約に合わせるなら不正値は `DEFAULT_SOON_DAYS` にして 400 の分岐を外し、使った日数がレスポンスに出るようにして、黙って既定値に変わったことが分かるようにする（重要度は、仕様が 400 で確定していれば低）。\n\n## 低\n\n### 6. `summarizeTasks` が `soonDays` を検証しない\n- 場所: `src/lib/summary.ts` 30 行・8〜12 行（`addDays`）\n- 問題: 1〜90 の制限は `parseSoonDays` にしかない。ルート以外から `NaN` を渡すと `toISOString()` が `RangeError: Invalid time value` を投げ、`0`・負数・小数は黙って受け付けられ `dueSoon` が空や不正確になる。現状の呼び出し元はルートだけで検証済みなので実害は小さい。\n- 直し方: `summarizeTasks` の先頭で `Number.isInteger(soonDays) && 1 <= soonDays <= 90` を確認して `RangeError` を投げる（上限定数を 1 か所に置いて `parseSoonDays` と共有する）。\n\n### 7. 実行時間を測るテストは不安定で価値が低い\n- 場所: `tests/summary.test.ts` 21〜25 行（`it(\"is fast enough for the dashboard\")`）\n- 問題: 7 行のインメモリ DB に対する `< 300 ms` の壁時計の比較。負荷の高い CI で落ちうる一方、性能退行は検出できない。名前の「ダッシュボード」もこの差分に存在しない。\n- 直し方: 削除する。\n\n### 8. コメントの補足\n- 場所: `src/lib/summary.ts` 6 行（`JST_DATE`）、9 行（`addDays`）\n- 問題: `sv-SE` を選んでいる理由（`YYYY-MM-DD` で出力され `due_date` と文字列比較できる）や、`addDays` を UTC で計算している理由が書かれていない。\n- 直し方: 各 1 行のコメントを足す。\n\n### 9. `?? 0` の理由がコードから読み取れない\n- 場所: `src/lib/summary.ts` 42 行\n- 問題: `SUM` は行が 0 件のとき NULL を返すため `?? 0` は正当だが、理由が書かれていない。逆に、`.get()` が `undefined` を返す異常（スキーマ未作成など）を隠すために `row?.` を足されると、本当の失敗が握りつぶされる。\n- 直し方: 「`SUM` は 0 件で NULL になるため」と 1 行コメントを足す。`row?.` は足さない。\n\n### 10. route のコメントがレスポンスの形と 400 を書いていない\n- 場所: `src/app/api/tasks/summary/route.ts` 1 行\n- 問題: ヘッダーコメントにレスポンス `{ summary }` と、`soonDays` 不正時の 400 の記載が無い。\n- 直し方: 両方を追記する。\n\n### 11. `dueSoon` と `dueToday` が重ならないこと、先頭 0 の扱いがコメントに無い\n- 場所: `src/lib/summary.ts` 27〜28 行（doc コメント）、17 行（`parseSoonDays` のコメント）\n- 問題: 今日は `dueToday` にだけ入り `dueSoon` に入らないこと、`due_date` が `YYYY-MM-DD` の文字列比較で成り立っていること、`\"07\"` のような先頭 0 は拒否されることが書かれていない。\n- 直し方: 各 1 行のコメントを足す。\n\n### 12. DB の失敗時にルートが文脈の無い 500 を返す\n- 場所: `src/app/api/tasks/summary/route.ts` 11 行\n- 問題: `getDb()` や `prepare` が例外を投げる（`DATABASE_PATH` の誤り、スキーマ未作成など）と、素の 500 になる。兄弟のルートも同じなので、この PR 固有の欠陥ではない。\n- 直し方: 変更は不要。失敗を握りつぶして空の集計を返す `catch` を足さないこと。\n\n### 13. `soonDays` が重複したときの扱いが未確認\n- 場所: `src/app/api/tasks/summary/route.ts` 10 行\n- 問題: `?soonDays=3&soonDays=5` は `searchParams.get` が最初の値だけを使い、2 つ目は黙って無視される。重要度は低い。\n- 直し方: 仕様として許容するなら、テストで挙動を固定する。\n\n### 14. 型が不変条件を表していない\n- 場所: `src/lib/summary.ts` 4 行（`TaskSummary`）、18 行（`parseSoonDays` の戻り値）\n- 問題: `soonDays` は `number` のままで 1〜90 の制約が型に出ない（指摘 6 の背景）。`TaskSummary` は素の `number` で、`total >= 0` などの関係も型では表せない。バグではない。\n- 直し方: 指摘 6 の検証で足りる。ブランド型などは今回は不要。\n\n---\n\n# 対応状況\n\n## 直したもの\n- 1・2・4（テスト）: 固定の `now` に変え、JST 日付またぎ、`dueSoon` の上下端、月末・年末・うるう日、完了タスクの除外、空テーブル、`parseSoonDays` の境界値・不正値を `tests/summary.test.ts` に追加した。\n- 3: `total` は完了を含む全件とし、コメントを実装に合わせた（PR の「完了したタスクは期限の数に入れない」とも整合し、テストで固定した）。\n- 6: `summarizeTasks` が `soonDays` を検証して `RangeError` を投げるようにした（上限は `MAX_SOON_DAYS` を共有）。\n- 7: 300ms のテストを削除した。\n- 5b（コメント部分）・8・9・10・11: コメントを追記した。\n\n## 直さなかったもの\n- 5（route のテスト）: `requireApiUser` が `next/headers` の Cookie に依存し、このリポジトリのテストは `src/lib/` の関数だけを対象にしていてルートを動かす仕組みが無い。外部ライブラリは追加できない（規約 4）ため、モックの土台を作る範囲が今回の変更を超える。ログイン確認が最初であることはコードで確認した。\n- 5b（400 のままにすること）: PR の仕様が「範囲外は 400」と明記しているため、挙動は変えず、route のコメントに規約 2 から外れる旨を残した。\n- 12（DB 失敗時の素の 500）: 兄弟のルートと同じで、この PR 固有の欠陥ではない。握りつぶさないことが正しい。\n- 13（`soonDays` の重複指定）: 先頭の値を使う現状の挙動で害は無く、仕様の指定も無いため、変更しない。\n- 14（型の不変条件）: 指摘 6 の検証で実害は防げる。ブランド型は今回の範囲を超える（規約 6）。\n",
+ "fixed": {
+  "diff_added": 153,
+  "diff_deleted": 0,
+  "pr_added": 89,
+  "pr_deleted": 0,
+  "commits": [
+   "f4b3e56 タスク集計 API を追加し、レビュー指摘を反映",
+   "e41bfda REVIEW.md: タスク集計 API の PR レビューを追加",
+   "79a4c87 REVIEW.md: タスク集計 API の PR レビューを追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 29,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "初期データを、渡した時刻を基準に数える",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "日本時間の日付で数える（日本時間の朝 = UTC の前日でも）",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "期限が近いの日数を変えられる",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "日数の検証",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 4,
+   "log": ""
+  },
+  "mutation": {
+   "items": [
+    {
+     "id": "M1",
+     "status": "killed"
+    },
+    {
+     "id": "M2",
+     "status": "killed"
+    },
+    {
+     "id": "M3",
+     "status": "killed"
+    },
+    {
+     "id": "M4",
+     "status": "killed"
+    },
+    {
+     "id": "M5",
+     "status": "n/a"
+    },
+    {
+     "id": "M6",
+     "status": "killed"
+    }
+   ],
+   "killed": 5,
+   "applicable": 5
+  },
+  "perturb": {
+   "files": [
+    "tests/summary.test.ts"
+   ],
+   "tests": 10,
+   "baseline_fail": 0,
+   "perturbations": [
+    {
+     "id": "P1",
+     "status": "pass",
+     "failed_tests": 0
+    },
+    {
+     "id": "P2",
+     "status": "pass",
+     "failed_tests": 0
+    },
+    {
+     "id": "P3",
+     "status": "fail",
+     "failed_tests": 1
+    },
+    {
+     "id": "P4",
+     "status": "fail",
+     "failed_tests": 1
+    },
+    {
+     "id": "P5",
+     "status": "pass",
+     "failed_runs": 0
+    }
+   ],
+   "fragile": 2
+  }
+ },
+ "transcript": {
+  "cost_usd": 1.2826,
+  "tokens": {
+   "input": 100,
+   "output": 35393,
+   "cache_read": 2014871,
+   "cache_creation": 186077
+  },
+  "turns": 20,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W34-review-pr-full-f4-2-app/9f8bb94e-81f8-40a0-99e9-dd34f51c060e/scratchpad && mkdir -p $S && cat > $S/t.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-tria"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"git add REVIEW.md && git commit REVIEW.md -q -m \\\"$(printf 'REVIEW.md: タスク集計 API の PR レビューを追加\\\\n\\\\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://clau"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W34-review-pr-full-f4-2-app/9f8bb94e-81f8-40a0-99e9-dd34f51c060e/scratchpad && cat > $S/msg2.txt <<'EOF'\\nREVIEW.md: レビューで出た指摘のうち未記載だった分を追記\\n\\nCo-Authored-"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cd /tmp/poc-trials/W34-review-pr-full-f4-2/app\\nS=/tmp/claude-0/-tmp-poc-trials-W34-review-pr-full-f4-2-app/9f8bb94e-81f8-40a0-99e9-dd34f51c060e/scratchpad\\ngit commit REVIEW.md -q -F $S/"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/summary.ts'\\ns=open(p).read()\\ns=s.replace('''const JST_DATE =''','''// sv-SE は YYYY-MM-DD 形式で出力されるため使う（due_date と文字列で比較できる）。\\nconst JST_DATE =''')\\ns=s.repl"
+   }
+  ],
+  "tool_calls": {
+   "Bash": 25,
+   "Agent": 5,
+   "ReadNotifications": 4,
+   "Write": 3,
+   "Edit": 2
+  },
+  "skills_used": [],
+  "subagents": 5,
+  "subagent_types": {
+   "pr-review-toolkit:code-reviewer": 1,
+   "pr-review-toolkit:pr-test-analyzer": 1,
+   "pr-review-toolkit:silent-failure-hunter": 1,
+   "pr-review-toolkit:type-design-analyzer": 1,
+   "pr-review-toolkit:comment-analyzer": 1
+  },
+  "questions": 0,
+  "active_seconds": 144,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "`REVIEW.md` の指摘のうち直すべきものを直し、PR の差分と修正をまとめて `f4b3e56` でコミットしました。`npm run typecheck` は通り、`npm test` は 29 件すべて成功しました。作業ツリーに未コミットの変更は残っていません。\n\n## 直したもの\n- **テスト**（`tests/summary.test.ts`）: 固定の `now` に変えて、日付で壊れないようにしました。JST の日付またぎ、`dueSoon` の上下端、月末・年末・うるう日、完了タスクの除外、空のテーブル、`parseSoonDays` の境界値と不正値を追加しました。\n- **`total` の意味**: 完了済みを含む全件とし、コメントを実装に合わせてテストで固定しました。PR の「完了したタスクは期限の数に入れない」とも整合します。\n- **`summarizeTasks`**: `soonDays` が 1〜90 の整数でなければ `RangeError` を投げます。\n- **削除**: 300ms の実行時間テストを削除しました。\n- **コメント**: `JST_DATE`、`addDays`、`?? 0`、`dueToday` と `dueSoon` が重ならないこと、route のレスポンスの形と 400 を追記しました。\n\n## 直さなかったもの\n理由は `REVIEW.md` 末尾の「対応状況」に書きました。\n\n- **route のテスト（5）**: ルートを動かす仕組みがリポジトリに無く、外部ライブラリも足せません。\n- **400 のままにすること（5b）**: PR の仕様が 400 と明記しているため残しました。規約 2 から外れる旨を route のコメントに書いています。\n- **DB 失敗時の 500（12）**: 兄弟のルートと同じで、握りつぶさないのが正しいため変更していません。\n- **`soonDays` の重複指定（13）**: 先頭の値を使う現状で害は無く、仕様の指定も無いため変更していません。\n- **型の不変条件（14）**: 規約 6 の「依頼された範囲」を超えるため変更していません。\n\n## コミットメッセージ\n先に作った `a839656` はコミットメッセージが内容と合っていなかったので、`--amend` で書き直しました。未 push なので、履歴には影響しません。"
+ },
+ "interventions": 0
+}

@@ -1,0 +1,64 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "シードデータのテストが now を固定せずに呼ばれ、期待値 dueToday:1・dueSoon:2 は今日（2026-11-12 JST）しか成り立たないため、翌日以降に落ちる",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "テストが new Date().toISOString().slice(0,10) で今日を UTC で作るが、集計は JST なので、JST 0〜9 時は前日扱いになり落ちる",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "summary.ts の total は完了済みも数えるが、コメントは未完了を数えると書いていて食い違っている",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 4,
+   "summary": "overdue・dueSoon の境界・parseSoonDays の上限・addDays の月末・API ルートの 401/400 など、新しいロジックのテストが無い",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "300 ms 以内という性能テストは DB の準備も計測に含むため、負荷が高いと誤って落ち、検証として意味が薄いので削除すべき",
+   "severity": "低",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "sv-SE ロケールで YYYY-MM-DD を作る書き方は ICU データに依存し、ICU の無い Node では today が壊れる",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "ルートの summarizeTasks(undefined, new Date(), soon.days) は位置引数で分かりにくく、冗長である",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "parseSoonDays の 1〜90 の範囲が正規表現・数値比較・エラーメッセージの 3 か所に散らばり、置き場所も既存の検証と揃っていない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0626598
+ }
+}

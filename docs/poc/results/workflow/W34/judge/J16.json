@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "\"summarizes the seed data\" のテストが now を渡さず本物の現在日付で集計しており、期待値（dueToday 1・dueSoon 2 など）は 2026-11-12 のときだけ成り立つので、翌日以降は落ちる。固定時刻を渡すべき。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "\"counts a new task that is due today\" のテストが「今日」を toISOString() の UTC 日付で作っており、集計は日本時間で数えるため、日本時間 0〜9 時に日付がずれて落ちる。",
+   "severity": "中",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "PR が主張する挙動（日本時間の境界、overdue、dueSoon の範囲、完了の除外、parseSoonDays の境界値、Route の 401/400/200）を確かめるテストが無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "\"is fast enough for the dashboard\" のテストが実時間 300ms の閾値で判定しており、負荷の高い CI で不安定に落ちる。回帰を検出する価値も低いので削除すべき。",
+   "severity": "低",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "補足として、total に完了タスクと全ユーザーのタスクが含まれる点について、意図どおりか確認を求めている。",
+   "severity": "なし",
+   "match": "none",
+   "kind": "unsure"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0600158
+ }
+}

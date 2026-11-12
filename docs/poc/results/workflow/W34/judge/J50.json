@@ -1,0 +1,57 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "「adds days to the due date」は期待値を同じ extendDueDate で計算して比べているため、計算が誤っていても必ず通る。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "「works across months」は assert.doesNotThrow だけで、月・年の繰り上がりの結果（2026-12-03 など）を確かめていない。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "validateExtendInput のテストは有効値 7 が通ることだけで、0・31・小数・文字列・null などの拒否や境界 1・30 を確かめていない。",
+   "severity": "高",
+   "match": "T3",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "「extends a task」は result.ok だけを見て、新しい期限（dueDate）や DB への保存を確かめていない。",
+   "severity": "高",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "「handles a completed task」は doesNotThrow だけで reason: \"done\" を確かめず、完了ガードを消しても通る（not_found の分岐のテストも無い）。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "extendDueDate が保存済みの実在しない日付（2026-02-31）や極端な日付（9999-12-31）を検証せず、黙って別の値や YYYY-MM-DD でない文字列に変えてしまう。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "extend ルートが存在確認より先に本文を検証するため、存在しないタスクに不正な days を送ると 404 でなく 400 が返り、兄弟の PATCH と順序が異なる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0665598
+ }
+}

@@ -1,0 +1,109 @@
+{
+ "trial": "W34-review-pr-full-f2-1",
+ "scenario": "W34",
+ "config": "review-pr-full",
+ "case": "f2",
+ "rep": 1,
+ "review_md": "# レビュー結果: タスク機能のファイル分割 PR\n\n結論: **このままではマージ不可**。PR は「振る舞いは変えていない」としているが、`validateTaskInput` の検証が 2 つ消えており、それを検出するテストも一緒に削除されている。`npm run typecheck`・`npm test` は通る（18/18）が、回帰を検出できていないため。\n\n`model.ts`・`repository.ts` は元の `tasks.ts` と SQL・ロジックとも同一で、問題なし。\n\n## 指摘一覧\n\n### 1. 【高】担当者の存在確認が消え、存在しない担当者で 500 になる\n- 場所: `src/lib/tasks/validation.ts` の `validateTaskInput`（19 行目の引数 `_db`、assignee を検証する 38〜41 行目付近）。元は `HEAD:src/lib/tasks.ts` の `SELECT 1 FROM users WHERE id = ?`。\n- 問題: 現在は「空でない文字列か」しか見ていない。`db` 引数は `_db` に改名されて未使用になり、doc コメントの「担当者が存在するかは DB で確認する」も削除されている。\n  - `POST /api/tasks` に `assignee: \"nobody\"` を送る、または `PATCH /api/tasks/1` に `{\"assignee\":\"nobody\"}` を送ると、検証を通過して `createTask`/`updateTask` が実行される。\n  - `tasks.assignee` は `REFERENCES users(id)` で、`PRAGMA foreign_keys = ON`（`src/lib/db/index.ts`）のため `FOREIGN KEY constraint failed` が投げられる。API Route に try/catch は無く、`{ error, details }` ではなく未処理の 500 になる（元は 400）。\n  - `\" sato\"` のように前後に空白がある値も、元は 400 だったが 500 になる。\n  - CLAUDE.md の規約 9（入力誤りは 400）に反する。実際に再現確認済み。\n- 直し方: 元の確認を戻し、`_db` を `db` に戻す。\n  ```ts\n  const exists = typeof b.assignee === \"string\" &&\n    db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee) !== undefined;\n  if (!exists) errors.push(\"担当者が存在しません\");\n  else value.assignee = b.assignee as string;\n  ```\n  doc コメントの該当の一文も戻す。\n\n### 2. 【高】タイトルの 200 文字上限が消えている\n- 場所: `src/lib/tasks/validation.ts` の `validateTaskInput`、title の検証（30 行目付近）。元は `|| b.title.length > 200`。\n- 問題: 上限の条件だけが消え、エラー文言「タイトルは 1〜200 文字で入力してください」は残っている。201 文字以上（数 MB の文字列でも）が `POST`/`PATCH` で保存できてしまう。`title` 列に長さ制限は無い。文言と実際の挙動も食い違う。\n- 直し方: 条件に `|| b.title.length > 200` を戻す。\n\n### 3. 【中】回帰を検出するテストが削除されている\n- 場所: `tests/task-validation.test.ts` 20〜21 行目（空行が 2 つ続いている箇所）。元は `tests/tasks.test.ts` の「reports every invalid field」。\n- 問題: `{ title: \"\", status: \"x\", assignee: \"nobody\", dueDate: \"12/01\" }` で 4 件のエラーを期待するテストで、指摘 1 の状態では 3 件になり失敗する。分割時に消えたため、テストが緑のまま回帰が残った。CLAUDE.md の規約 5 にも反する。\n- 直し方: 元のテストを復元し、エラー文言まで確認する形にするとよい。あわせて次のケースを追加する。\n  - 存在しない担当者（通常入力と `partial: true` の両方）が不正になること\n  - 存在する担当者が `partial: true` で通ること\n  - タイトル 200 文字は通り、201 文字は不正になること\n\n### 4. 【低】`index.ts` のコメントが事実と異なる\n- 場所: `src/lib/tasks/index.ts` 1 行目「（振る舞いは変えていない）」。\n- 問題: 指摘 1・2 のとおり振る舞いは変わっている。変更履歴の説明であり、コードの説明でもないので、正しくなっても古くなりやすい。\n- 直し方: 括弧書きを削除する（例: 「タスクの機能の入口。型・検証・DB の読み書きをまとめて書き出す。」）。\n\n### 5. 【低】検証関数が使わない DB 依存を持っている\n- 場所: `src/lib/tasks/validation.ts` 2 行目（`getDb` の import）と 19 行目（`_db: Db = getDb()`）。\n- 問題: 指摘 1 の直しで `db` が使われるようになれば解消する。もし DB 検証をしない方針にするなら、`_db` と `getDb` の import を削除し、存在確認を別の層に移して 400 を返すこと。`_db` を残したままにすると、確認があるように見えて実際は無い状態になる。\n- 直し方: 指摘 1 のとおり復元する（推奨）。\n\n### 6. 【低】不要な差分・未使用 import\n- `src/app/api/tasks/route.ts`・`src/app/api/tasks/[id]/route.ts`・`src/app/tasks/page.tsx`・`src/app/tasks/[id]/page.tsx` の import が `@/lib/tasks` から `@/lib/tasks/index` に変わっている。`@/lib/tasks` のままでもディレクトリの `index` に解決されるため、変更は不要（規約 6「依頼された範囲にとどめる」）。動作上の害は無い。\n- `tests/task-model.test.ts` 3 行目の `openDb` は未使用。削除する。\n\n## 推奨する対応\n1. 指摘 1・2 を元の実装に戻す。\n2. 指摘 3 のテストを復元・追加する。\n3. 指摘 4〜6 を整理し、`npm run typecheck`・`npm test` を再実行する。\n",
+ "review_commit": "5a31d705da001862ce53801b1804af71bad3d89d",
+ "review_md_final": "# レビュー結果: タスク機能のファイル分割 PR\n\n結論: **このままではマージ不可**。PR は「振る舞いは変えていない」としているが、`validateTaskInput` の検証が 2 つ消えており、それを検出するテストも一緒に削除されている。`npm run typecheck`・`npm test` は通る（18/18）が、回帰を検出できていないため。\n\n`model.ts`・`repository.ts` は元の `tasks.ts` と SQL・ロジックとも同一で、問題なし。\n\n## 指摘一覧\n\n### 1. 【高】担当者の存在確認が消え、存在しない担当者で 500 になる\n- 場所: `src/lib/tasks/validation.ts` の `validateTaskInput`（19 行目の引数 `_db`、assignee を検証する 38〜41 行目付近）。元は `HEAD:src/lib/tasks.ts` の `SELECT 1 FROM users WHERE id = ?`。\n- 問題: 現在は「空でない文字列か」しか見ていない。`db` 引数は `_db` に改名されて未使用になり、doc コメントの「担当者が存在するかは DB で確認する」も削除されている。\n  - `POST /api/tasks` に `assignee: \"nobody\"` を送る、または `PATCH /api/tasks/1` に `{\"assignee\":\"nobody\"}` を送ると、検証を通過して `createTask`/`updateTask` が実行される。\n  - `tasks.assignee` は `REFERENCES users(id)` で、`PRAGMA foreign_keys = ON`（`src/lib/db/index.ts`）のため `FOREIGN KEY constraint failed` が投げられる。API Route に try/catch は無く、`{ error, details }` ではなく未処理の 500 になる（元は 400）。\n  - `\" sato\"` のように前後に空白がある値も、元は 400 だったが 500 になる。\n  - CLAUDE.md の規約 9（入力誤りは 400）に反する。実際に再現確認済み。\n- 直し方: 元の確認を戻し、`_db` を `db` に戻す。\n  ```ts\n  const exists = typeof b.assignee === \"string\" &&\n    db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee) !== undefined;\n  if (!exists) errors.push(\"担当者が存在しません\");\n  else value.assignee = b.assignee as string;\n  ```\n  doc コメントの該当の一文も戻す。\n\n### 2. 【高】タイトルの 200 文字上限が消えている\n- 場所: `src/lib/tasks/validation.ts` の `validateTaskInput`、title の検証（30 行目付近）。元は `|| b.title.length > 200`。\n- 問題: 上限の条件だけが消え、エラー文言「タイトルは 1〜200 文字で入力してください」は残っている。201 文字以上（数 MB の文字列でも）が `POST`/`PATCH` で保存できてしまう。`title` 列に長さ制限は無い。文言と実際の挙動も食い違う。\n- 直し方: 条件に `|| b.title.length > 200` を戻す。\n\n### 3. 【中】回帰を検出するテストが削除されている\n- 場所: `tests/task-validation.test.ts` 20〜21 行目（空行が 2 つ続いている箇所）。元は `tests/tasks.test.ts` の「reports every invalid field」。\n- 問題: `{ title: \"\", status: \"x\", assignee: \"nobody\", dueDate: \"12/01\" }` で 4 件のエラーを期待するテストで、指摘 1 の状態では 3 件になり失敗する。分割時に消えたため、テストが緑のまま回帰が残った。CLAUDE.md の規約 5 にも反する。\n- 直し方: 元のテストを復元し、エラー文言まで確認する形にするとよい。あわせて次のケースを追加する。\n  - 存在しない担当者（通常入力と `partial: true` の両方）が不正になること\n  - 存在する担当者が `partial: true` で通ること\n  - タイトル 200 文字は通り、201 文字は不正になること\n\n### 4. 【低】`index.ts` のコメントが事実と異なる\n- 場所: `src/lib/tasks/index.ts` 1 行目「（振る舞いは変えていない）」。\n- 問題: 指摘 1・2 のとおり振る舞いは変わっている。変更履歴の説明であり、コードの説明でもないので、正しくなっても古くなりやすい。\n- 直し方: 括弧書きを削除する（例: 「タスクの機能の入口。型・検証・DB の読み書きをまとめて書き出す。」）。\n\n### 5. 【低】検証関数が使わない DB 依存を持っている\n- 場所: `src/lib/tasks/validation.ts` 2 行目（`getDb` の import）と 19 行目（`_db: Db = getDb()`）。\n- 問題: 指摘 1 の直しで `db` が使われるようになれば解消する。もし DB 検証をしない方針にするなら、`_db` と `getDb` の import を削除し、存在確認を別の層に移して 400 を返すこと。`_db` を残したままにすると、確認があるように見えて実際は無い状態になる。\n- 直し方: 指摘 1 のとおり復元する（推奨）。\n\n### 6. 【低】不要な差分・未使用 import\n- `src/app/api/tasks/route.ts`・`src/app/api/tasks/[id]/route.ts`・`src/app/tasks/page.tsx`・`src/app/tasks/[id]/page.tsx` の import が `@/lib/tasks` から `@/lib/tasks/index` に変わっている。`@/lib/tasks` のままでもディレクトリの `index` に解決されるため、変更は不要（規約 6「依頼された範囲にとどめる」）。動作上の害は無い。\n- `tests/task-model.test.ts` 3 行目の `openDb` は未使用。削除する。\n\n### 7. 【低】`index.ts` の `export *` が、不要な依存を呼び出し側に引き込む\n- 場所: `src/lib/tasks/index.ts` 2〜4 行目。\n- 問題: 3 ファイルを `export *` で束ねているため、名前の衝突（例: 将来 `ValidationResult` が二重に出る）が起きても気づきにくく、削除した export も隠れる。また `model` と `repository` だけ要る `tasks/page.tsx` などにも `validation`・DB 関連が付いてくる。今は名前の衝突は無く、循環依存も無い。\n- 直し方: 名前を指定した再エクスポートにするか、呼び出し側が `model`・`validation`・`repository` を直接 import する。指摘 5 の直しで `validation` が DB に依存しなくなる場合は、`getDb` の import を消せば `model` だけに依存する形にできる。\n\n### 8. 【低】`assignee` の前後の空白が除去されず、そのまま保存される\n- 場所: `src/lib/tasks/validation.ts` 39〜40 行目。\n- 問題: `\" sato \"` のような値を受け付けて、そのまま保存しようとする（指摘 1 の結果として起きる）。元の実装は users の ID と完全一致しない値を拒否していた。\n- 直し方: 指摘 1 の存在確認を戻せば解消する（完全一致で確認する）。\n\n### 9. 【低】テストの不足（分割前から残っている分を含む）\n- 場所: `tests/task-validation.test.ts`、`tests/task-model.test.ts`。\n- 問題:\n  - エラーの件数しか確認しておらず、どの項目のエラーかが分からない。別の項目のエラーで隠れる。\n  - `dueDate` が形式は合っているが存在しない日付（`2026-02-30`、`2026-13-45`）のケースが無く、`Date.parse` の分岐が通っていない。\n  - 文字列以外の値（`title: 123`、`assignee: 5`）、空白だけのタイトル（`\"   \"`）、`partial: true` に `{}` を渡すケースが無い。\n  - どのテストも `model.ts` を直接 import しておらず、`index.ts` の再エクスポート漏れを検出できない。\n  - 分割前から API Route 単位のテスト（400・401・404）が無い。\n- 直し方: 上記のケースを追加し、エラーは項目ごとの文言まで確認する。再エクスポートの確認は `model.ts` から直接 import するテストで補う。\n\n### 10. 【低】`readJson` が JSON の解析エラーを握りつぶす（この PR の範囲外・分割前から存在）\n- 場所: `src/lib/api.ts` 60〜66 行目の `readJson`。\n- 問題: 解析に失敗すると何も記録せず `undefined` を返す。後段の検証が 400 を返すため実害は小さいが、ログが残らない。\n- 直し方: この PR では対応不要。別の変更で、解析失敗を記録するか明示的に 400 を返すようにする。\n\n## 推奨する対応\n1. 指摘 1・2 を元の実装に戻す。\n2. 指摘 3 のテストを復元・追加する。\n3. 指摘 4〜10 を整理し（10 は別の変更でよい）、`npm run typecheck`・`npm test` を再実行する。\n\n## 対応結果\n\n`npm run typecheck`・`npm test`（22 件すべて成功）・`npm run build` が通ることを確認した。\n\n### 直したもの\n- 指摘 1・2・5・8: `validation.ts` で担当者の DB 確認（`db` 引数を使う）と、タイトル 200 文字の上限を元に戻した。doc コメントの一文も戻した。`_db` は `db` に戻り、未使用の依存は無くなった。\n- 指摘 3: 「reports every invalid field」を復元し、エラーの文言まで確認する形にした。存在しない・空白付き・文字列以外の担当者（通常入力と `partial: true`）、タイトル 200 / 201 文字と空白だけ、存在しない日付、文字列以外のタイトル、`partial: true` に `{}` を渡す場合のテストを追加した。\n- 指摘 4: `index.ts` の「（振る舞いは変えていない）」を削除した。\n- 指摘 6: 4 ファイルの import を `@/lib/tasks` に戻し、`tests/task-model.test.ts` の未使用 `openDb` import を削除した。\n- 指摘 9 の一部: 上記のテスト追加で、件数だけの確認、存在しない日付、文字列以外の値、`partial` の空入力、空白だけのタイトルの不足を解消した。\n\n### 直さなかったもの\n- 指摘 7（`export *`）: 現在は名前の衝突も循環依存も無く、害が出ていない。`index.ts` で束ねる構成はこの PR の設計の中心で、named export に変えると今後の追加のたびに一覧の更新が要り、呼び出し側の import の書き換えも増える。規約 6（変更は依頼された範囲にとどめる）に従い、今回は見送る。\n- 指摘 9 の残り（`model.ts` を直接 import するテスト、API Route 単位のテスト）: Route のテストは分割前から無く、この PR の範囲外。Route のテストには認証・Cookie の準備が要り、別の変更として行うのが適切。`model.ts` の直接 import は、`tests/task-model.test.ts` が `index.ts` 経由で `isTaskStatus` を確認し、型検査・ビルドも通るため、再エクスポート漏れは実害が出る前に検出できる。\n- 指摘 10（`readJson` が解析エラーを握りつぶす）: この PR の変更ではなく、分割前から存在する。後段の検証が 400 を返すため実害も小さい。規約 6 に従い、別の変更で扱う。\n",
+ "fixed": {
+  "diff_added": 245,
+  "diff_deleted": 213,
+  "pr_added": 218,
+  "pr_deleted": 217,
+  "commits": [
+   "8d1e92a タスクの機能をファイル分割し、レビュー指摘を反映",
+   "af552db REVIEW.md にレビュー指摘の残りを追記",
+   "5a31d70 PR レビュー結果を REVIEW.md に追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 22,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "タイトルは 200 文字まで（201 文字は入力の誤り）",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "存在しない担当者は入力の誤り",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "すべての項目が誤っていれば、4 つとも報告する",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "一覧・取得・作成・更新は元のとおり",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 4,
+   "log": ""
+  }
+ },
+ "transcript": {
+  "cost_usd": 1.3143,
+  "tokens": {
+   "input": 96,
+   "output": 29389,
+   "cache_read": 2124281,
+   "cache_creation": 215514
+  },
+  "turns": 34,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 - <<'E'\\nimport re\\np='src/lib/tasks/validation.ts'\\ns=open(p).read()\\ns=s.replace(\\\" * API に送られたタスクの内容を検証する。partial = true（更新）のときは、送られた項目だけを検証する。\\\\n\\\",\\\" * API に送られたタスクの内容を検証する。p"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i 's#@/lib/tasks/index\\\"#@/lib/tasks\\\"#' src/app/api/tasks/route.ts \\\"src/app/api/tasks/[id]/route.ts\\\" src/app/tasks/page.tsx \\\"src/app/tasks/[id]/page.tsx\\\" && npm run typecheck 2>"
+   }
+  ],
+  "tool_calls": {
+   "Bash": 24,
+   "Agent": 5,
+   "ReadNotifications": 4,
+   "Write": 1,
+   "Edit": 13,
+   "Read": 8
+  },
+  "skills_used": [],
+  "subagents": 5,
+  "subagent_types": {
+   "pr-review-toolkit:code-reviewer": 1,
+   "pr-review-toolkit:silent-failure-hunter": 1,
+   "pr-review-toolkit:pr-test-analyzer": 1,
+   "pr-review-toolkit:comment-analyzer": 1,
+   "pr-review-toolkit:type-design-analyzer": 1
+  },
+  "questions": 0,
+  "active_seconds": 124,
+  "answer_key_access": [],
+  "isolation_suspects": [
+   {
+    "step": "step2.jsonl",
+    "tool": "Bash",
+    "reasons": [
+     "../ で作業用コピーの外に出る相対パス"
+    ],
+    "input": "{\"command\": \"cd /tmp/poc-trials/W34-review-pr-full-f2-1/app/src/lib/tasks && for f in index model repository validation; do echo \\\"=== $f\\\"; cat -n $f.ts; done; cd ../../..; git diff HEAD -- src/app; for f in tests/task-*.test.ts; do echo \\\"=== $f\\\"; cat -n $f; done\"}"
+   }
+  ],
+  "final_message": "REVIEW.md の指摘のうち、回帰に当たる 1〜6 と 8 は直しました。直さなかった指摘は 7、10、9 の一部で、理由を REVIEW.md の末尾に追記しました。`npm run typecheck`、`npm test`（22 件すべて成功）、`npm run build` が通ることを確認し、PR の差分と修正をすべて 1 つのコミット（8d1e92a）にまとめました。作業ツリーはクリーンです。\n\n**直したもの**\n- `validation.ts`:\n  - 担当者が users に存在するかの DB 確認を戻しました。`db` 引数も使われるようになり、未使用の `_db` はなくなりました。\n  - タイトルの 200 文字上限を戻しました。\n  - doc コメントの一文も戻しました。\n- テスト:\n  - 削除されていた「reports every invalid field」を、エラーの文言まで確認する形で復元しました。\n  - 存在しない担当者、空白付きの担当者、タイトルの 200／201 文字、存在しない日付、文字列以外の値、`partial: true` に `{}` を渡すケースを追加しました。\n- 後始末:\n  - `index.ts` の誤ったコメント（「振る舞いは変えていない」）を削除しました。\n  - import を `@/lib/tasks` に戻しました。\n  - 未使用の import を削除しました。\n\n**直さなかったもの**（理由は REVIEW.md の「対応結果」に記載）\n- 7（`export *`）: 今は実害がなく、直すと呼び出し側の書き換えが増えるため、規約 6 に従って見送りました。\n- 9 の残り: API Route 単位のテストと `model.ts` を直接 import するテストは、この PR の範囲外として見送りました。\n- 10（`readJson`）: 分割前から存在する問題で、この PR の範囲外です。"
+ },
+ "interventions": 0
+}

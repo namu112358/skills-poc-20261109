@@ -1,0 +1,110 @@
+{
+ "trial": "W34-principles-f1-1",
+ "scenario": "W34",
+ "config": "principles",
+ "case": "f1",
+ "rep": 1,
+ "review_md": "# レビュー: タスクに優先度を付け、一覧で絞り込めるようにする\n\n目的は、タスクに優先度（高・中・低）を持たせ、作成・更新 API と一覧（画面・`GET /api/tasks`）で扱えるようにすること。\n**判断: 修正を求める。** 更新 API で優先度が保存されない不具合があり、PR の「作成・更新（API）で `priority` を指定できる」を満たしていない。\n\n良い点: マイグレーションを新しい番号（3）で追加し、`NOT NULL DEFAULT 'medium'` と `CHECK` で既存データと不正値を DB でも守っている。SQL の値はプレースホルダを使っている。作成・絞り込み・検証のテストを足している。\n\n## 指摘\n\n### 1. 【重要度: 高】PATCH で `priority` を指定しても保存されない\n\n- 場所: `src/lib/tasks.ts` の `updateTask`（`UPDATE tasks SET title = ?, status = ?, assignee = ?, due_date = ?` の行）\n- 問題: `validateTaskInput` は部分更新でも `priority` を検証して `value.priority` に入れる。しかし `updateTask` の UPDATE 文に `priority` 列が無い。`PATCH /api/tasks/1` に `{\"priority\":\"high\"}` を送ると、200 が返り、レスポンスの `task.priority` は元の値のまま。クライアントは成功したと思うのに、値は変わらない。\n- テストで検出できなかった理由: 追加テストに更新（`updateTask` / PATCH）が無い。\n- 直し方: UPDATE 文に `priority = ?` を追加して `next.priority` を渡す。`updateTask` で優先度が変わることを確かめる単体テストを追加する（規約 5）。\n\n### 2. 【重要度: 中】優先度の値の定義が 5 か所に散らばり、登録の仕組みが使われていない\n\n- 場所: `src/app/api/tasks/route.ts` の `PRIORITIES`、`src/app/tasks/page.tsx` の `PRIORITY_LABELS`、`src/lib/attributes/priority.ts`、`src/lib/tasks.ts` の `TaskPriority`、`src/lib/db/migrations.ts`\n- 問題: 「high / medium / low」と表示名を、registry の定義・API 側の配列・画面側の対応表がそれぞれ持っている。PR は「項目の定義を登録する仕組み」を売りにしているが、API と画面は使っていない。値を 1 つ足すと、どこかを直し忘れて食い違う。\n- 直し方: 規約 2 の流儀（`isTaskStatus` と同じ）で、`src/lib/tasks.ts` に `TASK_PRIORITIES`・`PRIORITY_LABELS`・`isTaskPriority` を置き、API・画面・`validateTaskInput` はそれを使う。`TaskPriority` 型は `TASK_PRIORITIES` から作る。DB の CHECK は、マイグレーションを書き換えられないので現状のままでよい。\n\n### 3. 【重要度: 中】要件にない「属性の登録の仕組み」を先に作っている\n\n- 場所: `src/lib/attributes/registry.ts`（全体）、`priority.ts`\n- 問題: 今ある属性は優先度 1 つだけで、「カテゴリ」は予想にすぎない。それなのに、次のものを先に作っている。\n  - 登録先の singleton、`as unknown as` の型の握りつぶし、`all()`・`get()`、列名を SQL に連結する `whereClause`。\n  - import しただけで登録される副作用（`tasks.ts` が `priority.ts` を import しているから動いているだけ。import が消えると登録されず、検証が常に失敗する）。\n  - 実際には、属性を足すには DB のマイグレーション、`Task` 型、`toTask`、INSERT/UPDATE、画面の列も直す必要がある。「定義を登録するだけでよい」は成り立たない。\n- 直し方: registry を削除し、ステータスと同じ単純な形（定数・型ガード・`listTasks` に `AND (:priority IS NULL OR priority = :priority)` を足す）にする。カテゴリが実際に必要になったときに、2 つ目の実例を見て共通化する。registry にはテストも無い。\n\n### 4. 【重要度: 中】絞り込みの検証が規約 2 と合っていない（画面と API で別実装）\n\n- 場所: `src/app/tasks/page.tsx` の `params.priority in PRIORITY_LABELS`、`src/app/api/tasks/route.ts` の `PRIORITIES.includes`、`src/lib/tasks.ts` の `TaskFilter.priority?: string`\n- 問題:\n  - 画面の `in` 演算子はプロトタイプの名前も通す。`/tasks?priority=constructor` や `toString` は「有効」とみなされ、`<select>` の既定値や `listTasks` に渡る。結果として無効な値が「指定なし」にならないケースがある。\n  - 検証が画面・API・`whereClause`（`isValid`）の 3 か所にあり、`TaskFilter.priority` が `string` なので型でも守られていない。\n- 直し方: 指摘 2 の `isTaskPriority` を使い、`priority?: TaskPriority` にする。型ガードを使えば、`whereClause` の再検証も要らない。画面の `PRIORITY_LABELS` は `Record<TaskPriority, string>` にする。\n\n### 5. 【重要度: 低】テストの不足\n\n- 場所: `tests/tasks.test.ts` の `describe(\"priority\")`\n- 問題: 更新（指摘 1）、`priority: null` や数値などの不正な型、POST で省略したときの既定値（検証を通した後の `createTask`）、API の 400 を確かめるテストが無い。また、1 つの `it` が既定値と作成の 2 つの振る舞いを確かめている。\n- 直し方: 更新のテストを最優先で足し、既定値と作成を別のテストに分ける。\n\n### 6. 【重要度: 低】`createTask` の既定値の持ち方\n\n- 場所: `src/lib/tasks.ts` の `createTask`（`priorityAttribute.defaultValue`）\n- 問題: 既定値の 'medium' が DB の DEFAULT と TS の定義の 2 か所にある。指摘 3 の対応で registry をやめるなら、`DEFAULT_PRIORITY` の定数 1 つにする。または、`priority` が無いときは列を INSERT せず、DB の DEFAULT に任せる。\n",
+ "review_commit": "33e5455e10c456f0a401378c7aa01f16faa862d9",
+ "review_md_final": "# レビュー: タスクに優先度を付け、一覧で絞り込めるようにする\n\n目的は、タスクに優先度（高・中・低）を持たせ、作成・更新 API と一覧（画面・`GET /api/tasks`）で扱えるようにすること。\n**判断: 修正を求める。** 更新 API で優先度が保存されない不具合があり、PR の「作成・更新（API）で `priority` を指定できる」を満たしていない。\n\n良い点: マイグレーションを新しい番号（3）で追加し、`NOT NULL DEFAULT 'medium'` と `CHECK` で既存データと不正値を DB でも守っている。SQL の値はプレースホルダを使っている。作成・絞り込み・検証のテストを足している。\n\n## 指摘\n\n### 1. PATCH で `priority` を指定しても保存されない\n\n- 重要度: 高\n- 場所: `src/lib/tasks.ts` の `updateTask`（`UPDATE tasks SET title = ?, status = ?, assignee = ?, due_date = ?` の行）\n- 何が問題か: `validateTaskInput` は部分更新でも `priority` を検証して `value.priority` に入れる。しかし `updateTask` の UPDATE 文に `priority` 列が無い。`PATCH /api/tasks/1` に `{\"priority\":\"high\"}` を送ると、200 が返り、レスポンスの `task.priority` は元の値のままになる。クライアントは成功したと思うのに、値は変わらない。追加テストに更新（`updateTask` / PATCH）が無いため、テストでも検出できていない。\n- 直し方: UPDATE 文に `priority = ?` を追加して `next.priority` を渡す。`updateTask` で優先度が変わることを確かめる単体テストを追加する（規約 5）。\n\n### 2. 優先度の値の定義が 5 か所に散らばり、登録の仕組みが使われていない\n\n- 重要度: 中\n- 場所: `src/app/api/tasks/route.ts` の `PRIORITIES`、`src/app/tasks/page.tsx` の `PRIORITY_LABELS`、`src/lib/attributes/priority.ts`、`src/lib/tasks.ts` の `TaskPriority`、`src/lib/db/migrations.ts`\n- 何が問題か: 「high / medium / low」と表示名を、registry の定義・API 側の配列・画面側の対応表がそれぞれ持っている。PR は「項目の定義を登録する仕組み」を売りにしているが、API と画面は使っていない。値を 1 つ足すと、どこかを直し忘れて食い違う。\n- 直し方: 規約 2 の流儀（`isTaskStatus` と同じ）で、`src/lib/tasks.ts` に `TASK_PRIORITIES`・`PRIORITY_LABELS`・`isTaskPriority` を置き、API・画面・`validateTaskInput` はそれを使う。`TaskPriority` 型は `TASK_PRIORITIES` から作る。DB の CHECK は、マイグレーションを書き換えられないので現状のままでよい。\n\n### 3. 要件にない「属性の登録の仕組み」を先に作っている\n\n- 重要度: 中\n- 場所: `src/lib/attributes/registry.ts`（全体）、`src/lib/attributes/priority.ts`\n- 何が問題か: 今ある属性は優先度 1 つだけで、「カテゴリ」は予想にすぎない。それなのに、次のものを先に作っている。\n  - 登録先の singleton、`as unknown as` の型の握りつぶし、`all()`・`get()`、列名を SQL に連結する `whereClause`。\n  - import しただけで登録される副作用（`tasks.ts` が `priority.ts` を import しているから動いているだけ。import が消えると登録されず、検証が常に失敗する）。\n  - 実際には、属性を足すには DB のマイグレーション、`Task` 型、`toTask`、INSERT/UPDATE、画面の列も直す必要がある。「定義を登録するだけでよい」は成り立たない。\n  - registry 自体のテストも無い。\n- 直し方: registry を削除し、ステータスと同じ単純な形（定数・型ガード・`listTasks` に `AND (:priority IS NULL OR priority = :priority)` を足す）にする。カテゴリが実際に必要になったときに、2 つ目の実例を見て共通化する。\n\n### 4. 絞り込みの検証が規約 2 と合っていない（画面と API で別実装）\n\n- 重要度: 中\n- 場所: `src/app/tasks/page.tsx` の `params.priority in PRIORITY_LABELS`、`src/app/api/tasks/route.ts` の `PRIORITIES.includes`、`src/lib/tasks.ts` の `TaskFilter.priority?: string`\n- 何が問題か:\n  - 画面の `in` 演算子はプロトタイプの名前も通す。`/tasks?priority=constructor` や `toString` は「有効」とみなされ、`<select>` の既定値や `listTasks` に渡る。無効な値が「指定なし」にならないケースがある。\n  - 検証が画面・API・`whereClause`（`isValid`）の 3 か所にあり、`TaskFilter.priority` が `string` なので型でも守られていない。\n- 直し方: 指摘 2 の `isTaskPriority` を使い、`priority?: TaskPriority` にする。型ガードを使えば `whereClause` の再検証も要らない。画面の `PRIORITY_LABELS` は `Record<TaskPriority, string>` にする。\n\n### 5. テストの不足\n\n- 重要度: 低\n- 場所: `tests/tasks.test.ts` の `describe(\"priority\")`\n- 何が問題か: 更新（指摘 1）、`priority: null` や数値などの不正な型、POST で省略したときの既定値（検証を通した後の `createTask`）、API の 400 を確かめるテストが無い。また、1 つの `it` が既定値と作成の 2 つの振る舞いを確かめている。\n- 直し方: 更新のテストを最優先で足し、既定値と作成を別のテストに分ける。\n\n### 6. `createTask` の既定値の持ち方\n\n- 重要度: 低\n- 場所: `src/lib/tasks.ts` の `createTask`（`priorityAttribute.defaultValue`）\n- 何が問題か: 既定値の 'medium' が DB の DEFAULT と TS の定義の 2 か所にある。\n- 直し方: 指摘 3 の対応で registry をやめるなら、`DEFAULT_PRIORITY` の定数 1 つにする。または、`priority` が無いときは列を INSERT せず、DB の DEFAULT に任せる。\n\n## 対応結果\n\n指摘 1〜6 はすべて修正した。`npm run typecheck`・`npm test`（28 件）が通ることを確認した。\n\n- 1: `updateTask` の UPDATE 文に `priority` を追加し、更新のテストを足した。\n- 2・4: `src/lib/tasks.ts` に `TASK_PRIORITIES`・`PRIORITY_LABELS`・`isTaskPriority` を置き、API・画面・検証・`TaskFilter`（`priority?: TaskPriority`）がそれを使う形にした。`constructor` などが通る問題もなくなった（テストで確認）。\n- 3: `src/lib/attributes/` を削除し、`listTasks` の SQL に優先度の条件を直接書いた（値はプレースホルダ）。\n- 5: 更新、不正な型の値（`null`・数値・`constructor`）、作成時の省略、ステータスとの組み合わせのテストを足し、既定値と作成のテストを分けた。\n- 6: 既定値を `DEFAULT_PRIORITY` の定数にまとめた。\n\n### 直さなかった点\n\n- 5 のうち「API ルートで 400 になること」のテスト: このリポジトリには Route Handler を直接呼ぶテストの仕組みが無く、`next` の実行環境が要る。規約 4（新しい外部ライブラリを足さない）と 6（依頼の範囲にとどめる）のため、新しい仕組みは入れなかった。ルートは `validateTaskInput` の結果をそのまま 400 にするだけで、検証は単体テストで確かめている。\n- 6 のうち DB の `DEFAULT 'medium'`: 規約 7 により既存のマイグレーションは書き換えられない。DB の DEFAULT は既存の行を埋めるために必要なので残した。TS 側の定数のコメントで対応関係を示した。\n",
+ "fixed": {
+  "diff_added": 138,
+  "diff_deleted": 15,
+  "pr_added": 150,
+  "pr_deleted": 12,
+  "commits": [
+   "791fb6f タスクに優先度（高・中・低）を追加し、一覧で絞り込めるようにする",
+   "a8bfa5e REVIEW.md を指摘ごとに重要度・場所・問題・直し方の形式に整理",
+   "33e5455 PR レビュー: 優先度の追加に対する指摘を REVIEW.md に記載"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 28,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 1,
+   "items": [
+    {
+     "id": "H1",
+     "name": "更新（PATCH）で優先度を変えると保存される",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "優先度を指定しないと中（medium）になる",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "優先度で絞り込める（不正な値は指定なし）",
+     "pass": false
+    },
+    {
+     "id": "H4",
+     "name": "不正な優先度は入力の誤りになる",
+     "pass": true
+    },
+    {
+     "id": "H5",
+     "name": "ステータスの絞り込みと組み合わせられる",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 5,
+   "log": ""
+  },
+  "design": {
+   "registry_remains": false,
+   "priority_value_lists": 1,
+   "priority_label_maps": 1
+  }
+ },
+ "transcript": {
+  "cost_usd": 0.553,
+  "tokens": {
+   "input": 44,
+   "output": 18705,
+   "cache_read": 1166864,
+   "cache_creation": 62296
+  },
+  "turns": 34,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"git rm -rq --cached src/lib/attributes && rm -rf src/lib/attributes && python3 - <<'EOF'\\nimport re\\np='src/lib/tasks.ts'\\ns=open(p).read()\\ns=s.replace('''import { attributeRegistry } fr"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"git rm -rq --cached src/lib/attributes; rm -rf src/lib/attributes; ls src/lib\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"rm -rf src/lib/attributes && python3 -I /tmp/claude-0/-tmp-poc-trials-W34-principles-f1-1-app/1b5c3828-792a-4a3a-b6a9-7f736458197a/scratchpad/fix.py && ls src/lib\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 -I /tmp/claude-0/-tmp-poc-trials-W34-principles-f1-1-app/1b5c3828-792a-4a3a-b6a9-7f736458197a/scratchpad/fix.py\"}"
+   }
+  ],
+  "tool_calls": {
+   "Bash": 12,
+   "Write": 1,
+   "Read": 4,
+   "Edit": 13
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 150,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "指摘 6 件のうち、コードで直せるものはすべて直しました。`npm run typecheck` は通り、`npm test` は 28 件すべて通りました。PR の差分と修正は 1 つのコミット（791fb6f）にまとめ、作業ツリーに未コミットの変更は残っていません。\n\n- **1（高）:** `updateTask` が `priority` を保存するようにしました。PATCH で優先度が変わらない不具合はこれで直り、更新のテストも追加しました。\n- **2・4（中）:** 優先度の値・表示名・型ガードを `src/lib/tasks.ts` に集め、API・画面・検証・絞り込みがそれを使います。`?priority=constructor` が通る問題もなくなりました。\n- **3（中）:** `src/lib/attributes/` を削除し、`listTasks` の SQL に優先度の条件を直接書きました。値はプレースホルダのままです。\n- **5（低）:** 更新、不正な型の値（`null`・数値・`constructor`）、作成時の省略、ステータスとの組み合わせのテストを足し、既定値と作成のテストを分けました。\n- **6（低）:** 既定値は `DEFAULT_PRIORITY` の定数 1 つにしました。\n\n直さなかった点は 2 つあり、理由を `REVIEW.md` の末尾に追記しました。\n\n- **API ルートが 400 を返すことのテスト:** このリポジトリには Route Handler を直接呼ぶテストの仕組みがなく、新しい仕組みを入れるのは規約 4・6 に反するので見送りました。検証自体は単体テストで確かめています。\n- **DB の `DEFAULT 'medium'`:** 規約 7 により既存のマイグレーションは書き換えられず、既存の行を埋めるのにも必要なので残しました。\n\n`python3` でスクリプトを走らせる操作が承認待ちになったため、修正は Edit ツールで行いました。"
+ },
+ "interventions": 0
+}

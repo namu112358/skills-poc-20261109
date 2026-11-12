@@ -1,0 +1,130 @@
+{
+ "trial": "W34-baseline-f3-2",
+ "scenario": "W34",
+ "config": "baseline",
+ "case": "f3",
+ "rep": 2,
+ "review_md": "# レビュー: タスクの期限延長（POST /api/tasks/:id/extend）\n\n実装（`src/lib/extend.ts`、route）を読み、日付計算を実際に動かして確認しました（2026-11-30+3→12-03、2026-12-30+5→2027-01-04、2028-02-28+1→02-29。いずれも正しい）。実装自体に大きな不具合は見つかっていません。マージ前に直すべき問題は、テストが検証になっていない点です。\n\n## 1. 【高】`tests/extend.test.ts` のテストが実質何も検証していない\n\nPR の説明は「延長の計算・入力の検証・延長の処理の単体テストを追加した」とありますが、実際は次のとおりです。\n\n- `extendDueDate` の \"adds days to the due date\": `expected` を `extendDueDate(...)` 自身の戻り値から作り、同じ関数の結果と比べています（恒真）。計算が壊れても通ります。\n- \"works across months\": `doesNotThrow` だけで、結果の日付を見ていません。`2026-11-30`+3 が `2026-12-03` になることを確かめていません。\n- \"handles a completed task\": `doesNotThrow` だけです。完了タスクが `{ ok: false, reason: \"done\" }` になること、期限が変わらないことを確かめていません。この仕様は PR の変更内容に明記されています。\n- \"extends a task\": `ok` しか見ていません。期限が実際に n 日延びたこと、DB に保存されたことを確認していません。\n- `validateExtendInput` は正常系 1 件のみです。0、31、1.5、`\"7\"`、`null`、`undefined`、`NaN`、配列など、PR で 400 と定めた入力のテストがありません。\n- 無いタスク（not_found）のテストがありません。\n- API Route（401・400・404 の振り分け）のテストがありません。\n\nCLAUDE.md の規約 5 は、ロジックを追加したら単体テストを追加することを求めています。現状のテストは、このロジックが壊れても全部通ります。\n\n直し方: 具体的な期待値で書き直してください。\n- `extendDueDate(\"2026-11-30\", 3) === \"2026-12-03\"`\n- `extendDueDate(\"2026-12-30\", 5) === \"2027-01-04\"`\n- うるう年: `extendDueDate(\"2028-02-28\", 1) === \"2028-02-29\"`\n- `validateExtendInput` で境界値（1、30 は ok。0、31、1.5、文字列、null は NG）を確認します。\n- `extendTask` は、延長後の `task.dueDate`、再取得した値、done の拒否（期限不変）、存在しない ID を確認します。\n- 可能なら route 層も確認します（400／404／401）。\n\n## 2. 【低】DB に入っている不正な日付（例: 2026-02-30）を黙って繰り越す\n\n場所: `src/lib/extend.ts` の `extendDueDate`。\n\n既存の `validateTaskInput` は正規表現と `Date.parse` で期限を検証しますが、V8 は `2026-02-30` を受理します。そのため、そうした期限のタスクが DB に入り得ます。この状態で延長すると `2026-02-30`+1 が `2026-03-03` になり、元の期限が不正だったことに気づけません。なお、`dueDate` が壊れた形式の場合は `toISOString()` が `RangeError` を投げ、API が 500 になります。\n\nPR で入った問題ではなく既存の検証の甘さが原因です。延長の範囲では対処不要でもかまいません。やるなら、`validateTaskInput` の日付検証を厳密にする（往復して一致を確認する）別の変更として扱ってください。\n\n## 3. 【低】入力検証と存在確認の順序\n\n場所: route の `POST`。\n\n本文の検証（400）を、タスクの存在確認（404）より先に行っています。そのため、存在しないタスクに不正な `days` を送ると 404 ではなく 400 になります。PR の表からは判断できないので、これでよければ仕様として固定するテストを足してください。既存の `PATCH` は先に 404 を返しています。揃えるなら存在確認を先にします。\n",
+ "review_commit": "3f3fdb7d528f290784f26b2f2491888d3665daf1",
+ "review_md_final": "# レビュー: タスクの期限延長（POST /api/tasks/:id/extend）\n\n実装（`src/lib/extend.ts`、route）を読み、日付計算を実際に動かして確認しました（2026-11-30+3→12-03、2026-12-30+5→2027-01-04、2028-02-28+1→02-29。いずれも正しい）。実装自体に大きな不具合は見つかっていません。マージ前に直すべき問題は、テストが検証になっていない点です。\n\n## 1. テストが実質何も検証していない\n\n- **重要度**: 高\n- **場所**: `tests/extend.test.ts`（`extendDueDate`・`validateExtendInput`・`extendTask` の各 describe）\n- **何が問題か**: PR の説明は「延長の計算・入力の検証・延長の処理の単体テストを追加した」とありますが、実際は次のとおりです。\n  - `extendDueDate` の \"adds days to the due date\": `expected` を `extendDueDate(...)` 自身の戻り値から作り、同じ関数の結果と比べています（恒真）。計算が壊れても通ります。\n  - \"works across months\": `doesNotThrow` だけで、結果の日付を見ていません。`2026-11-30`+3 が `2026-12-03` になることを確かめていません。\n  - \"handles a completed task\": `doesNotThrow` だけです。完了タスクが `{ ok: false, reason: \"done\" }` になること、期限が変わらないことを確かめていません。この仕様は PR の変更内容に明記されています。\n  - \"extends a task\": `ok` しか見ていません。期限が実際に n 日延びたこと、DB に保存されたことを確認していません。\n  - `validateExtendInput` は正常系 1 件のみです。0、31、1.5、`\"7\"`、`null`、`undefined`、`NaN`、配列など、PR で 400 と定めた入力のテストがありません。\n  - 無いタスク（not_found）のテストがありません。\n  - API Route（401・400・404 の振り分け）のテストがありません。\n  - CLAUDE.md の規約 5（ロジックを追加したら単体テストを追加する）を実質満たしていません。現状のテストは、このロジックが壊れても全部通ります。\n- **直し方**: 具体的な期待値で書き直してください。\n  - `extendDueDate(\"2026-11-30\", 3) === \"2026-12-03\"`\n  - `extendDueDate(\"2026-12-30\", 5) === \"2027-01-04\"`\n  - うるう年: `extendDueDate(\"2028-02-28\", 1) === \"2028-02-29\"`\n  - `validateExtendInput` で境界値（1、30 は ok。0、31、1.5、文字列、null は NG）を確認します。\n  - `extendTask` は、延長後の `task.dueDate`、再取得した値、done の拒否（期限不変）、存在しない ID を確認します。\n  - 可能なら route 層も確認します（400／404／401）。\n\n## 2. DB に入っている不正な日付（例: 2026-02-30）を黙って繰り越す\n\n- **重要度**: 低\n- **場所**: `src/lib/extend.ts` の `extendDueDate`（原因は `src/lib/tasks.ts` の `validateTaskInput` の日付検証）\n- **何が問題か**: 既存の `validateTaskInput` は正規表現と `Date.parse` で期限を検証しますが、V8 は `2026-02-30` を受理します。そのため、そうした期限のタスクが DB に入り得ます。この状態で延長すると `2026-02-30`+1 が `2026-03-03` になり、元の期限が不正だったことに気づけません。また、`dueDate` が壊れた形式の場合は `toISOString()` が `RangeError` を投げ、API が 500 になります。PR で入った問題ではなく、既存の検証の甘さが原因です。\n- **直し方**: 延長の範囲では対処不要でもかまいません。やるなら、`validateTaskInput` の日付検証を厳密にする（Date に変換して YYYY-MM-DD に戻し、元の文字列と一致を確認する）別の変更として扱ってください。\n\n## 3. 入力検証と存在確認の順序\n\n- **重要度**: 低\n- **場所**: `src/app/api/tasks/[id]/extend/route.ts` の `POST`\n- **何が問題か**: 本文の検証（400）を、タスクの存在確認（404）より先に行っています。そのため、存在しないタスクに不正な `days` を送ると 404 ではなく 400 になります。既存の `PATCH` は先に 404 を返しており、順序が揃っていません。PR の表からはどちらが正か判断できません。\n- **直し方**: 存在確認（`getTask`）を先にして 404 を返し、その後に本文を検証します。現状の順序でよければ、仕様として固定するテストを足してください。\n\n## 対応状況\n\n- 指摘 1（テスト）: 修正しました。`tests/extend.test.ts` を具体的な期待値で書き直しました（月・年・うるう年またぎ、30 日、`validateExtendInput` の境界値と不正な型、`extendTask` の延長後の期限と保存、完了タスクの拒否と期限不変、無いタスク）。API Route のテストは追加していません。リポジトリに Route を直接テストする仕組み（セッション Cookie のモックなど）が既に無く、新しい仕組みの導入は依頼の範囲を超えるためです。ロジックは `src/lib/` 側のテストで押さえています。\n- 指摘 2（不正な日付の繰り越し）: 直しません。原因は既存の `validateTaskInput` の日付検証で、この PR の範囲外です（CLAUDE.md 規約 6「変更は依頼された範囲にとどめる」）。直すと `POST /api/tasks`・`PATCH` の振る舞いが変わるため、別の変更として扱うのが適切です。\n- 指摘 3（検証の順序）: 修正しました。route で存在確認（404）を本文の検証（400）より先に行うようにし、既存の `PATCH` と順序を揃えました。\n",
+ "fixed": {
+  "diff_added": 140,
+  "diff_deleted": 0,
+  "pr_added": 89,
+  "pr_deleted": 0,
+  "commits": [
+   "7b789cd タスクの期限延長 API を追加し、レビュー指摘を反映",
+   "edd6e8f REVIEW.md: 指摘を場所・問題・直し方・重要度の形式に整理",
+   "3f3fdb7 レビュー: タスク期限延長の変更に対する指摘を追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 32,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "日数を足し、月・年をまたげる",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "1〜30 の整数だけを受け付ける",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "延長すると期限が変わって保存される",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "完了したタスクは延長できず、期限も変わらない",
+     "pass": true
+    },
+    {
+     "id": "H5",
+     "name": "無いタスクは not_found",
+     "pass": true
+    }
+   ],
+   "passed": 5,
+   "total": 5,
+   "log": ""
+  },
+  "mutation": {
+   "items": [
+    {
+     "id": "M1",
+     "status": "killed"
+    },
+    {
+     "id": "M2",
+     "status": "killed"
+    },
+    {
+     "id": "M3",
+     "status": "killed"
+    },
+    {
+     "id": "M4",
+     "status": "killed"
+    },
+    {
+     "id": "M5",
+     "status": "killed"
+    },
+    {
+     "id": "M6",
+     "status": "killed"
+    },
+    {
+     "id": "M7",
+     "status": "survived"
+    },
+    {
+     "id": "M8",
+     "status": "killed"
+    }
+   ],
+   "killed": 7,
+   "applicable": 8
+  }
+ },
+ "transcript": {
+  "cost_usd": 0.3401,
+  "tokens": {
+   "input": 34,
+   "output": 11711,
+   "cache_read": 650046,
+   "cache_creation": 39490
+  },
+  "turns": 17,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cat > tests/extend.test.ts <<'EOF'\\nimport { describe, it } from \\\"node:test\\\";\\nimport assert from \\\"node:assert/strict\\\";\\nimport { openDb } from \\\"../src/lib/db/index.ts\\\";\\nimport { g"
+   }
+  ],
+  "tool_calls": {
+   "Bash": 10,
+   "Write": 1,
+   "Edit": 2
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 105,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "指摘 3 件のうち 2 件を直し、1 件は直さずに理由を書きました。`npm run typecheck` はエラーなし、`npm test` は 32 件すべて通りました。PR の差分と修正をまとめて、1 つのコミット（7b789cd）にしています。\n\n- **指摘 1（テスト）: 修正しました。**\n  - `tests/extend.test.ts` を、具体的な期待値で書き直しました。\n  - 日付の計算は、月またぎ、年またぎ、うるう年、30 日を確認します。\n  - 入力の検証は、1・30 を通し、0・31・1.5・文字列・null などを拒否することを確認します。\n  - 延長の処理は、延長後の期限と DB への保存、完了タスクの拒否と期限が変わらないこと、無いタスクを確認します。\n  - API Route のテストは追加していません。リポジトリに Route を直接テストする仕組みが無く、新しく作るのは依頼の範囲を超えるためです。\n- **指摘 2（不正な日付の繰り越し）: 直していません。** 原因は既存の `validateTaskInput` の日付検証で、この PR の範囲外です（規約 6）。直すとタスクの作成・更新 API の挙動も変わるので、別の変更にするのが適切です。\n- **指摘 3（検証の順序）: 修正しました。** route で存在確認（404）を本文の検証（400）より先に行うようにしました。`PATCH` と順序が揃います。\n\n直さなかった理由は、`REVIEW.md` の末尾の「対応状況」に追記しています。"
+ },
+ "interventions": 0
+}
