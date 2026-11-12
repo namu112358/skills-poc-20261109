@@ -19,14 +19,12 @@ AI エージェント（主に Claude Code）を使って新規開発を進め�
 
 #### UI/UX・デザイン
 
-画面のデザイン品質を上げ、使いやすさ・アクセシビリティのルールに沿っているかを確認します。
+画面のデザイン品質を上げ、使いやすさ・アクセシビリティのルールに沿っているかを確認します。画面を作る・直すときは Impeccable、ルールに沿っているかのレビューには Web Design Guidelines を使います。各プロジェクトの `CLAUDE.md`（雛形に記載済み）で「画面を作るときは `impeccable` Skill を使う」と指定します。Skill は依頼文だけでは呼ばれないことが多いためです。
 
 | 種別 | ツール | 提供元 | リポジトリ | 導入方法 | 設定箇所 |
 |---|---|---|---|---|---|
-| Skill | Frontend Design | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/frontend-design) | 固定コミットから vendoring | `.claude/skills/frontend-design` |
 | Skill | Web Design Guidelines | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines) | 固定コミットから vendoring | `.claude/skills/web-design-guidelines` |
 | Plugin | Impeccable | Paul Bakaus | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | marketplace `pbakaus/impeccable` | `.claude/settings.json` |
-| Plugin | UI/UX Pro Max | nextlevelbuilder | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | marketplace `nextlevelbuilder/ui-ux-pro-max-skill` | `.claude/settings.json` |
 
 #### テスト・動作確認
 
@@ -109,7 +107,7 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 ### 追加の候補と、重なりの整理（調査のみ）
 
 - 共通ツールの候補は Context7 と Chrome DevTools MCP、採用技術別の候補は Supabase の Postgres の Skill と Python・Go などの LSP です。どれも実際には動かしていません（[docs/tool-candidates/README.md](docs/tool-candidates/README.md)）。
-- UI/UX のツールは、4 つを同時に有効にすると「画面を作る」役割が 3 つ重なり、勧めが互いに逆になる箇所があります。Impeccable を作る担当、Web Design Guidelines をレビュー担当にし、UI/UX Pro Max を既定で無効にする整理案があります。まだ決定ではありません（[docs/tool-candidates/ui-ux-overlap.md](docs/tool-candidates/ui-ux-overlap.md)）。
+- UI/UX のツールは、PoC（U1〜U4）の結果、Impeccable と Web Design Guidelines の 2 つにしました（2026-11-12）。Frontend Design と UI/UX Pro Max は標準から外しました。人が画面を二択で比べた評価で、Impeccable で作った画面が最もよく選ばれ（勝率 79%）、UI/UX Pro Max はツールなしより低かったためです（[docs/tool-candidates/ui-ux-overlap.md](docs/tool-candidates/ui-ux-overlap.md)、[U1 の人の評価](docs/poc/results/workflow/U1/human-pairs.md)）。
 
 ### 更新
 

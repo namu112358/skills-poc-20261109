@@ -3,6 +3,7 @@
 # 使い方: scripts/poc/run-trial.sh <シナリオ> <候補> <回>
 #   候補: baseline | superpowers | feature-dev | compound-engineering | gstack
 #         | baseline-conventions（W12 で追加。候補なしで、作業用コピーの CLAUDE.md の末尾に開発規約だけを足す）
+#         | ui-none | ui-all | ui-a | ui-fd | ui-pm | ui-fd-md | ui-a-md | ui-all-md | ui-fd-md-wdg | ui-fd-md-imp | ui-wdg-rv | ui-a-rv（U1 の課題だけ。*-rv は U4。*-md は U2、*-md-* は U3。UI/UX 系ツールの組み合わせ。docs/poc/tasks/wf-U1-design.md）
 #   （gstack の setup 実行は 2026-11-09 にユーザーの許可を得た。専用 HOME の中だけで実行する）
 # 作業用コピー（既定は /tmp/poc-trials/<ID>。POC_TRIAL_ROOT で変更可）で、専用の HOME を使って Claude Code をヘッドレスで起動する。
 # 作業用コピーをリポジトリの外に置くのは、正解データ（docs/poc/answer-key/）や他の試行の結果へ相対パスで辿れないようにするため。
@@ -89,6 +90,12 @@ rm -f "$APP/.claude/skills/SOURCES.md"
 for own in "$ROOT"/templates/agents/.claude/skills/*/; do
   [[ -d "$own" ]] && rm -rf "${APP:?}/.claude/skills/$(basename "$own")"
 done
+# U1（UI/UX 系ツールの組み合わせの比較。docs/poc/tasks/wf-U1-design.md）: 構成に入らない vendored の UI 系 Skill を除く。
+# ui-none は両方、ui-a・ui-pm は Frontend Design を除く（Web Design Guidelines は ui-none 以外のすべてに入れる）
+case "$CAND" in
+  ui-none) rm -rf "$APP/.claude/skills/frontend-design" "$APP/.claude/skills/web-design-guidelines" ;;
+  ui-a|ui-pm|ui-a-md|ui-a-rv) rm -rf "$APP/.claude/skills/frontend-design" ;;
+esac
 # W21 の principles（自作の設計の原則のレビュー）だけは、その Skill を入れる（比べる対象そのもののため。
 # baseline コミットより前に入れるので、レビュー対象の差分には出ない。docs/poc/tasks/wf-W21-design.md）
 if [[ ( "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 ) && "$CAND" == principles ]]; then
@@ -154,6 +161,19 @@ if [[ "$CAND" == baseline-conventions ]]; then
   cat "$ROOT/docs/poc/tasks/wf-$SCENARIO-conventions.md" >> "$APP/CLAUDE.md"
   sha256sum "$ROOT/docs/poc/tasks/wf-$SCENARIO-conventions.md" | sed "s#$ROOT/##" > "$OUT/conventions"
 fi
+# U2（docs/poc/tasks/wf-U2-design.md）: *-md の構成は、使う Skill の指示（wf-U2-<構成>.md。固定の文言）を CLAUDE.md の末尾に足す。
+# 初期状態の一部なので、候補からは差分に見えない
+# U4 の *-rv は、作る・レビューの両方の指示（wf-U4-<構成>.md）を足す
+if [[ "$CAND" == *-rv ]]; then
+  cat "$ROOT/docs/poc/tasks/wf-U4-$CAND.md" >> "$APP/CLAUDE.md"
+  sha256sum "$ROOT/docs/poc/tasks/wf-U4-$CAND.md" | sed "s#$ROOT/##" > "$OUT/w24-instruction"
+fi
+# U3 の ui-fd-md-* も、作る段階は ui-fd-md と同じ指示を足す（docs/poc/tasks/wf-U3-design.md）
+if [[ "$CAND" == *-md || "$CAND" == *-md-* ]]; then
+  INSTR="$ROOT/docs/poc/tasks/wf-U2-${CAND%%-md*}-md.md"
+  cat "$INSTR" >> "$APP/CLAUDE.md"
+  sha256sum "$INSTR" | sed "s#$ROOT/##" > "$OUT/w22-instruction"
+fi
 # 汎用の開発標準（W12 の追加条件。POC_STANDARD=generic、W12 のときだけ）: docs/poc/standards/generic-dev-standard.md の
 # 区切り（コメント）より下を、そのまま CLAUDE.md の末尾に足す。試行 ID は回の番号 11・12 で区別する（設計書 §5）。
 if [[ "${POC_STANDARD:-}" == generic && "$SCENARIO" == W12 ]]; then
@@ -196,6 +216,14 @@ if [[ "$SCENARIO" == W9 ]]; then
   rm -f "$WORK/review-commit-msg"
   git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
 fi
+# U1c・U1g（U4）: W20 と同じく、レビュー対象の差分（answer-key/U1/review.patch・review-g.patch）を未コミットの変更として置く
+if [[ "$SCENARIO" == U1c || "$SCENARIO" == U1g ]]; then
+  RPATCH="$ROOT/docs/poc/answer-key/U1/review.patch"
+  [[ "$SCENARIO" == U1g ]] && RPATCH="$ROOT/docs/poc/answer-key/U1/review-g.patch"
+  git -C "$APP" apply "$RPATCH"
+  git -C "$APP" add -N .
+  sha256sum "$RPATCH" | sed "s#$ROOT/##" > "$OUT/review-patch"
+fi
 # W20: レビュー対象の差分を、作業ブランチの未コミットの変更として置く（/code-review の「今の差分」と、PR Review Toolkit の
 # git diff の両方に出るよう、新しいファイルも intent-to-add で登録する）。パッチ自体は作業用コピーに置かない
 if [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 ]]; then
@@ -218,10 +246,16 @@ copy_plugin() {  # W7b は W7a でコピーしたものをそのまま使う
 PLUGINS=()
 copy_plugin "$CPO/security-guidance" security-guidance
 copy_plugin "$CPO/typescript-lsp" typescript-lsp
-copy_plugin "$CACHE/impeccable/plugin" impeccable
-copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max
+# U1 の構成（ui-*）では、Impeccable と UI/UX Pro Max を構成に入るときだけ読み込む。ほかの候補は従来どおり両方
+case "$CAND" in
+  ui-none|ui-fd|ui-fd-md|ui-fd-md-wdg|ui-wdg-rv) ;;
+  ui-a|ui-a-md|ui-fd-md-imp|ui-a-rv) copy_plugin "$CACHE/impeccable/plugin" impeccable ;;
+  ui-pm) copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max ;;
+  *) copy_plugin "$CACHE/impeccable/plugin" impeccable; copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max ;;
+esac
 case "$CAND" in
   baseline|baseline-conventions) ;;
+  ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md|ui-fd-md-wdg|ui-fd-md-imp|ui-wdg-rv|ui-a-rv) [[ "$SCENARIO" == U1? ]] || { echo "ui-* は U1 の構成: $SCENARIO" >&2; exit 1; } ;;
   superpowers) copy_plugin "$CACHE/superpowers" superpowers ;;
   feature-dev) copy_plugin "$CPO/feature-dev" feature-dev ;;
   # W20 のレビューの設定: cr-low・cr-high は組み込みの /code-review、review-pr・combo は PR Review Toolkit、sp-review は Superpowers
@@ -322,6 +356,9 @@ if [[ "$SCN_NUM" -ge 6 && "$SCN_NUM" != 7 && "$SCN_NUM" != 11 ]]; then
   # 子セッションが起動したサーバー・ブラウザが試行後に残らないよう、終了時にも止める（reap_servers は下で定義）
   trap 'declare -F reap_servers >/dev/null && reap_servers end' EXIT
 fi
+# U1: Web Design Guidelines がルールを取得できるよう、取得先だけ WebFetch を許可する（全構成に同じく足す。
+# 2026-11-11 コーディネーター判断。CLAUDE.md の例外: 子セッションの許可リストの変更。U1 の report.md の「判断の記録」）
+[[ "$SCENARIO" == U1? ]] && ALLOWED+=("WebFetch(domain:raw.githubusercontent.com)")
 # W12: 依頼者への質問コマンド ask-po を作業用コピーの外（$WORK/bin）に置き、子セッションの PATH に入れて実行を許可する
 #（2026-11-10 コーディネーター承認。CLAUDE.md の例外: 子セッションの許可リストの変更）。依頼者役は下で裏に起動する。
 if [[ "$SCENARIO" == W12 ]]; then
@@ -402,6 +439,8 @@ if [[ "$SCENARIO" == W3 ]]; then
 else
   case "$CAND" in
     baseline|baseline-conventions|superpowers) STEPS=("$TASK") ;;
+    # U1: どの構成も課題文を渡すだけ（Skill の自動発火）
+    ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md|ui-fd-md-wdg|ui-fd-md-imp|ui-wdg-rv|ui-a-rv) STEPS=("$TASK") ;;
     feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
     compound-engineering) STEPS=("/ce-plan $TASK" "/ce-work" "/ce-code-review") ;;
     gstack) STEPS=("$TASK" "/review") ;;
@@ -536,7 +575,7 @@ if [[ "${POC_DISABLE_AUTO_MEMORY:-}" == 1 ]] || [[ -z "${POC_DISABLE_AUTO_MEMORY
   echo 1 > "$OUT/auto-memory-disabled"
 fi
 [[ "$SCENARIO" == W6 ]] && NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、PR.md を含めて変更を git にコミットしてください。"
-[[ "$SCENARIO" == W9 || "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 ]] && NUDGE="お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。"
+[[ "$SCENARIO" == W9 || "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == U1c || "$SCENARIO" == U1g ]] && NUDGE="お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。"
 # W19 の代理人ありの試行は「お任せ」と言わない（代理人の判断 D7。代理人なしの対照は従来の文）
 [[ "$SCENARIO" == W19 && "${POC_PROXY:-1}" != 0 ]] && NUDGE="ここまでの回答のとおりに進めてください。課題を最後まで実装し、変更を git にコミットしてください。"
 
@@ -729,13 +768,13 @@ for _ in $(seq 1 "$MAX_NUDGES"); do
   # W6 以降の Playwright MCP が自動で書き出すページの記録（.playwright-mcp/）も数えない（W5 までは出ない）
   dirty="$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' ':!.playwright-mcp' | head -1)"
   # W20 はレビュー対象の差分を未コミットで置くので、未コミットの変更は見ない（REVIEW.md のコミットだけで判定する）
-  [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 ]] && dirty=""
+  [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == U1c || "$SCENARIO" == U1g ]] && dirty=""
   # W3 は要件文書（REQUIREMENTS.md）がコミットされていることも完了の条件にする
   if [[ "$SCENARIO" == W3 ]] && ! git -C "$APP" cat-file -e HEAD:REQUIREMENTS.md 2>/dev/null; then commits=0; fi
   # W6 は PR の本文（PR.md）がコミットされていることも完了の条件にする
   if [[ "$SCENARIO" == W6 ]] && ! git -C "$APP" cat-file -e HEAD:PR.md 2>/dev/null; then commits=0; fi
   # W9 はレビューの指摘（REVIEW.md）がコミットされていることも完了の条件にする
-  if [[ ( "$SCENARIO" == W9 || "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 ) ]] && ! git -C "$APP" cat-file -e HEAD:REVIEW.md 2>/dev/null; then commits=0; fi
+  if [[ ( "$SCENARIO" == W9 || "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == U1c || "$SCENARIO" == U1g ) ]] && ! git -C "$APP" cat-file -e HEAD:REVIEW.md 2>/dev/null; then commits=0; fi
   [[ "$commits" -gt 0 && -z "$dirty" ]] && break
   if over_budget; then echo "nudge skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
   i=$((i+1))
@@ -799,6 +838,16 @@ if [[ "$SCENARIO" == W13 ]]; then
     run_step "$i" "$NUDGE"
     qa_loop
   done
+fi
+# U3: 作る段階（手順と介入）が終わった時点を「仕上げの前」として記録し、仕上げの工程を後の手順として行う
+if [[ "$CAND" == ui-fd-md-wdg || "$CAND" == ui-fd-md-imp ]]; then
+  ( cd "$APP" && git add -A && git commit -qm "poc: uncommitted leftovers before polish" ) || true
+  git -C "$APP" rev-parse HEAD > "$OUT/pre-polish-commit"
+  echo "$i" > "$OUT/pre-polish-step"
+  case "$CAND" in
+    ui-fd-md-wdg) POST_STEPS=("web-design-guidelines Skill を使って、今回作った画面をレビューしてください。見つかった問題のうち直すべきものを直し、ブラウザで見た目を確かめてから、変更を git にコミットしてください。") ;;
+    ui-fd-md-imp) POST_STEPS=("/impeccable:impeccable polish 今回作った画面（課題で依頼された画面）を仕上げてください。直したら、ブラウザで見た目を確かめてから、変更を git にコミットしてください。") ;;
+  esac
 fi
 for step in "${POST_STEPS[@]}"; do
   if over_budget; then echo "post step skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi

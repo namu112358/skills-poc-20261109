@@ -21,6 +21,8 @@
 | W13 | `<課題>` → `<変更依頼>` | `<課題>` → `<変更依頼>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` → `/feature-dev:feature-dev <変更依頼>` | `<課題>` → `/review` → `<変更依頼>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` → `/ce-plan <変更依頼>` → `/ce-work` → `/ce-code-review` |
 | W14・W15 | `<課題>` | `<課題>`（Skill の自動発火） | `/feature-dev:feature-dev <課題>` | `<課題>` → `/review` | `/ce-plan <課題>` → `/ce-work` → `/ce-code-review` |
 
+U1（UI/UX 系ツールの組み合わせ）は候補が開発ワークフローではなく構成（`ui-none`・`ui-all`・`ui-a`・`ui-fd`・`ui-pm`）で、どの構成も `<課題>` を渡すだけ（Skill の自動発火）。詳細は [wf-U1-design.md](wf-U1-design.md)。
+
 ### W2 以降の共通の決まり
 
 - 作業用コピーの `master`（初期状態）から作業ブランチ `poc/wf/<候補>/<シナリオ>/<回>` を切ってから始める（W1 で gstack の `/review` が `master` 上のため差分なしで止まったため）。
