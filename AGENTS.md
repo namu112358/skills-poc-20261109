@@ -14,6 +14,7 @@ AI エージェントを使った新規開発の標準（入れる Skills、開�
 | 開発標準・設計原則 | [docs/standards/ai-software-factory-engineering-standard.md](docs/standards/ai-software-factory-engineering-standard.md) |
 | PoC の計画・評価基準 | [docs/poc/PLAN.md](docs/poc/PLAN.md) |
 | PoC の結果 | [docs/poc/results/workflow/summary.md](docs/poc/results/workflow/summary.md) |
+| セキュリティ監査の PoC の結果と、定期実行の案 | [docs/poc/results/security/README.md](docs/poc/results/security/README.md)、[docs/tool-candidates/security-audit-schedule.md](docs/tool-candidates/security-audit-schedule.md) |
 | 標準ツールの追加候補 | [docs/tool-candidates/README.md](docs/tool-candidates/README.md) |
 | GitHub リポジトリの初期設定 | [docs/github-setup/README.md](docs/github-setup/README.md) |
 | Issue・PR を作る | [docs/github-writing.md](docs/github-writing.md) |

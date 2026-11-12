@@ -48,7 +48,18 @@ def main(out):
         "tool_uses": dict(tools.most_common()),
         "model_usage": result and result.get("modelUsage"),
     }
-    runs = sorted(glob.glob(os.path.join(out, "audit-out", "*")))
+    # Claude Security: リポジトリの中の CLAUDE-SECURITY-<時刻>/ の JSONL（1 行 1 件）
+    cs = sorted(glob.glob(os.path.join(out, "audit-out", "CLAUDE-SECURITY-*", "CLAUDE-SECURITY-RESULTS.jsonl")))
+    if cs:
+        recs = [json.loads(l) for l in open(cs[-1]) if l.strip()]
+        s["tool_output"] = os.path.dirname(cs[-1])
+        s["findings"] = [
+            {k: r.get(k) for k in ("title", "severity", "confidence", "cwe_id", "file", "line", "claudeSecurityPluginFindingId") if k in r}
+            or r
+            for r in recs
+        ]
+        s["severity"] = dict(Counter(str(r.get("severity")).lower() for r in recs))
+    runs = sorted(d for d in glob.glob(os.path.join(out, "audit-out", "*")) if not os.path.basename(d).startswith("CLAUDE-SECURITY-"))
     run = runs[-1] if runs else None
     if run:
         meta = load(os.path.join(run, "run-metadata.json")) or {}
@@ -57,10 +68,18 @@ def main(out):
         s["profile"] = meta.get("profile")
         findings = load(os.path.join(run, "findings.json"))
         recs = findings.get("findings", findings) if isinstance(findings, dict) else findings
-        if isinstance(recs, list):
+        if isinstance(recs, list) and recs:
             s["verdicts"] = dict(Counter(r.get("verdict") for r in recs))
             s["severity"] = dict(Counter(r.get("severity") for r in recs if r.get("verdict") == "confirmed"))
-            s["confirmed_titles"] = [r.get("title") for r in recs if r.get("verdict") == "confirmed"]
+            s["findings"] = [
+                {
+                    "verdict": r.get("verdict"),
+                    "title": r.get("title"),
+                    "severity": r.get("severity"),
+                    "files": sorted({t.get("file") for t in r.get("trace", []) + r.get("evidence", []) if t.get("file")}),
+                }
+                for r in recs
+            ]
         ledger = load(os.path.join(run, "coverage-ledger.json"))
         units = ledger.get("units", ledger) if isinstance(ledger, dict) else ledger
         if isinstance(units, list):

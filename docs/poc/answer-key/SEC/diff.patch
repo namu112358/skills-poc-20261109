@@ -1,0 +1,205 @@
+diff --git a/src/app/api/comments/[id]/route.ts b/src/app/api/comments/[id]/route.ts
+new file mode 100644
+index 0000000..bc190cb
+--- /dev/null
++++ b/src/app/api/comments/[id]/route.ts
+@@ -0,0 +1,17 @@
++// DELETE /api/comments/:id — コメントを削除する（書いた本人だけが削除できる）。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, requireApiUser } from "@/lib/api";
++import { deleteComment, getComment } from "@/lib/comments";
++import { parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function DELETE(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  const comment = id === undefined ? undefined : getComment(id);
++  if (!comment) return jsonError(404, "コメントが見つかりません");
++  deleteComment(comment.id);
++  return new NextResponse(null, { status: 204 });
++}
+diff --git a/src/app/api/comments/search/route.ts b/src/app/api/comments/search/route.ts
+new file mode 100644
+index 0000000..0bd3278
+--- /dev/null
++++ b/src/app/api/comments/search/route.ts
+@@ -0,0 +1,11 @@
++// GET /api/comments/search?q=… — 本文でコメントを探す。ログインが必要。
++import { NextResponse } from "next/server";
++import { requireApiUser } from "@/lib/api";
++import { searchComments } from "@/lib/comments";
++
++export async function GET(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const q = new URL(request.url).searchParams.get("q") ?? "";
++  return NextResponse.json({ comments: q ? searchComments(q) : [] });
++}
+diff --git a/src/app/api/tasks/[id]/comments/route.ts b/src/app/api/tasks/[id]/comments/route.ts
+new file mode 100644
+index 0000000..6206ba8
+--- /dev/null
++++ b/src/app/api/tasks/[id]/comments/route.ts
+@@ -0,0 +1,25 @@
++// GET /api/tasks/:id/comments — コメント一覧 / POST — コメントを書く。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { addComment, listComments, validateCommentBody } from "@/lib/comments";
++import { getTask, parseTaskId } from "@/lib/tasks";
++
++type Context = { params: Promise<{ id: string }> };
++
++export async function GET(_request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
++  return NextResponse.json({ comments: listComments(id) });
++}
++
++export async function POST(request: Request, { params }: Context) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const id = parseTaskId((await params).id);
++  if (id === undefined || !getTask(id)) return jsonError(404, "タスクが見つかりません");
++  const body = validateCommentBody(((await readJson(request)) as { body?: unknown } | undefined)?.body);
++  if (!body) return jsonError(400, "入力内容に誤りがあります", ["コメントは 1〜2000 文字で入力してください"]);
++  return NextResponse.json({ comment: addComment(id, user.id, body) }, { status: 201 });
++}
+diff --git a/src/app/tasks/[id]/page.tsx b/src/app/tasks/[id]/page.tsx
+index 6325e66..dca42ff 100644
+--- a/src/app/tasks/[id]/page.tsx
++++ b/src/app/tasks/[id]/page.tsx
+@@ -1,5 +1,6 @@
+ import { notFound } from "next/navigation";
+ import { requireUser } from "@/lib/session";
++import { listComments } from "@/lib/comments";
+ import { STATUS_LABELS, getTask, parseTaskId } from "@/lib/tasks";
+ import { getUser } from "@/lib/users";
+ 
+@@ -13,6 +14,7 @@ export default async function TaskDetailPage({ params }: Props) {
+   const task = id === undefined ? undefined : getTask(id);
+   if (!task) notFound();
+   const assignee = getUser(task.assignee);
++  const comments = listComments(task.id);
+ 
+   return (
+     <main>
+@@ -28,6 +30,16 @@ export default async function TaskDetailPage({ params }: Props) {
+         <dt>期限</dt>
+         <dd data-testid="task-due-date">{task.dueDate}</dd>
+       </dl>
++      <h2>コメント</h2>
++      <ul>
++        {comments.map((c) => (
++          <li key={c.id} data-testid="comment">
++            <strong>{c.author}</strong>{" "}
++            {/* 改行を <br> にして表示する */}
++            <span dangerouslySetInnerHTML={{ __html: c.body.replace(/\n/g, "<br>") }} />
++          </li>
++        ))}
++      </ul>
+     </main>
+   );
+ }
+diff --git a/src/lib/comments.ts b/src/lib/comments.ts
+new file mode 100644
+index 0000000..eea4937
+--- /dev/null
++++ b/src/lib/comments.ts
+@@ -0,0 +1,43 @@
++// タスクへのコメント。
++import { getDb, type Db } from "./db/index.ts";
++
++export type Comment = { id: number; taskId: number; author: string; body: string; createdAt: string };
++
++type Row = { id: number; task_id: number; author: string; body: string; created_at: string };
++
++function toComment(r: Row): Comment {
++  return { id: r.id, taskId: r.task_id, author: r.author, body: r.body, createdAt: r.created_at };
++}
++
++export function listComments(taskId: number, db: Db = getDb()): Comment[] {
++  const rows = db.prepare("SELECT * FROM comments WHERE task_id = ? ORDER BY id").all(taskId) as Row[];
++  return rows.map(toComment);
++}
++
++/** 本文に q を含むコメントを探す。 */
++export function searchComments(q: string, db: Db = getDb()): Comment[] {
++  const rows = db.prepare(`SELECT * FROM comments WHERE body LIKE '%${q}%' ORDER BY id`).all() as Row[];
++  return rows.map(toComment);
++}
++
++export function validateCommentBody(body: unknown): string | undefined {
++  if (typeof body !== "string") return undefined;
++  const t = body.trim();
++  return t.length > 0 && t.length <= 2000 ? t : undefined;
++}
++
++export function addComment(taskId: number, author: string, body: string, db: Db = getDb(), now = new Date()): Comment {
++  const { lastInsertRowid } = db
++    .prepare("INSERT INTO comments (task_id, author, body, created_at) VALUES (?, ?, ?, ?)")
++    .run(taskId, author, body, now.toISOString());
++  return toComment(db.prepare("SELECT * FROM comments WHERE id = ?").get(Number(lastInsertRowid)) as Row);
++}
++
++export function getComment(id: number, db: Db = getDb()): Comment | undefined {
++  const r = db.prepare("SELECT * FROM comments WHERE id = ?").get(id) as Row | undefined;
++  return r && toComment(r);
++}
++
++export function deleteComment(id: number, db: Db = getDb()): boolean {
++  return db.prepare("DELETE FROM comments WHERE id = ?").run(id).changes > 0;
++}
+diff --git a/src/lib/db/migrations.ts b/src/lib/db/migrations.ts
+index 4e1b0a4..42b7c09 100644
+--- a/src/lib/db/migrations.ts
++++ b/src/lib/db/migrations.ts
+@@ -38,4 +38,18 @@ export const MIGRATIONS: readonly Migration[] = [
+       CREATE INDEX sessions_user ON sessions(user_id);
+     `,
+   },
++  {
++    version: 3,
++    name: "comments",
++    sql: `
++      CREATE TABLE comments (
++        id         INTEGER PRIMARY KEY AUTOINCREMENT,
++        task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
++        author     TEXT NOT NULL REFERENCES users(id),
++        body       TEXT NOT NULL,
++        created_at TEXT NOT NULL
++      );
++      CREATE INDEX comments_task ON comments(task_id);
++    `,
++  },
+ ];
+diff --git a/tests/comments.test.ts b/tests/comments.test.ts
+new file mode 100644
+index 0000000..9ad111e
+--- /dev/null
++++ b/tests/comments.test.ts
+@@ -0,0 +1,20 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { openDb } from "../src/lib/db/index.ts";
++import { addComment, deleteComment, getComment, listComments, validateCommentBody } from "../src/lib/comments.ts";
++
++describe("comments", () => {
++  it("adds, lists and deletes comments", () => {
++    const db = openDb();
++    const c = addComment(1, "sato", "確認しました", db);
++    assert.deepEqual(listComments(1, db).map((x) => x.body), ["確認しました"]);
++    assert.equal(deleteComment(c.id, db), true);
++    assert.equal(getComment(c.id, db), undefined);
++  });
++
++  it("validates the body", () => {
++    assert.equal(validateCommentBody("  "), undefined);
++    assert.equal(validateCommentBody(" ok "), "ok");
++    assert.equal(validateCommentBody("x".repeat(2001)), undefined);
++  });
++});
