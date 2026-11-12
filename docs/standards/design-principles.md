@@ -122,4 +122,4 @@ Skill なしの試行には、Skill ツールを使わないよう明示した�
 3. この文書の表も直す。
 4. `python3 scripts/check-templates.py` と `python3 scripts/check-skills.py` でエラーが 0 件であることを確かめる。
 
-この Skill は、PoC の試行の作業用コピーには入れていない（`scripts/poc/run-trial.sh`）。これまでの試行と条件を変えないため。
+この Skill は、PoC の試行の作業用コピーには入れていない（`poc/scripts/run-trial.sh`）。これまでの試行と条件を変えないため。

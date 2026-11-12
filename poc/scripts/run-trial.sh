@@ -1,0 +1,879 @@
+#!/usr/bin/env bash
+# 開発ワークフローの試行を 1 回実行する。
+# 使い方: poc/scripts/run-trial.sh <シナリオ> <候補> <回>
+#   候補: baseline | superpowers | feature-dev | compound-engineering | gstack
+#         | baseline-conventions（W12 で追加。候補なしで、作業用コピーの CLAUDE.md の末尾に開発規約だけを足す）
+#         | ui-none | ui-all | ui-a | ui-fd | ui-pm | ui-fd-md | ui-a-md | ui-all-md | ui-fd-md-wdg | ui-fd-md-imp | ui-wdg-rv | ui-a-rv（U1 の課題だけ。*-rv は U4。*-md は U2、*-md-* は U3。UI/UX 系ツールの組み合わせ。poc/tasks/wf-U1-design.md）
+#   （gstack の setup 実行は 2026-11-09 にユーザーの許可を得た。専用 HOME の中だけで実行する）
+# 作業用コピー（既定は /tmp/poc-trials/<ID>。POC_TRIAL_ROOT で変更可）で、専用の HOME を使って Claude Code をヘッドレスで起動する。
+# 作業用コピーをリポジトリの外に置くのは、正解データ（poc/answer-key/）や他の試行の結果へ相対パスで辿れないようにするため。
+# 置き場所は raw/<ID>/workdir に記録し、grade.py はそこを読む（記録がなければ旧来の .poc-work/trials/<ID>）。
+# W7 の 2 段階目以降（W7b、後から足す W7c〜W7e など）は新しい作業用コピーを作らず、1 つ前の段階の作業用コピー
+#（それまでの変更を含む app）と専用 HOME をそのまま使う（既定は同じ候補・同じ回の 1 つ前の段階。W7b なら W7a。
+# POC_CONTINUE_FROM=<試行 ID> で指定できる）。poc/tasks/wf-procedures.md の「W7 の決まり」。
+# 対照（POC_W7_CONTROL=1）: 前の段階を引き継がず、新しい作業用コピーに、前の段階までの参照実装を当てた状態から始める
+#（候補の記憶が無いときとの差を見るため）。
+# 子セッションの権限は poc/tasks/wf-procedures.md の「権限」のとおり（全許可にはしない）。
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SCENARIO="$1"; CAND="$2"; RUN="$3"
+CACHE="${POC_CACHE:-$ROOT/.poc-cache}"
+MODEL="${POC_MODEL:-claude-sonnet-5-5}"
+ID="$SCENARIO-$CAND-$RUN"
+# W22・W23（poc/tasks/wf-W22-design.md・wf-W23-design.md）: hk-<設定> は W21 の設定を Haiku で動かす（試行 ID には hk- を残す）
+if [[ ( "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ) && "$CAND" == hk-* ]]; then
+  CAND="${CAND#hk-}"; MODEL="${POC_MODEL:-claude-haiku-5-5}"
+fi
+TRIALS="${POC_TRIAL_ROOT:-/tmp/poc-trials}"
+WORK="$TRIALS/$ID"
+CONTINUE_FROM=""
+W7_CONTROL=""
+if [[ "$SCENARIO" =~ ^W7([b-z])$ ]]; then
+  if [[ "${POC_W7_CONTROL:-}" == 1 ]]; then
+    W7_CONTROL=1
+  else
+    PREV_STAGE="W7$(printf "\\$(printf '%03o' $(( $(printf '%d' "'${BASH_REMATCH[1]}") - 1 )))")"
+    CONTINUE_FROM="${POC_CONTINUE_FROM:-$PREV_STAGE-$CAND-$RUN}"
+    WORK="$TRIALS/$CONTINUE_FROM"
+    # 前の段階も引き継いでいた（W7c 以降）ときは、その段階が実際に使った作業用コピー（raw/<前の段階>/workdir）をたどる
+    PREV_WORKDIR="$ROOT/poc/results/workflow/raw/$CONTINUE_FROM/workdir"
+    [[ -f "$PREV_WORKDIR" ]] && WORK="$(cat "$PREV_WORKDIR")"
+    [[ -d "$WORK/app/.git" && -d "$WORK/home" ]] || { echo "$SCENARIO: 引き継ぐ前の段階の作業用コピーがない: $WORK" >&2; exit 1; }
+  fi
+fi
+APP="$WORK/app"
+HOME_DIR="$WORK/home"
+OUT="$ROOT/poc/results/workflow/raw/$ID"
+
+if [[ -n "$CONTINUE_FROM" ]]; then
+  rm -rf "$OUT"; mkdir -p "$OUT"
+  echo "$CONTINUE_FROM" > "$OUT/continued-from"
+else
+  rm -rf "$WORK" "$OUT"; mkdir -p "$APP" "$HOME_DIR" "$OUT"
+fi
+echo "$WORK" > "$OUT/workdir"
+echo "$MODEL" > "$OUT/model"
+[[ -n "$W7_CONTROL" ]] && echo 1 > "$OUT/control"
+
+# 1) 評価用アプリのコピー（node_modules を含む）と、常時有効な Skills・MCP
+# POC_APP_SRC: コピー元の評価用アプリ（既定は $ROOT/poc/app）。W1 を当時の poc-app（ログイン・SQLite の追加前）で
+# 再試行するときなどに、その版を取り出したディレクトリを指定する。使ったコピー元は raw/<ID>/app-src に記録する。
+APP_SRC="${POC_APP_SRC:-$ROOT/poc/app}"
+[[ -n "${POC_APP_SRC:-}" ]] && echo "$APP_SRC" > "$OUT/app-src"
+if [[ -n "$CONTINUE_FROM" ]]; then
+  # W7b: W7a の終了時点（コミット済み）を baseline にし、W7b の作業ブランチを切る。アプリのコピー・パッチ・Skills の配置はしない
+  git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
+  git -C "$APP" switch -q -c "poc/wf/$CAND/$SCENARIO/$RUN"
+else
+if [[ "$SCENARIO" == W11-* ]]; then
+  # W11（実在する OSS の解決済み課題）: poc/scripts/oss/oss.py prepare で作った初期状態（修正の 1 つ前のソース。履歴なし）を写す。
+  # node_modules はハードリンク、python の課題は $WORK/venv に環境を作る（app の外なので git に入らない）。
+  # 本家の履歴・修正後のコード・隠しテストは作業用コピーに置かない（poc/tasks/wf-W11-design.md）。
+  OSS_TASK="${SCENARIO#W11-}"
+  python3 "$ROOT/poc/scripts/oss/oss.py" copy-app "$OSS_TASK" "$APP" "$WORK" > "$OUT/oss-setup.log" 2>&1
+else
+if [[ "$SCENARIO" == W13 ]]; then
+  # W13: ディスクの割り当てを使い切らないよう、node_modules はハードリンクで写す（依存の追加は許可していないので中身は同じ。
+  # W12 で容量が尽きて試行が止まったため。2026-11-10）
+  ( cd "$APP_SRC" && tar --exclude=./node_modules --exclude=./.next -cf - . ) | ( cd "$APP" && tar -xf - )
+  cp -al "$APP_SRC/node_modules" "$APP/node_modules"
+else
+cp -a "$APP_SRC/." "$APP/"
+fi
+rm -rf "$APP/.next" "$APP"/*.tsbuildinfo
+fi
+mkdir -p "$APP/.claude/skills"
+cp -a "$ROOT/.claude/skills/." "$APP/.claude/skills/"
+rm -f "$APP/.claude/skills/SOURCES.md"
+# このリポジトリで作った Skill（templates/agents/.claude/skills/ に正本があるもの）は、試行の作業用コピーに入れない。
+# これまでの試行は vendored Skills だけで行っており、条件を変えないため（2026-11-11）
+for own in "$ROOT"/templates/agents/.claude/skills/*/; do
+  [[ -d "$own" ]] && rm -rf "${APP:?}/.claude/skills/$(basename "$own")"
+done
+# U1（UI/UX 系ツールの組み合わせの比較。poc/tasks/wf-U1-design.md）: 構成に入らない vendored の UI 系 Skill を除く。
+# ui-none は両方、ui-a・ui-pm は Frontend Design を除く（Web Design Guidelines は ui-none 以外のすべてに入れる）
+case "$CAND" in
+  ui-none) rm -rf "$APP/.claude/skills/frontend-design" "$APP/.claude/skills/web-design-guidelines" ;;
+  ui-a|ui-pm|ui-a-md|ui-a-rv) rm -rf "$APP/.claude/skills/frontend-design" ;;
+esac
+# W21 の principles（自作の設計の原則のレビュー）だけは、その Skill を入れる（比べる対象そのもののため。
+# baseline コミットより前に入れるので、レビュー対象の差分には出ない。poc/tasks/wf-W21-design.md）
+if [[ ( "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ) && "$CAND" == principles ]]; then
+  cp -a "$ROOT/templates/agents/.claude/skills/design-principles-review" "$APP/.claude/skills/"
+fi
+cat > "$APP/.mcp.json" <<'JSON'
+{"mcpServers":{
+  "playwright":{"type":"stdio","command":"npx","args":["-y","@playwright/mcp@0.0.84"]},
+  "next-devtools":{"type":"stdio","command":"npx","args":["-y","next-devtools-mcp@0.4.0"]}}}
+JSON
+# W5（バグ修正）: 仕込みバグのパッチ（正解データ）を作業用コピーにだけ当ててから baseline コミットを作る。
+# バグは baseline の一部になるので、候補からは差分として見えない。パッチファイル自体は作業用コピーに置かない。
+# W7a: 落とし穴の決まり（日時・エラー型）を含む既存機能の初期状態（answer-key/W7/base.patch）を同じように当てる。
+# W5・W7a 以外は既定で当てない（POC_INJECT_PATCH で明示したときだけ当てる）。
+INJECT="${POC_INJECT_PATCH:-}"
+[[ -z "$INJECT" && "$SCENARIO" == W5 ]] && INJECT="$ROOT/poc/answer-key/W5/bugs.patch"
+[[ -z "$INJECT" && "$SCENARIO" == W7a ]] && INJECT="$ROOT/poc/answer-key/W7/base.patch"
+# W12: 題材（計測器の校正台帳）の初期状態を当てる（poc/tasks/wf-W12-design.md）
+[[ -z "$INJECT" && "$SCENARIO" == W12 ]] && INJECT="$ROOT/poc/answer-key/W12/base.patch"
+# W12 の追加条件「乱れた初期状態」（POC_W12_BASE=messy）: base.patch の上に base-messy.patch を当てる（設計書 §5）
+if [[ "${POC_W12_BASE:-}" == messy && "$SCENARIO" == W12 ]]; then
+  INJECT="$INJECT:$ROOT/poc/answer-key/W12/base-messy.patch"
+  echo messy > "$OUT/base-variant"
+elif [[ -n "${POC_W12_BASE:-}" ]]; then
+  echo "POC_W12_BASE は W12 で messy のときだけ使える: ${POC_W12_BASE} ($SCENARIO)" >&2; exit 1
+fi
+# W13: 同じ題材の初期状態（W12 の base.patch の写し。poc/tasks/wf-W13-design.md）
+[[ -z "$INJECT" && "$SCENARIO" == W13 ]] && INJECT="$ROOT/poc/answer-key/W13/base.patch"
+# W14・W15: 同じ題材に、その W に必要なものを足した初期状態（poc/tasks/wf-W14-design.md・wf-W15-design.md）
+[[ -z "$INJECT" && ( "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 ) ]] && INJECT="$ROOT/poc/answer-key/$SCENARIO/base.patch"
+# W20（レビューの組み合わせの評価。poc/tasks/wf-W20-design.md）: 回の名前は <題材>-<繰り返し>（例 c2-1）。
+# 題材（answer-key/W20/cases/<題材>/）の base に書いた W の初期状態を当てる（base が無ければ poc-app のまま）
+# W21（見つけにくい問題でのレビューの比較。poc/tasks/wf-W21-design.md）も同じ形（answer-key/W21/cases/）。
+E2_DIR=""
+if [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ]]; then
+  # W22 は W21 の題材と正解をそのまま使う
+  E2_SCN="$SCENARIO"; [[ "$SCENARIO" == W22 || "$SCENARIO" == W25 ]] && E2_SCN=W21; [[ "$SCENARIO" == W26 ]] && E2_SCN=W24; [[ "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 ]] && E2_SCN=W20
+  E2_CASE="${RUN%-*}"; E2_DIR="$ROOT/poc/answer-key/$E2_SCN/cases/$E2_CASE"
+  [[ -f "$E2_DIR/review.patch" && -f "$E2_DIR/pr.md" ]] || { echo "$SCENARIO: 題材が無い: $E2_DIR" >&2; exit 1; }
+  echo "$E2_CASE" > "$OUT/e2-case"
+  [[ -z "$INJECT" && -f "$E2_DIR/base" ]] && INJECT="$ROOT/poc/answer-key/$(cat "$E2_DIR/base")/base.patch"
+fi
+# W7 の対照: 初期状態 + 前の段階までの参照実装（例: W7b なら base.patch:reference-W7a.patch）。POC_INJECT_PATCH は : 区切りで複数書ける
+if [[ -z "$INJECT" && -n "$W7_CONTROL" ]]; then
+  INJECT="$ROOT/poc/answer-key/W7/base.patch"
+  for s in a b c d e f g h; do
+    [[ "W7$s" == "$SCENARIO" ]] && break
+    INJECT="$INJECT:$ROOT/poc/answer-key/W7/reference-W7$s.patch"
+  done
+fi
+( cd "$APP" && git init -q )
+if [[ -n "$INJECT" ]]; then
+  IFS=: read -r -a INJECTS <<< "$INJECT"
+  : > "$OUT/injected-patch"
+  for pf in "${INJECTS[@]}"; do
+    git -C "$APP" apply "$pf"
+    sha256sum "$pf" | sed "s#$ROOT/##" >> "$OUT/injected-patch"
+  done
+fi
+# baseline-conventions（W12 で追加した条件）: 候補のプラグインなしで、CLAUDE.md の末尾に開発規約（固定の文言）だけを足す。
+# 規約は初期状態の一部になるので、候補からは差分として見えない。
+if [[ "$CAND" == baseline-conventions ]]; then
+  cat "$ROOT/poc/tasks/wf-$SCENARIO-conventions.md" >> "$APP/CLAUDE.md"
+  sha256sum "$ROOT/poc/tasks/wf-$SCENARIO-conventions.md" | sed "s#$ROOT/##" > "$OUT/conventions"
+fi
+# U2（poc/tasks/wf-U2-design.md）: *-md の構成は、使う Skill の指示（wf-U2-<構成>.md。固定の文言）を CLAUDE.md の末尾に足す。
+# 初期状態の一部なので、候補からは差分に見えない
+# U4 の *-rv は、作る・レビューの両方の指示（wf-U4-<構成>.md）を足す
+if [[ "$CAND" == *-rv ]]; then
+  cat "$ROOT/poc/tasks/wf-U4-$CAND.md" >> "$APP/CLAUDE.md"
+  sha256sum "$ROOT/poc/tasks/wf-U4-$CAND.md" | sed "s#$ROOT/##" > "$OUT/w24-instruction"
+fi
+# U3 の ui-fd-md-* も、作る段階は ui-fd-md と同じ指示を足す（poc/tasks/wf-U3-design.md）
+if [[ "$CAND" == *-md || "$CAND" == *-md-* ]]; then
+  INSTR="$ROOT/poc/tasks/wf-U2-${CAND%%-md*}-md.md"
+  cat "$INSTR" >> "$APP/CLAUDE.md"
+  sha256sum "$INSTR" | sed "s#$ROOT/##" > "$OUT/w22-instruction"
+fi
+# 汎用の開発標準（W12 の追加条件。POC_STANDARD=generic、W12 のときだけ）: poc/standards/generic-dev-standard.md の
+# 区切り（コメント）より下を、そのまま CLAUDE.md の末尾に足す。試行 ID は回の番号 11・12 で区別する（設計書 §5）。
+if [[ "${POC_STANDARD:-}" == generic && "$SCENARIO" == W12 ]]; then
+  STD="$ROOT/poc/standards/generic-dev-standard.md"
+  { echo; sed -n '/^-->$/,$p' "$STD" | tail -n +2; } >> "$APP/CLAUDE.md"
+  sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/standard"
+elif [[ -n "${POC_STANDARD:-}" ]]; then
+  echo "POC_STANDARD は W12 で generic のときだけ使える: ${POC_STANDARD} ($SCENARIO)" >&2; exit 1
+fi
+# W13・W14・W15: 全条件の作業用コピーで、アプリの CLAUDE.md の末尾に汎用の開発標準（poc/standards/generic-dev-standard.md の
+# 区切りのコメントより下。全 W 同じ文面）を足す（2026-11-10 コーディネーター・ユーザー承認）。初期状態の一部なので候補からは差分に見えない
+if [[ "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 || ( ( "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ) && -f "$E2_DIR/standard" ) ]]; then
+  STD="$ROOT/poc/standards/generic-dev-standard.md"
+  { echo; sed '1,/^-->$/d' "$STD"; } >> "$APP/CLAUDE.md"
+  sha256sum "$STD" | sed "s#$ROOT/##" > "$OUT/dev-standard"
+fi
+# W26（poc/tasks/wf-W26-design.md）: baseline-std は、W24 の「動かして確かめる」指示を依頼文ではなく、
+# アプリの CLAUDE.md の規約として足す（標準として配るときの置き方）。初期状態の一部なので候補からは差分に見えない
+if [[ "$SCENARIO" == W26 && "$CAND" == baseline-std ]]; then
+  printf '%s\n' "" "## レビューの規約" "" "- コードをレビューするときは、疑わしい箇所（境界値・日付や時刻・並び順・状態の共有など）を読むだけで判断せず、node で関数を呼ぶ小さな再現スクリプト（作業用コピーの外の一時ファイル）を書いて実際に動かし、結果を確かめてから指摘する。" >> "$APP/CLAUDE.md"
+fi
+( cd "$APP" && git add -A && git -c user.name=poc -c user.email=poc@example.invalid commit -qm baseline )
+git -C "$APP" config user.name poc
+git -C "$APP" config user.email poc@example.invalid
+git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
+# 試行は作業ブランチの上で始める（W2 以降。W1 で gstack の /review が master 直コミットのため差分なしで止まったため）
+#（W1 は master のまま。W1 の手順を同じ条件で再実行できるようにするため）
+[[ "$SCENARIO" != W1 ]] && git -C "$APP" switch -q -c "poc/wf/$CAND/$SCENARIO/$RUN"
+# W9（レビューで不具合を見つける）: レビュー対象の差分（正解データ poc/answer-key/W9/review.patch）を
+# 作業ブランチにだけ当て、PR の説明（課題文の「# PR:」以降）をメッセージにしたコミットを作る。候補は master との差分をレビューする。
+# パッチファイル自体は作業用コピーに置かない。baseline-commit はレビュー対象のコミットにする（候補が書いた REVIEW.md などだけが成果の差分になる）。
+# W9 以外では何もしない。
+if [[ "$SCENARIO" == W9 ]]; then
+  REVIEW_PATCH="${POC_REVIEW_PATCH:-$ROOT/poc/answer-key/W9/review.patch}"
+  git -C "$APP" apply "$REVIEW_PATCH"
+  sha256sum "$REVIEW_PATCH" | sed "s#$ROOT/##" > "$OUT/review-patch"
+  git -C "$APP" rev-parse HEAD > "$OUT/review-base-commit"
+  sed -n '/^# PR:/,$p' "$ROOT/poc/tasks/wf-W9.md" | sed '1s/^# PR: //' > "$WORK/review-commit-msg"
+  ( cd "$APP" && git add -A && git commit -q -F "$WORK/review-commit-msg" )
+  rm -f "$WORK/review-commit-msg"
+  git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
+fi
+# U1c・U1g（U4）: W20 と同じく、レビュー対象の差分（answer-key/U1/review.patch・review-g.patch）を未コミットの変更として置く
+if [[ "$SCENARIO" == U1c || "$SCENARIO" == U1g ]]; then
+  RPATCH="$ROOT/poc/answer-key/U1/review.patch"
+  [[ "$SCENARIO" == U1g ]] && RPATCH="$ROOT/poc/answer-key/U1/review-g.patch"
+  git -C "$APP" apply "$RPATCH"
+  git -C "$APP" add -N .
+  sha256sum "$RPATCH" | sed "s#$ROOT/##" > "$OUT/review-patch"
+fi
+# W20: レビュー対象の差分を、作業ブランチの未コミットの変更として置く（/code-review の「今の差分」と、PR Review Toolkit の
+# git diff の両方に出るよう、新しいファイルも intent-to-add で登録する）。パッチ自体は作業用コピーに置かない
+if [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ]]; then
+  git -C "$APP" apply "$E2_DIR/review.patch"
+  git -C "$APP" add -N .
+  sha256sum "$E2_DIR/review.patch" | sed "s#$ROOT/##" > "$OUT/review-patch"
+fi
+fi
+
+# 2) 必須プラグイン + 候補プラグイン（すべて固定コミット。poc/scripts/fetch-plugins.sh で取得）
+#    Skill が自分の参照ファイル（references/*.md など）を読めるよう、試行ごとの作業領域にコピーして
+#    --add-dir で読み取りを許可する（コピーなので、書き換えられても他の試行には影響しない）。
+PLUG="$WORK/plugins"; mkdir -p "$PLUG"
+PLUG_EXTRA=()
+CPO="$CACHE/claude-plugins-official/plugins"
+copy_plugin() {  # W7b は W7a でコピーしたものをそのまま使う
+  [[ -n "$CONTINUE_FROM" && -d "$PLUG/$2" ]] || { cp -a "$1" "$PLUG/$2"; rm -rf "$PLUG/$2/.git"; }
+  PLUGINS+=(--plugin-dir "$PLUG/$2")
+}
+PLUGINS=()
+copy_plugin "$CPO/security-guidance" security-guidance
+copy_plugin "$CPO/typescript-lsp" typescript-lsp
+# U1 の構成（ui-*）では、Impeccable と UI/UX Pro Max を構成に入るときだけ読み込む。ほかの候補は従来どおり両方
+case "$CAND" in
+  ui-none|ui-fd|ui-fd-md|ui-fd-md-wdg|ui-wdg-rv) ;;
+  ui-a|ui-a-md|ui-fd-md-imp|ui-a-rv) copy_plugin "$CACHE/impeccable/plugin" impeccable ;;
+  ui-pm) copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max ;;
+  *) copy_plugin "$CACHE/impeccable/plugin" impeccable; copy_plugin "$CACHE/ui-ux-pro-max" ui-ux-pro-max ;;
+esac
+case "$CAND" in
+  baseline|baseline-conventions) ;;
+  ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md|ui-fd-md-wdg|ui-fd-md-imp|ui-wdg-rv|ui-a-rv) [[ "$SCENARIO" == U1? ]] || { echo "ui-* は U1 の構成: $SCENARIO" >&2; exit 1; } ;;
+  superpowers) copy_plugin "$CACHE/superpowers" superpowers ;;
+  feature-dev) copy_plugin "$CPO/feature-dev" feature-dev ;;
+  # W20 のレビューの設定: cr-low・cr-high は組み込みの /code-review、review-pr・combo は PR Review Toolkit、sp-review は Superpowers
+  cr-low|cr-high) ;;
+  review-pr|combo) copy_plugin "$CPO/pr-review-toolkit" pr-review-toolkit ;;
+  # W21: principles は自作の Skill（上でコピー済み）、ce-review は Compound Engineering の ce-code-review
+  principles|baseline-run|baseline-std|baseline-e2e|baseline-req|baseline-both|baseline-2pass|baseline-e2e-report) ;;
+  ce-review|ce-full) copy_plugin "$CACHE/compound-engineering" compound-engineering ;;
+  review-pr-full) copy_plugin "$CPO/pr-review-toolkit" pr-review-toolkit ;;
+  sp-review) copy_plugin "$CACHE/superpowers" superpowers ;;
+  compound-engineering) copy_plugin "$CACHE/compound-engineering" compound-engineering ;;
+  gstack)
+    # gstack は marketplace 配布ではないため、試行ごとの専用 HOME の ~/.claude/skills/gstack に固定コミットを置き、
+    # setup を実行する（チーム用の自動更新フックなし・plan-tune フックなし）。
+    # ブラウザ（Chrome for Testing）は環境のネットワーク制限で取得できないため --no-browser。
+    GSTACK="$HOME_DIR/.claude/skills/gstack"
+    if [[ -n "$CONTINUE_FROM" ]]; then
+      # W7b: W7a で入れた gstack と、その状態・学習データ（専用 HOME）をそのまま使う
+      [[ -x "$GSTACK/bin/gstack-config" ]] || { echo "W7b: W7a の gstack がない: $GSTACK" >&2; exit 1; }
+      PLUG_EXTRA=(--add-dir "$GSTACK")
+    else
+    mkdir -p "$HOME_DIR/.claude/skills"
+    cp -a "$CACHE/gstack" "$GSTACK"
+    ( cd "$GSTACK" && HOME="$HOME_DIR" ./setup --host claude --no-team --no-plan-tune-hooks --no-browser --quiet ) > "$OUT/gstack-setup.log" 2>&1
+    # 外部送信を止める（更新確認、Codex への外部レビュー）。テレメトリーは初期値 off のまま
+    HOME="$HOME_DIR" "$GSTACK/bin/gstack-config" set update_check false >> "$OUT/gstack-setup.log" 2>&1
+    HOME="$HOME_DIR" "$GSTACK/bin/gstack-config" set codex_reviews disabled >> "$OUT/gstack-setup.log" 2>&1
+    HOME="$HOME_DIR" "$GSTACK/bin/gstack-config" get telemetry >> "$OUT/gstack-setup.log" 2>&1
+    PLUG_EXTRA=(--add-dir "$GSTACK")
+    fi
+    ;;
+  *) echo "unknown candidate: $CAND" >&2; exit 1 ;;
+esac
+
+# 3) 権限（全許可にはしない）
+ALLOWED=(
+  "Bash(npm run typecheck)" "Bash(npm test)" "Bash(npm run test)" "Bash(npm run build)"
+  "Bash(git status:*)" "Bash(git diff:*)" "Bash(git log:*)" "Bash(git show:*)"
+  "Bash(git add:*)" "Bash(git commit:*)" "Bash(git branch:*)" "Bash(git rev-parse:*)"
+  "Bash(git switch:*)" "Bash(git checkout:*)" "Bash(git -C:*)" "Bash(git check-ignore:*)"
+  "Bash(ls:*)" "Bash(cat:*)" "Bash(grep:*)" "Bash(find:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(wc:*)"
+  "Bash(cd:*)" "Bash(mkdir:*)" "Bash(sleep:*)"
+  # 候補プラグイン自身のスクリプト（試行ごとのコピー）
+  "Bash(python3 $PLUG/:*)" "Bash(bash $PLUG/:*)" "Bash(node $PLUG/:*)"
+)
+if [[ "$SCENARIO" != W11-* ]]; then
+  # W11 は外部への接続（本家の修正の参照）を避けるため curl を許可しない。next は W11 では使わない
+  ALLOWED+=("Bash(curl -s:*)" "Bash(npx next:*)")
+fi
+CHILD_ENV=()
+if [[ "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ]]; then
+  # W21・W22: レビューの中で、再現用のスクリプトを node で動かして確かめられるようにする（全設定で同じ。依存のインストールは許可しない）。
+  # 動作確認の試行で、CE が書いた再現スクリプトの実行が拒否されたため（poc/results/workflow/W21/decisions.md）
+  ALLOWED+=("Bash(node:*)" "Bash(timeout * node*)" "Bash(npx tsc:*)" "Bash(npm test:*)" "Bash(npm run test:*)")
+fi
+if [[ "$SCENARIO" == W11-* ]]; then
+  # W11: 課題のテストと、再現用のスクリプトの実行を許可する（2026-11-09 ユーザー承認）。依存のインストールは許可しない。
+  ALLOWED+=(
+    "Bash(python:*)" "Bash(python3:*)" "Bash(pytest:*)" "Bash(timeout * python*)"
+    "Bash(node:*)" "Bash(npx vitest:*)" "Bash(npx tsx:*)" "Bash(npx tsc:*)" "Bash(timeout * node*)" "Bash(timeout * npx*)"
+    "Bash(pnpm test:*)" "Bash(pnpm vitest:*)" "Bash(pnpm exec vitest:*)" "Bash(pnpm exec tsx:*)" "Bash(pnpm exec tsc:*)"
+  )
+  # python の課題: 試行ごとの環境（$WORK/venv）の python・pytest を使わせる
+  [[ -x "$WORK/venv/bin/python" ]] && CHILD_ENV=(PATH="$WORK/venv/bin:$PATH" VIRTUAL_ENV="$WORK/venv")
+  # zod の課題（B3・F1）: CLAUDE.md が指示する nub の代替（poc/scripts/oss/nub-shim）を PATH に入れ、nub の実行を許可する。
+  # 代替は事前に入れた依存だけで動き、依存の変更と知らないサブコマンドは拒否する（2026-11-09 コーディネーター承認）
+  if [[ -x "$WORK/bin/nub" ]]; then
+    CHILD_ENV=(PATH="$WORK/bin:$PATH")
+    ALLOWED+=("Bash(nub:*)" "Bash(timeout * nub*)")
+  fi
+fi
+if [[ "$CAND" == gstack ]]; then
+  # gstack 自身のコマンド（~/.claude/skills/gstack/bin/*）
+  ALLOWED+=("Bash($GSTACK/bin/:*)" "Bash(~/.claude/skills/gstack/bin/:*)" "Bash(bun $GSTACK/:*)")
+fi
+# W6 以降（UI 実装からブラウザ検証まで）: 開発サーバーの起動とブラウザ操作を許可する（2026-11-09 追加）。
+# W1〜W5 は比較の条件を揃えるため従来の許可リストのまま。サーバーは試行後に reap_servers が止める。
+SCN_NUM="${SCENARIO#W}"; SCN_NUM="${SCN_NUM%%[a-z-]*}"
+# W7 は除く: W7 の試行は、この許可の追加が main に入る前に現行の許可リストで始めたため、
+# 対照も含めて同じ許可リストのまま行う（W7 の report.md「判断の記録」）。
+# W11 は OSS のライブラリが対象なので、開発サーバー・ブラウザの許可は足さない
+if [[ "$SCN_NUM" -ge 6 && "$SCN_NUM" != 7 && "$SCN_NUM" != 11 ]]; then
+  ALLOWED+=(
+    "Bash(npm run dev)" "Bash(npm run dev:*)" "Bash(npm run start)" "Bash(npm run start:*)"
+    "Bash(timeout * npm run dev*)" "Bash(timeout * npm run start*)" "Bash(timeout * npx next *)"
+    # npm start（npm run start の別名）と、ポートを環境変数で渡す形（PORT=3100 npm run start など）。
+    # 2026-11-09 の最初の試行でこの形が漏れていて、2 試行がサーバーを起動できなかったため追加した
+    "Bash(npm start)" "Bash(npm start:*)" "Bash(PORT=* npm start*)" "Bash(PORT=* npm run start*)"
+    "Bash(PORT=* npm run dev*)" "Bash(PORT=* npx next *)"
+    # ブラウザ: Playwright MCP（全候補共通。事前インストール済みの Chromium を使う）と Next.js DevTools MCP
+    "mcp__playwright" "mcp__next-devtools"
+  )
+  if [[ "$CAND" == gstack ]]; then
+    # gstack のブラウザ（browse）。Chrome for Testing は取得できないので、事前インストール済みの Chromium を使わせる
+    ALLOWED+=("Bash($GSTACK/browse/dist/:*)" "Bash(~/.claude/skills/gstack/browse/dist/:*)")
+  fi
+  CHILD_ENV+=(GSTACK_CHROMIUM_PATH=/opt/pw-browsers/chromium)
+  # 子セッションが起動したサーバー・ブラウザが試行後に残らないよう、終了時にも止める（reap_servers は下で定義）
+  trap 'declare -F reap_servers >/dev/null && reap_servers end' EXIT
+fi
+# U1: Web Design Guidelines がルールを取得できるよう、取得先だけ WebFetch を許可する（全構成に同じく足す。
+# 2026-11-11 コーディネーター判断。CLAUDE.md の例外: 子セッションの許可リストの変更。U1 の report.md の「判断の記録」）
+[[ "$SCENARIO" == U1? ]] && ALLOWED+=("WebFetch(domain:raw.githubusercontent.com)")
+# W12: 依頼者への質問コマンド ask-po を作業用コピーの外（$WORK/bin）に置き、子セッションの PATH に入れて実行を許可する
+#（2026-11-10 コーディネーター承認。CLAUDE.md の例外: 子セッションの許可リストの変更）。依頼者役は下で裏に起動する。
+if [[ "$SCENARIO" == W12 ]]; then
+  mkdir -p "$WORK/bin"
+  cp "$ROOT/poc/scripts/ask-po" "$WORK/bin/ask-po"
+  chmod +x "$WORK/bin/ask-po"
+  ALLOWED+=("Bash(ask-po:*)" "Bash(ask-po *)")
+  CHILD_ENV+=(PATH="$WORK/bin:$PATH")
+fi
+# W13: W12 と同じ ask-po（依頼者役は answer_w13.py）。許可リストへの追加は ask-po だけ（2026-11-10 コーディネーター承認）
+if [[ "$SCENARIO" == W13 ]]; then
+  mkdir -p "$WORK/bin"
+  cp "$ROOT/poc/scripts/ask-po" "$WORK/bin/ask-po"
+  chmod +x "$WORK/bin/ask-po"
+  ALLOWED+=("Bash(ask-po:*)" "Bash(ask-po *)")
+  CHILD_ENV+=(PATH="$WORK/bin:$PATH")
+fi
+# W14・W15: W12 と同じ ask-po（依頼者役は answer_persona.py。回答シートは answer-key/<W>/persona.md）。
+# 許可リストへの追加は ask-po だけ（2026-11-10 コーディネーター承認）
+if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 ]]; then
+  mkdir -p "$WORK/bin"
+  cp "$ROOT/poc/scripts/ask-po" "$WORK/bin/ask-po"
+  chmod +x "$WORK/bin/ask-po"
+  ALLOWED+=("Bash(ask-po:*)" "Bash(ask-po *)")
+  CHILD_ENV+=(PATH="$WORK/bin:$PATH")
+fi
+
+# 4) 手順（poc/tasks/wf-procedures.md）
+if [[ "$SCENARIO" == W3 ]]; then
+  # W3 は質問に定型回答シートで答える（poc/tasks/wf-answers.md の「W3」）。末尾の定型文もそれに合わせる。
+  TASK="$(cat "$ROOT/poc/tasks/wf-$SCENARIO.md")
+
+この作業は無人で実行しています。質問には、依頼者の代わりに定型の回答シートから答えます（シートに無いことは「お任せします」と答えます）。"
+else
+  # 末尾の定型文（2026-11-09 変更）。旧文言では Feature Dev が「無人のため」と調査・設計・レビューの工程を省いたため、
+  # W4 以降は工程を省かないよう明記した新文言にする。W1・W2 は再現性のため旧文言が既定。
+  # POC_TASK_SUFFIX=old|new で明示的に切り替えられる（W1・W2 の新文言での再試行など）。
+  SUFFIX_MODE="${POC_TASK_SUFFIX:-}"
+  if [[ -z "$SUFFIX_MODE" ]]; then
+    case "$SCENARIO" in W1|W2) SUFFIX_MODE=old ;; W12) SUFFIX_MODE=w12 ;; *) SUFFIX_MODE=new ;; esac
+    # W13 も依頼者に質問できるので W12 と同じ文言
+    [[ "$SCENARIO" == W13 ]] && SUFFIX_MODE=w12
+    # W14・W15 も依頼者（品質保証部の担当者）に質問できるので同じ文言
+    [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 ]] && SUFFIX_MODE=w12
+  fi
+  case "$SUFFIX_MODE" in
+    # W12: 依頼者に質問できることを伝える（ask-po と、メッセージでの質問の両方）。工程を省かないことは新文言と同じ
+    w12) SUFFIX="この作業は無人で実行しています。依頼者（品質保証部の担当者）に確認したいことがあれば、作業中いつでも ask-po \"<質問>\" コマンドで質問できます（依頼者が答えます。決まっていないことは「お任せします」と返ります）。作業の区切りで、最後のメッセージに依頼者への質問を書いても答えます。ツールの手順にある工程（調査・設計・レビューなど）は省かずに進めてください。作業が終わったら、変更内容を git にコミットしてください。" ;;
+    old) SUFFIX="この作業は無人で実行しています。確認の質問には答えられないので、課題文に書かれていないことはお任せします。作業が終わったら、変更内容を git にコミットしてください。" ;;
+    new) SUFFIX="この作業は無人で実行しています。確認の質問には答えられないので、課題文に書かれていないことの判断はお任せしますが、ツールの手順にある工程（調査・設計・レビューなど）は省かずに進めてください。作業が終わったら、変更内容を git にコミットしてください。" ;;
+    *) echo "POC_TASK_SUFFIX は old・new・w12 のいずれか: $SUFFIX_MODE" >&2; exit 1 ;;
+  esac
+  echo "$SUFFIX_MODE" > "$OUT/task-suffix"
+  TASK="$(cat "$ROOT/poc/tasks/wf-$SCENARIO.md")
+
+$SUFFIX"
+fi
+# W20: 課題文（レビューの依頼の形式）のあとに題材の PR の説明を付ける（定型文は最後）
+if [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ]]; then
+  TASK="$(cat "$ROOT/poc/tasks/wf-W20.md")
+
+---
+
+$(cat "$E2_DIR/pr.md")
+
+$SUFFIX"
+fi
+EXTRA=()
+if [[ "$SCENARIO" == W3 ]]; then
+  # 質問はメッセージ本文で受け、回答役（answer_w3.py）が次のステップで返す。質問ツールは無人では答えられないので外す。
+  EXTRA=(--disallowedTools AskUserQuestion)
+  case "$CAND" in
+    baseline|superpowers) STEPS=("$TASK") ;;
+    feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
+    compound-engineering) STEPS=("/ce-brainstorm $TASK") ;;
+    gstack) STEPS=("/office-hours $TASK" "/plan-ceo-review") ;;
+  esac
+else
+  case "$CAND" in
+    baseline|baseline-conventions|superpowers) STEPS=("$TASK") ;;
+    # U1: どの構成も課題文を渡すだけ（Skill の自動発火）
+    ui-none|ui-all|ui-a|ui-fd|ui-pm|ui-fd-md|ui-a-md|ui-all-md|ui-fd-md-wdg|ui-fd-md-imp|ui-wdg-rv|ui-a-rv) STEPS=("$TASK") ;;
+    feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
+    compound-engineering) STEPS=("/ce-plan $TASK" "/ce-work" "/ce-code-review") ;;
+    gstack) STEPS=("$TASK" "/review") ;;
+  esac
+  # W12: 質問はメッセージ本文か ask-po で受ける。質問ツールは無人では答えられないので外す（W3 と同じ）
+  [[ "$SCENARIO" == W12 ]] && EXTRA=(--disallowedTools AskUserQuestion)
+  [[ "$SCENARIO" == W13 ]] && EXTRA=(--disallowedTools AskUserQuestion)
+  [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 ]] && EXTRA=(--disallowedTools AskUserQuestion)
+fi
+# W7a の後の手順（Compound Engineering は学んだことを残す /ce-compound。落とし穴の指摘のやり取りが終わってから行う）
+POST_STEPS=()
+# 後から段階を足すときは、最後の段階を除く各段階の後に行う（POC_W7_LAST_STAGE。既定は W7b）
+[[ "$SCENARIO" =~ ^W7[a-z]$ && "$SCENARIO" < "${POC_W7_LAST_STAGE:-W7b}" && "$CAND" == compound-engineering ]] && POST_STEPS=("/ce-compound")
+# W4 の gstack は /autoplan → 実装 → /review（PLAN.md §5.1。ほかのシナリオの手順は変えない）
+if [[ "$SCENARIO" == W4 && "$CAND" == gstack ]]; then
+  STEPS=("/autoplan $TASK" "計画に沿って実装し、変更を git にコミットしてください。" "/review")
+fi
+if [[ "$SCENARIO" == W6 ]]; then
+  # W6 の手順（poc/tasks/wf-procedures.md）。PR はリモートが無いので PR.md に書かせる（課題文に明記）。
+  PR_STEP="PR を作成してください（課題文の「確認と PR」のとおり、PR のタイトルと本文を PR.md に書いてコミットします）。"
+  case "$CAND" in
+    baseline) STEPS=("$TASK") ;;
+    superpowers) STEPS=("$TASK" "/superpowers:finishing-a-development-branch") ;;
+    feature-dev) STEPS=("/feature-dev:feature-dev $TASK" "$PR_STEP") ;;
+    compound-engineering) STEPS=("/ce-work $TASK" "/ce-test-browser" "/ce-commit-push-pr") ;;
+    gstack) STEPS=("$TASK" "/qa" "/ship") ;;
+  esac
+fi
+if [[ "$SCENARIO" == W8 ]]; then
+  # W8（人の介入なしでの自律実行）の手順（poc/tasks/wf-procedures.md・PLAN.md §5.1 の W8 の行）。
+  # 介入（「お任せします」）は既定 0 回（POC_MAX_NUDGES の既定どおり）。最初の指示と手順のコマンド以外は送らない。
+  case "$CAND" in
+    baseline) STEPS=("$TASK") ;;
+    superpowers) STEPS=("/superpowers:writing-plans $TASK" "/superpowers:subagent-driven-development") ;;
+    feature-dev) STEPS=("/feature-dev:feature-dev $TASK") ;;
+    compound-engineering) STEPS=("/ce-brainstorm $TASK" "/lfg") ;;
+    gstack) STEPS=("/autoplan $TASK" "/ship") ;;
+  esac
+fi
+if [[ "$SCENARIO" == W5 || "$SCENARIO" == W11-B* ]]; then
+  # W5 の手順（W11 の不具合の課題も同じ）（poc/tasks/wf-procedures.md）。gstack は /qa、Compound Engineering は /ce-debug に課題を渡す。
+  case "$CAND" in
+    baseline|superpowers|feature-dev) STEPS=("$TASK") ;;
+    compound-engineering) STEPS=("/ce-debug $TASK") ;;
+    gstack) STEPS=("/qa $TASK") ;;
+  esac
+fi
+if [[ "$SCENARIO" == W9 ]]; then
+  # W9 の手順（poc/tasks/wf-procedures.md）。各候補のレビューの入口に課題を渡す。Feature Dev はレビュー用のコマンドが
+  # 無いため、code-reviewer エージェントを使うよう指示する。指摘は REVIEW.md に書かせる（課題文に明記）。
+  case "$CAND" in
+    baseline) STEPS=("$TASK") ;;
+    superpowers) STEPS=("/superpowers:requesting-code-review $TASK") ;;
+    feature-dev) STEPS=("Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。
+
+$TASK") ;;
+    compound-engineering) STEPS=("/ce-code-review $TASK") ;;
+    gstack) STEPS=("/review $TASK") ;;
+  esac
+fi
+if [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ]]; then
+  # W20 の手順（poc/tasks/wf-W20-design.md）: ① 依頼（PR の説明）を渡すだけ → ② レビューの道具 → ③ 出た指摘を REVIEW.md に書き写す。
+  # 道具ごとの差を測るため、③ では新しい指摘を足させない
+  INTRO="$TASK
+
+（この最初のメッセージでは、まだレビューを始めないでください。依頼の内容を読んだら「了解」とだけ返してください。次のメッセージでレビューの道具を指定します。）"
+  WRITE="直前のレビューで出た指摘を、最初の依頼の形式（場所・何が問題か・直し方・重要度）で REVIEW.md に書き写し、REVIEW.md だけを git にコミットしてください。新しい指摘は足さず、出た指摘は削らないでください（同じ指摘はまとめてよい）。コードは直さないでください。"
+  case "$CAND" in
+    cr-low) STEPS=("$INTRO" "/code-review low" "$WRITE") ;;
+    cr-high) STEPS=("$INTRO" "/code-review high" "$WRITE") ;;
+    review-pr) STEPS=("$INTRO" "/pr-review-toolkit:review-pr all（対象は未コミットの差分。git diff HEAD で見られる）" "$WRITE") ;;
+    combo) STEPS=("$INTRO" "/code-review high" "/pr-review-toolkit:review-pr all（対象は未コミットの差分。git diff HEAD で見られる）" "${WRITE/直前のレビュー/直前の 2 つのレビュー}") ;;
+    sp-review) STEPS=("$INTRO" "/superpowers:requesting-code-review 未コミットの差分（git diff HEAD）を、最初の依頼の PR の説明に照らしてレビューする" "$WRITE") ;;
+    # W21 の設定（poc/tasks/wf-W21-design.md）。baseline は道具を指定せずにレビューさせる
+    baseline) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。" "$WRITE") ;;
+    principles) STEPS=("$INTRO" "/design-principles-review 未コミットの差分（git diff HEAD）を、最初の依頼の PR の説明に照らしてレビューする" "$WRITE") ;;
+    ce-review) STEPS=("$INTRO" "/ce-code-review base:HEAD" "$WRITE") ;;
+    # W28: 道具なし + 本番ビルドして起動し、変更した画面・API を実際に開いて確かめる指示（poc/tasks/wf-W28-design.md）
+    baseline-e2e) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。コードを読むだけで判断せず、本番ビルド（npm run build）をしてから本番モードでアプリを起動し（npm run start。空いているポートで、バックグラウンドで起動する）、ログインして、変更された画面を実際に開き・変更された API を実際に呼んで、動きを確かめてから指摘してください。画面は Playwright MCP のブラウザで開くか curl で取得してください。確かめ終わったらサーバーを止めてください。" "$WRITE") ;;
+    # W29: 道具なし + 合意した要件を 1 つずつ実装と照らす指示（poc/tasks/wf-W29-design.md）
+    baseline-req) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。まず、最初の依頼の PR の説明にある合意した要件・依頼の内容を 1 つずつ書き出し、それぞれについて、実装の該当箇所（ファイルと関数）を探して、満たしているか・満たしていないか・反しているかを確かめてください。似た要件どうし（例: 画面・API と、ほかの送信元）の違いにも注意してください。そのうえで、要件に反する点と不具合を指摘してください。" "$WRITE") ;;
+    # W30: W28（本番で起動して確かめる）と W29（要件を 1 つずつ照らす）の指示を合わせる（poc/tasks/wf-W30-design.md）
+    baseline-both) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。次の 2 つを行ってから、要件に反する点と不具合を指摘してください。(1) 最初の依頼の PR の説明にある合意した要件・依頼の内容を 1 つずつ書き出し、それぞれについて、実装の該当箇所（ファイルと関数）を探して、満たしているか・満たしていないか・反しているかを確かめる。似た要件どうし（例: 画面・API と、ほかの送信元）の違いにも注意する。(2) コードを読むだけで判断せず、本番ビルド（npm run build）をしてから本番モードでアプリを起動し（npm run start。空いているポートで、バックグラウンドで起動する）、ログインして、変更された画面を実際に開き・変更された API を実際に呼んで、動きを確かめる。画面は Playwright MCP のブラウザで開くか curl で取得する（応答の状態コードとエラーの表示を確かめる）。確かめ終わったらサーバーを止める。" "$WRITE") ;;
+    # W31: W29（要件を照らす）と W28（本番で起動して確かめる）を、1 つの依頼に詰めず別々の段で順に頼む（poc/tasks/wf-W31-design.md）
+    baseline-2pass) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。まず、最初の依頼の PR の説明にある合意した要件・依頼の内容を 1 つずつ書き出し、それぞれについて、実装の該当箇所（ファイルと関数）を探して、満たしているか・満たしていないか・反しているかを確かめてください。似た要件どうし（例: 画面・API と、ほかの送信元）の違いにも注意してください。そのうえで、要件に反する点と不具合を指摘してください。" "続けて、同じ変更を別の見方でレビューしてください。コードを読むだけで判断せず、本番ビルド（npm run build）をしてから本番モードでアプリを起動し（npm run start。空いているポートで、バックグラウンドで起動する）、ログインして、変更された画面を実際に開き・変更された API を実際に呼んで、動きを確かめてから指摘してください。画面は Playwright MCP のブラウザで開くか curl で取得してください。確かめ終わったらサーバーを止めてください。" "${WRITE/直前のレビュー/直前の 2 つのレビュー}") ;;
+    # W32: W28 の指示 + 確かめた結果（状態コード・エラー）を書き、エラーはそれ自体を指摘する（poc/tasks/wf-W32-design.md）
+    baseline-e2e-report) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。コードを読むだけで判断せず、本番ビルド（npm run build）をしてから本番モードでアプリを起動し（npm run start。空いているポートで、バックグラウンドで起動する）、ログインして、変更された画面を実際に開き・変更された API を実際に呼んで、動きを確かめてから指摘してください。画面は Playwright MCP のブラウザで開くか curl で取得してください。開いた画面・呼んだ API ごとに、状態コードと、エラーの表示（500・例外・Application error など）があったかを確かめた結果として書き、エラーが出たものは、原因が分からなくてもそれ自体を指摘してください。確かめ終わったらサーバーを止めてください。" "$WRITE") ;;
+    # W26: 依頼文は道具なしと同じ（指示は CLAUDE.md の規約として足してある）
+    baseline-std) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。" "$WRITE") ;;
+    # W24: 道具なし + 疑わしい所を実際に動かして確かめる指示（poc/tasks/wf-W24-design.md）
+    baseline-run) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。疑わしい箇所（境界値・日付や時刻・並び順・状態の共有など）は、読むだけで判断せず、node で関数を呼ぶ小さな再現スクリプト（作業用コピーの外の一時ファイル）を書いて実際に動かし、結果を確かめてから指摘してください。" "$WRITE") ;;
+    # W22: 道具の手順を最後まで踏ませる設定
+    ce-full) STEPS=("$INTRO" "/ce-code-review base:HEAD depth:full" "$WRITE") ;;
+    review-pr-full) STEPS=("$INTRO" "/pr-review-toolkit:review-pr all（対象は未コミットの差分。git diff HEAD で見られる）。コマンドの手順どおり、当てはまる専門のレビューエージェント（code-reviewer・silent-failure-hunter・pr-test-analyzer・comment-analyzer・type-design-analyzer など）を Task ツールで並列に起動し、その結果をまとめてください。専門エージェントを起動せずに自分だけでレビューして済ませないでください。" "$WRITE") ;;
+    *) echo "$SCENARIO の候補ではない: $CAND" >&2; exit 1 ;;
+  esac
+fi
+# W34（poc/tasks/wf-W34-design.md）: レビューの指摘を REVIEW.md に書いた後、同じ会話でその指摘に沿って直させる。
+# 直した後のコードの質（隠しテスト・差分・変異・時間がたった状態でのテスト）を grade_w34.py が測る
+if [[ "$SCENARIO" == W34 ]]; then
+  STEPS+=("REVIEW.md の指摘に沿って、直すべきものを直してください。直さない指摘は、理由を REVIEW.md の末尾に追記してください。型検査（npm run typecheck）とテスト（npm test）が通ることを確かめてから、変更（PR の差分と、あなたの修正）をすべて git にコミットしてください。")
+fi
+
+# 1 試行の費用の上限（米ドル。空なら上限なし）。
+MAX_USD="${POC_MAX_TRIAL_USD:-}"
+# 上限の守り方（POC_BUDGET_MODE）:
+#   flag（W1〜W5 の既定）: 各ステップに、それまでの累計を引いた残りを --max-budget-usd で渡す。
+#     この値は子セッションのモデルに「USD budget: $0/$0.9; $0.9 remaining」のように見えるため、
+#     予算を意識して工程を減らすことがある（W1 の Feature Dev 再試行で確認）。
+#   watch（W6 以降の既定）: --max-budget-usd を渡さず、run-trial.sh が途中のトークン使用量から費用を見積もり、
+#     上限に達したら子セッションを止める。見積もりの単価は POC_RATE_*（米ドル / 100 万トークン）で変えられる。
+#     正式な費用は従来どおり result の total_cost_usd。止めたときは budget-stopped に見積額を記録する。
+# 既定はシナリオで決める（W1〜W5 は再現のため flag、W6 以降は watch）。POC_BUDGET_MODE で上書きできる。
+BUDGET_MODE="${POC_BUDGET_MODE:-}"
+if [[ -z "$BUDGET_MODE" ]]; then
+  case "$SCENARIO" in W1|W2|W3|W4|W5) BUDGET_MODE=flag ;; *) BUDGET_MODE=watch ;; esac
+fi
+echo "$BUDGET_MODE" > "$OUT/budget-mode"
+case "$BUDGET_MODE" in flag|watch) ;; *) echo "POC_BUDGET_MODE は flag か watch: $BUDGET_MODE" >&2; exit 1 ;; esac
+# 介入（定型の「お任せします」で続けさせる）の上限回数。0 なら介入しない（W1 の手順）。
+MAX_NUDGES="${POC_MAX_NUDGES:-0}"
+NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、変更を git にコミットしてください。"
+# W3: 回答のやり取りの上限（試行全体の回数）と、締め切り・完了の定型文
+MAX_QA="${POC_MAX_QA_ROUNDS:-10}"
+QA_CLOSE="質問はここまでで締め切ります。残りはお任せします。ここまでの回答をもとに要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
+[[ "$SCENARIO" == W3 ]] && NUDGE="お任せします。確認は不要なので、要件を REQUIREMENTS.md にまとめ、git にコミットしてください。"
+[[ "$SCENARIO" == W5 || "$SCENARIO" == W11-B* ]] && NUDGE="お任せします。確認は不要なので、報告された不具合を最後まで直し、変更を git にコミットしてください。"
+# W7: 手順を終えた後、落とし穴 2 件を判定し（poc/scripts/check_w7.py）、避けられなかったものをレビューの定型の指摘で直させる回数の上限。
+# 判定にかかった時間は所要時間から除く（check-seconds）。W7 以外は 0（判定しない）。
+MAX_FEEDBACK="${POC_MAX_FEEDBACK:-0}"
+[[ "$SCENARIO" =~ ^W7[a-z]$ ]] && MAX_FEEDBACK="${POC_MAX_FEEDBACK:-2}"
+# Claude Code 自身の自動メモリ（~/.claude/projects/<作業用コピー>/memory/）は候補の記憶の仕組みではないため、
+# W7 では W7a・W7b とも全候補で止める（W7b は W7a の HOME を引き継ぐので、止めないと全候補に同じ記憶が残る）。W7 以外は既定のまま。
+AUTO_MEMORY_ENV=()
+if [[ "${POC_DISABLE_AUTO_MEMORY:-}" == 1 ]] || [[ -z "${POC_DISABLE_AUTO_MEMORY:-}" && "$SCENARIO" =~ ^W7[a-z]$ ]]; then
+  AUTO_MEMORY_ENV=(CLAUDE_CODE_DISABLE_AUTO_MEMORY=1)
+  echo 1 > "$OUT/auto-memory-disabled"
+fi
+[[ "$SCENARIO" == W6 ]] && NUDGE="お任せします。確認は不要なので、課題を最後まで実装し、PR.md を含めて変更を git にコミットしてください。"
+[[ "$SCENARIO" == W9 || "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 || "$SCENARIO" == U1c || "$SCENARIO" == U1g ]] && NUDGE="お任せします。確認は不要なので、レビューを最後まで行い、指摘を REVIEW.md に書いて git にコミットしてください。"
+# W19 の代理人ありの試行は「お任せ」と言わない（代理人の判断 D7。代理人なしの対照は従来の文）
+[[ "$SCENARIO" == W19 && "${POC_PROXY:-1}" != 0 ]] && NUDGE="ここまでの回答のとおりに進めてください。課題を最後まで実装し、変更を git にコミットしてください。"
+
+session_cost() {  # これまでの全ステップの最後の result の total_cost_usd（--resume では累計）
+  python3 -c '
+import json, sys, glob, re
+cost = 0.0
+for f in sorted(glob.glob(sys.argv[1] + "/step*.jsonl"), key=lambda p: int(re.search(r"step(\d+)", p).group(1))):
+    for line in open(f):
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if d.get("type") == "result" and d.get("total_cost_usd") is not None:
+            cost = d["total_cost_usd"]
+print(cost)' "$OUT"
+}
+over_budget() {
+  [[ -s "$OUT/budget-stopped" ]] && return 0
+  [[ -n "$MAX_USD" ]] && python3 -c "import sys; sys.exit(0 if $(session_cost) >= $MAX_USD * 0.98 else 1)"
+}
+step_estimate() {  # watch 用: 実行中のステップの費用の見積もり（それまでの result の累計 + このステップのトークン × 単価）
+  python3 -c '
+import json, os, sys
+rate = {k: float(os.environ.get("POC_RATE_" + k.upper(), d)) / 1e6 for k, d in
+        {"in": 1.87, "out": 9.96, "cache_read": 0.187, "cache_5m": 2.34, "cache_1h": 3.74}.items()}
+# 途中のメッセージの usage.output_tokens は書き始め時点の値なので、出力は本文の文字数 / 3 との大きい方で見積もる
+msgs = {}
+for line in open(sys.argv[2]):
+    try:
+        d = json.loads(line)
+    except ValueError:
+        continue
+    m = d.get("message") or {}
+    if d.get("type") != "assistant" or not m.get("usage"):
+        continue
+    e = msgs.setdefault(m.get("id"), {"usage": m["usage"], "chars": 0})
+    e["chars"] += len(json.dumps(m.get("content") or [], ensure_ascii=False))
+est = 0.0
+for e in msgs.values():
+    u = e["usage"]; cc = u.get("cache_creation") or {}
+    w1h = cc.get("ephemeral_1h_input_tokens", 0)
+    w5m = cc.get("ephemeral_5m_input_tokens", u.get("cache_creation_input_tokens", 0) - w1h)
+    out = max(u.get("output_tokens", 0), e["chars"] / 3)
+    est += (u.get("input_tokens", 0) * rate["in"] + out * rate["out"]
+            + u.get("cache_read_input_tokens", 0) * rate["cache_read"] + w5m * rate["cache_5m"] + w1h * rate["cache_1h"])
+print(round(float(sys.argv[1]) + est, 4))' "$1" "$2"
+}
+first_session_id() {
+  python3 -c '
+import json, sys
+for line in open(sys.argv[1]):
+    try:
+        d = json.loads(line)
+    except ValueError:
+        continue
+    if d.get("session_id"):
+        print(d["session_id"]); break' "$1"
+}
+reap_servers() {  # 作業用コピーを cwd にして動く next のプロセス（子セッションが起動したサーバー）を止める
+  local p pid cwd cmd
+  for p in /proc/[0-9]*; do
+    pid="${p#/proc/}"
+    cwd="$(readlink "$p/cwd" 2>/dev/null)" || continue
+    [[ "$cwd" == "$APP"* ]] || continue
+    cmd="$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)" || continue
+    case "$cmd" in claude*|timeout*|*run-trial.sh*|*playwright-mcp*|*next-devtools-mcp*) continue ;; esac
+    # next（開発サーバー）に加え、W6 以降の gstack の browse デーモンと、そのブラウザ（chrome）も止める
+    if [[ "$cmd" == *next* || "$cmd" == *browse/dist/* || "$cmd" == *chrom* ]]; then
+      kill "$pid" 2>/dev/null && echo "step$1 killed leftover: ${cmd:0:120}" >> "$OUT/errors.log"
+    fi
+  done
+}
+run_step() {  # run_step <番号> <プロンプト>
+  local n="$1" prompt="$2" RESUME=() BUDGET=()
+  [[ -n "$SESSION" ]] && RESUME=(--resume "$SESSION")
+  local before; before="$(session_cost)"
+  if [[ -n "$MAX_USD" && "$BUDGET_MODE" == flag ]]; then
+    BUDGET=(--max-budget-usd "$(python3 -c "print(max(0.01, round($MAX_USD - $(session_cost), 2)))")")
+  fi
+  ( cd "$APP" && env HOME="$HOME_DIR" "${CHILD_ENV[@]}" "${AUTO_MEMORY_ENV[@]}" timeout "${POC_STEP_TIMEOUT:-2400}" claude -p "$prompt" \
+      --model "$MODEL" --permission-mode acceptEdits --allowedTools "${ALLOWED[@]}" \
+      --mcp-config "$APP/.mcp.json" --strict-mcp-config --add-dir "$PLUG" "${PLUG_EXTRA[@]}" \
+      "${PLUGINS[@]}" "${RESUME[@]}" "${BUDGET[@]}" \
+      "${EXTRA[@]}" --output-format stream-json --verbose < /dev/null ) > "$OUT/step$n.jsonl" 2> "$OUT/step$n.stderr" &
+  local pid=$! waited=0
+  # 子セッションがバックグラウンドで起動した開発サーバー（npx next dev など）が残ると、結果を出した後も
+  # claude -p が終了待ちになる。結果が出てから 30 秒たっても終わらなければ、作業用コピーで動く next のプロセスを止める。
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 5
+    if [[ -n "$MAX_USD" && "$BUDGET_MODE" == watch ]] && ! grep -q '"type":"result"' "$OUT/step$n.jsonl" 2>/dev/null; then
+      local est; est="$(step_estimate "$before" "$OUT/step$n.jsonl")"
+      if python3 -c "import sys; sys.exit(0 if $est >= $MAX_USD else 1)"; then
+        echo "step$n est=\$$est limit=\$$MAX_USD" > "$OUT/budget-stopped"
+        echo "step$n stopped: estimated \$$est reached budget \$$MAX_USD" >> "$OUT/errors.log"
+        pkill -TERM -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null
+        break
+      fi
+    fi
+    if grep -q '"type":"result"' "$OUT/step$n.jsonl" 2>/dev/null; then
+      waited=$((waited + 5))
+      if [[ "$waited" -ge 30 ]]; then reap_servers "$n"; waited=-60; fi
+    fi
+  done
+  wait "$pid" || echo "step$n exit=$?" >> "$OUT/errors.log"
+  [[ -z "$SESSION" ]] && SESSION="$(first_session_id "$OUT/step$n.jsonl")"
+  return 0
+}
+
+qa_answer() {  # qa_answer <ステップ> <通し番号>: 回答役に答えさせ、回答文を出す（質問が無ければ何も出さない）
+  if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 ]]; then
+    POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/poc/scripts/answer_persona.py" "$SCENARIO" message "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$1" "$2"
+  elif [[ "$SCENARIO" == W13 ]]; then
+    POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/poc/scripts/answer_w13.py" message "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$1" "$2"
+  elif [[ "$SCENARIO" == W12 ]]; then
+    POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/poc/scripts/answer_w12.py" message "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$1" "$2"
+  else
+    POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/poc/scripts/answer_w3.py" "$OUT" "$1" "$2"
+  fi
+}
+qa_loop() {  # W3・W12: 直前のステップの最後のメッセージに質問があれば、回答役の回答で続ける（上限 MAX_QA 回）
+  [[ "$SCENARIO" == W3 || "$SCENARIO" == W12 || "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 ]] || return 0
+  local reply
+  while :; do
+    # W12 は上限に達したら答えるのをやめる（締め切りの定型文は送らない。続きは介入の定型文で進める）
+    [[ ( "$SCENARIO" == W12 || "$SCENARIO" == W13 || "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 ) && "$QA" -ge "$MAX_QA" ]] && { echo "qa limit $MAX_QA reached" >> "$OUT/errors.log"; return 0; }
+    if [[ "$QA" -ge "$MAX_QA" ]]; then
+      # 上限に達した後も質問が続くときは、締め切りの定型文を 1 回だけ送る（qa-closed.log に記録）
+      if [[ ! -s "$OUT/qa-closed.log" ]] && ! over_budget; then
+        reply="$(POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/poc/scripts/answer_w3.py" "$OUT" "$i" "$((QA+1))")"
+        mv "$OUT/qa-$((QA+1)).json" "$OUT/qa-unanswered.json"
+        if [[ -n "$reply" ]]; then
+          i=$((i+1)); echo "step$i" > "$OUT/qa-closed.log"; run_step "$i" "$QA_CLOSE"
+        fi
+      fi
+      return 0
+    fi
+    over_budget && { echo "qa skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; return 0; }
+    QA=$((QA+1))
+    reply="$(qa_answer "$i" "$QA")"
+    [[ -z "$reply" ]] && return 0
+    i=$((i+1)); run_step "$i" "$reply"
+  done
+}
+
+# W12: 依頼者役（ask-po の受け口）を裏で起動する。試行の終わりに止める
+PO_PID=""
+if [[ "$SCENARIO" == W12 ]]; then
+  mkdir -p "$WORK/answerer-home"
+  POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/poc/scripts/answer_w12.py" serve "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$WORK/po.sock" \
+    >> "$OUT/persona.log" 2>&1 &
+  PO_PID=$!
+  trap 'declare -F reap_servers >/dev/null && reap_servers end; [[ -n "$PO_PID" ]] && kill "$PO_PID" 2>/dev/null' EXIT
+  for _ in $(seq 1 20); do [[ -S "$WORK/po.sock" ]] && break; sleep 0.5; done
+fi
+# W13: 依頼者役（answer_w13.py）。変更依頼の前（v1）と後（v2）で答えが変わるので、段階を $OUT/phase に書いて渡す
+if [[ "$SCENARIO" == W13 ]]; then
+  mkdir -p "$WORK/answerer-home"
+  echo v1 > "$OUT/phase"
+  POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/poc/scripts/answer_w13.py" serve "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$WORK/po.sock" \
+    >> "$OUT/persona.log" 2>&1 &
+  PO_PID=$!
+  trap 'declare -F reap_servers >/dev/null && reap_servers end; [[ -n "$PO_PID" ]] && kill "$PO_PID" 2>/dev/null' EXIT
+  for _ in $(seq 1 20); do [[ -S "$WORK/po.sock" ]] && break; sleep 0.5; done
+fi
+# W14・W15・W19: 依頼者役（answer_persona.py）を W12 と同じく裏で起動する。W19 は人間の代理人も兼ねる（POC_PROXY=0 で対照。記録は raw/<ID>/proxy）
+if [[ "$SCENARIO" == W14 || "$SCENARIO" == W15 || "$SCENARIO" == W19 ]]; then
+  mkdir -p "$WORK/answerer-home"
+  [[ "$SCENARIO" == W19 ]] && echo "${POC_PROXY:-1}" > "$OUT/proxy"
+  POC_ANSWER_HOME="$WORK/answerer-home" python3 "$ROOT/poc/scripts/answer_persona.py" "$SCENARIO" serve "$OUT" "$APP" "$(cat "$OUT/baseline-commit")" "$WORK/po.sock" \
+    >> "$OUT/persona.log" 2>&1 &
+  PO_PID=$!
+  trap 'declare -F reap_servers >/dev/null && reap_servers end; [[ -n "$PO_PID" ]] && kill "$PO_PID" 2>/dev/null' EXIT
+  for _ in $(seq 1 20); do [[ -S "$WORK/po.sock" ]] && break; sleep 0.5; done
+fi
+START=$(date +%s); SESSION=""; i=0; QA=0
+for step in "${STEPS[@]}"; do
+  i=$((i+1))
+  if over_budget; then echo "step$i skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
+  run_step "$i" "$step"
+  qa_loop
+done
+
+# 介入: 手順を終えてもコミットが無い、または未コミットの変更が残る（確認待ちで止まった）ときは、
+# 定型の「お任せします」で続けさせ、その回数を interventions.log に記録する（PLAN.md §5.1 実行手順 3）。
+: > "$OUT/interventions.log"
+for _ in $(seq 1 "$MAX_NUDGES"); do
+  commits="$(git -C "$APP" rev-list --count "$(cat "$OUT/baseline-commit")"..HEAD)"
+  # AGENTS.md は next dev が自動で書き出すファイルなので、未コミットの変更に数えない
+  # W6 以降の Playwright MCP が自動で書き出すページの記録（.playwright-mcp/）も数えない（W5 までは出ない）
+  dirty="$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' ':!.playwright-mcp' | head -1)"
+  # W20 はレビュー対象の差分を未コミットで置くので、未コミットの変更は見ない（REVIEW.md のコミットだけで判定する）
+  [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 || "$SCENARIO" == U1c || "$SCENARIO" == U1g ]] && dirty=""
+  # W3 は要件文書（REQUIREMENTS.md）がコミットされていることも完了の条件にする
+  if [[ "$SCENARIO" == W3 ]] && ! git -C "$APP" cat-file -e HEAD:REQUIREMENTS.md 2>/dev/null; then commits=0; fi
+  # W6 は PR の本文（PR.md）がコミットされていることも完了の条件にする
+  if [[ "$SCENARIO" == W6 ]] && ! git -C "$APP" cat-file -e HEAD:PR.md 2>/dev/null; then commits=0; fi
+  # W9 はレビューの指摘（REVIEW.md）がコミットされていることも完了の条件にする
+  if [[ ( "$SCENARIO" == W9 || "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 || "$SCENARIO" == U1c || "$SCENARIO" == U1g ) ]] && ! git -C "$APP" cat-file -e HEAD:REVIEW.md 2>/dev/null; then commits=0; fi
+  [[ "$commits" -gt 0 && -z "$dirty" ]] && break
+  if over_budget; then echo "nudge skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
+  i=$((i+1))
+  echo "step$i commits=$commits dirty=${dirty:+yes}" >> "$OUT/interventions.log"
+  run_step "$i" "$NUDGE"
+  qa_loop
+done
+
+# W7: 落とし穴の判定と、避けられなかったときのレビューの定型の指摘（最大 MAX_FEEDBACK 回）。
+# 判定の結果は pitfalls-<回>.json（1 回目が「指摘を受ける前」の状態）。指摘した回は feedback.log に記録する。
+CHECK_SECONDS=0
+if [[ "$MAX_FEEDBACK" -gt 0 ]]; then
+  : > "$OUT/feedback.log"
+  for r in $(seq 1 $((MAX_FEEDBACK + 1))); do
+    c0=$(date +%s)
+    fb="$(python3 "$ROOT/poc/scripts/check_w7.py" "$SCENARIO" "$APP" "$OUT/pitfalls-$r.json" --feedback 2>> "$OUT/errors.log")" || true
+    CHECK_SECONDS=$((CHECK_SECONDS + $(date +%s) - c0))
+    [[ -z "$fb" || "$r" -gt "$MAX_FEEDBACK" ]] && break
+    if over_budget; then echo "feedback skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
+    i=$((i+1))
+    echo "step$i round=$r" >> "$OUT/feedback.log"
+    run_step "$i" "$fb"
+  done
+fi
+echo "$CHECK_SECONDS" > "$OUT/check-seconds"
+
+# W13（途中で要件が変わる）: 候補の手順・質問への回答・介入がすべて終わった時点を「最初の版（v1）」として記録し、
+# 同じセッションに変更依頼（wf-W13-change.md の固定の文言）を送る。変更依頼にも候補の手順を同じように使う
+#（Feature Dev は /feature-dev:feature-dev、gstack は → /review、Compound Engineering は /ce-plan → /ce-work → /ce-code-review）。
+# その後の介入は v1 からのコミットの有無で判定する（最大 POC_MAX_NUDGES 回。定型文は変更依頼用）。poc/tasks/wf-W13-design.md。
+if [[ "$SCENARIO" == W13 ]]; then
+  if [[ -n "$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' ':!.playwright-mcp' | head -1)" ]]; then
+    # 未コミットのまま残った変更は、最初の版に含める（記録して残す）
+    ( cd "$APP" && git add -A && git commit -qm "poc: v1 leftovers" ) && echo yes > "$OUT/v1-leftovers"
+  fi
+  git -C "$APP" rev-parse HEAD > "$OUT/v1-commit"
+  echo "$i" > "$OUT/v1-last-step"
+  echo $(( $(date +%s) - START - CHECK_SECONDS )) > "$OUT/v1-seconds"
+  session_cost > "$OUT/v1-cost"
+  cp "$OUT/v1-commit" "$OUT/phase-base"
+  echo v2 > "$OUT/phase"
+  CHANGE="$(cat "$ROOT/poc/tasks/wf-W13-change.md")"
+  case "$CAND" in
+    baseline|baseline-conventions|superpowers) CHANGE_STEPS=("$CHANGE") ;;
+    feature-dev) CHANGE_STEPS=("/feature-dev:feature-dev $CHANGE") ;;
+    compound-engineering) CHANGE_STEPS=("/ce-plan $CHANGE" "/ce-work" "/ce-code-review") ;;
+    gstack) CHANGE_STEPS=("$CHANGE" "/review") ;;
+  esac
+  for step in "${CHANGE_STEPS[@]}"; do
+    i=$((i+1))
+    run_step "$i" "$step"
+    qa_loop
+  done
+  NUDGE="お任せします。確認は不要なので、変更依頼を最後まで実装し、変更を git にコミットしてください。"
+  for _ in $(seq 1 "$MAX_NUDGES"); do
+    commits="$(git -C "$APP" rev-list --count "$(cat "$OUT/v1-commit")"..HEAD)"
+    dirty="$(git -C "$APP" status --porcelain -- . ':!AGENTS.md' ':!.playwright-mcp' | head -1)"
+    [[ "$commits" -gt 0 && -z "$dirty" ]] && break
+    i=$((i+1))
+    echo "step$i commits=$commits dirty=${dirty:+yes} phase=v2" >> "$OUT/interventions.log"
+    run_step "$i" "$NUDGE"
+    qa_loop
+  done
+fi
+# U3: 作る段階（手順と介入）が終わった時点を「仕上げの前」として記録し、仕上げの工程を後の手順として行う
+if [[ "$CAND" == ui-fd-md-wdg || "$CAND" == ui-fd-md-imp ]]; then
+  ( cd "$APP" && git add -A && git commit -qm "poc: uncommitted leftovers before polish" ) || true
+  git -C "$APP" rev-parse HEAD > "$OUT/pre-polish-commit"
+  echo "$i" > "$OUT/pre-polish-step"
+  case "$CAND" in
+    ui-fd-md-wdg) POST_STEPS=("web-design-guidelines Skill を使って、今回作った画面をレビューしてください。見つかった問題のうち直すべきものを直し、ブラウザで見た目を確かめてから、変更を git にコミットしてください。") ;;
+    ui-fd-md-imp) POST_STEPS=("/impeccable:impeccable polish 今回作った画面（課題で依頼された画面）を仕上げてください。直したら、ブラウザで見た目を確かめてから、変更を git にコミットしてください。") ;;
+  esac
+fi
+for step in "${POST_STEPS[@]}"; do
+  if over_budget; then echo "post step skipped: budget \$$MAX_USD reached" >> "$OUT/errors.log"; break; fi
+  i=$((i+1)); run_step "$i" "$step"
+done
+echo $(( $(date +%s) - START - CHECK_SECONDS )) > "$OUT/elapsed-seconds"
+[[ -n "$PO_PID" ]] && { kill "$PO_PID" 2>/dev/null || true; }
+
+# 5) 成果物の保存（コミット済み・未コミットの両方を含む差分）
+( cd "$APP" && git add -A && git commit -qm "poc: uncommitted leftovers" ) || true
+git -C "$APP" diff "$(cat "$OUT/baseline-commit")" HEAD -- . ':!package-lock.json' > "$OUT/diff.patch"
+git -C "$APP" log --oneline "$(cat "$OUT/baseline-commit")"..HEAD > "$OUT/commits.txt"
+# W13: 最初の版までの差分と、変更のステップ（v1 → 最後）の差分を分けて残す（ブラインドレビューと手戻りの集計に使う）
+if [[ "$SCENARIO" == W13 && -s "$OUT/v1-commit" ]]; then
+  git -C "$APP" diff "$(cat "$OUT/baseline-commit")" "$(cat "$OUT/v1-commit")" -- . ':!package-lock.json' > "$OUT/diff-v1.patch"
+  git -C "$APP" diff "$(cat "$OUT/v1-commit")" HEAD -- . ':!package-lock.json' > "$OUT/diff-change.patch"
+  git -C "$APP" log --format='%h %s%n%b' "$(cat "$OUT/baseline-commit")".."$(cat "$OUT/v1-commit")" > "$OUT/commits-v1.txt"
+  git -C "$APP" log --format='%h %s%n%b' "$(cat "$OUT/v1-commit")"..HEAD > "$OUT/commits-change.txt"
+fi
+if [[ "$CAND" == gstack ]]; then
+  # 外部送信の記録（G2 の確認用）
+  HOME="$HOME_DIR" "$GSTACK/bin/gstack-egress" list > "$OUT/gstack-egress.txt" 2>&1 || true
+fi
+echo "done $ID ($(cat "$OUT/elapsed-seconds")s)"

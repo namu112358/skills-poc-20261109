@@ -9,7 +9,7 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
 fi
 
 ROOT="$(cd "${CLAUDE_PROJECT_DIR:-.}" && pwd)"
-cd "$ROOT/poc-app"
+cd "$ROOT/poc/app"
 
 # 前回の成功時のハッシュは node_modules の中に置く（node_modules ごと消えれば入れ直す。git には入らない）
 hashes=node_modules/.session-start.sha256

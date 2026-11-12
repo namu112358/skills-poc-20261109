@@ -1,7 +1,7 @@
 # セキュリティ監査の定期実行（案）
 
 コードのセキュリティ監査を、人が思い出したときだけでなく決まった頻度で回すための方針の案です（検討日: 2026-11-11）。
-`poc-app` で 3 つのツールを測った結果（[docs/poc/results/security/README.md](../poc/results/security/README.md)）に合わせて、ツールの選び方を見直しました。
+`poc-app` で 3 つのツールを測った結果（[poc/results/security/README.md](../../poc/results/security/README.md)）に合わせて、ツールの選び方を見直しました。
 
 ## 結論（案）
 
@@ -65,7 +65,7 @@ Cloudflare を週次・月次に戻すのは、次のどちらかが満たせた
 
 ## 進め方
 
-1. **`poc-app` で測る。** 済み（2026-11-11。[結果](../poc/results/security/README.md)）。
+1. **`poc-app` で測る。** 済み（2026-11-11。[結果](../../poc/results/security/README.md)）。
 2. **頻度と費用の上限を決める。** この文書の案（PR ごと・週次・月次）を、チームで決める。費用の目安は上の表のとおり。対象のコードの規模が `poc-app` より大きいと、費用はそれに応じて増える。
 3. **配る雛形に入れる。** 決めた形を、スケジュール実行に渡す指示文と `.gitignore` の行として `templates/` に入れ、各プロジェクトが同じ形で使えるようにする。
 
@@ -77,7 +77,7 @@ Cloudflare を週次・月次に戻すのは、次のどちらかが満たせた
 
 ## 参考: Cloudflare Security Audit の性質
 
-固定コミット（`cloudflare/security-audit-skill@c1c8a8c`、`scripts/poc-profile.sh` が配置するもの）の `SKILL.md` と README を読んで分かったことです。PoC で動かして確かめた点は、括弧の中に書きました。
+固定コミット（`cloudflare/security-audit-skill@c1c8a8c`、`poc/scripts/poc-profile.sh` が配置するもの）の `SKILL.md` と README を読んで分かったことです。PoC で動かして確かめた点は、括弧の中に書きました。
 
 - **1 回の全体監査が重い。** 次の 6 段階で進みます。
   1. 構成の調査
