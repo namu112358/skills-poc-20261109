@@ -38,7 +38,7 @@ for s in webapp-testing skill-creator; do
   rm -rf "${DEST:?}/$s"
   cp -R "$WORK/anthropic/skills/$s" "$DEST/$s"
 done
-# Frontend Design は 2026-11-12 に標準から外した（作る担当は Impeccable。docs/poc/results/workflow/U1/human-pairs.md）。
+# Frontend Design は 2026-11-12 に標準から外した（作る担当は Impeccable。poc/results/workflow/U1/human-pairs.md）。
 # 以前に同期した先に残っていれば消す
 rm -rf "${DEST:?}/frontend-design"
 rm -rf "${DEST:?}/web-design-guidelines"

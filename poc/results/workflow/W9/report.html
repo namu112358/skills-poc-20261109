@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PoC W9 結果</title>
+<style>
+:root {
+  --bg:#f7f7f5; --surface:#ffffff; --text:#1d1d1f; --muted:#5f6368; --line:#e3e3df;
+  --accent:#2f5bd3; --a:#2f5bd3; --b:#1f8a70; --c:#b7791f; --d:#8e44ad; --ok:#1f8a70; --ng:#c0392b; --warn:#b7791f; --top:#eef3ff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#121314; --surface:#1c1d1f; --text:#ececec; --muted:#a0a4a8; --line:#2e3033;
+    --accent:#7c9cff; --a:#7c9cff; --b:#4cc39f; --c:#e0a84a; --d:#c39bd3; --ok:#4cc39f; --ng:#ff7b6b; --warn:#e0a84a; --top:#1f2738;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#121314; --surface:#1c1d1f; --text:#ececec; --muted:#a0a4a8; --line:#2e3033;
+  --accent:#7c9cff; --a:#7c9cff; --b:#4cc39f; --c:#e0a84a; --d:#c39bd3; --ok:#4cc39f; --ng:#ff7b6b; --warn:#e0a84a; --top:#1f2738;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.7 "Hiragino Sans","Noto Sans JP",system-ui,sans-serif; }
+main { max-width:1080px; margin:0 auto; padding:32px 16px 64px; }
+h1 { font-size:26px; margin:0 0 4px; }
+h2 { font-size:19px; margin:40px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+.lead { color:var(--muted); margin:0 0 20px; }
+.summary { background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--accent);
+  border-radius:8px; padding:14px 18px; }
+.summary p { margin:4px 0; }
+.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+.card.top { background:var(--top); border-color:var(--accent); }
+.card header { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+.card h3 { font-size:15px; margin:0; }
+.runs, .meta { color:var(--muted); font-size:12px; }
+.score { margin:6px 0; } .score strong { font-size:30px; }
+dl { margin:0; display:grid; gap:2px; font-size:13px; }
+dl div { display:flex; justify-content:space-between; } dt { color:var(--muted); } dd { margin:0; }
+.table-wrap { overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:10px; }
+table { border-collapse:collapse; width:100%; font-size:13px; }
+table.wide { min-width:1000px; }
+th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+thead th { color:var(--muted); font-weight:600; white-space:nowrap; }
+td.num { text-align:right; font-variant-numeric:tabular-nums; }
+.pill { display:inline-block; font-size:11px; padding:0 6px; border-radius:999px; margin-right:2px; white-space:nowrap; }
+.pill.ok { color:var(--ok); border:1px solid var(--ok); } .pill.ng { color:var(--ng); border:1px solid var(--ng); }
+.pill.warn { color:var(--warn); border:1px solid var(--warn); }
+.bd-row { display:grid; grid-template-columns:180px 1fr; gap:12px; padding:8px 0; border-bottom:1px solid var(--line); }
+.bd-bars { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+.bd-name { font-weight:600; font-size:14px; }
+.bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin-top:2px; }
+.bar span { display:block; height:100%; background:var(--a); }
+.bar.b span { background:var(--b); } .bar.c span { background:var(--c); } .bar.d span { background:var(--d); }
+small { color:var(--muted); font-size:12px; }
+details { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin:8px 0; }
+summary { cursor:pointer; }
+.sub { color:var(--muted); font-size:12px; margin:10px 0 2px; }
+.warn { color:var(--ng); font-size:13px; margin:10px 0 2px; }
+ul { padding-left:20px; } .files { font-size:13px; margin:0; }
+.kind { color:var(--muted); font-size:11px; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; overflow-wrap:anywhere; }
+.box { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:4px 18px; }
+@media (max-width:640px) {
+  .bd-row { grid-template-columns:1fr; } .bd-bars { grid-template-columns:1fr 1fr; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>開発ワークフロー PoC — W9 レビューで不具合を見つける</h1>
+  <p class="lead">実施日 2026-11-09 ・ モデル claude-sonnet-5-5 ・ Claude Code 2.1.319 ・ 計画書 poc/PLAN.md §5.1</p>
+
+  <section class="summary"><p><strong>W9（レビューで不具合を見つける）では、レビューの品質に差は出ませんでした。</strong>4 候補と baseline の全 9 試行が、仕込んだ不具合 10 件（認可の抜け・SQL インジェクション・ページの境界・limit の検証・同時更新・一括の原子性・例外の握りつぶし・時差・空のテスト・マイグレーションの書き換え）をすべて見つけました。おとり 5 件を問題とした試行は無く、2 名のブラインド判定で誤った指摘は 0 件でした。</p><p>差が出たのは直し方の具体性だけで、20 点中 19〜20 点です。3 試行が 1 か所ずつ減点されました（空のテストの直し方が書かれていない 2 試行、マイグレーションの番号を誤った 1 試行）。品質はどの候補も 99.4〜100 点で、2 本立ての判定規則では<strong>全候補で「品質に差なし」</strong>です。</p><p><strong>同じ品質なら、最も安く速いのは baseline（候補なし。$0.18・1.0 分）でした。</strong>候補の中では Feature Dev（baseline 比 費用 2.0 倍・時間 2.0 倍、効率 92 点）、Superpowers と gstack（90 点）が続きます。Compound Engineering は #2 で専門レビュアー 4 名を並列に起動し、$1.18・3.0 分かかりました（効率 74.5 点）。総合点（従来）は baseline 100、Feature Dev 91.9、Superpowers 91.3、gstack 90.6、Compound Engineering 88.2 です。</p><p>この課題（差分 254 行、不具合の手がかりがコードに明確）は、今回のモデルには易しすぎ、上限に張り付きました（天井効果）。レビュー手段の差を測るには、より大きく、ファイルをまたいで読まないと分からない不具合を含む差分が要ります（「次の対応」）。</p></section>
+
+  <h2>課題</h2>
+  <div class="box"><p>poc-app に「タスクの検索・削除・一括ステータス変更・期限切れ一覧・同時編集の検知」を足す PR 相当の差分（9 ファイル、+254 / −18 行）をレビューさせた。差分には種類の違う不具合 10 件と、不具合ではない「おとり」の変更 5 件を仕込んである。型チェック・単体テスト（26 件）・ビルドはすべて通る。差分は試行の作業用コピーの作業ブランチにだけ、PR の説明をメッセージにした 1 コミットとして当てた（main の <code>poc/app/</code> には入れていない）。指摘は場所・問題・直し方・重要度を付けて <code>REVIEW.md</code> に書いてコミットさせ、コードは直させない。課題文は <code>poc/tasks/wf-W9.md</code>、正解と採点の手順は <code>poc/answer-key/W9/grading.md</code>（試行前に固定）。</p><p>入口: gstack は <code>/review</code>、Compound Engineering は <code>/ce-code-review</code>、Superpowers は <code>/superpowers:requesting-code-review</code>、Feature Dev は code-reviewer エージェント（<code>feature-dev:code-reviewer</code>）を使うよう指示、baseline は課題文だけ。</p></div>
+
+
+  <h2>2 本立ての点数（品質・効率）</h2>
+  <div class="box"><ul><li>品質: 全候補で品質に差なし（最高 100.0 点、最低との差 0.6 点は、同じ候補の 2 回の差の最大 1.2 点以下）。</li><li>効率（最高品質と差がない候補の中。倍率は baseline 比）: 最も安く速いのは baseline（候補なし）（費用 1.0 倍・時間 1.0 倍）で効率 100.0 点。ほかは Feature Dev 92.0、Superpowers 90.0、gstack 90.0、Compound Engineering 74.5。</li><li>順位の入れ替わり: なし（従来の総合点の 1 位 baseline（候補なし） は、品質でも 1 位（同点を含む: Superpowers・baseline（候補なし））。</li></ul></div>
+  <h3>候補ごとの平均</h3>
+  <div class="table-wrap"><table><thead><tr><th>候補</th><th>回数</th><th>品質 / 100</th><th>2 回の差</th><th>効率 / 100</th><th>総合点（従来）</th><th>費用（baseline 比）</th><th>時間（baseline 比）</th><th>介入</th><th>質問（参考）</th></tr></thead><tbody><tr><th scope="row">Superpowers</th><td class="num">2</td><td class="num">100.0（最高）</td><td class="num">0.0</td><td class="num">90.0</td><td class="num">91.3</td><td class="num">$0.42（2.4 倍）</td><td class="num">1.9 分（1.9 倍）</td><td class="num">0 回</td><td class="num">0 回</td></tr><tr><th scope="row">Feature Dev</th><td class="num">2</td><td class="num">99.4（差なし）</td><td class="num">1.2</td><td class="num">92.0</td><td class="num">91.9</td><td class="num">$0.36（2.0 倍）</td><td class="num">2.0 分（2.0 倍）</td><td class="num">0 回</td><td class="num">0 回</td></tr><tr><th scope="row">Compound Engineering</th><td class="num">2</td><td class="num">99.4（差なし）</td><td class="num">1.2</td><td class="num">74.5</td><td class="num">88.2</td><td class="num">$0.85（4.8 倍）</td><td class="num">2.4 分（2.4 倍）</td><td class="num">0 回</td><td class="num">0 回</td></tr><tr><th scope="row">gstack</th><td class="num">2</td><td class="num">99.4（差なし）</td><td class="num">1.2</td><td class="num">90.0</td><td class="num">90.6</td><td class="num">$0.44（2.5 倍）</td><td class="num">1.3 分（1.3 倍）</td><td class="num">0 回</td><td class="num">0 回</td></tr><tr><th scope="row">baseline（候補なし）</th><td class="num">1</td><td class="num">100.0（最高）</td><td class="num">—</td><td class="num">100.0</td><td class="num">100.0</td><td class="num">$0.18（1.0 倍）</td><td class="num">1.0 分（1.0 倍）</td><td class="num">0 回</td><td class="num">0 回</td></tr></tbody></table></div>
+  <h3>試行ごとの内訳</h3>
+  <div class="table-wrap"><table><thead><tr><th>試行</th><th>再現率 / 40</th><th>適合率 / 25</th><th>具体性 / 20</th><th>品質 / 100</th><th>費用 / 50</th><th>時間 / 30</th><th>介入 / 20</th><th>効率 / 100</th><th>総合点（従来）</th></tr></thead><tbody><tr><th scope="row">Superpowers #1</th><td class="num">40</td><td class="num">25</td><td class="num">20</td><td class="num">100.0</td><td class="num">40.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">90.0</td><td class="num">91.0</td></tr><tr><th scope="row">Superpowers #2</th><td class="num">40</td><td class="num">25</td><td class="num">20</td><td class="num">100.0</td><td class="num">40.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">90.0</td><td class="num">91.6</td></tr><tr><th scope="row">Feature Dev #1</th><td class="num">40</td><td class="num">25</td><td class="num">20</td><td class="num">100.0</td><td class="num">50.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">100.0</td><td class="num">93.1</td></tr><tr><th scope="row">Feature Dev #2</th><td class="num">40</td><td class="num">25</td><td class="num">19</td><td class="num">98.8</td><td class="num">40.0</td><td class="num">24.0</td><td class="num">20</td><td class="num">84.0</td><td class="num">90.8</td></tr><tr><th scope="row">Compound Engineering #1</th><td class="num">40</td><td class="num">25</td><td class="num">20</td><td class="num">100.0</td><td class="num">40.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">90.0</td><td class="num">90.1</td></tr><tr><th scope="row">Compound Engineering #2</th><td class="num">40</td><td class="num">25</td><td class="num">19</td><td class="num">98.8</td><td class="num">15.0</td><td class="num">24.0</td><td class="num">20</td><td class="num">59.0</td><td class="num">86.2</td></tr><tr><th scope="row">gstack #1</th><td class="num">40</td><td class="num">25</td><td class="num">19</td><td class="num">98.8</td><td class="num">40.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">90.0</td><td class="num">90.9</td></tr><tr><th scope="row">gstack #2</th><td class="num">40</td><td class="num">25</td><td class="num">20</td><td class="num">100.0</td><td class="num">40.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">90.0</td><td class="num">90.3</td></tr><tr><th scope="row">baseline（候補なし） #1</th><td class="num">40</td><td class="num">25</td><td class="num">20</td><td class="num">100.0</td><td class="num">50.0</td><td class="num">30.0</td><td class="num">20</td><td class="num">100.0</td><td class="num">100.0</td></tr></tbody></table></div>
+  <h3>計算方法と判断の記録</h3>
+  <div class="box"><ul><li>品質 = （再現率 40 + 適合率 25 + 具体性 20）の得点 ÷ 85 × 100。</li><li>効率 = 費用 50 + 時間 30 + 介入 20。費用・時間は baseline（$0.1755・60 秒）に対する倍率で、2 倍以下 = 満点、3 倍以下 = 80%、5 倍以下 = 60%、10 倍以下 = 30%、10 倍超 = 0。介入は 0 回 = 20、1 回 = 10、2 回以上 = 0。</li><li>質問の回数は効率から引かない（参考値）。品質の差が、比べる 2 候補の 2 回の差（ばらつき）の大きい方以下なら「差なし」とする。</li><li>定義は poc/PLAN.md §4.4。計算は poc/scripts/two_axis.py。従来の総合点・順位はこの節では変えない。</li></ul></div>
+
+
+  <h2>従来の総合点（平均点）</h2>
+  <div class="cards">
+      <article class="card">
+        <header><h3>Superpowers</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>91.3</strong><small> / 100</small></p>
+        <dl><div><dt>再現率</dt><dd>40.0 / 40</dd></div><div><dt>適合率</dt><dd>25.0 / 25</dd></div><div><dt>具体性</dt><dd>20.0 / 20</dd></div><div><dt>費用</dt><dd>6.3 / 15</dd></div></dl>
+        <p class="meta">見つけた不具合 20.0 / 20<br>
+        平均 $0.42 ・ 1.9 分</p>
+      </article>
+      <article class="card top">
+        <header><h3>Feature Dev</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>91.9</strong><small> / 100</small></p>
+        <dl><div><dt>再現率</dt><dd>40.0 / 40</dd></div><div><dt>適合率</dt><dd>25.0 / 25</dd></div><div><dt>具体性</dt><dd>19.5 / 20</dd></div><div><dt>費用</dt><dd>7.4 / 15</dd></div></dl>
+        <p class="meta">見つけた不具合 20.0 / 20<br>
+        平均 $0.36 ・ 2.0 分</p>
+      </article>
+      <article class="card">
+        <header><h3>Compound Engineering</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>88.2</strong><small> / 100</small></p>
+        <dl><div><dt>再現率</dt><dd>40.0 / 40</dd></div><div><dt>適合率</dt><dd>25.0 / 25</dd></div><div><dt>具体性</dt><dd>19.5 / 20</dd></div><div><dt>費用</dt><dd>3.6 / 15</dd></div></dl>
+        <p class="meta">見つけた不具合 20.0 / 20<br>
+        平均 $0.85 ・ 2.4 分</p>
+      </article>
+      <article class="card">
+        <header><h3>gstack</h3><span class="runs">2 回</span></header>
+        <p class="score"><strong>90.6</strong><small> / 100</small></p>
+        <dl><div><dt>再現率</dt><dd>40.0 / 40</dd></div><div><dt>適合率</dt><dd>25.0 / 25</dd></div><div><dt>具体性</dt><dd>19.5 / 20</dd></div><div><dt>費用</dt><dd>6.1 / 15</dd></div></dl>
+        <p class="meta">見つけた不具合 20.0 / 20<br>
+        平均 $0.44 ・ 1.3 分</p>
+      </article>
+      <article class="card">
+        <header><h3>baseline（候補なし）</h3><span class="runs">1 回</span></header>
+        <p class="score"><strong>100.0</strong><small> / 100</small></p>
+        <dl><div><dt>再現率</dt><dd>40.0 / 40</dd></div><div><dt>適合率</dt><dd>25.0 / 25</dd></div><div><dt>具体性</dt><dd>20.0 / 20</dd></div><div><dt>費用</dt><dd>15.0 / 15</dd></div></dl>
+        <p class="meta">見つけた不具合 10.0 / 10<br>
+        平均 $0.18 ・ 1.0 分</p>
+      </article></div>
+
+  <h2>配点ごとの内訳</h2>
+  <div class="box"><div class="bd-row"><span class="bd-name">Superpowers</span><div class="bd-bars"><div><small>再現率 40.0 / 40</small><div class="bar a"><span style="width:100%"></span></div></div><div><small>適合率 25.0 / 25</small><div class="bar b"><span style="width:100%"></span></div></div><div><small>具体性 20.0 / 20</small><div class="bar c"><span style="width:100%"></span></div></div><div><small>費用 6.3 / 15</small><div class="bar d"><span style="width:42%"></span></div></div></div></div><div class="bd-row"><span class="bd-name">Feature Dev</span><div class="bd-bars"><div><small>再現率 40.0 / 40</small><div class="bar a"><span style="width:100%"></span></div></div><div><small>適合率 25.0 / 25</small><div class="bar b"><span style="width:100%"></span></div></div><div><small>具体性 19.5 / 20</small><div class="bar c"><span style="width:98%"></span></div></div><div><small>費用 7.4 / 15</small><div class="bar d"><span style="width:49%"></span></div></div></div></div><div class="bd-row"><span class="bd-name">Compound Engineering</span><div class="bd-bars"><div><small>再現率 40.0 / 40</small><div class="bar a"><span style="width:100%"></span></div></div><div><small>適合率 25.0 / 25</small><div class="bar b"><span style="width:100%"></span></div></div><div><small>具体性 19.5 / 20</small><div class="bar c"><span style="width:98%"></span></div></div><div><small>費用 3.6 / 15</small><div class="bar d"><span style="width:24%"></span></div></div></div></div><div class="bd-row"><span class="bd-name">gstack</span><div class="bd-bars"><div><small>再現率 40.0 / 40</small><div class="bar a"><span style="width:100%"></span></div></div><div><small>適合率 25.0 / 25</small><div class="bar b"><span style="width:100%"></span></div></div><div><small>具体性 19.5 / 20</small><div class="bar c"><span style="width:98%"></span></div></div><div><small>費用 6.1 / 15</small><div class="bar d"><span style="width:41%"></span></div></div></div></div><div class="bd-row"><span class="bd-name">baseline（候補なし）</span><div class="bd-bars"><div><small>再現率 40.0 / 40</small><div class="bar a"><span style="width:100%"></span></div></div><div><small>適合率 25.0 / 25</small><div class="bar b"><span style="width:100%"></span></div></div><div><small>具体性 20.0 / 20</small><div class="bar c"><span style="width:100%"></span></div></div><div><small>費用 15.0 / 15</small><div class="bar d"><span style="width:100%"></span></div></div></div></div></div>
+
+  <h2>不具合ごとの検出</h2>
+  <p class="lead">その不具合を見つけた試行の数（判定者 2 名の平均。候補ごとの試行数のうち）。</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>候補</th><th>B1 認可の抜け</th><th>B2 SQL インジェクション</th><th>B3 ページの境界</th><th>B4 limit の検証</th><th>B5 同時更新</th><th>B6 一括の原子性</th><th>B7 例外の握りつぶし</th><th>B8 時差</th><th>B9 空のテスト</th><th>B10 マイグレーション</th></tr></thead>
+      <tbody><tr><th scope="row">Superpowers</th><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td></tr><tr><th scope="row">Feature Dev</th><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td></tr><tr><th scope="row">Compound Engineering</th><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td></tr><tr><th scope="row">gstack</th><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td><td class="num">2 / 2</td></tr><tr><th scope="row">baseline（候補なし）</th><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td><td class="num">1 / 1</td></tr></tbody>
+    </table>
+  </div>
+
+  <h2>試行ごとの結果</h2>
+  <div class="table-wrap">
+    <table class="wide">
+      <thead><tr>
+        <th>試行</th><th>点数</th><th>不具合（✓=2 名とも一致）</th><th>再現率 / 適合率 / 具体性</th><th>指摘 / 正しい / 誤り</th>
+        <th>介入 / 質問</th><th>直したファイル</th><th>費用</th><th>時間（分）</th><th>ターン</th><th>サブエージェント</th>
+        <th>拒否された操作</th><th>使われた Skill</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <th scope="row">Superpowers #1</th>
+          <td class="num">91.0</td>
+          <td><span class="pill ok">B1</span> <span class="pill ok">B2</span> <span class="pill ok">B3</span> <span class="pill ok">B4</span> <span class="pill ok">B5</span> <span class="pill ok">B6</span> <span class="pill ok">B7</span> <span class="pill ok">B8</span> <span class="pill ok">B9</span> <span class="pill ok">B10</span></td>
+          <td class="num">40.0 / 25.0 / 20.0</td>
+          <td class="num">15.5 / 13 / 0</td>
+          <td class="num">0 / 0</td>
+          <td class="num">0</td>
+          <td class="num">$0.44</td>
+          <td class="num">1.9</td>
+          <td class="num">5</td>
+          <td class="num">1</td>
+          <td class="num">1</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">Superpowers #2</th>
+          <td class="num">91.6</td>
+          <td><span class="pill ok">B1</span> <span class="pill ok">B2</span> <span class="pill ok">B3</span> <span class="pill ok">B4</span> <span class="pill ok">B5</span> <span class="pill ok">B6</span> <span class="pill ok">B7</span> <span class="pill ok">B8</span> <span class="pill ok">B9</span> <span class="pill ok">B10</span></td>
+          <td class="num">40.0 / 25.0 / 20.0</td>
+          <td class="num">12.5 / 10.5 / 0</td>
+          <td class="num">0 / 0</td>
+          <td class="num">0</td>
+          <td class="num">$0.40</td>
+          <td class="num">1.9</td>
+          <td class="num">7</td>
+          <td class="num">1</td>
+          <td class="num">2</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">Feature Dev #1</th>
+          <td class="num">93.1</td>
+          <td><span class="pill ok">B1</span> <span class="pill ok">B2</span> <span class="pill ok">B3</span> <span class="pill ok">B4</span> <span class="pill ok">B5</span> <span class="pill ok">B6</span> <span class="pill ok">B7</span> <span class="pill ok">B8</span> <span class="pill ok">B9</span> <span class="pill ok">B10</span></td>
+          <td class="num">40.0 / 25.0 / 20.0</td>
+          <td class="num">11.5 / 10.5 / 0</td>
+          <td class="num">0 / 0</td>
+          <td class="num">0</td>
+          <td class="num">$0.32</td>
+          <td class="num">1.9</td>
+          <td class="num">4</td>
+          <td class="num">1</td>
+          <td class="num">0</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">Feature Dev #2</th>
+          <td class="num">90.8</td>
+          <td><span class="pill ok">B1</span> <span class="pill ok">B2</span> <span class="pill ok">B3</span> <span class="pill ok">B4</span> <span class="pill ok">B5</span> <span class="pill ok">B6</span> <span class="pill ok">B7</span> <span class="pill ok">B8</span> <span class="pill ok">B9</span> <span class="pill ok">B10</span></td>
+          <td class="num">40.0 / 25.0 / 19.0</td>
+          <td class="num">17.5 / 13 / 0</td>
+          <td class="num">0 / 0</td>
+          <td class="num">0</td>
+          <td class="num">$0.39</td>
+          <td class="num">2.1</td>
+          <td class="num">5</td>
+          <td class="num">1</td>
+          <td class="num">0</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">Compound Engineering #1</th>
+          <td class="num">90.1</td>
+          <td><span class="pill ok">B1</span> <span class="pill ok">B2</span> <span class="pill ok">B3</span> <span class="pill ok">B4</span> <span class="pill ok">B5</span> <span class="pill ok">B6</span> <span class="pill ok">B7</span> <span class="pill ok">B8</span> <span class="pill ok">B9</span> <span class="pill ok">B10</span></td>
+          <td class="num">40.0 / 25.0 / 20.0</td>
+          <td class="num">16.5 / 14.5 / 0</td>
+          <td class="num">0 / 0</td>
+          <td class="num">0</td>
+          <td class="num">$0.52</td>
+          <td class="num">1.9</td>
+          <td class="num">13</td>
+          <td class="num">1</td>
+          <td class="num">3</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">Compound Engineering #2</th>
+          <td class="num">86.2</td>
+          <td><span class="pill ok">B1</span> <span class="pill ok">B2</span> <span class="pill ok">B3</span> <span class="pill ok">B4</span> <span class="pill ok">B5</span> <span class="pill ok">B6</span> <span class="pill ok">B7</span> <span class="pill ok">B8</span> <span class="pill ok">B9</span> <span class="pill ok">B10</span></td>
+          <td class="num">40.0 / 25.0 / 19.0</td>
+          <td class="num">18 / 13.5 / 0</td>
+          <td class="num">0 / 0</td>
+          <td class="num">0</td>
+          <td class="num">$1.18</td>
+          <td class="num">3.0</td>
+          <td class="num">24</td>
+          <td class="num">4</td>
+          <td class="num">5</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">gstack #1</th>
+          <td class="num">90.9</td>
+          <td><span class="pill ok">B1</span> <span class="pill ok">B2</span> <span class="pill ok">B3</span> <span class="pill ok">B4</span> <span class="pill ok">B5</span> <span class="pill ok">B6</span> <span class="pill ok">B7</span> <span class="pill ok">B8</span> <span class="pill ok">B9</span> <span class="pill ok">B10</span></td>
+          <td class="num">40.0 / 25.0 / 19.0</td>
+          <td class="num">15 / 12.5 / 0</td>
+          <td class="num">0 / 0</td>
+          <td class="num">0</td>
+          <td class="num">$0.38</td>
+          <td class="num">1.2</td>
+          <td class="num">6</td>
+          <td class="num">0</td>
+          <td class="num">0</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">gstack #2</th>
+          <td class="num">90.3</td>
+          <td><span class="pill ok">B1</span> <span class="pill ok">B2</span> <span class="pill ok">B3</span> <span class="pill ok">B4</span> <span class="pill ok">B5</span> <span class="pill ok">B6</span> <span class="pill ok">B7</span> <span class="pill ok">B8</span> <span class="pill ok">B9</span> <span class="pill ok">B10</span></td>
+          <td class="num">40.0 / 25.0 / 20.0</td>
+          <td class="num">15.5 / 12.5 / 0</td>
+          <td class="num">0 / 0</td>
+          <td class="num">0</td>
+          <td class="num">$0.50</td>
+          <td class="num">1.4</td>
+          <td class="num">7</td>
+          <td class="num">0</td>
+          <td class="num">0</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <th scope="row">baseline（候補なし） #1</th>
+          <td class="num">100.0</td>
+          <td><span class="pill ok">B1</span> <span class="pill ok">B2</span> <span class="pill ok">B3</span> <span class="pill ok">B4</span> <span class="pill ok">B5</span> <span class="pill ok">B6</span> <span class="pill ok">B7</span> <span class="pill ok">B8</span> <span class="pill ok">B9</span> <span class="pill ok">B10</span></td>
+          <td class="num">40.0 / 25.0 / 20.0</td>
+          <td class="num">14 / 11.5 / 0</td>
+          <td class="num">0 / 0</td>
+          <td class="num">0</td>
+          <td class="num">$0.18</td>
+          <td class="num">1.0</td>
+          <td class="num">4</td>
+          <td class="num">0</td>
+          <td class="num">0</td>
+          <td>—</td>
+        </tr></tbody>
+    </table>
+  </div>
+
+  <h2>所見</h2>
+  <div class="box"><ul><li>再現率・適合率は全 9 試行が満点でした。2 名の判定者は、全試行・全不具合で一致の判定が食い違いませんでした。差が付いたのは具体性の 1 点だけです（Compound Engineering #2 と Feature Dev #2 の空のテスト（B9）、gstack #1 のマイグレーション（B10。「番号 2 を追加」と書き、既存のマイグレーション 2 とぶつかる））。</li><li>正解リストに無い妥当な指摘も、どの試行も出していました。主なものは、<code>version</code> の型を検証していない（文字列などが 400 でなく 409 になる）、LIKE のワイルドカード（<code>%</code>・<code>_</code>）をエスケープしていない、入力の検証をルートに直接書いている（規約 9）、の 3 つです。指摘の件数は 11〜20 件（判定者の数え方で差があります）でした。</li><li>各ツールの手順は、どれも一部を省いていました。gstack（#1・#2）は <code>/review</code> の準備（<code>gstack-skill-start</code>）を実行しましたが、専門レビュアーの並列起動と敵対的レビューは「差分が小さい」として起動しませんでした。Compound Engineering #1 は範囲を測るスクリプト（<code>review-scope.py</code>）が許可リストの外で実行できず、サブエージェント 1 名で済ませました。#2 は正しさ・セキュリティ・敵対的・規約とテストの 4 名を並列に起動しましたが、外部モデルによるレビュー（codex などが無い）と、データ移行・API 契約の専門レビュアーは起動していません。</li><li>Superpowers（#1・#2）は <code>requesting-code-review</code> の手順どおり、レビュー用のテンプレート（<code>code-reviewer.md</code>）を読んでサブエージェントにレビューさせ、その指摘を自分で差分と照らして確かめました。#2 では、読み取りだけのはずのサブエージェントが <code>git checkout --detach</code> を実行し、親がブランチを戻しました（成果に影響なし）。Feature Dev（#1・#2）は <code>feature-dev:code-reviewer</code> を 1 回起動しました。エージェントは Bash を使えなかったため、親が行番号を確かめて直しています。</li><li>実際に動かして不具合を確かめたのは gstack #2 だけでした（自分のスクラッチ領域にテストを書き、検索の SQL インジェクション・ページのずれ・limit=-1・一括変更の途中更新を再現）。Superpowers #1・#2 も同じことを試みましたが、許可リストの外のコマンド（<code>node</code> での実行）が拒否されました。ほかの試行はコードを読んで判断しています。正解率には差が出ていないので、この課題では実行による確認は結果を変えませんでした。</li><li>費用はツールの手順の重さの順になりました。baseline $0.18、Feature Dev $0.32〜0.39、gstack $0.38〜0.50、Superpowers $0.40〜0.44、Compound Engineering $0.52〜1.18。時間は 1.0〜3.0 分で、どの試行も介入は 0 回、上限での打ち切りもありませんでした。全試行が REVIEW.md だけをコミットし、コードは変えていません。</li><li><code>grade.py</code> の <code>skills_used</code> は、スラッシュコマンドで起動した Skill を数えないため、全試行で空です。上の手順の踏み方は、トランスクリプトのツール呼び出し（参照ファイルの読み込み、gstack の bin の呼び出し、サブエージェントの種類）から確かめました。</li></ul></div>
+
+  <h2>試行の詳細</h2>
+  
+      <details>
+        <summary><strong>Superpowers #1</strong> — 91.0 点</summary>
+        <p><code>requesting-code-review</code> の手順で general-purpose のサブエージェントにレビューさせ、親が照合。<code>node</code> での再現は許可リストの外で拒否された。10 件すべて具体性 2。同時更新について「現状は間に await が無い」という事実と違う補足があるが、核心と直し方は正しいため 2 名とも一致とした。</p>
+        
+        <p class="sub">ブラインド判定（R01）: 判定者 1 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 18 件（正しい 15・誤り 0）、判定者 2 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 13 件（正しい 11・誤り 0）</p>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>REVIEW.md</code> +95 −0 <span class="kind">doc</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>3309650 REVIEW.md: タスク検索・削除・一括変更・期限切れ・同時編集 PR のレビュー指摘を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Superpowers #2</strong> — 91.6 点</summary>
+        <p>#1 と同じ流れ。サブエージェントが読み取り専用の指示に反して <code>git checkout --detach</code> を実行し、親が戻した。10 件すべて具体性 2。#1 と同じく同時更新の補足に事実と違う記述がある（一致の判定は変わらない）。</p>
+        
+        <p class="sub">ブラインド判定（R06）: 判定者 1 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 13 件（正しい 11・誤り 0）、判定者 2 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 12 件（正しい 10・誤り 0）</p>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>REVIEW.md</code> +66 −0 <span class="kind">doc</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>db6a36f PR のコードレビュー結果を REVIEW.md に追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Feature Dev #1</strong> — 93.1 点</summary>
+        <p><code>feature-dev:code-reviewer</code> を 1 回起動し、親がファイルを読んで行番号付きで REVIEW.md を作成。指摘は 11〜12 件と最も簡潔で、10 件すべて具体性 2。</p>
+        
+        <p class="sub">ブラインド判定（R07）: 判定者 1 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 12 件（正しい 11・誤り 0）、判定者 2 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 11 件（正しい 10・誤り 0）</p>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>REVIEW.md</code> +92 −0 <span class="kind">doc</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>15eeaab PRのコードレビュー結果(REVIEW.md)を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Feature Dev #2</strong> — 90.8 点</summary>
+        <p>#1 と同じ流れ。エージェントは Bash を使えず、親が行番号を確かめて直した。空のテスト（B9）は問題点だけで直し方が無く、具体性 1。</p>
+        
+        <p class="sub">ブラインド判定（R05）: 判定者 1 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 18 件（正しい 13・誤り 0）、判定者 2 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 17 件（正しい 13・誤り 0）</p>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>REVIEW.md</code> +140 −0 <span class="kind">doc</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>24fa324 PR のコードレビュー結果（REVIEW.md）を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Compound Engineering #1</strong> — 90.1 点</summary>
+        <p><code>ce-code-review</code> の参照ファイルを読んだが、<code>review-scope.py</code> の実行が許可リストの外で拒否され、全レビュアーの並列起動を省いてサブエージェント 1 名と照合した（最後のメッセージで省略を明記）。10 件すべて具体性 2。</p>
+        
+        <p class="sub">ブラインド判定（R04）: 判定者 1 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 18 件（正しい 16・誤り 0）、判定者 2 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 15 件（正しい 13・誤り 0）</p>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>REVIEW.md</code> +92 −0 <span class="kind">doc</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>a2b5cf5 PR のコードレビュー結果を REVIEW.md に追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>Compound Engineering #2</strong> — 86.2 点</summary>
+        <p>参照ファイル（範囲・意図・振り分け・ペルソナ一覧・外部モデル）を読み、正しさ・セキュリティ・敵対的・規約とテストの 4 名を並列に起動して重複を除いた。外部モデルによるレビューとデータ移行・API 契約の専門レビュアーは省略（最後のメッセージで明記）。空のテスト（B9）の直し方が無く具体性 1。最も高く長い（$1.18・3.0 分）。</p>
+        
+        <p class="sub">ブラインド判定（R09）: 判定者 1 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 20 件（正しい 15・誤り 0）、判定者 2 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 16 件（正しい 12・誤り 0）</p>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>REVIEW.md</code> +118 −0 <span class="kind">doc</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>459115a REVIEW.md: タスク検索・削除・一括変更・期限切れ一覧 PR のレビュー指摘を追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>gstack #1</strong> — 90.9 点</summary>
+        <p><code>/review</code> の準備（gstack の bin）を実行した後、専門レビュアーと敵対的レビューを起動せず、自分で差分を読んで REVIEW.md を作成（最後のメッセージで省略を明記）。マイグレーション（B10）の直し方が「番号 2 を追加」で既存の番号とぶつかるため具体性 1。</p>
+        
+        <p class="sub">ブラインド判定（R02）: 判定者 1 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 15 件（正しい 13・誤り 0）、判定者 2 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 15 件（正しい 12・誤り 0）</p>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>REVIEW.md</code> +56 −0 <span class="kind">doc</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>eef385a コードレビューの指摘を REVIEW.md に追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>gstack #2</strong> — 90.3 点</summary>
+        <p>#1 と同じく専門レビュアーは起動せず。自分のスクラッチ領域に再現用のテストを書き、4 件の不具合を実際に動かして確かめた唯一の試行。10 件すべて具体性 2。</p>
+        
+        <p class="sub">ブラインド判定（R03）: 判定者 1 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 16 件（正しい 13・誤り 0）、判定者 2 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 15 件（正しい 12・誤り 0）</p>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>REVIEW.md</code> +69 −0 <span class="kind">doc</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>2d6f677 PR レビューの指摘を REVIEW.md に追加</code></li></ul>
+      </details>
+      <details>
+        <summary><strong>baseline（候補なし） #1</strong> — 100.0 点</summary>
+        <p>候補なし。Bash 3 回で差分を読み、REVIEW.md（高 7・中 2・低 1）を書いてコミット。10 件すべてを見つけ、直し方もすべて正しい。最安・最短（$0.18・1.0 分）。</p>
+        
+        <p class="sub">ブラインド判定（R08）: 判定者 1 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 14 件（正しい 12・誤り 0）、判定者 2 = 一致 B1, B2, B3, B4, B5, B6, B7, B8, B9, B10・指摘 14 件（正しい 11・誤り 0）</p>
+        <p class="sub">変更ファイル</p><ul class="files"><li><code>REVIEW.md</code> +49 −0 <span class="kind">doc</span></li></ul>
+        <p class="sub">コミット</p><ul class="files"><li><code>116daa5 PR のコードレビュー指摘を REVIEW.md に追加</code></li></ul>
+      </details>
+
+  <h2>採点方法</h2>
+  <div class="box"><p>配点は PLAN.md §5.1 の W9、手順は試行前に固定した <code>poc/answer-key/W9/grading.md</code> のとおり（<code>poc/scripts/grade_w9.py</code> → <code>blind_w9.py</code> → <code>score_w9.py</code>）。2 本立ての点数は PLAN.md §4.4（<code>poc/scripts/two_axis.py</code>）。</p><ul><li><strong>再現率（40）</strong>: 40 × 一致した不具合の数 / 10。一致は「場所」と「仕組みの核心」の両方が合うもの（grading.md の表）。</li><li><strong>適合率（25）</strong>: 25 × 正しい指摘 /（正しい指摘 + 誤った指摘）。正しい指摘は不具合への一致と正解外の妥当な指摘、誤った指摘は存在しない問題・事実と違う説明・おとり（D1〜D5）を問題とするもの。好み・一般論は数えない。</li><li><strong>具体性（20）</strong>: 一致した不具合ごとに、直し方が正しければ 2、無い・曖昧・誤りなら 1。</li><li><strong>費用（15）</strong>: 15 ×（W9 の全試行の最安費用 / 自分の費用）。</li><li>再現率・適合率・具体性は、互いに独立した新しいサブエージェント 2 名が、候補名を伏せた REVIEW.md を順番を変えて判定し、2 名の点数の平均にした（協議なし）。採点は REVIEW.md だけで行い、会話の最後のメッセージは使っていない。</li><li><strong>2 本立て</strong>: 品質 = 再現率 + 適合率 + 具体性（85 点）を 100 点に正規化。効率 = 費用 50 + 時間 30 + 介入 20（baseline の実額・時間に対する倍率の段階）。</li></ul></div>
+
+  <h2>この結果の制約</h2>
+  <div class="box"><ul><li>天井効果: 全試行が 10 件すべてを見つけ、誤った指摘も 0 件だったため、再現率・適合率では候補の差を測れていません。差分が小さく（254 行）、不具合がどれも差分の中のコードを読めば分かるもの（ファイルをまたいだ推論が要らない）だったことが原因と考えます。設計は試行前に固定したので、試行後には変えていません。</li><li>課題文で「マージ前に直すべき問題を指摘して」と頼んでいるため、不具合があることを前提に読ませています。不具合の無い差分で誤った指摘をどれだけ出すか（おとりだけの差分）は測っていません。</li><li>具体性の差（20 点中 19 と 20）は 1 か所の書き方の違いで、試行のばらつきの範囲です。</li><li>リモートが無い環境のため、gstack の <code>/review</code> の PR 連携、Compound Engineering の外部モデルによるレビュー（codex などの CLI が無い）は評価できていません。</li><li>子セッションの許可リスト（W6 以降の既定）では、範囲を測るスクリプト（Compound Engineering の <code>review-scope.py</code>）や、スクラッチ領域での <code>node</code> の実行（Superpowers）が拒否されました。許可されていれば手順をもっと踏んだ可能性があります（比較の条件を揃えるため、試行の途中では変えていません）。</li><li>前半 5 試行と後半 4 試行は別のコンテナで実行しました（前任からの引き継ぎ）。同じモデル・同じ Claude Code・同じ固定コミットのプラグインで、試行の条件は同じですが、所要時間には環境の差が入り得ます。</li><li>判定者 2 名はどちらも同じ系統のモデルのサブエージェントです。指摘の分け方（箇条書きの細かさ）で指摘の件数は判定者により変わりましたが、点数には影響していません。</li></ul></div>
+
+  <h2>判断の記録</h2>
+  <div class="box"><ul><li><strong>課題の作り方</strong>: 認可・SQL・境界値・入力検証・競合・エラー処理・時差・空のテスト・マイグレーションの 10 種類を 1 件ずつ仕込み、見た目は怪しいが正しい変更（おとり）を 5 件混ぜた。不具合のうち 5 件は関数を直接呼んで起きることを試行前に確かめた（grading.md の「確認したこと」）。仕込んだ差分（<code>review.patch</code>）と正解リストは answer-key 側に置き、試行の作業用コピーには差分を当てたコミットだけを置いた（W5 と同じ方式）。</li><li><strong>レビュー対象の置き方</strong>: 作業用コピーの <code>master</code> から作業ブランチを切り、PR の説明をメッセージにしたコミットを 1 つ積んだ。リモート（origin）は置かない（W1〜W8 と同じ）。gstack の <code>/review</code> は <code>origin/&lt;base&gt;</code> が無くても <code>master...HEAD</code> で差分を取れた。課題文に <code>git diff master...HEAD</code> を明記した。</li><li><strong>入口</strong>: Feature Dev にはレビュー用のコマンドが無いため、「Feature Dev の code-reviewer エージェント（feature-dev:code-reviewer）でこの差分をレビューしてください。」を課題文の前に付けた。ほかの候補は各ツールのレビューの入口に課題文を渡した。</li><li><strong>費用の上限</strong>: <code>POC_BUDGET_MODE=watch</code>（上限を子セッションに見せない。W6 以降の既定で、W9 はシナリオ名で自動的にそうなる）。baseline を暫定 $10 で先に実行し、規模係数 = W9 baseline の実額 $0.1755 ÷ W1 baseline $0.15 = 1.17。上限 = 1.17 × W1 の候補平均 × 5（最大 $10）で、Superpowers $0.99、Feature Dev $1.00、gstack $2.68、Compound Engineering $10（計算値 $10.44）。上限で止まった試行は無い（最大は Compound Engineering #2 の $1.18）。</li><li><strong>課題文の末尾</strong>: 工程を省かない新文言（W4 以降の既定）。全試行で <code>task-suffix</code> = new を確認した。</li><li><strong>介入</strong>: 全候補で <code>POC_MAX_NUDGES=2</code>（W2 以降と同じ）。完了の条件に「REVIEW.md がコミットされていること」を足した。介入は全試行で 0 回。</li><li><strong>許可リスト</strong>: 変更していない（W9 は W6 以降の許可リストがそのまま効く）。Compound Engineering の範囲スクリプトや Superpowers の <code>node</code> 実行が拒否されたが、前半の試行と条件を揃えるため途中では広げなかった。</li><li><strong>配点</strong>: 総合点 = 再現率 40 + 適合率 25 + 具体性 20 + 費用 15。2 本立ての品質 = 前の 3 つ（85 点）を 100 点に正規化（<code>two_axis.py</code> の <code>QUALITY["W9"]</code>）。W9・W10 を総合判定にどう入れるかは判定会で決める（PLAN.md §4.3 の注記）。</li><li><strong>実行順</strong>: baseline → gstack #1 → Superpowers #1 → Compound Engineering #1 → Feature Dev #1 → Feature Dev #2 → Compound Engineering #2 → Superpowers #2 → gstack #2（1 本ずつ、後半は前半の逆順）。</li><li><strong>引き継ぎ</strong>: 前任のセッションが Feature Dev #2 の開始直後に止めたため、新しいコンテナで Feature Dev #2 を最初からやり直した（止めた分は採点していない）。プラグインは同じ固定コミットを取り直した。</li><li><strong>main の取り込み</strong>: main の <code>grade.py</code>（W4 で認可プローブ用に E2E の実行を関数に分けた版）と W9 の変更（隠しの E2E が無い W では実行しない）がぶつかったため、main の構造を採り、W9 の条件（<code>acceptance.cjs</code> が無ければ E2E を実行しない）を載せた。W1〜W8 の動作は変わらない。</li><li><strong>判定</strong>: grading.md のとおり、互いに独立した新しいサブエージェント 2 名に、候補名を伏せた REVIEW.md を順番を変えて（R01→R09 と R09→R01）渡した。判定が分かれ得る点（同時更新の補足に事実と違う記述がある試行を一致とするか、規約 9 の指摘を妥当とするか）は 2 名が独立に判断し、点数への影響は無かった。</li></ul></div>
+
+  <h2>試行間の独立性の確認結果</h2>
+  <div class="box"><p><code>grade.py</code> の検出（自分の作業用コピーの外への参照）は全 9 試行で 0 件、正解データ（<code>answer-key</code>）を読んだ形跡も 0 件でした（検出であり、完全な防止ではありません）。gstack #2 と Superpowers #1・#2 が書いた再現用のファイルは、各子セッション自身のスクラッチ領域の中です。</p></div>
+
+  <h2>次の対応</h2>
+  <div class="box"><ul><li>レビュー手段の差を測るには、W9 より難しい差分で再試行する: 差分を 1,000 行規模にする、ファイルをまたいで読まないと分からない不具合（呼び出し元の前提が崩れる、別の画面の権限と食い違うなど）を入れる、PR の説明に書かれた仕様とコードの食い違いを増やす。</li><li>誤った指摘の出やすさを測るには、不具合の無い差分（おとりだけ）をレビューさせる試行を加える。</li><li>W9 を総合判定にどう入れるか（重みを付け直すか、品質の参考として扱うか）は判定会で決める。今回の結果では、レビューの品質ではどの候補も baseline と差が無く、候補の手順を踏むほど費用と時間が増えた。</li></ul></div>
+</main>
+</body>
+</html>

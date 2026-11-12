@@ -111,7 +111,7 @@
 
 ## 次にやること
 
-1. Context7 と Chrome DevTools MCP を `scripts/poc-profile.sh` で一時的に有効にして試し、次を記録する。
+1. Context7 と Chrome DevTools MCP を `poc/scripts/poc-profile.sh` で一時的に有効にして試し、次を記録する。
    - 効果（古い書き方が減るか、遅いページを見つけられるか）
    - 費用（呼び出し回数）
    - Playwright MCP との使い分け

@@ -1,7 +1,7 @@
 # セキュリティ監査の定期実行（案）
 
 コードのセキュリティ監査を、人が思い出したときだけでなく決まった頻度で回すための方針の案です（検討日: 2026-11-11）。
-`poc-app` で 3 つのツールを測った結果（[docs/poc/results/security/README.md](../poc/results/security/README.md)）に合わせて、ツールの選び方を見直しました。
+`poc-app` で 3 つのツールを測った結果（[poc/results/security/README.md](../../poc/results/security/README.md)）に合わせて、ツールの選び方を見直しました。
 
 ## 結論（案）
 
@@ -10,7 +10,7 @@
 - **認証・セッション・権限に触れる PR は、Claude Security の差分スキャン（medium）で監査する。** 既存のコードと合わせて初めて分かる脆弱性では、`/security-review` は 3 件中 1〜2 件しか見つけず、Claude Security は 3 件すべてを見つけました（1 回 $2.7 前後・5 分）。
 - **週 1 回、前回の監査から変わったところを、Claude Security の差分スキャン（medium）で監査する。** PR を通らずに入った変更も拾うためです。
 - **月 1 回、またはリリースの前に、Claude Security（medium）でコード全体を監査する。** 差分だけでは見えない、複数の機能にまたがる問題を拾うためです。`poc-app`（約 1,300 行）で 1 回 $10・24 分でした。
-- **Cloudflare Security Audit は、CI・コンテナ・LLM・クラウドの設定を変えたときと、四半期に 1 回だけ使う（quick）。** Web アプリの脆弱性では、見つけた数は Claude Security と同じなのに費用が 2〜4 倍でした。一方、Web アプリ以外の領域では、Claude Security が見落とした LLM を経由した指示の注入を見つけました。対象のコードを隔離して動かせる実行環境を用意したときだけ、指摘を「確認済み」にできます（用意しないと、すべて「要確認」のまま）。前回の記録を引き継いでも、費用は下がりませんでした（[SEC-6](../poc/results/security/README.md)）。
+- **Cloudflare Security Audit は、CI・コンテナ・LLM・クラウドの設定を変えたときと、四半期に 1 回だけ使う（quick）。** Web アプリの脆弱性では、見つけた数は Claude Security と同じなのに費用が 2〜4 倍でした。一方、Web アプリ以外の領域では、Claude Security が見落とした LLM を経由した指示の注入を見つけました。対象のコードを隔離して動かせる実行環境を用意したときだけ、指摘を「確認済み」にできます（用意しないと、すべて「要確認」のまま）。前回の記録を引き継いでも、費用は下がりませんでした（[SEC-6](../../poc/results/security/README.md)）。
 - **前回からコミットがなければ、その回は監査しない。**
 - 実行には Claude Code のスケジュール実行を使います（新しいクラウドのセッションを決まった時刻に起動する機能）。
 - 監査の記録は、対象とは別の非公開リポジトリに残し、次の回が前回の続きから監査できるようにします。
@@ -68,7 +68,7 @@ Cloudflare をこれより広く使う（週次・月次に戻す）のは、次
 
 ## 進め方
 
-1. **`poc-app` で測る。** 済み（2026-11-11。[結果](../poc/results/security/README.md)）。
+1. **`poc-app` で測る。** 済み（2026-11-11。[結果](../../poc/results/security/README.md)）。
 2. **頻度と費用の上限を決める。** この文書の案（PR ごと・週次・月次）を、チームで決める。費用の目安は上の表のとおり。対象のコードの規模が `poc-app` より大きいと、費用はそれに応じて増える。
 3. **配る雛形に入れる。** 決めた形を、スケジュール実行に渡す指示文と `.gitignore` の行として `templates/` に入れ、各プロジェクトが同じ形で使えるようにする。
 
@@ -80,7 +80,7 @@ Cloudflare をこれより広く使う（週次・月次に戻す）のは、次
 
 ## 参考: Cloudflare Security Audit の性質
 
-固定コミット（`cloudflare/security-audit-skill@c1c8a8c`、`scripts/poc-profile.sh` が配置するもの）の `SKILL.md` と README を読んで分かったことです。PoC で動かして確かめた点は、括弧の中に書きました。
+固定コミット（`cloudflare/security-audit-skill@c1c8a8c`、`poc/scripts/poc-profile.sh` が配置するもの）の `SKILL.md` と README を読んで分かったことです。PoC で動かして確かめた点は、括弧の中に書きました。
 
 - **1 回の全体監査が重い。** 次の 6 段階で進みます。
   1. 構成の調査
