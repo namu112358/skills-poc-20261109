@@ -1,14 +1,28 @@
 // W34 f3 の隠しテスト（期限の延長の振る舞い）。採点が tests-hidden/ に置いて流す。
+// 直したときに extendDueDate が消えることがある（計算を SQL に移すなど）ので、そのときは extendTask を通して確かめる
+//（2026-11-12 試行の後に、振る舞いを変えずに読み込み方だけを直した。W34 の decisions.md）。
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "../src/lib/db/index.ts";
-import { extendDueDate, extendTask, validateExtendInput } from "../src/lib/extend.ts";
+import { createTask } from "../src/lib/tasks.ts";
+
+const m = await import("../src/lib/extend.ts");
+const { extendTask, validateExtendInput } = m;
+
+function extended(dueDate: string, days: number): string {
+  if (typeof m.extendDueDate === "function") return m.extendDueDate(dueDate, days);
+  const db = openDb();
+  const t = createTask({ title: "x", status: "todo", assignee: "sato", dueDate }, db);
+  const r = extendTask(t.id, days, db);
+  assert.ok(r.ok, JSON.stringify(r));
+  return r.task.dueDate;
+}
 
 describe("f3 hidden", () => {
   it("H1 日数を足し、月・年をまたげる", () => {
-    assert.equal(extendDueDate("2026-11-20", 5), "2026-11-25");
-    assert.equal(extendDueDate("2026-11-30", 3), "2026-12-03");
-    assert.equal(extendDueDate("2026-12-31", 1), "2027-01-01");
+    assert.equal(extended("2026-11-20", 5), "2026-11-25");
+    assert.equal(extended("2026-11-30", 3), "2026-12-03");
+    assert.equal(extended("2026-12-31", 1), "2027-01-01");
   });
 
   it("H2 1〜30 の整数だけを受け付ける", () => {
