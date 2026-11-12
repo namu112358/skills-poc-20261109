@@ -5,7 +5,7 @@ AI エージェント（主に Claude Code）を使って新規開発を進め�
 | 問い | 今の答え（要約） | 状態 |
 |---|---|---|
 | [1. どの Skills・プラグイン・MCP を入れるか](#1-どの-skillsプラグインmcp-を入れるか) | 必須の 11 件と、採用技術ごとの追加分を固定のバージョンで入れる | 決定。追加候補は調査のみ |
-| [2. どのような開発ワークフローを組むか](#2-どのような開発ワークフローを組むか実装レビュー自己改善) | 実装は既定でワークフロー用のプラグインを使わず、難しい作業だけ Compound Engineering を使う。品質を上げる手段は、Issue に運用の事情を書くこと | 暫定（PoC の途中） |
+| [2. どのような開発ワークフローを組むか](#2-どのような開発ワークフローを組むか実装レビュー自己改善) | 実装は既定でワークフロー用のプラグインを使わず、難しい作業だけ Compound Engineering を使う。レビュー用の Skill も既定では入れず、何を確かめるかを依頼に具体的に書く。品質を上げる手段は、Issue に運用の事情を書くこと | 暫定（PoC の途中） |
 | [3. どのような GitHub の設定が必要か](#3-どのような-github-の設定が必要か) | Rulesets・Advanced Security・Actions の標準設定と、Issue・PR のテンプレートを入れる | 決定 |
 | [4. AI への指示と管理をどうするか](#4-ai-への指示と管理をどうするか) | 指示ファイルと設定は雛形から始め、プロジェクト固有の罠を理由つきで書く。権限は最小にし、Skills と指示を CI で機械的に検査する | 決定 |
 
@@ -134,43 +134,29 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 
 ### レビュー
 
-- 不具合を見つけるレビュー（W9）では、プラグインなしを含む全試行が満点でした。
-- 見つけにくい問題を 1 題材 1 種類ずつ仕込んだ比較（W21）でも、見つけた数に差はありませんでした。比べたのは、道具なし・内蔵 `/code-review high`・PR Review Toolkit・`design-principles-review`・Compound Engineering の `ce-code-review` です（[report](docs/poc/results/workflow/W21/report.md)）。
-  - 仕込んだのは、差分の外の DB 制約・日付の計算・API の非互換・設計だけの問題・レビュアーへの指示を書いたコメントなどです。
-  - 差が出たのは雑音と費用です。内蔵 `/code-review high` は誤った指摘・細かい指摘が最も多く、`ce-code-review` は誤った指摘が最も少なく、道具なしは最も安く速いという結果でした。
-- 同じ題材で、弱いモデル（Haiku）と、道具の手順を最後まで踏ませた場合も比べました（W22。[report](docs/poc/results/workflow/W22/report.md)）。
-  - Haiku の道具なしでも、Sonnet と同じく全部見つけました。費用は約 10 分の 1 です。
-  - `/review-pr` に専門エージェントを起動させても、見つける数は増えず、細かい指摘と費用（約 3.5 倍）が増えただけでした。
-- PR の説明が 1〜2 行だけの PR・大きな PR でも比べました（W23。[report](docs/poc/results/workflow/W23/report.md)）。
-  - 9 つの不具合のうち 8 つは、どの設定もほぼ毎回見つけました。
-  - 差が出たのは、日曜に翌週を指す不具合だけです。見つけたかどうかは、道具の種類より「コードを実際に動かして確かめたか」と結びついていました。
-  - 大きな PR にまとめると、この不具合の見落としが増えました。
-- レビューの依頼に「疑わしい所は小さな再現スクリプトで実際に動かして確かめてから指摘する」と足すと、Sonnet は日曜の不具合を 6 回中 0 回 → 6 回中 6 回見つけるようになりました。費用は約 1.3 倍です（W24。[report](docs/poc/results/workflow/W24/report.md)）。
-  - レビューの道具を足すより、この一文の方が見落としを減らし、費用も安く済みました。
-  - レビューの標準の指示にこの一文を入れることを提案します（未決定）。
-  - ほかの種類の題材（不具合なし・設計だけ・レビュアーへの指示を書いたコメントなど）でも、見落としは増えませんでした。雑音と費用が約 1.3 倍に増えるだけで、危ない操作もありませんでした（W25。[report](docs/poc/results/workflow/W25/report.md)）。
-  - 依頼文ではなく `CLAUDE.md` の規約に置いても、同じように効きました（日曜の不具合を 6 回中 5 回。W26。[report](docs/poc/results/workflow/W26/report.md)）。雛形の `AGENTS.md` の規約に足す案は W26 のレポートにあります。
-  - ただし、これまでの試行で実際に起きた不具合（W27。[report](docs/poc/results/workflow/W27/report.md)）では効果がありませんでした。実際の変更では指示が無くてもコードを動かしており、見落としたのは「本番の起動でだけ出る不具合」と「要件との照合が要る不具合」でした。効くのは、関数を呼べば確かめられる種類の不具合（日付・曜日の境界など）に限られます。
-  - 「本番ビルドして起動し、変更した画面・API を実際に開いて確かめる」と足すと、それまで 47 本のレビューの誰も見つけなかった「本番でだけ詳細の画面が 500」を、3 回中 2 回見つけました。費用は約 1.3 倍です（W28。[report](docs/poc/results/workflow/W28/report.md)）。どこまで動かすかで、見つかる不具合の範囲が決まります。
-  - 要件違反は、動かしても見つかりませんでした。「PR の説明の合意した要件を 1 つずつ書き出し、実装と照らす」と足すと、それまで誰も見つけなかった要件違反を 2 回中 2 回見つけました。費用は約 1.2 倍です（W29。[report](docs/poc/results/workflow/W29/report.md)）。
-  - 2 つの確認（要件の照合と、本番で起動して確かめる）を 1 つの依頼に詰めると、本番で起動する確認が手薄になりました（W30）。同じ会話で別々の段に分けて頼むと、見つけた割合が最も高くなりましたが、費用は約 1.9 倍でした（W31。[report](docs/poc/results/workflow/W31/report.md)）。エラーを目にしたのに指摘に書かない試行もありました。
-  - 「開いた画面・API ごとに状態コードとエラーを確かめた結果として書き、エラーはそれ自体を指摘する」と足すと、本番でだけ出る不具合を 4 回中 4 回見つけました（費用は約 1.5 倍。W32。[report](docs/poc/results/workflow/W32/report.md)）。
-- **ここまでのまとめ（暫定）:** 見落としを減らすのは、レビューの道具の種類ではなく、依頼の中で「何を確かめ、確かめた結果をどう書くか」を具体的に頼むことでした。
-  - 要件違反を見つけるには、要件を 1 つずつ照らすよう頼む。
-  - 本番でだけ出る不具合を見つけるには、本番で起動して確かめ、状態コードとエラーを書くよう頼む。
-  - 日付の境界の不具合を見つけるには、関数を動かして確かめるよう頼む。
-  - 複数を頼むときは、1 つの依頼に詰めず段を分ける。レビューの標準の手順にするかは未決定です。
-- 新しく作った実際の変更（W12・W14・W15・W19 の課題を Sonnet で 10 本）では、会話で合意した要件に反する不具合は 1 件も出ませんでした（W33。[report](docs/poc/results/workflow/W33/report.md)）。
-  - 隠しテストで落ちたのは、ほとんどが会話に出てこなかった隠れ要件で、レビューでは見つけようがありません。
-  - 上の頼み方は、不具合が入ったときの保険で、入っていない差分では費用（最大約 1.8 倍）がそのまま上乗せになります。
-  - 品質を上げるには、レビューより、実装の前に運用の事情・隠れ要件を聞き出す方が効く可能性が高いと考えています（次の PoC で確かめます）。
-- レビューの指摘に沿って直させた後の質も比べました（W34。[report](docs/poc/results/workflow/W34/report.md)）。作りすぎ・ファイル分割で消えた振る舞い・弱いテスト・時間がたつと落ちる（flaky な）テストの 4 題材です。
-  - 直した後の質も、Skill による差は小さいという結果でした。設計を見る Skill は作りすぎを消す方向にわずかな利点があり、内蔵 `/code-review high` は直すときに正しかった所まで変えて振る舞いを壊しました。
-  - flaky なテストは、時刻・時差・処理時間に頼る型はレビューで直りましたが、初期データの件数や文言を細かく決め打ちにする型は、どの設定もほぼ見落としました。テストの書き方の決まりを明文化する方が効きそうです。
-- 設計の観点のレビューには、このリポジトリで作った `design-principles-review` を使います。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
+レビュー用の Skill を W9・W20〜W34 で比べました。まとめと根拠は [docs/poc/results/review-skills.md](docs/poc/results/review-skills.md) にあります。**ここに書く答えは暫定です。**
+
+- **レビュー用の Skill は、既定では入れない。** Skill を足しても、見つかる不具合はほとんど増えませんでした。道具なし（Haiku でも）と同じ数を見つけ、変わったのは雑音・費用・指摘の書き方です。
+- **見落としを減らすのは、依頼の中で「何を確かめ、確かめた結果をどう書くか」を具体的に頼むこと。**
+  - 要件違反には「合意した要件を 1 つずつ照らす」（W29: 0/6 → 2/2）。
+  - 本番でだけ出る不具合には「本番ビルドして起動し、変更した画面・API を開いて、状態コードとエラーを結果として書く」（W28・W32: 0/47 → 4/4）。
+  - 2 つを 1 つの依頼に詰めると片方が手薄になるので、段を分けて頼む（W30・W31）。費用は 1.2〜1.9 倍になります。
+- **Skill の使い分け（提案）**
+
+  | 設定 | 強み | 弱み | 使う場面 |
+  |---|---|---|---|
+  | 道具なし | 見つける数は Skill と同じで、最も安く速い | 重さ・形が毎回変わる | 日常のセルフレビューの既定 |
+  | `design-principles-review`（自作） | 作りすぎを消す。重さが付き、書き方がそろう。直させても壊さない | 不具合探しは対象外。時間は約 1.5 倍 | 設計を変える変更に足す |
+  | Compound Engineering `ce-code-review` | 誤った指摘が最も少ない。直させても壊さない | 最も高い。`depth:full` は効かないことが多い | 重要・危険度の高い変更に足す |
+  | PR Review Toolkit `/review-pr` | 実際の不具合で見つけた数が最多の組。作りすぎを消す | Sonnet は専門エージェントを省く。起動させると雑音と費用（約 4 倍）が増える | 任意。既定の動きのまま使う |
+  | 内蔵 `/code-review high` | 導入不要。消した行の決まり・呼び出し元を見る観点がある | 雑音が最も多い。指摘どおりに直させると正しかった本体を壊した | 既定では使わない。使うなら人が取捨し、自動で直させない |
+
+- **レビューでは見つからないもの:** 誰も聞かなかった隠れ要件（W33）と、細かすぎて時間がたつと落ちるテスト（初期データの件数・文言の決め打ち。W34）。前者は実装の前に聞き出す、後者はテストの書き方の決まりを明文化する（どちらも提案）。
+- 標準の手順（雛形の規約・開発フロー）に入れるかは、**まだ決めていません。** 公式プラグインの Code Review と、内蔵 `/code-review` の `max` は比べていません。
+- 設計を変える変更のレビューには、このリポジトリで作った `design-principles-review` を足します（標準の Skill として配っています。使い分けは上の表）。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
   - 3 つの評価ケースで試したところ、Skill がなくても設計の問題はほぼ見つけられました。差が出たのは、指摘に重さ（必須・推奨・細かい点）を付けるかどうかと、指摘の書き方がそろうことです。
   - そのかわり、Skill を使うと時間が約 1.5 倍かかりました。
-- PR Review Toolkit と Claude Code 内蔵の `/code-review` は W20・W21 で比べました。公式プラグインの Code Review（`code-review@claude-plugins-official`。GitHub の PR を読む前提）と、セキュリティ監査のツール（Claude Security と Cloudflare Security Audit）の比較は、**まだ実施していません**。
+- セキュリティ監査のツール（Claude Security と Cloudflare Security Audit）の比較は、**まだ実施していません**。
 - セキュリティ監査を定期的に回す形（毎日は CodeQL などの検査、週 1 回は差分、月 1 回は全体を監査）の案は [docs/tool-candidates/security-audit-schedule.md](docs/tool-candidates/security-audit-schedule.md) にあります。頻度と費用の上限は、1 回あたりの費用を測ってから決めます。
 - Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施します。
 - 失敗を検査に反映するときの方針（案）は [docs/standards/testing-and-ci-policy.md](docs/standards/testing-and-ci-policy.md) にあります。要点は次の 3 つです。
@@ -197,8 +183,8 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 | 開発ワークフロー | 併用検証（§5.5） | Ponytail | Dietrich Gebert | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) |
 | セキュリティ監査 | 第一候補 | Claude Security | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security) |
 | セキュリティ監査 | 対抗候補 | Cloudflare Security Audit | Cloudflare | [cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) |
-| PR レビュー | 第一候補 | Code Review | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-review) |
-| PR レビュー | 対抗候補 | PR Review Toolkit | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit) |
+| PR レビュー | 第一候補（未比較） | Code Review | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-review) |
+| PR レビュー | 対抗候補（W20〜W34 で比較。任意） | PR Review Toolkit | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit) |
 
 候補の切り替えは `scripts/poc-profile.sh <profile>` で行います。`.claude/settings.local.json` に書き込むため、チームで共有する設定は変わりません。
 
