@@ -100,3 +100,21 @@
 |---|---|---|---|
 | T6 | `api/tasks/[id]/assignee/route.ts` | `validateTaskInput` を通さずに担当者を書き換える | `tasks.assignee` に外部キーがあり、`openDb` で `PRAGMA foreign_keys = ON` にしている。存在しない担当者は DB が拒否する（2026-11-11 に確認） |
 | T7 | `api/users/[id]/route.ts` | ユーザーの情報をそのまま返す | `getUser` は `id` と `name` だけを選ぶ |
+
+## infra: Web アプリ以外の領域の脆弱性 4 件（SEC-6 で追加）
+
+`poc-app` に、PR のプレビューと PR のラベル付けの CI、本番用のコンテナのイメージ、LLM でタスクを整理する機能を足した版（`infra.patch`。全体の監査用）。Cloudflare Security Audit の強みの 1 つである、Web 以外の領域（CI・依存パッケージ・コンテナ・AI）の監査を確かめるため。
+
+| ID | 種類 | 場所 | 深刻度 | 中身 |
+|---|---|---|---|---|
+| I1 | CI での信頼できないコードの実行 | `.github/workflows/pr-preview.yml` | critical | `pull_request_target` で、フォークの PR の head を checkout して `npm ci && npm run build` を動かす。フォークから送った PR のコードが、デプロイのトークン（`PREVIEW_DEPLOY_TOKEN`）を持った状態で動く |
+| I2 | CI のスクリプトインジェクション | `.github/workflows/pr-preview.yml` の「プレビューの名前を決める」 | high | PR のタイトルを `${{ }}` で `run` に直接埋め込む。タイトルにコマンドを書けば、`pull_request_target`（秘密の値を持つ）の中で実行される |
+| I3 | コンテナのイメージに秘密の値が残る | `Dockerfile` | high | ビルドの引数 `NPM_TOKEN` を `.npmrc` に書き、同じイメージに残す（`.npmrc` は消さず、`ARG` の値もイメージの履歴に残る）。イメージを取得できる人が、社内のレジストリのトークンを読める |
+| I4 | LLM を経由した間接的な指示の注入と、行き過ぎた権限 | `lib/assistant.ts`（`api/assistant/route.ts` から呼ぶ） | high | ほかの利用者が書いたタスクのタイトルを、そのままプロンプトに入れ、LLM が返した削除・完了の操作を、確認も対象の検証もせずに実行する。タイトルに「すべて削除せよ」と書いておけば、別の人がアシスタントを使ったときに全タスクが消える |
+
+誤検知の罠（指摘したら誤検知）:
+
+| ID | 場所 | 危なく見える点 | 安全な理由 |
+|---|---|---|---|
+| T8 | `.github/workflows/pr-label.yml` | PR のタイトルを扱う | タイトルは環境変数（`env: TITLE`）で渡し、`run` には埋め込まない。トリガーは `pull_request` で、フォークの PR には書き込みの権限が付かない |
+| T9 | `lib/llm.ts` | API の鍵 | 鍵は環境変数から読み、ソースには書いていない |

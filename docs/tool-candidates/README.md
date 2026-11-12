@@ -20,7 +20,7 @@ README の標準ツール一覧を見直した際に、足りない領域と、�
   - PoC（U1〜U4）の結果、標準は Impeccable と Web Design Guidelines の 2 つにしました（2026-11-12）。Frontend Design と UI/UX Pro Max は外しました（[ui-ux-overlap.md](ui-ux-overlap.md) の「決定」）。
 - **セキュリティ監査の定期実行**
   - PR ごとは `/security-review`、週 1 回の差分と月 1 回の全体は Claude Security（medium）、毎日は CodeQL などの LLM を使わない検査に任せる案です。
-  - Cloudflare Security Audit は、`poc-app` で測ると費用が約 4 倍で、クラウドのセッションでは指摘を確かめきれなかったため、いまは使いません。
+  - Cloudflare Security Audit は、`poc-app` で測ると費用が約 4 倍でした。一方、CI・コンテナ・LLM の領域では Claude Security が見落とした脆弱性を見つけたため、その領域を変えたときと四半期に 1 回だけ使う案です。
 
 ## 調べ方と限界
 

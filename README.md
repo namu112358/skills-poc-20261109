@@ -168,9 +168,9 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
   - 6 つの評価ケース（差が出るはずの、間違った共通化・名前の変更に紛れた振る舞いの変更・原則を口実にした作りすぎを含む）で試しました。Skill がなくても、仕込んだ問題はすべて見つけられました。
   - Skill の効き目は、指摘の重さ（必須・推奨・細かい点）と書き方（害と根拠）がそろうことと、汎用化の案を出さないことでした。そのかわり、この 6 件では時間が約 1.3 倍かかりました。
 - セキュリティ監査のツールは、`poc-app` に脆弱性を仕込んで比べました（[poc/results/security/README.md](poc/results/security/README.md)）。
-  - 全体の監査では、Claude Security と Cloudflare Security Audit のどちらも、仕込んだ 12 件をすべて見つけました。Cloudflare は費用が約 4 倍かかり、クラウドのセッションでは指摘を確かめきれず、すべて「要確認」のままでした。
+  - 全体の監査では、Claude Security と Cloudflare Security Audit のどちらも、仕込んだ 12 件をすべて見つけました。Cloudflare は費用が約 4 倍かかり、クラウドのセッションでは指摘を確かめきれず、すべて「要確認」のままでした。ただし、隔離して動かす手段を渡すと 12 件中 6 件を確認済みにし、CI・コンテナ・LLM の領域では Claude Security が見落とした脆弱性を見つけました。
   - PR ごとの差分の監査では、組み込みの `/security-review` が 1 回 $1 前後で、差分の中で完結する脆弱性をすべて見つけました。既存のコードと合わせて初めて分かる脆弱性では、Claude Security だけがすべて見つけました。
-- セキュリティ監査を定期的に回す形の案は [docs/tool-candidates/security-audit-schedule.md](docs/tool-candidates/security-audit-schedule.md) にあります。PR ごとは `/security-review`（認証・権限に触れる PR は Claude Security の差分スキャン）、週 1 回の差分と月 1 回の全体は Claude Security（medium）、毎日は CodeQL などの検査です。まだ決定ではありません。
+- セキュリティ監査を定期的に回す形の案は [docs/tool-candidates/security-audit-schedule.md](docs/tool-candidates/security-audit-schedule.md) にあります。PR ごとは `/security-review`（認証・権限に触れる PR は Claude Security の差分スキャン）、週 1 回の差分と月 1 回の全体は Claude Security（medium）、CI・コンテナ・LLM の設定を変えたときと四半期に 1 回は Cloudflare（quick）、毎日は CodeQL などの検査です。まだ決定ではありません。
 - Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施します。
 - 失敗を検査に反映するときの方針（案）は [docs/standards/testing-and-ci-policy.md](docs/standards/testing-and-ci-policy.md) にあります。要点は次の 3 つです。
   - 再発防止は、検出できる一番手前の段（型 → Lint → 単体テスト → 結合 → E2E）に置く。
