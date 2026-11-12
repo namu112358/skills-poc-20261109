@@ -1,0 +1,159 @@
+{
+ "trial": "W34-ce-review-f4-1",
+ "scenario": "W34",
+ "config": "ce-review",
+ "case": "f4",
+ "rep": 1,
+ "review_md": "# レビュー: タスク集計 API（`GET /api/tasks/summary`）\n\n対象: 未コミット差分（`git diff HEAD`）の 3 ファイル\n- `src/app/api/tasks/summary/route.ts`\n- `src/lib/summary.ts`\n- `tests/summary.test.ts`\n\n結論: **修正してからマージ（Ready with fixes）**。本体（`src/lib/summary.ts` と Route）に確認できた不具合は無い。ログイン確認・400 の返し方・プレースホルダ使用・`src/lib/` へのロジック配置は規約どおり。問題は、PR が主張する挙動（日本時間の集計、完了の除外、soonDays の範囲）を守るはずのテストにある。\n\n`npm test` は現時点（日本時間 2026-11-12 09:20 ごろ）で 23 件すべて通る。ただし下の指摘 1・2 のとおり、通るのは今の時刻・日付に偶然合っているからである。\n\n## 指摘一覧\n\n| # | 重要度 | 場所 | 要約 |\n|---|---|---|---|\n| 1 | 高 | `tests/summary.test.ts` の \"summarizes the seed data\" | 実際の現在日付に依存し、2026-11-12 以外では落ちる |\n| 2 | 中 | `tests/summary.test.ts` の \"counts a new task that is due today\" | 「今日」を UTC で作っており、日本時間 0〜9 時に落ちる |\n| 3 | 中 | `tests/summary.test.ts` 全体 | 期限切れ・期限が近い・完了の除外・境界日・soonDays の境界が未テスト |\n| 4 | 低 | `tests/summary.test.ts` の \"is fast enough for the dashboard\" | 実時間 300ms の閾値で不安定、価値も低い |\n\n## 1. [高] 初期データの集計テストが実行日に依存する\n\n- 場所: `tests/summary.test.ts` の `it(\"summarizes the seed data\")`（`summarizeTasks(openDb())`）\n- 問題: `now` を渡さないため、実行した日の日本時間が「今日」になる。一方 `src/lib/db/seed.ts` の期限は `2026-11-12` などの固定日付で、期待値 `{ total: 7, overdue: 0, dueToday: 1, dueSoon: 2 }` は「今日が 2026-11-12」のときだけ成り立つ。\n  - 2026-11-13（日本時間）以降: 「ログイン画面のデザイン」（期限 11-12、進行中）が期限切れになり `overdue: 1`、`dueToday: 0` となって落ちる。\n  - 2026-11-12 より前: 値が変わって落ちる。\n  - つまりこのテストは、書いた日の翌日から CI で常に失敗する。\n- 直し方: `summarizeTasks` は `now` を引数に取れるので、`new Date(\"2026-11-12T03:00:00Z\")` のように固定時刻を渡す。\n\n## 2. [中] 「今日が期限」のテストが UTC の日付を使っている\n\n- 場所: `tests/summary.test.ts` の `it(\"counts a new task that is due today\")`（`new Date().toISOString().slice(0, 10)`）\n- 問題: `toISOString()` は UTC の日付を返す。実装は日本時間（UTC+9）で今日を決めるので、UTC 15:00〜24:00（日本時間 0:00〜9:00）は両者の日付が 1 日ずれる。そのとき作ったタスクは「昨日が期限」と数えられ、`dueToday` が 1 のままになり `assert.equal(..., 2)` が失敗する。日本時間の朝 9 時前に動く CI で時々落ちる。\n  - 皮肉なことに、PR が守ろうとしている「日本時間で数える」挙動の確認として逆向きに書かれている。\n- 直し方: テストでも固定した `now` を使う（指摘 1 と同じ）。タスクの期限は `JST の今日` を同じ方法（`Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" })`）で作るか、固定日付の文字列にする。\n\n## 3. [中] PR が主張する挙動のテストが無い\n\n- 場所: `tests/summary.test.ts`\n- 問題: PR の説明にある次の内容を確かめるテストが無い。壊れても気付けない。\n  - 日本時間の境界: 例）`now = 2026-11-11T15:00:00Z`（日本時間 11-12 0:00）で今日が 11-12 になること、`2026-11-11T14:59:59Z` では 11-11 になること。\n  - `overdue`: 期限が昨日の未完了タスクが数えられること。\n  - `dueSoon` の範囲: 明日から `soonDays` 日後までで、今日と `soonDays+1` 日後は含まないこと。月・年またぎ（`addDays`）も含む。\n  - 完了タスクの除外: `done` で期限切れ／今日／近い日付のタスクが 3 つの期限の数に入らず、`total` には入ること。\n  - `parseSoonDays`: 1 と 90 は通り、91・`\"07\"`・`\"7.5\"`・`\"\"`・`\"-1\"` は 400 になること。現在のテストは `\"0\"` と `\"abc\"` だけ。\n  - Route: 未ログインで 401、不正な `soonDays` で 400（`{ error, details }`）、正常で 200 の `{ summary }`。CLAUDE.md の規約 5（ロジックを追加したらテストを追加）に沿って、少なくとも `src/lib/` の部分は固定時刻で網羅する。\n- 直し方: 上記を、`openDb()` と固定の `now` を使った決定的なテストとして追加する。\n\n## 4. [低] 実時間 300ms を見るテスト\n\n- 場所: `tests/summary.test.ts` の `it(\"is fast enough for the dashboard\")`\n- 問題: インメモリ DB で 7 件を数えるだけの処理を、壁時計時間の閾値で検査している。負荷の高い共有 CI ランナーでは単純に遅れて落ち得る（不安定なテスト）。一方、回帰を検出する力はほとんど無い（件数が増えても 7 件のままのため）。\n- 直し方: このテストを削除する。性能が気になるなら、件数を増やした上で別途計測する。\n\n## 補足（指摘ではないが確認してほしいこと）\n\n- `total` は完了タスクと全ユーザーのタスクを含む（`listTasks` が全件を返す既存の挙動と一致）。ダッシュボードで「未完了の合計」を期待する場合は、PR の説明どおり「完了を期限の数に入れない」だけでよいか、意図を確認すること。\n- 今回のレビューでは、スコープ判定の補助スクリプトが実行許可を得られず使えなかったため、深さの判定（軽量）は差分の手動確認で行った。差分は 3 ファイル・実行コード約 55 行で、認証や課金の境界の変更は無い。\n",
+ "review_commit": "89c2bf4ea0f9d157c779b739c6db87f2895adca1",
+ "review_md_final": "# レビュー: タスク集計 API（`GET /api/tasks/summary`）\n\n対象: 未コミット差分（`git diff HEAD`）の 3 ファイル\n- `src/app/api/tasks/summary/route.ts`\n- `src/lib/summary.ts`\n- `tests/summary.test.ts`\n\n結論: **修正してからマージ（Ready with fixes）**。本体（`src/lib/summary.ts` と Route）に確認できた不具合は無い。ログイン確認・400 の返し方・プレースホルダ使用・`src/lib/` へのロジック配置は規約どおり。問題は、PR が主張する挙動（日本時間の集計、完了の除外、soonDays の範囲）を守るはずのテストにある。\n\n`npm test` は現時点（日本時間 2026-11-12 09:20 ごろ）で 23 件すべて通る。ただし下の指摘 1・2 のとおり、通るのは今の時刻・日付に偶然合っているからである。\n\n## 指摘一覧\n\n| # | 重要度 | 場所 | 要約 |\n|---|---|---|---|\n| 1 | 高 | `tests/summary.test.ts` の \"summarizes the seed data\" | 実際の現在日付に依存し、2026-11-12 以外では落ちる |\n| 2 | 中 | `tests/summary.test.ts` の \"counts a new task that is due today\" | 「今日」を UTC で作っており、日本時間 0〜9 時に落ちる |\n| 3 | 中 | `tests/summary.test.ts` 全体 | 期限切れ・期限が近い・完了の除外・境界日・soonDays の境界が未テスト |\n| 4 | 低 | `tests/summary.test.ts` の \"is fast enough for the dashboard\" | 実時間 300ms の閾値で不安定、価値も低い |\n\n## 1. [高] 初期データの集計テストが実行日に依存する\n\n- 場所: `tests/summary.test.ts` の `it(\"summarizes the seed data\")`（`summarizeTasks(openDb())`）\n- 問題: `now` を渡さないため、実行した日の日本時間が「今日」になる。一方 `src/lib/db/seed.ts` の期限は `2026-11-12` などの固定日付で、期待値 `{ total: 7, overdue: 0, dueToday: 1, dueSoon: 2 }` は「今日が 2026-11-12」のときだけ成り立つ。\n  - 2026-11-13（日本時間）以降: 「ログイン画面のデザイン」（期限 11-12、進行中）が期限切れになり `overdue: 1`、`dueToday: 0` となって落ちる。\n  - 2026-11-12 より前: 値が変わって落ちる。\n  - つまりこのテストは、書いた日の翌日から CI で常に失敗する。\n- 直し方: `summarizeTasks` は `now` を引数に取れるので、`new Date(\"2026-11-12T03:00:00Z\")` のように固定時刻を渡す。\n\n## 2. [中] 「今日が期限」のテストが UTC の日付を使っている\n\n- 場所: `tests/summary.test.ts` の `it(\"counts a new task that is due today\")`（`new Date().toISOString().slice(0, 10)`）\n- 問題: `toISOString()` は UTC の日付を返す。実装は日本時間（UTC+9）で今日を決めるので、UTC 15:00〜24:00（日本時間 0:00〜9:00）は両者の日付が 1 日ずれる。そのとき作ったタスクは「昨日が期限」と数えられ、`dueToday` が 1 のままになり `assert.equal(..., 2)` が失敗する。日本時間の朝 9 時前に動く CI で時々落ちる。\n  - 皮肉なことに、PR が守ろうとしている「日本時間で数える」挙動の確認として逆向きに書かれている。\n- 直し方: テストでも固定した `now` を使う（指摘 1 と同じ）。タスクの期限は `JST の今日` を同じ方法（`Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" })`）で作るか、固定日付の文字列にする。\n\n## 3. [中] PR が主張する挙動のテストが無い\n\n- 場所: `tests/summary.test.ts`\n- 問題: PR の説明にある次の内容を確かめるテストが無い。壊れても気付けない。\n  - 日本時間の境界: 例）`now = 2026-11-11T15:00:00Z`（日本時間 11-12 0:00）で今日が 11-12 になること、`2026-11-11T14:59:59Z` では 11-11 になること。\n  - `overdue`: 期限が昨日の未完了タスクが数えられること。\n  - `dueSoon` の範囲: 明日から `soonDays` 日後までで、今日と `soonDays+1` 日後は含まないこと。月・年またぎ（`addDays`）も含む。\n  - 完了タスクの除外: `done` で期限切れ／今日／近い日付のタスクが 3 つの期限の数に入らず、`total` には入ること。\n  - `parseSoonDays`: 1 と 90 は通り、91・`\"07\"`・`\"7.5\"`・`\"\"`・`\"-1\"` は 400 になること。現在のテストは `\"0\"` と `\"abc\"` だけ。\n  - Route: 未ログインで 401、不正な `soonDays` で 400（`{ error, details }`）、正常で 200 の `{ summary }`。CLAUDE.md の規約 5（ロジックを追加したらテストを追加）に沿って、少なくとも `src/lib/` の部分は固定時刻で網羅する。\n- 直し方: 上記を、`openDb()` と固定の `now` を使った決定的なテストとして追加する。\n\n## 4. [低] 実時間 300ms を見るテスト\n\n- 場所: `tests/summary.test.ts` の `it(\"is fast enough for the dashboard\")`\n- 問題: インメモリ DB で 7 件を数えるだけの処理を、壁時計時間の閾値で検査している。負荷の高い共有 CI ランナーでは単純に遅れて落ち得る（不安定なテスト）。一方、回帰を検出する力はほとんど無い（件数が増えても 7 件のままのため）。\n- 直し方: このテストを削除する。性能が気になるなら、件数を増やした上で別途計測する。\n\n## 補足（指摘ではないが確認してほしいこと）\n\n- `total` は完了タスクと全ユーザーのタスクを含む（`listTasks` が全件を返す既存の挙動と一致）。ダッシュボードで「未完了の合計」を期待する場合は、PR の説明どおり「完了を期限の数に入れない」だけでよいか、意図を確認すること。\n- 今回のレビューでは、スコープ判定の補助スクリプトが実行許可を得られず使えなかったため、深さの判定（軽量）は差分の手動確認で行った。差分は 3 ファイル・実行コード約 55 行で、認証や課金の境界の変更は無い。\n\n## 対応結果\n\n| # | 対応 |\n|---|---|\n| 1 | 修正した。`summarizeTasks` に固定の `now`（日本時間 2026-11-12 12:00）を渡すようにした。 |\n| 2 | 修正した。UTC の日付を使うテストを固定の `now` に置き換えた。日本時間 0:00 の前後（UTC 14:59:59 / 15:00:00）の境界テストも追加した。 |\n| 3 | 一部修正した。日本時間の境界、期限切れ、dueSoon の範囲（1・7・8 日、月・年またぎ）、完了の除外（total には入る）、空テーブル、`parseSoonDays` の境界（1・90・0・91・-1・07・7.5・空文字・空白・abc）を追加した。**Route（401/400/200）のテストは追加していない。** 理由: 既存の `tests/` に Route を直接呼ぶテストが無く、Route は `@/` エイリアスと `next/server`、Cookie によるセッションに依存する。`node:test` 単体のランナーでは解決できず、足すにはテスト基盤（外部ライブラリやモック機構）の追加が必要になり、規約 4（新しい外部ライブラリは追加しない）・6（依頼範囲にとどめる）に反する。Route は検証・集計を `src/lib/` の関数に委ね、認証は既存の `requireApiUser` を使うだけの薄い層で、その検証部分（`parseSoonDays`・`summarizeTasks`）はテスト済み。 |\n| 4 | 修正した。実時間 300ms のテストを削除した。 |\n",
+ "fixed": {
+  "diff_added": 157,
+  "diff_deleted": 0,
+  "pr_added": 89,
+  "pr_deleted": 0,
+  "commits": [
+   "414195f Add task summary API and make its tests deterministic",
+   "89c2bf4 Add code review for task summary API"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 30,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "初期データを、渡した時刻を基準に数える",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "日本時間の日付で数える（日本時間の朝 = UTC の前日でも）",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "期限が近いの日数を変えられる",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "日数の検証",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 4,
+   "log": ""
+  },
+  "mutation": {
+   "items": [
+    {
+     "id": "M1",
+     "status": "killed"
+    },
+    {
+     "id": "M2",
+     "status": "killed"
+    },
+    {
+     "id": "M3",
+     "status": "killed"
+    },
+    {
+     "id": "M4",
+     "status": "killed"
+    },
+    {
+     "id": "M5",
+     "status": "killed"
+    },
+    {
+     "id": "M6",
+     "status": "killed"
+    }
+   ],
+   "killed": 6,
+   "applicable": 6
+  },
+  "perturb": {
+   "files": [
+    "tests/summary.test.ts"
+   ],
+   "tests": 11,
+   "baseline_fail": 0,
+   "perturbations": [
+    {
+     "id": "P1",
+     "status": "pass",
+     "failed_tests": 0
+    },
+    {
+     "id": "P2",
+     "status": "pass",
+     "failed_tests": 0
+    },
+    {
+     "id": "P3",
+     "status": "fail",
+     "failed_tests": 2
+    },
+    {
+     "id": "P4",
+     "status": "fail",
+     "failed_tests": 1
+    },
+    {
+     "id": "P5",
+     "status": "pass",
+     "failed_runs": 0
+    }
+   ],
+   "fragile": 2
+  }
+ },
+ "transcript": {
+  "cost_usd": 0.5125,
+  "tokens": {
+   "input": 46,
+   "output": 11430,
+   "cache_read": 1332755,
+   "cache_creation": 66209
+  },
+  "turns": 22,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"git status --short && BASE=$(git merge-base HEAD HEAD) && echo \\\"BASE:$BASE\\\" && git diff --name-only $BASE && git diff -U10 --irreversible-delete $BASE && echo UNTRACKED && git ls-files "
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"SKILL_DIR=\\\"/tmp/poc-trials/W34-ce-review-f4-1/plugins/compound-engineering/skills/ce-code-review\\\"; PY=python3; $PY \\\"$SKILL_DIR/scripts/review-scope.py\\\" --base HEAD --docs-root docs; S"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 /tmp/poc-trials/W34-ce-review-f4-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+   }
+  ],
+  "tool_calls": {
+   "Read": 3,
+   "Bash": 13,
+   "Write": 2
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 111,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "レビューの指摘 4 件のうち 3 件を直し、Route のテストだけ追加せず、理由を `REVIEW.md` の末尾に書きました。`npm run typecheck` は通り、`npm test` も 30 件すべて通りました。PR の差分と修正は 414195f にまとめてコミットしています。\n\n- **指摘 1・2（直した）:** テストが実際の現在時刻を使っていたのをやめ、日本時間 2026-11-12 12:00 の固定時刻を渡すようにしました。日本時間 0:00 の前後を確かめるテストも足しています。\n- **指摘 3（一部直した）:**\n  - 追加したのは、期限切れ、期限が近い範囲（1・7・8 日、月・年またぎ）、完了の除外（合計には入る）、空のテーブル、日数の検証の境界です。\n  - Route（401/400/200）のテストは追加していません。既存のテストに Route を直接呼ぶ前例が無く、`@/` エイリアスと Cookie に依存するため、足すにはテスト基盤の追加が要り、規約 4・6 に反します。検証と集計は `src/lib/` の関数に任せているので、そちらはテスト済みです。\n- **指摘 4（直した）:** 実時間 300ms を見るテストを削除しました。\n\n`REVIEW.md` が私の書いた後でディスク上で変わっているとの通知が出ましたが、変更内容は見ていません。"
+ },
+ "interventions": 0
+}

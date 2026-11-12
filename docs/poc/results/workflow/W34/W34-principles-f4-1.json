@@ -1,0 +1,156 @@
+{
+ "trial": "W34-principles-f4-1",
+ "scenario": "W34",
+ "config": "principles",
+ "case": "f4",
+ "rep": 1,
+ "review_md": "# レビュー: タスク集計 API（`GET /api/tasks/summary`）\n\n## レビューの要約\n\n日本時間の今日を基準に、タスクの合計・期限切れ・今日が期限・期限が近い件数を返す API の追加。集計本体（`src/lib/summary.ts`）は正しく書けているが、テストが実行日・実行時刻・実行速度に依存していて不安定なため、**修正を求める**。\n\n## 良い点\n\n- 集計ロジックを `src/lib/summary.ts` に置き、Route は認証・入力検証・応答だけにしている（規約 1・9）。\n- SQL はプレースホルダ（`:today` など）を使い、日付は JST で 1 回だけ求めて渡している。\n- `soonDays` は境界で検証し、`07` や `1e1` のような紛らわしい値も弾いている。`now` を引数にして時刻を差し替えられる作りにしている。\n\n## 指摘\n\n### 1. [必須] 「初期データの集計」テストが実行日に依存し、日付が変わると落ちる\n\n- 場所: `tests/summary.test.ts` の `summarizes the seed data`（9〜12 行目付近）\n- 何が起きるか: `summarizeTasks(openDb())` は現在時刻（`new Date()`）を使う一方、期待値 `{ total: 7, overdue: 0, dueToday: 1, dueSoon: 2 }` は seed の固定日付（2026-11-12 が今日の前提）から計算した値。2026-11-13 以降に実行すると `overdue` が増えて必ず失敗する。現時点で通っているのは、今日がたまたま 2026-11-12 だから。\n- 判断の根拠: テストは時刻に依存させず、固定する。\n- 提案: `now` を固定して渡す（例: `summarizeTasks(openDb(), new Date(\"2026-11-12T03:00:00Z\"))`）。\n\n### 2. [必須] 「今日が期限」テストが UTC の日付を使っており、日本時間の 0〜9 時に落ちる\n\n- 場所: `tests/summary.test.ts` の `counts a new task that is due today`（14 行目）\n- 何が起きるか: `new Date().toISOString().slice(0, 10)` は UTC の日付。実装は JST の日付で数えるので、JST 00:00〜08:59 には「今日」がずれ、`dueToday` が 2 にならず失敗する。PR の「日付は日本時間で数える」という要件を、テストが検証できていない。\n- 判断の根拠: 同上（時刻に依存させない）。実装と同じ日付の求め方をテスト側で再実装していて、食い違いにも気付けない。\n- 提案: 固定した `now`（例: `2026-11-12T16:00:00Z` = JST 11/13 01:00）を渡し、期限が `2026-11-13` のタスクが `dueToday` に入ることを確かめる。これで UTC と JST の日付がずれる時間帯の振る舞いも確かめられる。\n\n### 3. [必須] 要件の中心である境界・除外の振る舞いにテストが無い\n\n- 場所: `tests/summary.test.ts` 全体、`src/lib/summary.ts` の `summarizeTasks`\n- 何が起きるか: PR の変更内容にある次の受入条件を、確かめるテストが無い。`status != 'done'` や `<` / `<=` の向きを間違えても、テストは通ってしまう。\n  - 完了したタスクは期限の数に入れない（seed の done は過去日付なので、`overdue` から外れていることが分かるのは偶然）。\n  - 期限切れは「今日より前」、`dueSoon` は「明日から `soonDays` 日後まで」（前日 / 今日 / 明日 / `今日+soonDays` / `今日+soonDays+1` の境界）。\n  - `soonDays` を変えると `dueSoon` が変わる（`summarizeTasks` の第 3 引数）。\n  - `total` に完了タスクを含めるか。\n  - `parseSoonDays` の `1`・`90`・`91`・`\"\"`・`\"07\"`・`\"1.5\"`・`\"-1\"`。現状は `null`・`\"0\"`・`\"abc\"` だけ。\n- 判断の根拠: 変更した振る舞い（受入条件）ごとにテストが必要。\n- 提案: 固定した `now` と `createTask` で、各境界のタスクを作って件数を確かめるテストを足す。`parseSoonDays` は 1・90 が通り 91 が弾かれる境界を確かめる。\n\n### 4. [必須] 実行時間を測るテストは不安定で、確かめる価値も低い\n\n- 場所: `tests/summary.test.ts` の `is fast enough for the dashboard`\n- 何が起きるか: 実行時間 < 300 ms という判定は、CI の混雑や並列実行で偶発的に落ちる。データは 7 件で、性能の保証にもならない。要件にも無い。\n- 判断の根拠: 外部の条件（実行環境の速さ）に依存するテストは、変更の妨げになる。\n- 提案: 削除する。性能を保証したい場合は、別途ベンチマークで測る。\n\n### 5. [推奨] 「合計」に完了タスクが含まれる点が PR 説明から読み取れない\n\n- 場所: `src/lib/summary.ts` の `COUNT(*) AS total`（SQL 内）\n- 何が起きるか: 「完了したタスクは期限の数に入れない」とあるだけで、`total` に完了タスクを含めることは書かれていない。実装は含めている。ダッシュボードの利用者が「未完了の合計」と受け取ると、数字が食い違う。\n- 判断の根拠: 驚き最小。仕様が曖昧な点は、決めてテストと説明に残す。\n- 提案: 含めるのが意図ならそのままにして、テストと PR 説明に書く。未完了だけなら `WHERE status != 'done'` に変える。\n\n### 6. [細かい点] Route が `summarizeTasks(undefined, new Date(), soon.days)` と、`undefined` を渡している\n\n- 場所: `src/app/api/tasks/summary/route.ts:11`、`src/lib/summary.ts` の `summarizeTasks` の引数\n- 何が起きるか: 先頭の引数を既定値に任せるために `undefined` を書いていて、読みにくい。\n- 判断の根拠: 読む人を驚かせない。\n- 提案: 第 1 引数に `getDb()` を明示して渡す。または `summarizeTasks(db, { now, soonDays })` の形にする。必須ではない。\n",
+ "review_commit": "7e6926d000ff6ee48f1801623b8bdffd8d9e00f3",
+ "review_md_final": "# レビュー: タスク集計 API（`GET /api/tasks/summary`）\n\n判定: 修正を求める。集計の実装本体（`src/lib/summary.ts`）と Route に必須の不具合は見つからなかったが、テストが実行日・実行時刻・実行速度に依存していて、要件の中心である境界の振る舞いも確かめていない。\n\n良い点: 集計ロジックを `src/lib/` に置き Route は認証・検証・応答だけにしている／SQL はプレースホルダを使っている／`soonDays` を境界で厳密に検証している／`now` を引数にして時刻を差し替えられる。\n\n## 1. 【重要度: 高】seed 集計のテストが実行日に依存し、日付が変わると落ちる\n\n- 場所: `tests/summary.test.ts` の `summarizes the seed data`（9〜12 行目付近）\n- 問題: `summarizeTasks(openDb())` は現在時刻を使うが、期待値 `{ total: 7, overdue: 0, dueToday: 1, dueSoon: 2 }` は seed の固定日付（2026-11-12 が今日の前提）から出した値。2026-11-13 以降に実行すると `overdue` が増えて必ず失敗する。今通っているのは今日がたまたま 2026-11-12 だから。\n- 直し方: `now` を固定して渡す（例: `summarizeTasks(openDb(), new Date(\"2026-11-12T03:00:00Z\"))`）。\n\n## 2. 【重要度: 高】「今日が期限」のテストが UTC の日付を使い、日本時間の 0〜9 時に落ちる\n\n- 場所: `tests/summary.test.ts` の `counts a new task that is due today`（14 行目）\n- 問題: `new Date().toISOString().slice(0, 10)` は UTC の日付。実装は JST で数えるので、JST 00:00〜08:59 には「今日」がずれ、`dueToday` が 2 にならず失敗する。PR の「日付は日本時間で数える」という要件を、テストが検証できていない。\n- 直し方: 固定した `now`（例: `2026-11-12T16:00:00Z` = JST 11/13 01:00）を渡し、期限 `2026-11-13` のタスクが `dueToday` に入ることを確かめる。UTC と JST の日付がずれる時間帯の確認にもなる。\n\n## 3. 【重要度: 高】要件の中心である境界・除外の振る舞いにテストが無い\n\n- 場所: `tests/summary.test.ts` 全体、`src/lib/summary.ts` の `summarizeTasks`\n- 問題: 次の受入条件を確かめるテストが無く、`status != 'done'` や `<` / `<=` の向きを間違えても通ってしまう。\n  - 完了したタスクを期限の数に入れない（seed の done は過去日付なので、`overdue` から外れていることが分かるのは偶然）。\n  - 期限切れは今日より前、`dueSoon` は明日から `soonDays` 日後まで（前日／今日／明日／今日+soonDays／今日+soonDays+1 の境界）。\n  - `soonDays` を変えると `dueSoon` が変わる。\n  - `parseSoonDays` の `1`・`90`・`91`・`\"\"`・`\"07\"`・`\"1.5\"`・`\"-1\"`（現状は `null`・`\"0\"`・`\"abc\"` だけ）。\n- 直し方: 固定した `now` と `createTask` で各境界のタスクを作り、件数を確かめるテストを足す。`parseSoonDays` は 1・90 が通り 91 が弾かれることを確かめる。\n\n## 4. 【重要度: 高】実行時間を測るテストは不安定で、確かめる価値も低い\n\n- 場所: `tests/summary.test.ts` の `is fast enough for the dashboard`\n- 問題: 300 ms 未満という判定は、CI の混雑や並列実行で偶発的に落ちる。データは 7 件で性能の保証にもならず、要件にも無い。\n- 直し方: 削除する。性能を保証したいなら別途ベンチマークで測る。\n\n## 5. 【重要度: 中】「合計」に完了タスクが含まれることが説明から読み取れない\n\n- 場所: `src/lib/summary.ts` の `summarizeTasks` の SQL（`COUNT(*) AS total`）\n- 問題: PR は「完了したタスクは期限の数に入れない」としか書いておらず、`total` は完了も含めて数える。利用者が「未完了の合計」と受け取ると、数字が食い違う。\n- 直し方: 含めるのが意図ならテストと PR 説明に書く。未完了だけなら `WHERE status != 'done'` に変える。\n\n## 6. 【重要度: 低】Route が `summarizeTasks(undefined, new Date(), soon.days)` と `undefined` を渡している\n\n- 場所: `src/app/api/tasks/summary/route.ts:11`、`src/lib/summary.ts` の `summarizeTasks` の引数\n- 問題: 先頭の引数を既定値に任せるために `undefined` を書いていて読みにくい。\n- 直し方: 第 1 引数に `getDb()` を明示して渡す。または `summarizeTasks(db, { now, soonDays })` の形にする。必須ではない。\n\n---\n\n## 対応状況（修正後の追記）\n\n- 1〜4（高）: `tests/summary.test.ts` を修正した。`now` を固定して日付・時刻への依存をなくし、UTC と JST がずれる時刻のテスト、期限切れ・今日・`dueSoon` の境界、完了タスクの除外、`soonDays` の変更、`parseSoonDays` の境界値のテストを追加した。実行時間のテストは削除した。\n- 5（中）: `total` は完了タスクを含む全件のままにした。「合計」を件数の全体と読むのが自然で、PR の説明にも除外すると書かれていないため。意図を `summarizeTasks` のコメントに書き、`counts total including done tasks` のテストで固定した。未完了だけの合計が必要なら、別の項目として追加する。\n- 6（低）: 直さない。`listTasks` など `src/lib/` の既存の関数は、`db` を省略すると `getDb()` を使う作りで、既存の Route も `db` を渡していない。この Route だけ `getDb()` を渡すと、既存の書き方と揃わなくなる。`undefined` を渡す読みにくさは細かい点で、引数の並びを変えると PR の範囲を超える。\n",
+ "fixed": {
+  "diff_added": 147,
+  "diff_deleted": 0,
+  "pr_added": 89,
+  "pr_deleted": 0,
+  "commits": [
+   "1ec6b71 タスク集計 API を追加し、レビュー指摘に沿ってテストを修正する",
+   "b555ff6 REVIEW.md を場所・問題・直し方・重要度の形式に書き直す",
+   "7e6926d PR レビュー: タスク集計 API の指摘を REVIEW.md に追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 29,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "初期データを、渡した時刻を基準に数える",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "日本時間の日付で数える（日本時間の朝 = UTC の前日でも）",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "期限が近いの日数を変えられる",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "日数の検証",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 4,
+   "log": ""
+  },
+  "mutation": {
+   "items": [
+    {
+     "id": "M1",
+     "status": "killed"
+    },
+    {
+     "id": "M2",
+     "status": "killed"
+    },
+    {
+     "id": "M3",
+     "status": "killed"
+    },
+    {
+     "id": "M4",
+     "status": "killed"
+    },
+    {
+     "id": "M5",
+     "status": "killed"
+    },
+    {
+     "id": "M6",
+     "status": "killed"
+    }
+   ],
+   "killed": 6,
+   "applicable": 6
+  },
+  "perturb": {
+   "files": [
+    "tests/summary.test.ts"
+   ],
+   "tests": 10,
+   "baseline_fail": 0,
+   "perturbations": [
+    {
+     "id": "P1",
+     "status": "pass",
+     "failed_tests": 0
+    },
+    {
+     "id": "P2",
+     "status": "pass",
+     "failed_tests": 0
+    },
+    {
+     "id": "P3",
+     "status": "fail",
+     "failed_tests": 1
+    },
+    {
+     "id": "P4",
+     "status": "fail",
+     "failed_tests": 1
+    },
+    {
+     "id": "P5",
+     "status": "pass",
+     "failed_runs": 0
+    }
+   ],
+   "fragile": 2
+  }
+ },
+ "transcript": {
+  "cost_usd": 0.3864,
+  "tokens": {
+   "input": 36,
+   "output": 12706,
+   "cache_read": 773351,
+   "cache_creation": 45488
+  },
+  "turns": 16,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat -n $f; done\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"cat > tests/summary.test.ts <<'EOF'\\nimport { describe, it } from \\\"node:test\\\";\\nimport assert from \\\"node:assert/strict\\\";\\nimport { openDb } from \\\"../src/lib/db/index.ts\\\";\\nimport { "
+   }
+  ],
+  "tool_calls": {
+   "Bash": 10,
+   "Write": 1,
+   "Edit": 1
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 105,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "REVIEW.md の指摘のうち 5 件を直し、1 件は直さないことにしました。型検査（`npm run typecheck`）は通り、テスト（`npm test`）も 29 件すべて通りました。PR の差分と修正を含めて、すべてコミット済みです（`1ec6b71`）。\n\n**直したもの**\n- **指摘 1〜4（高）:** `tests/summary.test.ts` を書き直しました。\n  - **日付・時刻の固定:** 日付や時刻を固定し、実行日や UTC の日付に依存しないようにしました。\n  - **追加したテスト:** UTC と日本時間で日付がずれる時刻のテスト、期限切れ・今日が期限・期限が近いの境界、完了タスクの除外、`soonDays` を変えた場合、`parseSoonDays` の境界値と不正値のテストを足しました。\n  - **削除したテスト:** 実行時間を測るテストは削除しました。\n- **指摘 5（中）:** 合計に完了タスクを含める挙動は変えませんでした。`summarizeTasks` のコメントとテストで、その意図を固定しました。\n\n**直さなかったもの**\n- **指摘 6（低）:** Route で `undefined` を渡している箇所は、そのままにしました。既存の関数と Route は `db` を省略して `getDb()` の既定を使う作りで、揃えるためです。理由は REVIEW.md の末尾に書きました。"
+ },
+ "interventions": 0
+}
