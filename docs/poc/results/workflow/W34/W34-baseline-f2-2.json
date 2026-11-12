@@ -1,0 +1,94 @@
+{
+ "trial": "W34-baseline-f2-2",
+ "scenario": "W34",
+ "config": "baseline",
+ "case": "f2",
+ "rep": 2,
+ "review_md": "# レビュー結果\n\nPR「タスクの機能をファイル分割（振る舞いは変えない）」。分割の構成自体は妥当ですが、`validation.ts` に**振る舞いの変更（検証の削除）**が紛れ込んでいます。PR の説明の「振る舞いは変えていない」は事実と異なります。マージ前に直してください。\n\n## 1. 【高】担当者の存在確認が消え、存在しない担当者で 500 になる\n\n- 場所: `src/lib/tasks/validation.ts` の `validateTaskInput`（`need(\"assignee\")` の分岐。引数 `_db` が未使用になっている）\n- 問題: 変更前は `SELECT 1 FROM users WHERE id = ?` で担当者の存在を確認していたが、空でない文字列かどうかだけの確認に変わった。`POST /api/tasks` や `PATCH /api/tasks/:id` に `\"assignee\": \"nobody\"` を送ると検証を通り、`tasks.assignee` の外部キー制約（`PRAGMA foreign_keys = ON`）違反で `createTask` / `updateTask` が例外を投げ、400 ではなく 500 になる。CLAUDE.md の「入力誤りは 400」にも反する。\n- 直し方: 変更前の存在確認を戻し、`_db` を `db` に戻す。検証が DB を引くので、`validation.ts` が `getDb` に依存する点は意図どおりであり、削らない。\n\n## 2. 【高】タイトルの 200 文字上限が消えている\n\n- 場所: `src/lib/tasks/validation.ts` の `validateTaskInput`（`need(\"title\")` の分岐）\n- 問題: 変更前の `b.title.length > 200` の条件が無くなった。エラーメッセージは「1〜200 文字」のままなので、メッセージと実際の検証が食い違う。数万文字のタイトルも保存でき、一覧・詳細画面の表示崩れや DB の肥大化につながる。\n- 直し方: `|| b.title.length > 200` を戻す。\n\n## 3. 【中】上の 2 つの退行を検出するテストが消えている\n\n- 場所: `tests/task-validation.test.ts`（旧 `tests/tasks.test.ts` の「reports every invalid field」テストが無い。ファイル中に空行が 2 つ続く箇所が削除跡）\n- 問題: 旧テストは「空タイトル・不正なステータス・存在しない担当者・不正な日付」の 4 件が全部エラーになることを確認しており、項目 1 の退行では 4 件が 3 件になって失敗するはずだった。このテストを消したため、`npm test` が通っても退行が見つからない。「テストが通った」は検証の根拠にならない。PR 本文は「テストも同じ単位に分けました」とあるが、実際には 1 件減っている。\n- 直し方: テストを戻し、あわせて次を追加する（CLAUDE.md の規約 5）。\n  - 存在しない担当者で `ok: false` になること\n  - 201 文字のタイトルが `ok: false` になること\n\n## 4. 【低】`task-model.test.ts` と `task-validation.test.ts` の未使用 import\n\n- 場所: `tests/task-model.test.ts`、`tests/task-validation.test.ts` の `openDb` の import（`task-model.test.ts` は `openDb` を使っていない）\n- 問題: 未使用の import が残っている。\n- 直し方: 不要な import を削除する。\n\n## 5. 【低】`@/lib/tasks/index` の指定が冗長\n\n- 場所: `src/app/` 配下の 4 ファイルの import\n- 問題: `@/lib/tasks` のままでも `index.ts` に解決されるため、変更前の書き方のままで済み、差分を小さくできた（規約 6 の「依頼範囲にとどめる」）。動作上の問題ではない。\n- 直し方: 任意。`@/lib/tasks` に戻せば呼び出し側の差分は不要になる。\n",
+ "review_commit": "322caa87ee24aceb0572515761ab956c4b64482d",
+ "review_md_final": "# レビュー結果\n\nPR「タスクの機能をファイル分割（振る舞いは変えない）」。分割の構成自体は妥当ですが、`validation.ts` に**振る舞いの変更（検証の削除）**が紛れ込んでいます。PR の説明の「振る舞いは変えていない」は事実と異なります。マージ前に直してください。\n\n## 1. 【高】担当者の存在確認が消え、存在しない担当者で 500 になる\n\n- 場所: `src/lib/tasks/validation.ts` の `validateTaskInput`（`need(\"assignee\")` の分岐。引数 `_db` が未使用になっている）\n- 問題: 変更前は `SELECT 1 FROM users WHERE id = ?` で担当者の存在を確認していたが、空でない文字列かどうかだけの確認に変わった。`POST /api/tasks` や `PATCH /api/tasks/:id` に `\"assignee\": \"nobody\"` を送ると検証を通り、`tasks.assignee` の外部キー制約（`PRAGMA foreign_keys = ON`）違反で `createTask` / `updateTask` が例外を投げ、400 ではなく 500 になる。CLAUDE.md の「入力誤りは 400」にも反する。\n- 直し方: 変更前の存在確認を戻し、`_db` を `db` に戻す。検証が DB を引くので、`validation.ts` が `getDb` に依存する点は意図どおりであり、削らない。\n\n## 2. 【高】タイトルの 200 文字上限が消えている\n\n- 場所: `src/lib/tasks/validation.ts` の `validateTaskInput`（`need(\"title\")` の分岐）\n- 問題: 変更前の `b.title.length > 200` の条件が無くなった。エラーメッセージは「1〜200 文字」のままなので、メッセージと実際の検証が食い違う。数万文字のタイトルも保存でき、一覧・詳細画面の表示崩れや DB の肥大化につながる。\n- 直し方: `|| b.title.length > 200` を戻す。\n\n## 3. 【中】上の 2 つの退行を検出するテストが消えている\n\n- 場所: `tests/task-validation.test.ts`（旧 `tests/tasks.test.ts` の「reports every invalid field」テストが無い。ファイル中に空行が 2 つ続く箇所が削除跡）\n- 問題: 旧テストは「空タイトル・不正なステータス・存在しない担当者・不正な日付」の 4 件が全部エラーになることを確認しており、項目 1 の退行では 4 件が 3 件になって失敗するはずだった。このテストを消したため、`npm test` が通っても退行が見つからない。「テストが通った」は検証の根拠にならない。PR 本文は「テストも同じ単位に分けました」とあるが、実際には 1 件減っている。\n- 直し方: テストを戻し、あわせて次を追加する（CLAUDE.md の規約 5）。\n  - 存在しない担当者で `ok: false` になること\n  - 201 文字のタイトルが `ok: false` になること\n\n## 4. 【低】`task-model.test.ts` と `task-validation.test.ts` の未使用 import\n\n- 場所: `tests/task-model.test.ts`、`tests/task-validation.test.ts` の `openDb` の import（`task-model.test.ts` は `openDb` を使っていない）\n- 問題: 未使用の import が残っている。\n- 直し方: 不要な import を削除する。\n\n## 5. 【低】`@/lib/tasks/index` の指定が冗長\n\n- 場所: `src/app/` 配下の 4 ファイルの import\n- 問題: `@/lib/tasks` のままでも `index.ts` に解決されるため、変更前の書き方のままで済み、差分を小さくできた（規約 6 の「依頼範囲にとどめる」）。動作上の問題ではない。\n- 直し方: 任意。`@/lib/tasks` に戻せば呼び出し側の差分は不要になる。\n\n## 対応状況\n\n指摘 1〜5 はすべて修正した（直さなかった指摘は無い）。\n\n- 1: `validateTaskInput` に担当者の存在確認を戻し、`db` 引数を使うようにした。\n- 2: タイトルの 200 文字上限を戻した。\n- 3: 「reports every invalid field」テストを戻し、存在しない担当者と 200／201 文字のタイトルのテストを追加した。\n- 4: `task-model.test.ts` の未使用の `openDb` import を削除した。`task-validation.test.ts` では `openDb` を使っているため残した。\n- 5: 呼び出し側の import を `@/lib/tasks` に戻した（`index.ts` に解決される）。\n",
+ "fixed": {
+  "diff_added": 231,
+  "diff_deleted": 213,
+  "pr_added": 218,
+  "pr_deleted": 217,
+  "commits": [
+   "8bc0584 タスク機能をファイル分割し、レビュー指摘の退行を修正",
+   "322caa8 REVIEW.md: タスク分割 PR のレビュー指摘を追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 21,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "タイトルは 200 文字まで（201 文字は入力の誤り）",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "存在しない担当者は入力の誤り",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "すべての項目が誤っていれば、4 つとも報告する",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "一覧・取得・作成・更新は元のとおり",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 4,
+   "log": ""
+  }
+ },
+ "transcript": {
+  "cost_usd": 0.3416,
+  "tokens": {
+   "input": 38,
+   "output": 8604,
+   "cache_read": 785812,
+   "cache_creation": 44235
+  },
+  "turns": 28,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"git show HEAD:src/lib/tasks.ts; git show HEAD:tests/tasks.test.ts; for f in src/lib/tasks/*.ts tests/task-*.ts; do echo \\\"=== $f\\\"; cat $f; done; git diff HEAD -- src/app\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 - <<'EOF'\\np='src/lib/tasks/validation.ts'\\ns=open(p).read()\\ns=s.replace(\\\"  _db: Db = getDb(),\\\",\\\"  db: Db = getDb(),\\\")\\ns=s.replace(' * API に送られたタスクの内容を検証する。partial = true（更新"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i 's#@/lib/tasks/index\\\"#@/lib/tasks\\\"#' src/app/api/tasks/route.ts \\\"src/app/api/tasks/[id]/route.ts\\\" \\\"src/app/tasks/[id]/page.tsx\\\" src/app/tasks/page.tsx && grep -rn \\\"lib/tasks"
+   }
+  ],
+  "tool_calls": {
+   "Bash": 11,
+   "Read": 3,
+   "Edit": 10
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 86,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "REVIEW.md の指摘 5 件をすべて直し、PR の差分と修正を 1 つのコミット（`8bc0584`）にまとめました。`npm run typecheck` はエラーなし、`npm test` は 21 件中 21 件成功、`npm run build` も成功です。\n\n- **指摘 1（担当者の存在確認）:** `validateTaskInput` に `users` テーブルでの存在確認を戻しました。存在しない担当者は 400 になります。\n- **指摘 2（タイトルの 200 文字上限）:** 上限を戻しました。\n- **指摘 3（テストの欠落）:** 「reports every invalid field」を戻し、存在しない担当者と 200／201 文字のタイトルのテストを追加しました。\n- **指摘 4（未使用 import）:** `task-model.test.ts` の `openDb` import を削除しました。`task-validation.test.ts` では `openDb` を使っているので残しています。\n- **指摘 5（`@/lib/tasks/index`）:** 呼び出し側 4 ファイルの import を `@/lib/tasks` に戻しました。\n\n直さなかった指摘はありません。REVIEW.md の末尾に「対応状況」として、各指摘にどう対応したかを追記しました。"
+ },
+ "interventions": 0
+}
