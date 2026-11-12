@@ -1,0 +1,33 @@
+{
+  "trial": "W27-baseline-c2-1",
+  "scenario": "W27",
+  "config": "baseline",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: 計測器ごとの定期点検の追加\n\n結論: 合意した要件のうち「担当者での絞り込み・並べ替え」「担当者ごとの遅れ台数の毎朝の通知」が実装されていない。ほかに、5 万件での一覧の遅さ、旧データを黙って見えなくする箇所がある。下記を直してからマージしてください。\n\n## 高\n\n### 1. 担当者での絞り込み・並べ替えが無い（要件の欠落）\n- 場所: `src/app/instruments/page.tsx`（`InstrumentsPage`）、`src/lib/instruments.ts` の `listInstruments`\n- 問題: 一覧に「点検の担当者」列を足しただけで、担当者で絞り込む・並べ替える手段が画面にも `src/lib/` にも無い。検索条件は既存の `status` / `dept` のまま。\n- 直し方: 一覧のクエリパラメータに `inspector` と `sort` を足し、型ガードで検証する（規約 2）。絞り込み・並べ替えは `src/lib/inspections.ts` の関数で SQL の `WHERE inspector_id = ?` / `ORDER BY` として行う（規約 1・7）。テストも足す。\n\n### 2. 「担当者ごとの遅れ台数を毎朝知りたい」が未対応\n- 場所: 差分全体（`src/app/api/jobs/` に点検用のジョブが無い。`docs/operations.md` も未更新）\n- 問題: 担当者ごとの期限切れ・未点検の台数を出す集計も通知も無い。遅れの判定は一覧の表示のときに 1 台ずつ計算するだけ。\n- 直し方: 担当者ごとの集計関数（`GROUP BY inspector_id`、期限切れ・未点検を別々に数える）を `src/lib/inspections.ts` に置く。`overdue-loans` と同じ形の定期ジョブ `POST /api/jobs/overdue-inspections`（`requireJobAuth()`、何度動いても同じ結果）を足し、`docs/operations.md` の表に時刻を書く。担当者未設定の台数も別枠で数える。\n\n### 3. 一覧が 5 万件で遅くなる\n- 場所: `src/lib/inspections.ts` の `listInspectionPlans` / `PLAN_SELECT`、`src/app/instruments/page.tsx`\n- 問題: 一覧を開くたびに、全計測器（約 5 万）の点検状況を相関サブクエリで集計して `Map` に詰める。表示に必要なのは絞り込み後の行だけなのに、毎回全件分を計算する。`listInstruments` も全件を返しページ分割が無いので、5 万行の表を 1 ページに描画する。毎朝全部署が開く画面である。\n- 直し方: 絞り込み後の計測器の ID 分だけ（または `listInstruments` と 1 本の JOIN で）点検状況を取る。ページ分割を入れる。「最後の点検日」を取る参照が `inspection_records(instrument_id, inspected_on)` の索引で足りることを `EXPLAIN QUERY PLAN` で確認し、5 万件規模でのテストか計測結果を PR に書く。\n\n## 中\n\n### 4. 移行後も `extra` に書かれる旧キーが画面から見えなくなる\n- 場所: `src/app/instruments/[id]/page.tsx`（`.filter(([key]) => key !== \"inspector\" && key !== \"last_inspected\")`）、`src/lib/inspections-legacy.ts`（`importLegacyInspections`）\n- 問題: 詳細画面は、`extra` の `inspector` / `last_inspected` を常に隠す。しかし次のケースでは、値が移行されず、画面にも出ないため、事実上消える。\n  - `extra` が壊れた JSON の計測器、または `inspector` が数値などの文字列でない計測器（移行は `continue` で黙って飛ばし、ログも出さない）。\n  - 移行後に `PATCH /api/instruments/:id` や `POST /api/instruments` で `extra.inspector` を送ったもの（API は今も受け付ける）。\n  - 要件の「黙って捨てない」に反する。\n- 直し方: 移行できなかったものは、スキップした件数・管理番号をログに出す（規約 15）。文字列でない値は文字列にして `legacy_inspector` に残す。詳細画面の `extra` の非表示は、移行済みの計測器だけに限る（または隠さない）。`extra` の `inspector` / `last_inspected` を API で書けるままにするか、書けなくするかを決めて、PR に書く。\n\n### 5. 担当者を変えると、旧データの書き方が `legacy_inspector` から消える\n- 場所: `src/lib/inspections.ts` の `updateInspectionPlan`（`legacy_inspector = NULL`）\n- 問題: 点検者だけが書かれていて点検日が無かった計測器（例: `{\"inspector\":\"外部委託\"}`）は、点検記録が作られず、元の書き方が残るのは `instruments.legacy_inspector` だけ。担当者を選び直すとこれが NULL になり、画面からは二度と見えない（`extra` には残るが問題 4 で非表示）。点検記録に書き写した分しか残らない前提のコメントと実装が合っていない。\n- 直し方: 点検記録に書き写していない場合は消さない。または `legacy_inspector` を消す代わりに、変更前の値を残す場所（メモ付きの点検記録、別カラム）に移す。\n\n### 6. 要修理で、貸出中の計測器まで使用停止になる\n- 場所: `src/lib/inspections.ts` の `recordInspection`（`status <> 'disposed'` の条件だけ）\n- 問題: `CLAUDE.md` では「貸出中は貸出・返却の操作でだけ変わる」とある。貸出中の計測器に要修理の記録を付けると、貸出が開いたまま状態が `suspended` になる。返却の処理は `status = 'on_loan'` のときだけ `in_use` に戻すので、返却しても状態は `suspended` のままで、貸出の台帳と状態が食い違う。（校正の不合格の処理にも同じ形があり、それに合わせたと思われるが、既存の問題を広げている。）\n- 直し方: 貸出中のときの扱い（要修理は記録するが状態は返却まで変えない、返却時に使用停止にする、など）を決めて実装し、テストで確かめる。確認が取れないなら、仮定を PR に書く。\n\n### 7. 前の版に戻したときの扱いが書かれていない\n- 場所: `src/lib/db/migrations.ts`（マイグレーション 6）、PR の説明\n- 問題: 要件の「不具合が出たら前の版に戻す（DB はそのまま）」に対し、PR に確かめた形跡が無い。新しいカラムは NOT NULL でも既定値があり、`extra` も消していないので古い版が動く見込みはあるが、戻している間に古い版が `extra` へ書いた点検者・点検日は、再度新しい版にしても（`user_version` が 6 のままなので）移行されず、一覧に反映されない。\n- 直し方: 戻したときの手順（古い版で動くことの確認、戻している間の `extra` の変更を再度取り込む手順）を `docs/operations.md` か PR に書く。移行関数は何度動いても同じ結果になる作りなので、再取り込み用の手順（ジョブなど）にできる。ただし、いまの条件は「担当者も旧データも記録も無いもの」だけを対象とするので、一度移行した計測器の `extra` が後で変わった分は拾えない点も記す。\n\n## 低\n\n### 8. 日付が読めない旧データだけの計測器が「未点検」になる\n- 場所: `src/lib/inspections.ts` の `PLAN_SELECT`（`MAX(r.inspected_on)`）、`judgeDue`\n- 問題: 日付が読めなかった旧データ（`inspected_on` が NULL）の計測器は、点検記録があっても「未点検」と表示される。実際は点検済みの可能性があり、「未点検」の台数に混ざって毎朝の集計がぶれる。\n- 直し方: 「未点検」と「日付不明（要確認）」を分けて表示・集計する。\n\n### 9. 旧データの点検記録が、結果を「良好」として作られる\n- 場所: `src/lib/inspections-legacy.ts`（`insertRecord` の `'good'`）\n- 問題: 旧データに結果が無いのに「良好」で入る。メモに「結果の記載なし」と書いてあるが、結果の列は良好のままで、集計や絞り込みでは良好として数えられる。許容できるなら、その前提を PR に書く。\n\n### 10. 名前の一致が「同姓の利用者が 1 人」の場合だけ\n- 場所: `src/lib/inspections-legacy.ts`（`matches.length === 1`）\n- 問題: 同姓・同名が複数いると元の書き方に回る。これは安全側で問題ないが、退職・休職の利用者に一致した場合も担当者になる（要件上は許容）。画面で在籍状況が分かるのは詳細画面だけ。一覧では「在籍していません」が出ない。\n- 直し方: 一覧にも在籍状況の表示を足す（任意）。\n\n### 11. テストが足りない箇所\n- 場所: `tests/inspections.test.ts`\n- 問題: 担当者での絞り込み（問題 1）、遅れ台数の集計（問題 2）、貸出中での要修理（問題 6）、API Route の 401・404・400、壊れた JSON や文字列でない値の移行（問題 4）のテストが無い。\n- 直し方: 上記の修正に合わせて足す（規約 5・16）。\n",
+  "review_chars": 4415,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.334,
+    "tokens": {
+      "input": 24,
+      "output": 7581,
+      "cache_read": 510853,
+      "cache_creation": 51763
+    },
+    "turns": 10,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 7
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 73,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘は、すでに `REVIEW.md` に指摘 11 件として、場所・何が問題か・直し方・重要度（高 3 件・中 4 件・低 4 件）の形式で書いてあります。それを前のターンでコミット済みです（`6bb8cde`）。`REVIEW.md` に未コミットの変更は無く、今回は書き写す内容が残っていなかったため、新しいコミットは作っていません。指摘の追加も削除もしていません。コードも直していません。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,33 @@
+{
+  "trial": "W21-principles-c5-1",
+  "scenario": "W21",
+  "config": "principles",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# レビュー: 担当者の項目名を `assigneeId` / `assignee_id` にする PR\n\n## 要約\n\n内部の名前の整理を目的とし、「画面の表示と API の入出力は変えない」と説明している PR。\n**修正を求める。** 画面（タスク一覧）が壊れ、API の入出力も変わっており、どちらも説明と食い違う。\n`npm run typecheck`・`npm test` は通る（19 件成功）が、どちらの問題もそれらでは検出されない。\n\n## 良い点\n\n- DB の列名変更を、既存のマイグレーションを書き換えず、末尾に新しい番号（3）で追加している（CLAUDE.md 規約 7）。\n  `RENAME COLUMN` でデータも保たれ、外部キー・インデックスも追従する。\n- SQL は引き続きプレースホルダを使っている。\n\n## 指摘\n\n### 1. [高] タスク一覧画面の「担当者」列が空になる\n\n- 場所: `src/lib/tasks.ts` の `listTasks`（SELECT 文、37 行目付近）と `toTask`（32 行目）\n- 問題: `listTasks` の SQL が `assignee_id AS assignee` と別名を付けているが、`toTask` は `row.assignee_id` を読む。\n  このため `/tasks` では全タスクの `assigneeId` が `undefined` になり、`src/app/tasks/page.tsx` の\n  `<td>{task.assigneeId}</td>` が空欄になる。`GET /api/tasks` の応答からも `assigneeId` が消える\n  （`JSON.stringify` は `undefined` を省く）。`getTask`（詳細画面）は `assignee_id` のまま読むので正しく、一覧だけが壊れる。\n  `TaskRow` への型アサーション（`as TaskRow[]`）が食い違いを隠すため、typecheck も通る。\n- 直し方: 別名を外し `SELECT id, title, status, assignee_id, due_date ...` にする。\n  あわせて `listTasks` の担当者を確かめるテストを追加する（指摘 3）。\n\n### 2. [高] API の入出力が変わっている（「変えない」と説明しているのに）\n\n- 場所: `src/lib/tasks.ts` の `Task` 型・`validateTaskInput`（`need(\"assigneeId\")`・`b.assigneeId`）、\n  `src/app/api/tasks/route.ts`、`src/app/api/tasks/[id]/route.ts`\n- 問題:\n  - `POST /api/tasks`・`PATCH /api/tasks/:id` の本文は `validateTaskInput` が読む。\n    キーが `assignee` から `assigneeId` に変わったため、既存のクライアントが `{\"assignee\": \"sato\", ...}` を送ると\n    「担当者が存在しません」で 400 になる。\n    `PATCH` で `{\"assignee\": \"sato\"}` だけを送った場合は、未知のキーとして無視され、担当者が更新されないまま成功する恐れがある。\n  - 応答の JSON は `Task` をそのまま返しているため、`assignee` というキーが `assigneeId` に変わる。\n- 直し方: PR の方針（API は変えない）を守るなら、API の境界で対応づける。\n  入力は `assignee` を受け取って内部の `assigneeId` に入れる。\n  出力は `toApiTask(task)` のような変換を `src/lib/` に置き、`assignee` として返す。\n  逆に API も改名したいなら、それは破壊的な変更なので、PR の説明を直し、利用者への周知や移行期間（旧キーも受け付ける）を決めたうえで、別の PR にする。\n  いずれの場合も、API の入出力のキー名をテストで固定する。\n\n### 3. [中] 上の 2 件を検出するテストが無い\n\n- 場所: `tests/tasks.test.ts`\n- 問題: 変更はテストの項目名を機械的に置き換えただけ。\n  - `listTasks` が返す `assigneeId` を確かめるテストが無い（指摘 1 を見逃した）。\n  - API の入出力のキー名を確かめるテストが無い（指摘 2 を見逃した）。\n  - 「画面・API は変えない」が受入条件なのに、それを守る検証が無い。\n- 直し方:\n  - `listTasks({}, db)` の各要素の `assigneeId` が期待値（例: 1 件目は `sato`）になるテスト。\n  - 指摘 2 の対応に合わせ、入力 `assignee` が受け付けられ、出力に `assignee` が出る（または新キーの仕様）ことを確かめるテスト。\n  - マイグレーション 3 を、旧スキーマ＋データに適用してもデータが残ることを確かめるテスト（任意）。\n\n### 4. [低] `tasks.ts` の `Task` 型・画面・API の名前の使い分けが曖昧なまま\n\n- 場所: `src/app/tasks/page.tsx:47`、`src/app/tasks/[id]/page.tsx:15,27`\n- 問題: 一覧は ID（`sato`）をそのまま表示し、詳細は名前を引いて表示する。これは既存の挙動であり本 PR の対象外。\n  ただし PR の動機は「名前と ID の取り違え」なので、一覧が ID を出していることは別途確認しておくとよい。\n- 直し方: 対応不要。必要なら別 PR で扱う。\n",
+  "review_chars": 2561,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2402,
+    "tokens": {
+      "input": 20,
+      "output": 4144,
+      "cache_read": 377579,
+      "cache_creation": 40232
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 50,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "追加の作業はありませんでした。前回のレビューの指摘は、すでに最初の依頼の形式で `REVIEW.md` に書いてあり、`REVIEW.md` だけをコミットしています（コミット `fc18863`）。`REVIEW.md` に未コミットの変更はありません。コードも直していません。\n\n`REVIEW.md` の指摘は次の 4 件で、どれも場所・何が問題か・直し方・重要度（高・中・低）を書いています。\n\n1. **高:** タスク一覧の担当者列が空になる。`listTasks` の SQL が `assignee_id AS assignee` と別名を付けているのに、`toTask` は `row.assignee_id` を読むため。\n2. **高:** 「API は変えない」と説明しているのに、API の入力キーと応答キーが `assigneeId` に変わっている。\n3. **中:** 上の 2 件を検出するテストがない。\n4. **低:** 一覧は担当者の ID、詳細は名前を表示している。これは既存の挙動で、対応は不要。\n\n新しい指摘は足しておらず、削った指摘もありません。\n\n前回お伝えしたとおり、指摘 2 のうち、`PATCH` で担当者だけを送ると更新されないまま成功する可能性は、実行して確かめていません。"
+  },
+  "interventions": 0
+}

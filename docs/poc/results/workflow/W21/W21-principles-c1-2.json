@@ -1,0 +1,43 @@
+{
+  "trial": "W21-principles-c1-2",
+  "scenario": "W21",
+  "config": "principles",
+  "case": "c1",
+  "rep": 2,
+  "review_md": "# レビュー: タスクに「保留」ステータスを追加\n\n## 要約\n\nステータスに `on_hold`（保留）を足し、一覧の絞り込みと API で使えるようにする変更。**修正を求める**。型・定数・ラベルは更新されているが、DB のスキーマが更新されておらず、保留のタスクを保存できない。\n\n## 良い点\n\n- ステータスの一覧とラベルが `TASK_STATUSES` / `STATUS_LABELS` に集約されているので、絞り込み UI・検証・表示が定数の変更だけで追従している。\n- `isTaskStatus` のテストに `on_hold` を追加している。\n\n## 指摘\n\n### 1. 【重要度: 高】DB の CHECK 制約が `on_hold` を拒否し、保留の保存が必ず失敗する\n\n- **場所**: `src/lib/db/migrations.ts:21`（version 1 の `tasks.status` の `CHECK (status IN ('todo', 'in_progress', 'done'))`）。呼び出し側は `src/lib/tasks.ts` の `createTask`（102 行目付近）・`updateTask`（110 行目付近）。\n- **何が問題か**: `POST /api/tasks` に `status: \"on_hold\"`、または `PATCH /api/tasks/:id` に `{\"status\":\"on_hold\"}` を送ると、`validateTaskInput` は通るが、INSERT / UPDATE が `CHECK constraint failed: status IN ('todo', 'in_progress', 'done')` で例外になる。`createTask` で実際に再現した。API Route に try/catch が無いので 500 になる。PR の目的である「保留を作成・更新できる」が実現していない。\n- **直し方**: `src/lib/db/migrations.ts` の末尾に version 3 を追加する。version 1 は書き換えない（規約 7）。SQLite は CHECK 制約を `ALTER` で変えられないので、テーブルを作り直す。\n  1. `tasks_new` を新しい CHECK（4 種類）付きで作る。\n  2. `INSERT INTO tasks_new SELECT ... FROM tasks` でデータを移す。\n  3. `DROP TABLE tasks` して `tasks_new` を `tasks` に改名する。\n  4. `tasks_assignee` インデックスを作り直す。\n\n  `AUTOINCREMENT` の採番（`sqlite_sequence`）も引き継ぐこと。\n\n### 2. 【重要度: 高】保存まで通すテストが無く、指摘 1 を検出できない\n\n- **場所**: `tests/tasks.test.ts`（追加された `accepts the on_hold status` と `isTaskStatus` の行）\n- **何が問題か**: 追加テストは検証関数と `isTaskStatus` だけで、DB に保存するところまで確かめていない。指摘 1 の不具合があるのに `npm test` が通る。PR の「検証結果」も、入力検証の通過しか確かめていない。\n- **直し方**: 次のテストを追加する。`openDb()` は全マイグレーションを適用するので、指摘 1 のマイグレーションを入れれば通る。\n  - `createTask` で `status: \"on_hold\"` のタスクを作り、`getTask` で読み戻す。\n  - `updateTask` で `on_hold` に変える。\n  - `listTasks` に `on_hold` を渡したとき、保留のタスクだけが返る（絞り込みは PR の変更内容に書かれている）。\n  - 既存データがある DB でのマイグレーション（version 2 の状態で行を入れて version 3 を適用しても行が残る）。\n\n### 3. 【重要度: 低】画面から保留を確かめた記録が無い\n\n- **場所**: PR の説明（検証結果）\n- **何が問題か**: 絞り込みのリンクは `TASK_STATUSES` から作られるので `on_hold` も出る見込みだが、DB に保留のタスクが作れないため、一覧・詳細で「保留」と表示されることは未確認。\n- **直し方**: 指摘 1 を直したあと、`/tasks?status=on_hold` で絞り込めることと、詳細画面に「保留」と出ることを確認し、PR の検証結果に書く。\n",
+  "review_chars": 2066,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2744,
+    "tokens": {
+      "input": 28,
+      "output": 6506,
+      "cache_read": 560362,
+      "cache_creation": 38323
+    },
+    "turns": 14,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -n 60,200p src/lib/db/migrations.ts | head -20; cat > $TMPDIR/x.ts 2>/dev/null; cat > /tmp/claude-0/-tmp-poc-trials-W21-principles-c1-2-app/6953744e-e4fd-4e3e-aa36-d68a68d49e55/scratc"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W21-principles-c1-2-app/6953744e-e4fd-4e3e-aa36-d68a68d49e55/scratchpad && cat > $S/x.ts <<'E'\\nimport { openDb } from \\\"/tmp/poc-trials/W21-principles-c1-"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 9,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 57,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を、各指摘が「重要度・場所・何が問題か・直し方」の順になるように書き直して、`REVIEW.md` だけをコミットしました（c856318）。コードは直していません。\n\n指摘は前回と同じ 3 件で、新しい指摘は足していません。\n\n- **高:** DB の CHECK 制約が `on_hold` を拒否する（`src/lib/db/migrations.ts:21`）。\n- **高:** 保存まで通すテストが無い（`tests/tasks.test.ts`）。\n- **低:** 画面から保留を確かめた記録が無い。\n\n`src/lib/tasks.ts` と `tests/tasks.test.ts` の PR の差分は、これまでどおり未コミットのままです。"
+  },
+  "interventions": 0
+}

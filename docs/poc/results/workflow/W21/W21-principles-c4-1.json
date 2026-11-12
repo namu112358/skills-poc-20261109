@@ -1,0 +1,39 @@
+{
+  "trial": "W21-principles-c4-1",
+  "scenario": "W21",
+  "config": "principles",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー: 期限が近いタスクを一覧で目立たせる\n\n対象: 未コミットの差分（`src/lib/due.ts`、`src/app/tasks/page.tsx`、`tests/due.test.ts`）\n\n## 要約\n\n期限が今日から 3 日以内（今日〜3 日後）の未完了タスクに「（期限間近）」を付ける変更。判定ロジックを `src/lib/` に置き、ページは表示だけにする構成は規約どおり。ただし日数の計算が日本時間の「日付」ではなく UTC 0 時との時刻差で行われているため、PR の仕様を満たさない。**修正を求める。**\n\n## 指摘\n\n### 1. [高] 日数の計算が日本時間の日付になっておらず、仕様と違う判定になる\n\n- 場所: `src/lib/due.ts` の `daysUntilDue`（11 行目）と `isDueSoon`（17〜18 行目）\n- 問題: `Date.parse(\"YYYY-MM-DD\")` は **UTC の 0 時**を返す。それを `now`（現在の瞬間）との差のミリ秒で割って `Math.floor` している。これは「日本時間の日付の差」ではなく「UTC 0 時までの経過時間」になる。実際に次のとおり確認した。\n  - 今日（11/12）が期限のタスクを JST 12:00 に見ると `-1` になり、`days >= 0` を満たさず **「今日が期限」なのに「期限間近」が付かない**。JST 9:00 以降は毎日こうなる。\n  - 3 日後（11/15）が期限のタスクを JST 0:00 に見ると `3`、JST 10:00 に見ると `2` になる。`days < DUE_SOON_DAYS`（`< 3`）なので、JST 0:00〜9:00 は **3 日後が付かず**、9:00 以降は付く、と時刻によって結果が変わる。\n  - PR の仕様は「今日・明日・明後日・3 日後」を含むので、境界は `<= 3` が正しい。`< 3` は 3 日後を常に除外する書き方になっている。\n- 直し方: 時刻ではなく日付どうしで数える。`now` を日本時間の日付（`YYYY-MM-DD`）に直し、期限日との差を日数で出す。\n  ```ts\n  const JST_DATE = new Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" }); // YYYY-MM-DD\n  export function daysUntilDue(dueDate: string, now: Date = new Date()): number {\n    const today = JST_DATE.format(now);\n    return Math.round((Date.parse(dueDate) - Date.parse(today)) / DAY_MS); // 両方 UTC 0 時なので整数\n  }\n  // isDueSoon: days >= 0 && days <= DUE_SOON_DAYS\n  ```\n  サーバーの TZ に依存しない（`getDate()` などローカル時刻の関数は使わない）ことも保つ。\n\n### 2. [高] テストが不具合を検出できない（時刻が JST 0:00 ちょうどで固定、3 日後の境界がない）\n\n- 場所: `tests/due.test.ts` 5 行目の `now`、および `isDueSoon` のテスト\n- 問題: `now` を JST 0:00 ちょうどにしているため、UTC 0 時との差が偶然 0.375 日になり、指摘 1 の不具合が出ない。さらに「3 日後」の境界（`2026-11-15` が true、`2026-11-16` が false）を確かめていない。そのため 3 つの検証すべてが通ったまま、仕様と違う実装が入っている。\n- 直し方: 受入条件ごとにテストを追加する。`now` を固定したまま、時刻を変えて確かめる。\n  - 同じ日の JST 0:00 / 12:00 / 23:59 で、今日が期限のタスクが常に true\n  - 3 日後が true、4 日後が false（0:00 と 23:59 の両方で）\n  - 昨日が期限（過ぎた）は false、完了は false\n  - UTC 日付と JST 日付がずれる時間帯（例: JST 2026-11-12 08:00 = UTC 11-11 23:00）\n  - テスト名に振る舞いを書く（`counts days from today` では何を保証するか分からない）\n\n### 3. [低] 同じ判定を 2 回呼んでいる\n\n- 場所: `src/app/tasks/page.tsx` 44 行目と 51 行目\n- 問題: 行ごとに `isDueSoon(task, now)` を 2 回計算している。動作は同じで害は小さい。\n- 直し方: `map` の中で `const dueSoon = isDueSoon(task, now);` として使い回す。\n\n### 4. [低] `due-soon` クラスは定義されておらず、PR の説明にもない\n\n- 場所: `src/app/tasks/page.tsx` 44 行目\n- 問題: `className=\"due-soon\"` に対応する CSS がリポジトリに無い（`grep` で他に出てこない）。PR の説明は「（期限間近）」の文言だけで、行の装飾には触れていない。規約 6「変更は依頼された範囲にとどめる」に照らして、使われないクラスは削除するか、必要なら CSS とセットで説明に書く。\n- 直し方: `className` を削除する。\n\n## 確認したが問題なしとした点\n\n- 完了タスクと期限切れ（過去日）を除外する条件、判定を `src/lib/` に置いてページは表示だけにした構成、文言が日本語である点、外部ライブラリを追加していない点は、規約・PR の説明どおり。\n- `dueDate` は `validateTaskInput` で `YYYY-MM-DD` に検証済みなので、`Date.parse` が `NaN` になる入力は通常入らない。\n",
+  "review_chars": 2672,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2235,
+    "tokens": {
+      "input": 20,
+      "output": 4516,
+      "cache_read": 354596,
+      "cache_creation": 35707
+    },
+    "turns": 9,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && git ls-files --others --exclude-standard | xargs -I{} sh -c 'echo \\\"=== {}\\\"; cat {}'\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 48,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "すでに完了しているため、新しい書き込みやコミットはしていません。\n\n直前のレビューの指摘 4 件は、最初の依頼の形式（重要度・場所・問題・直し方）で `REVIEW.md` に書いてあります。コミット `613c0c2` に入っていて、`REVIEW.md` に未コミットの変更はありません。\n\n- **[高] 1.** `src/lib/due.ts` の `daysUntilDue` / `isDueSoon` が日本時間の日付で数えていません。\n- **[高] 2.** `tests/due.test.ts` が不具合を検出できません。\n- **[低] 3.** `src/app/tasks/page.tsx` で `isDueSoon` を 2 回呼んでいます。\n- **[低] 4.** `due-soon` クラスは CSS が無く、PR の説明にもありません。\n\n指摘の追加も削除もしていません。コードも変更していません。"
+  },
+  "interventions": 0
+}

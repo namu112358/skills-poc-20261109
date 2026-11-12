@@ -1,0 +1,33 @@
+{
+  "trial": "W21-baseline-c5-1",
+  "scenario": "W21",
+  "config": "baseline",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# レビュー結果\n\n## 1. 【高】一覧クエリが `assignee_id AS assignee` のままで、タスク一覧の担当者が空になる\n\n- 場所: `src/lib/tasks.ts` の `listTasks`（SQL 文字列）。`toTask` は `row.assignee_id` を読む。\n- 問題: `listTasks` だけ `assignee_id AS assignee` と別名を付けているため、行に `assignee_id` が無く、`assigneeId` が `undefined` になる。`/tasks` の一覧表の担当者列が空欄になり、`GET /api/tasks` の `tasks[].assigneeId` も JSON から落ちる（PR の「画面は変えない」に反する）。`as TaskRow[]` のキャストのため `npm run typecheck` では検出されない。既存テストも `listTasks` の担当者を検証していないため `npm test` も通ってしまう。\n- 直し方: `assignee_id AS assignee` を `assignee_id` に直す。`listTasks` の結果の `assigneeId` を検証するテストを追加する（全件が seed の担当者と一致すること）。\n\n## 2. 【高】API の入出力が変わっている（PR の「API は変えない」と矛盾）\n\n- 場所: `src/lib/tasks.ts` の `validateTaskInput`（`need(\"assigneeId\")`、`b.assigneeId`）、`Task` 型。`src/app/api/tasks/route.ts`・`src/app/api/tasks/[id]/route.ts` が `Task` をそのまま JSON で返し、本文を `validateTaskInput` に渡している。\n- 問題: (a) リクエスト本文のキーが `assignee` → `assigneeId` に変わった。既存クライアントが `{\"assignee\":\"sato\",...}` で POST すると「担当者が存在しません」の 400 になる。PATCH で `assignee` だけ送ると未知キーとして無視され、担当者が変わらないまま成功する可能性がある。(b) レスポンスの `task.assignee` が `task.assigneeId` になり、既存クライアントが壊れる。\n- 直し方: 外部の形を維持するなら、API の境界でキー名を変換する（`validateTaskInput` は本文の `assignee` を読み、レスポンスは `assignee` で返すシリアライザを通す）。API も変えるのが意図なら、PR の説明を改め、互換性の扱い（旧キーの受理、周知）を決める。どちらでも API の入出力を検証するテストを追加する。\n\n## 3. 【中】テスト・検証が不足している\n\n- 場所: `tests/tasks.test.ts`、`tests/db.test.ts`\n- 問題: 既存テストの項目名を置換しただけで、上記 1・2 を検出できない。マイグレーション 3 の検証もない。既存データがある DB（バージョン 2 で作成済み）にマイグレーションを適用し、データ・外部キー・インデックスが保たれることを確かめていない。\n- 直し方: `listTasks` の担当者、API 本文／レスポンスのキー、バージョン 2 の DB に対するマイグレーション 3（行が保たれ `assignee_id` で読めること、外部キー違反が拒否されること）のテストを追加する。\n\n## 4. 【低】インデックス名が旧名のまま\n\n- 場所: `src/lib/db/migrations.ts` マイグレーション 1 の `tasks_assignee`（マイグレーション 3 のコメントも参照）\n- 問題: 列名を変えてもインデックス名 `tasks_assignee` は残り、命名が不揃いになる。動作上の問題はない。\n- 直し方: 必要ならマイグレーション 3 で `DROP INDEX tasks_assignee; CREATE INDEX tasks_assignee_id ON tasks(assignee_id);` を追加する（既存マイグレーションは書き換えない）。\n\n## 5. 【低】一覧ページで ID をそのまま表示している（今回の差分に起因しない点の確認）\n\n- 場所: `src/app/tasks/page.tsx` の担当者列\n- 問題: 詳細ページは名前を表示するが、一覧は ID を表示する。従来どおりなので変更は不要。ただし PR の動機（名前と ID の取り違え）に関わるため、別件として検討できる。\n",
+  "review_chars": 2083,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.1932,
+    "tokens": {
+      "input": 18,
+      "output": 3326,
+      "cache_read": 291639,
+      "cache_creation": 32691
+    },
+    "turns": 7,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 38,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回の指摘 5 件は、すでに `REVIEW.md` に指定の形式で書き込み済みで、コミットも済んでいます（コミット `9b33887`、`REVIEW.md` のみ）。内容と作業ツリーに差分はなく、追加の変更もコミットもありません。\n\n各指摘には、場所（ファイルと関数）、何が問題か（どういう入力で何が起きるか）、直し方、重要度（高・中・低）を書いています。内訳は次のとおりです。\n\n- **高 2 件:** `listTasks` の別名で担当者が空になる問題と、API のキー名が変わっている問題。\n- **中 1 件:** テストが足りない問題。\n- **低 2 件:** インデックス名が旧名のままである点と、一覧ページが ID を表示している点。\n\n新しい指摘は足しておらず、削った指摘もありません。コードも変更していません。"
+  },
+  "interventions": 0
+}

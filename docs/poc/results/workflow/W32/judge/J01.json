@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "updateInstrument が location 列に変更前の locationOriginal を書き戻すため、計測器の場所を locationId で変えても経理が読む古い列が古い場所のまま残る（要件7・8）",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "location-master.ts の updateLocation が locations.name しか更新せず、名称変更しても計測器の古い列 location が古い名前のまま残る",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "移行（linkInstrumentsToLocations・マイグレーション5）で結び付けた計測器の location 列が表記ゆれの元の値のまま残り、正式名に揃わない",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "ロールバック中に前の版が location を書き換えても location_id は古いままで、新しい版に戻すと location_id が優先されてその間の変更が失われる",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "validateLocation が locationId のとき locationOriginal を設定せず、createInstrument が undefined を SQL に渡すため、locationId を指定した POST /api/instruments が SQLite のバインドエラーで 500 になる",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "約5万件の移行を起動時の1トランザクション内で1件ずつ正規化・照合・UPDATE しており、所要時間が測られておらず要件9を満たす根拠が無い",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "移行ログ locations.migrated に、表記ゆれで寄せた件数の内訳が無く、後から確かめにくい",
+   "severity": "高",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "ALIASES（大阪営→大阪営業所）は末尾が切れた表記を寄せるもので「推測で寄せない」に近く、依頼者の合意が必要",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 9,
+   "summary": "recordInventory で、確定済みの計測器に照合できない文字が来ると何も反映せず200を返し、要件6の「確認中として残す」に反する",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "確認中の計測器を直す導線が詳細画面の1件ずつに限られ、一覧での一括変更手段が無い",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "validateLocation の location 文字列経路での使用終了の場所・確認中の扱いが API の説明に書かれていない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "parseLocationFilter で不正な ?location= が黙って全件になり、存在しない ID は0件になるため画面で区別しにくい",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0874198
+ }
+}

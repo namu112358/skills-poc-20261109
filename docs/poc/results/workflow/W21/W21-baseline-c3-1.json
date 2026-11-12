@@ -1,0 +1,38 @@
+{
+  "trial": "W21-baseline-c3-1",
+  "scenario": "W21",
+  "config": "baseline",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: タスク一覧の CSV エクスポート\n\nマージ前に直すべき指摘は 4 件（高 2、中 1、低 1）です。\n\n## 1. ダブルクォートをエスケープしていない\n\n- **重要度**: 高\n- **場所**: `src/lib/export.ts` の `field()`\n- **問題**: 値を `\"${value}\"` で囲むだけで、値の中の `\"` を `\"\"` にしていません。タイトルが `5\" 配管の確認` なら、出力は `\"5\" 配管の確認\"` になり、Excel で列が崩れます。PR の「引用符を含んでも列がずれない」を満たしていません。\n- **直し方**: `` `\"${String(value).replace(/\"/g, '\"\"')}\"` `` にします。改行は、囲んでいればそのまま入れて構いません。\n\n## 2. `?status=` を検証していない\n\n- **重要度**: 高\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`（`as TaskStatus | null` のキャスト）\n- **問題**: 不正な値を型キャストだけで `listTasks` に渡しています。`?status=foo` は SQL 上 `status = 'foo'` となり、「指定なし（全件）」ではなく見出しだけの CSV が返ります。PR の「一覧と同じ扱い」に反し、CLAUDE.md の規約 2（型ガードで検証）にも反します。\n- **直し方**: `/api/tasks` と同じく `isTaskStatus(status) ? status : undefined` にし、キャストは削除します。\n\n## 3. CSV インジェクション（数式の実行）\n\n- **重要度**: 中\n- **場所**: `src/lib/export.ts` の `field()`（出力するタイトルと担当者）\n- **問題**: タイトルは任意の文字列を登録できます（`validateTaskInput` は長さしか見ません）。`=HYPERLINK(...)`、`=cmd|...`、`@SUM(...)`、`+`/`-` で始まる値は、Excel で開いたり貼り付けたりすると数式として評価されます。ログイン済みの誰かが仕込み、週次報告で開いた人が被害を受けます。\n- **直し方**: 文字列の項目が `=` `+` `-` `@` またはタブ・CR で始まるときは、先頭に `'` を付けてから引用符で囲みます。数値の ID には適用しません。\n\n## 4. テストが PR の説明の主張を検証していない\n\n- **重要度**: 低\n- **場所**: `tests/export.test.ts`（「escapes quotes and commas in titles」、1 件目のテスト）\n- **問題**: テスト名に反し、タイトル「週次 定例の準備」にはカンマも引用符も入っていません。そのため #1 を検出できずに通っています。`?status=` の絞り込みと不正値の扱い、BOM の付与（`route.ts` で行っている）も未検証です。1 件目の `lines.length === 9` はシードの件数に依存しています。\n- **直し方**: `a,b`、`say \"hi\"`、改行入りのタイトルと、`=1+1` で始まるタイトルのケースを追加します。`status` の解釈を `src/lib/` の関数に出して、不正値が全件になることをテストします。件数の検証は、シード件数に依存しない形に見直します。\n",
+  "review_chars": 1564,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.19,
+    "tokens": {
+      "input": 20,
+      "output": 4068,
+      "cache_read": 315539,
+      "cache_creation": 29431
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 41,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` の 4 件の指摘を、重要度・場所・問題・直し方の 4 項目に分けて書き直し、`REVIEW.md` だけをコミットしました（03396ae）。指摘の内容は前回と同じで、追加も削除もしていません。コードは直していません。PR の 3 ファイルは追加されたまま、コミットしていません。\n\n| # | 重要度 | 指摘 |\n|---|---|---|\n| 1 | 高 | ダブルクォートをエスケープしていない |\n| 2 | 高 | `?status=` を検証していない |\n| 3 | 中 | CSV インジェクション |\n| 4 | 低 | テストが PR の説明の主張を検証していない |"
+  },
+  "interventions": 0
+}

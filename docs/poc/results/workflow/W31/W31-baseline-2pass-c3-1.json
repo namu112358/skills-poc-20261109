@@ -1,0 +1,75 @@
+{
+  "trial": "W31-baseline-2pass-c3-1",
+  "scenario": "W31",
+  "config": "baseline-2pass",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: 設置場所を場所マスタから選べるようにする\n\n要件ごとの確認結果（実装と突き合わせた。一部は実際に動かして確かめた）。\n\n| # | 要件 | 判定 | 該当箇所 |\n|---|------|------|----------|\n| 1 | 正式 16 か所で始める | 満たす | `migrations.ts` OFFICIAL_LOCATIONS |\n| 2 | 表記ゆれだけ寄せ、決められないものは確認中・一覧で探せる・空欄は未設定 | おおむね満たす（指摘 6） | `locations.ts` `normalizeLocationKey` / `linkInstrumentsToLocations`、`listInstruments` の `location` 絞り込み |\n| 3 | 登録・編集は一覧から選ぶ。自由記述はやめる | 一部違反（指摘 2・5・8） | `LocationForm.tsx`、`validateLocation` |\n| 4 | 追加・改名は誰でも、削除せず使用終了。使用終了は新規に選べず既存は表示 | 満たす | `api/locations*`、`validateLocation`（`currentLocationId` の例外） |\n| 5 | 改名で計測器の表示も変わる | 満たす（JOIN で名称を引く） | `toInstrument` |\n| 6 | ハンディ: 分からなければ確認中として文字を残す | **反する**（指摘 3） | `recordInventory` |\n| 7 | 経理が読む `location` 列に場所の名前が入った状態を保つ | **反する**（指摘 1） | 全体 |\n| 8 | 前の版に戻しても動く | **反する**（指摘 1。7 と同根） | 全体 |\n| 9 | 5 万件・再起動 1 回・件数を後で確認 | 満たす（指摘 7 は軽微） | `migrate`、`locations.migrated` ログ |\n\n## 指摘\n\n### 1. 【高】`instruments.location` 列が場所の名前にならない（要件 7・8 に反する）\n\n- 場所: `src/lib/db/migrations.ts` 移行 5 の `after`、`src/lib/locations.ts` `linkInstrumentsToLocations`、`src/lib/instruments.ts` `createInstrument` / `updateInstrument`、`src/lib/location-master.ts` `updateLocation`、`recordInventory`\n- 問題:\n  - 移行は `location_id` だけを設定し、`location` 列は元の文字列のまま。確定した計測器でも `品証 測定室`・`製造部第２ライン`・`工事部　倉庫`・`工事車両3号` などが残る（インメモリ DB のシードで確認済み）。経理が月末に読む列が、正式な名前（`品質保証部 測定室`）にならない。\n  - 場所の改名（`updateLocation`）は `instruments.location` を更新しない。「品質保証部 測定室」を改名したあとも、列には古い文字列が残る。\n  - 画面の保存（`PATCH {locationId}`）やハンディの `linked` でも、`location` 列は `current.locationOriginal`（古い文字列）かハンディが送った生の文字のまま。確認中だった `不明` の計測器を場所に確定しても、列は `不明` のまま。\n  - 前の版に戻すと、前の版は `location` 列だけを読み書きする。上のとおり列が古い・表記ゆれのままなので、戻した版の画面は改名や確定の前の値を表示する。戻した版での編集（`location` だけ更新）は、新しい版では `location_id` が優先されて無視される。再度新しい版に上げると、その間の編集が消える。\n- 直し方:\n  - `location` 列を「表示用の名前」として常に保つ。確定したら `location = locations.name`、確認中は元の文字列、未設定は空。\n  - 移行で一致した行は `UPDATE instruments SET location = ?, location_id = ?` で名称に書き換える（元の文字列が必要なら別列 `location_original` を足して退避する。出荷済みの列の意味は変えない）。\n  - `updateLocation` で名称を変えるときは、同じトランザクションで `UPDATE instruments SET location = ? WHERE location_id = ?` も行う。\n  - `createInstrument` / `updateInstrument` / `recordInventory` は、`location_id` を設定するときに `location` も名称で書く。\n  - 前の版が `location` だけを書き換えた分は、新しい版の起動時または読み取り時に `location` と `location_id` の不一致を検出して扱いを決める（例: `location` が名称と違う行は再照合する）。移行 5 は再実行されないので、この再照合を起動時の処理に入れる。\n  - テスト: 移行後・改名後・画面保存後・ハンディ後に `SELECT location FROM instruments` が名称になっていること。\n\n### 2. 【高】`POST /api/instruments` に `locationId` を付けると 500 になる\n\n- 場所: `src/lib/instruments.ts` `validateLocation` と `createInstrument`\n- 問題: `locationId` だけを送ると `validateLocation` は `value.locationId` だけを設定し、`value.locationOriginal` を設定しない。`createInstrument` が `input.locationOriginal`（undefined）を SQLite にバインドして `TypeError: Provided value cannot be bound to SQLite parameter 4`。確認済み。要件 3 の「一覧から選んで登録」の正規の経路が動かない。テストは `locationId: null` か `location` 文字列でしか作成しておらず、通っている。\n- 直し方: 場所が確定したときは `locationOriginal` に場所の名称を入れる（指摘 1 の方針なら `location` 列用の名称）。`createInstrument` 側でも `?? \"\"` を付けて防ぐ。`locationId` を指定した登録（使用中・使用終了・存在しない ID）のテストを足す。\n\n### 3. 【中】ハンディ端末: 分からない文字を、確定済みの計測器では確認中にしない（要件 6 に反する）\n\n- 場所: `src/lib/instruments.ts` `recordInventory`（`unmatched_kept` の分岐）、`docs/handheld-api.md`\n- 問題: 要件は「正式な場所と分かればその場所に、分からなければ確認中として送られた文字を残す」。実装は、すでに確定している計測器では分からない文字を捨てる（ログだけ）。たとえば棚卸しで `工事部 倉庫 棚B` と送られても台帳は `工事部 倉庫` のまま。現場の実際の置き場所が変わっていても確認中の一覧に出ない。ドキュメントには意図が書いてあるが、依頼者と合意した要件とは違う。画面・API の `location` 文字列（`validateLocation`。分からなければ確認中にする）とも挙動がそろっていない。\n- 直し方: 要件どおり、分からない文字は `location_id = NULL`・元の文字列を残して確認中にする。「品質保証部の修正を戻さない」配慮が必要なら、依頼者に確認して要件のほうを直す（確認できないので、仮定として PR に書く）。どちらにしても、現状の動作は要件と違うことを明記する。あわせて、使用終了の場所の名前が送られた場合の扱い（現状: 一致しない扱い）をテストで固定する。\n\n### 4. 【中】改名・移行の後も `location` 列と `location_id` がずれる経路が残る（指摘 1 の再発防止）\n\n- 場所: `updateInstrument`（`{...current, ...changes}`）\n- 問題: `changes` に `locationId` だけがあると `locationOriginal` は古い値のまま保存される。呼び出し側ごとに気を付ける作りで、今後も同じずれが入る。\n- 直し方: 設置場所の組（`location_id` と `location`）は 1 つの関数（例: `setInstrumentLocation`）だけで更新し、`updateInstrument` の汎用の経路では直接変えさせない。\n\n### 5. 【低】API が自由記述の `location` をまだ受け付ける（要件 3 との関係）\n\n- 場所: `validateLocation` の `\"location\" in b` 分岐、`CLAUDE.md`・API 説明\n- 問題: 要件 3 は「台帳での登録・編集は一覧から選び、自由に書けるのはやめる」。ハンディ端末向けの互換のためと思われるが、認証済みの `POST/PATCH /api/instruments` でも自由記述が通り、確認中の計測器を新しく作れる。確定済みの計測器に分からない文字で PATCH すると確認中に戻る。\n- 直し方: 台帳の API は `locationId` のみ受け付ける。`location` 文字列を残すなら、既存の外部利用者がいるかを確認し、いなければ削除する。残すなら理由と期限を PR に書く。\n\n### 6. 【低】末尾が切れた表記（`大阪営`・`名古屋営`）を正式な場所に寄せている\n\n- 場所: `src/lib/locations.ts` `ALIASES`\n- 問題: 要件 2 が挙げた表記ゆれは全角・半角、第1／第一、空白、品証・品保、号車など。末尾の欠落は含まれず、「決められない値は寄せない」に当たる可能性がある。実データでは `大阪営` 580 件・`名古屋営` 245 件ほど（`docs/data/location-values.csv`）が確認中ではなく確定になる。\n- 直し方: 依頼者に確認して許可を得る。得られなければ寄せず確認中にする。寄せるなら、その根拠を PR に書き、移行ログに別件数として出す。\n\n### 7. 【低】移行 5 の照合で、行ごとに正式な場所の正規化をやり直している\n\n- 場所: `matchLocationName`（`linkInstrumentsToLocations` から 5 万行ぶん呼ばれる）\n- 問題: 1 行ごとに 16 か所すべてを `normalizeLocationKey` し直す（約 80 万回）。起動時の 1 回なので致命的ではないが、「何分も止めない」の要件に対して余裕を測っていない。\n- 直し方: 照合前に正式な場所のキーを 1 回だけ計算して `Map` にする。件数が約 5 万の本番相当データ（`location-values.csv` を件数ぶん展開）で起動時間を測り、PR に書く。\n\n### 8. 【中】登録に当たる画面が無く、API は `locationId` で 500 になる（要件 3）\n\n- 場所: `src/app/instruments/` に登録画面が無い（詳細画面の `LocationForm` は変更専用）、`POST /api/instruments`\n- 問題: 要件 3 の「登録・編集は一覧から選ぶ」のうち、登録に当たる画面が無い。API だけが使え、その API は指摘 2 のとおり `locationId` で 500 を返す（本番モードで確認）。\n- 直し方: 指摘 2 を直したうえで、登録でも場所を一覧から選べる経路（画面。作らないなら、依頼者に確認した範囲を PR に明記）を用意する。\n\n## 検証について\n\nPR の検証は `typecheck` / `test` / `build` が通っただけ。指摘 1・2 は、いずれも既存テストが通ったまま残っている（テストが `location` 列の値と `locationId` 指定の登録を確認していない）。\n\n## 本番ビルド・本番モードでの動作確認（2 回目の見方）\n\n`npm run build` は成功。`npm run start`（ポート 3917、既定のインメモリ DB。シードのデータ）で起動し、`sato` でログインして確かめた。確認後にサーバーは停止した。\n`HANDHELD_TOKEN` を環境変数で渡せなかったため、ハンディ端末の API は 401（トークン未設定）の確認までで、受け付けの中身は単体テストと上の読み取りで判断した。\n\n| 操作 | 結果 |\n|------|------|\n| `POST /api/instruments`（`locationId: 1`） | **500**。サーバーログは `ERR_INVALID_ARG_TYPE`。指摘 2 を本番モードでも再現した |\n| `PATCH /api/locations/1`（改名） → `GET /api/instruments?location=1` | 200。`location` は新しい名前になるが、`locationOriginal`（=`location` 列）は `品質保証部 測定室` のまま。指摘 1 を再現 |\n| `PATCH /api/instruments/1`（`locationId: 2`） | 200。`location` は `品質保証部 校正待ち棚` だが、`locationOriginal` は `品質保証部 測定室` のまま。経理が読む列は更新されない（指摘 1・4） |\n| `PATCH /api/instruments/2`（`location: \"棚B\"`、確定済みの計測器） | 200。確認中に戻る。ハンディとは挙動が違う（指摘 3・5） |\n| `PATCH /api/instruments/1`（`locationId: 999`） | 400 `設置場所は一覧から選んでください` |\n| `POST /api/locations`（`製造部第１ライン`） | 409 `同じ場所がすでに登録されています`。表記ゆれの重複は防げている |\n| ログインなしの `GET /api/locations` | 401 |\n| `GET /api/instruments?location=unconfirmed` | 確認中の計測器だけが返る |\n| 画面 `/instruments`・`/instruments?location=unconfirmed`・`/instruments/1`・`/locations` | すべて 200。詳細画面の設置場所は改名後の名前になり、変更用の選択肢に 16 か所が出る |\n",
+  "review_chars": 6654,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.8016,
+    "tokens": {
+      "input": 76,
+      "output": 20775,
+      "cache_read": 2597146,
+      "cache_creation": 83492
+    },
+    "turns": 41,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/t.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W31-baseline-2pass-c3-1/app/src/lib/db/index.ts\\\";\\nimport { validateInstrumentInput, createInstrument, updateIn"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c3-1-app/c183d01d-f01d-4b21-81a0-45222453656c/scratchpad/t.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W31-baseline-2pass-c"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat package.json | grep -A8 scripts; (npm run build 2>&1 | tail -15)\", \"timeout\": 400000}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"DATABASE_PATH=/tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c3-1-app/c183d01d-f01d-4b21-81a0-45222453656c/scratchpad/t.db HANDHELD_TOKEN=tok npx next start -p 3917 > /tmp/claude-0/-tmp"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"DATABASE_PATH=/tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c3-1-app/c183d01d-f01d-4b21-81a0-45222453656c/scratchpad/t.db HANDHELD_TOKEN=tok npm run start -- -p 3917\", \"run_in_backgrou"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c3-1-app/c183d01d-f01d-4b21-81a0-45222453656c/scratchpad; H='content-type: application/json'\\necho \\\"--- create with locationId\\\"; curl"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c3-1-app/c183d01d-f01d-4b21-81a0-45222453656c/scratchpad && curl -s localhost:3917/api/locations -w ' %{http_code}\\\\n'; curl -s -b cj -"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f \\\"next start\\\" ; pkill -f \\\"next-server\\\"; sleep 1; curl -s -o /dev/null -w '%{http_code}\\\\n' localhost:3917/login\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f next-server\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 29,
+      "Write": 2,
+      "ToolSearch": 1,
+      "TaskStop": 1,
+      "Read": 1,
+      "Edit": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 190,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "2 回のレビューの指摘を `REVIEW.md` に同じ形式（場所・問題・直し方・重要度）でまとめ、`REVIEW.md` だけをコミットしました（`dc22059`）。新しい指摘は足しておらず、削った指摘もありません。コードは直していません。\n\n前回までに `REVIEW.md` に書いた指摘 1〜7 は、すでにこの形式だったのでそのまま残しています。変えたのは次の点です。\n\n- **指摘 8 の移動:** 本番動作確認の節の末尾に置いていた指摘 8（登録画面が無く、API が `locationId` で 500 になる）を、指摘 1〜7 と同じ並びに移しました。\n- **要件表の更新:** 要件 3 の行を「一部違反（指摘 2・5・8）」に直しました。\n- **動作確認の表:** 本番モードで確かめた結果の表は、指摘の裏付けとして残しています。\n\n指摘は全部で 8 件です。\n\n| 重要度 | 内容 |\n|---|---|\n| 高 | 1. `location` 列が場所の名前にならない（要件 7・8）<br>2. `POST /api/instruments` に `locationId` を付けると 500 になる |\n| 中 | 3. ハンディ端末が、確定済みの計測器では分からない文字を確認中にしない（要件 6）<br>4. `location` 列と `location_id` がずれる更新経路が残る<br>8. 登録の画面が無く、API は 500 になる（要件 3） |\n| 低 | 5. API が自由記述の `location` を受け付ける<br>6. `大阪営`・`名古屋営` を正式な場所に寄せている<br>7. 移行の照合が、行ごとに正式な場所の正規化をやり直している |"
+  },
+  "interventions": 0
+}

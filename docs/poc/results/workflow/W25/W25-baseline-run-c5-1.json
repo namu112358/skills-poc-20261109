@@ -1,0 +1,47 @@
+{
+  "trial": "W25-baseline-run-c5-1",
+  "scenario": "W25",
+  "config": "baseline-run",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# レビュー結果\n\n再現スクリプト（`openDb()` で実際に関数を呼んだ）で確認した結果を含む。`npm test` は 19 件すべて通るが、下の問題 1 は検出できていない。\n\n## 1. 【高】`listTasks` が `assigneeId` を返さない（一覧画面の担当者が空になる）\n\n- 場所: `src/lib/tasks.ts` の `listTasks`（SELECT 文の `assignee_id AS assignee`）\n- 問題: `toTask` は `row.assignee_id` を読むが、SELECT では別名 `assignee` を付けているため `assignee_id` が存在しない。実行結果は `listTasks({}, db)[0]` が `assigneeId: undefined`、`getTask(1, db)` は `assigneeId: 'sato'`。\n  - `/tasks` の「担当者」列（`src/app/tasks/page.tsx`）が全行で空になる。\n  - `GET /api/tasks` は JSON 化で `assigneeId` が落ち、担当者の情報が返らない。\n  - 「画面・API は変えない」という PR の主旨に反する。\n- 直し方: `assignee_id AS assignee` を `assignee_id` に直す。\n- テストの穴: `tests/tasks.test.ts` の `listTasks` のテストは件数・絞り込みしか見ていない。一覧の各要素が `getTask` と同じ値（`assigneeId` を含む）になることを確かめるテストを追加する。\n\n## 2. 【高】API の入出力が変わっている（PR の「API は変えない」と矛盾）\n\n- 場所: `src/lib/tasks.ts` の `validateTaskInput`（`need(\"assigneeId\")` / `b.assigneeId`）、`Task` 型（API の JSON は `Task` をそのまま返す）\n- 問題:\n  - リクエスト本文のキーが `assignee` から `assigneeId` に変わった。既存クライアントが `POST /api/tasks` に `assignee` を送ると 400「担当者が存在しません」になる（確認済み）。\n  - `PATCH /api/tasks/:id` で `assignee` だけを送ると、`partial` では「キーが無い」と扱われて `ok: true, value: {}` になる。エラーにならず、担当者が更新されないまま成功する（確認済み）。\n  - レスポンスの JSON のキーも `assignee` から `assigneeId` に変わる（`getTask` 経由の詳細 API・作成・更新）。\n- 直し方: API の外向きの名前は `assignee` のまま維持する。内部の `Task` や `TaskInput` は `assigneeId` にしてよいが、`validateTaskInput` が `b.assignee` を読み、API Route の出力で `assignee` に変換する。API の名前も変えるのであれば、PR の説明を直し、互換性の方針（旧キーの併用期間など）を決めてからにする。\n- テストの穴: API の入出力が変わっても、既存テストを新しい名前に合わせて書き換えたため検出できない。外向きの契約を固定するテストを追加する。\n\n## 3. 【低】マイグレーション 3 の補足\n\n- 場所: `src/lib/db/migrations.ts` のバージョン 3\n- `RENAME COLUMN` 自体は、`tasks_assignee` インデックスと外部キーを引き継ぐので問題ない。ただしインデックス名 `tasks_assignee` は列名と合わなくなる。名前を揃えたい場合は、同じマイグレーション内で `DROP INDEX` と `CREATE INDEX tasks_assignee_id` を行う（任意）。\n- 既存の DB に適用した場合の実機確認は行っていない（確認したのは新規 DB の `openDb()` のみ）。\n",
+  "review_chars": 1853,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2353,
+    "tokens": {
+      "input": 26,
+      "output": 4979,
+      "cache_read": 488604,
+      "cache_creation": 34154
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -rn \\\"assignee\\\" src tests e2e docs README* 2>/dev/null | grep -v \\\"assigneeId\\\\|assignee_id\\\" ; cat src/app/api/tasks/route.ts | head -40; sed -n 60,84p src/lib/tasks.ts; cat packag"
+      },
+      {
+        "tool": "Write",
+        "input": "{\"file_path\": \"/tmp/claude-0/x/r.ts\", \"content\": \"import { openDb } from \\\"/tmp/poc-trials/W25-baseline-run-c5-1/app/src/lib/db/index.ts\\\";\\nimport { listTasks, getTask, validateTaskInput } from \\\"/tm"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c5-1-app/7ab09514-8e91-4b4b-bd29-ceb15107d393/scratchpad && mkdir -p $S && cat > $S/r.ts <<'E'\\nimport { openDb } from \\\"/tmp/poc-trials/W"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 51,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘は、すでに `REVIEW.md` に書き写してコミット済みです（コミット `a47e3e6`）。内容は変わらないため、追加の変更もコミットもしていません。\n\n`REVIEW.md` は 3 件で、それぞれ重要度・場所・問題・直し方を書いています。\n\n1. **【高】** `listTasks` が `assigneeId` を返さない（`src/lib/tasks.ts` の `listTasks`）。\n2. **【高】** API の入出力のキーが `assignee` から `assigneeId` に変わっている（`validateTaskInput` と API の JSON）。\n3. **【低】** マイグレーション 3 の補足（インデックス名が列名と合わなくなる。既存 DB への適用は未確認）。\n\nコードの変更は未コミットのままで、手を入れていません。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,54 @@
+{
+  "trial": "W22-hk-review-pr-c7-1",
+  "scenario": "W22",
+  "config": "hk-review-pr",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# コードレビュー: 担当者変更の監査ログ（未コミット差分）\n\n対象: `git diff HEAD` の 5 ファイル（`src/lib/tasks.ts`、`src/lib/notify/{events,index,notifier}.ts`、`tests/notify.test.ts`）。\n観点: コード品質、エラー処理、テスト、型設計、コメント、簡素化。\n`npm run typecheck` と `npm test`（21/21）は通ることを確認済み。ただし、新しい動作はテストで検証されていない（指摘 2）。\n\nこのファイルは、レビューで出た指摘を書き写したもの。同じ指摘は統合し、統合元の重要度は「統合元」欄に残す。コードは変更していない。\n\n| # | 指摘 | 重要度 |\n|---|---|---|\n| 1 | 通知の失敗で、保存済みの更新が 500 になる | 高 |\n| 2 | 新しい動作がテストされていない | 高 |\n| 3 | 未実装の通知先（Slack・メール）を選べてしまう | 高 |\n| 4 | `NotifierFactory.create` が継承されたプロパティ名を拾う | 高 |\n| 5 | 再試行で監査行が消える（記録がログだけ） | 高 |\n| 6 | 購読の前に UPDATE が確定し、トランザクションで囲まれていない | 中 |\n| 7 | PR の範囲を超えて作られている | 中 |\n| 8 | 型による保証が弱い（キャスト、`Notifier.send` の契約） | 中 |\n| 9 | コメントに不正確な箇所がある | 中 |\n| 10 | 購読がモジュール読み込み時の副作用になっている | 低 |\n| 11 | 購読の解除とテストの後始末 | 低 |\n| 12 | 公開されていないクラスにコメントが無い | 低 |\n\n---\n\n## 1. 通知の失敗で、保存済みの更新が 500 になる\n\n- **場所:** `src/lib/tasks.ts` `updateTask()` の 121〜123 行。`src/lib/notify/index.ts` の購読者（9〜11 行）。`src/lib/notify/notifier.ts` の `SlackNotifier.send`（24〜26 行）と `EmailNotifier.send`（31〜33 行）。`src/app/api/tasks/[id]/route.ts` の 23 行付近（報告による）。\n- **問題:** `UPDATE` が実行された後に `eventBus.emit` が呼ばれる。`NOTIFIER_KIND=slack` または `email` を指定すると、担当者を変えるたびに購読者の `send()` が「未実装」の例外を投げる。その例外は `updateTask` を抜けて API route まで届く。route には try/catch が無く、クライアントには既定のエラー形式（`{ error }`）ではない 500 が返る。一方、DB の担当者は既に変わっている。クライアントは更新が失敗したと判断するが、実際には保存されている。\n  - また `emit` はハンドラーの例外を握りつぶさないため、1 つのハンドラーが失敗すると後続のハンドラーは呼ばれない。\n  - `updateTask` は `transaction()` で囲まれていない（指摘 6）。\n- **直し方:** 未実装のスタブを外す（指摘 3）。`emit` で各ハンドラーを try/catch し、失敗はエラーとして記録する。API の結果は通知の成否に依存させない。route で例外が `{ error }` の形式にならないことも合わせて確認する。\n- **統合元:** コードレビュー（中）、サイレント障害（高）、型設計（高）、テストカバレッジ（中）。高として扱う。\n\n## 2. 新しい動作がテストされていない（CLAUDE.md 規約 5 に反する）\n\n- **場所:** `tests/notify.test.ts`（全体）と `src/lib/tasks.ts` 121〜123 行。既存の `updateTask` のテスト（`tests/tasks.test.ts` 74〜84 行）は `status` だけを変えており、担当者変更の分岐を通らない。\n- **問題:** 既存のテストは `eventBus` の購読・解除（`task.created` のみ）と `NotifierFactory` の既定値だけを確認している。次の振る舞いは検証されていない。\n  - 担当者が変わったときだけイベントが出ること（担当者が同じ更新や `status` だけの更新では出ないこと）。\n  - `from` と `to` の向き。\n  - ログ行の形式 `[audit] task <ID>: assignee <前> -> <後> at <ISO日時>`。\n  - `notify/index.ts` の購読が登録されること。\n\n  条件を逆にする、emit を UPDATE の前に移す、購読を消す、ログの区切りを変える、といった回帰があってもテストは通る。\n- **直し方:**\n  - `tests/tasks.test.ts` に `openDb()` を使うテストを追加する。`eventBus.subscribe(\"task.assignee_changed\", ...)` で受け取り、担当者を変えたとき 1 回だけ `{ taskId, from, to }` が届くこと、`status` だけ変えたとき・同じ担当者に変えたときは届かないことを確認する。購読は `finally` で解除する。\n  - `tests/notify.test.ts` で `notify/index.ts` を読み込み、`t.mock.method(console, \"log\")` でログ行を捕まえる。`/^\\[audit\\] task 1: assignee sato -> tanaka at \\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z$/` に一致することを確認する。\n  - テストが増えたら、シングルトンの購読を共有しないよう後始末を入れる（指摘 11）。\n- **統合元:** テストカバレッジ（高、2 件）、コードレビュー（高）。高として扱う。\n\n## 3. 未実装の通知先（Slack・メール）を本番の設定で選べてしまう\n\n- **場所:** `src/lib/notify/notifier.ts` の `SlackNotifier`（18〜27 行）、`EmailNotifier`（29〜34 行）、`NotifierFactory` の登録（37〜41 行）。\n- **問題:** `NOTIFIER_KIND=slack` または `email` を指定すると、どの担当者変更でも例外になる（指摘 1）。PR の合意は「記録先はサーバーのログだけ」なので、この 2 つは PR の範囲外であり、選べる状態にすべきではない。\n- **直し方:** 未実装の 2 クラスと、`NotifierFactory`・`NotifierKind`・`NOTIFIER_KIND` を削除する。必要になった時点で追加する。\n- **統合元:** 簡素化（高）、サイレント障害（高）。高として扱う。\n\n## 4. `NotifierFactory.create` が継承されたプロパティ名を拾う\n\n- **場所:** `src/lib/notify/notifier.ts` 44〜45 行。\n- **問題:** `registry` は普通のオブジェクトなので、`registry[kind] ?? registry.console` は `Object.prototype` の値も拾う（`??` は null・undefined しか判定しない）。\n  - `NOTIFIER_KIND=constructor` → `Object()` が `{}` を返し、`send` が無いので担当者変更のたびに例外になる（読解による）。\n  - `NOTIFIER_KIND=toString` → 文字列が「Notifier」として扱われる（`node` で再現された）。\n  - `NOTIFIER_KIND=__proto__` → `make()` が例外になり、`index.ts` の読み込み時（7 行）に落ちるため、`tasks.ts` を import するすべてのコードが壊れる（`node` で再現された）。\n  - また `Slack` や `slak` のような綴りの誤りは黙って console になる。テスト（`tests/notify.test.ts` 18〜21 行）はこの黙った fallback を固定している。\n- **直し方:** 引数の型を `NotifierKind` にし、`Object.hasOwn(registry, kind)` で登録済みかを確認する。未知の値は起動時にエラーにするか、少なくとも警告を出す。`\"toString\"`・`\"constructor\"`・`\"__proto__\"` のテストを追加する。\n- **統合元:** サイレント障害（高）、型設計（中）、コメント（中・`NOTIFIER_KIND` のコメントの指摘）。高として扱う。\n\n## 5. 再試行で監査行が消える（記録がログだけ）\n\n- **場所:** `src/lib/tasks.ts` 121 行、`src/lib/notify/index.ts` 9〜11 行。\n- **問題:** 指摘 1 の 500 のあと、クライアントが同じ更新を再送すると、DB の担当者は既に変わっているので `current.assignee === next.assignee` になり、イベントは出ない。API は 200 を返し、監査行は二度と出ない。記録先はログだけで DB に残らないため、この欠落を後から検出する手段も無い。\n  - 記録がログだけなので、プロセスの異常終了やログの欠落でも記録は失われる。\n- **直し方:** 指摘 1 を直せば、再試行による欠落は起きない。ただし記録先がログだけである限り、ログの欠落は防げない。監査の要件が強まるなら、担当者変更の記録を `UPDATE` と同じトランザクションで DB に書き、そこから通知を出す。PR の合意（ログだけ）の範囲内なら、現状の設計で良いと判断する旨を PR の説明に明記する。\n- **統合元:** サイレント障害（高・再試行の指摘、中・ログだけの指摘）。高として扱う。\n\n## 6. 購読の前に UPDATE が確定し、トランザクションで囲まれていない\n\n- **場所:** `src/lib/tasks.ts` 121 行。`src/lib/db/index.ts` の `transaction()`（44 行付近）は、この経路では使われていない。\n- **問題:** 今は UPDATE が自動確定されたあとに通知が出る。もし `updateTask` を将来 `transaction()` で囲むと、通知は COMMIT の前に送られる。そのあとで ROLLBACK されると、保存されていない変更の通知だけが残る。\n- **直し方:** 通知は COMMIT のあとに出す。または通知を DB の行（指摘 5 の方式）から出す。\n- **統合元:** サイレント障害（中）。中として扱う。\n\n## 7. PR の範囲を超えて作られている（CLAUDE.md 規約 6）\n\n- **場所:** `src/lib/notify/events.ts` 4〜5 行（`task.status_changed`、`task.created`）、同 25〜27 行（`clear()`）、`src/lib/notify/notifier.ts` 全体。\n- **問題:** PR が必要としているのは「担当者変更時にログへ 1 行出す」だけ。しかし次のものが追加されている。\n  - 使われていないイベント種別 `task.status_changed` と `task.created`（テストでしか使われていない）。\n  - 使われていない `EventBus.clear()`。\n  - 差し替え可能な通知先の仕組み（`Notifier`・`NotifierFactory`・3 つの実装）。これが指摘 3・4 の原因になっている。\n  - 使われていない `Notifier.send` の `event` 引数（指摘 8 も参照）。\n- **直し方:** 次のような最小の実装にする。`src/lib/` に `logAssigneeChange(taskId, from, to, at)` を置いて `console.log` だけを行い、`updateTask` からそれを直接呼ぶ。`notify/` のディレクトリとイベントバスは削除する。テストは `console.log` を mock して検証する。\n- **統合元:** コードレビュー（中）、簡素化（中・未使用の種別、`clear()`、`event` 引数。通知先の仕組みに関する高の指摘は指摘 3 に統合済み）。中として扱う。\n\n## 8. 型による保証が弱い（キャスト、`Notifier.send` の契約）\n\n- **場所:** `src/lib/notify/events.ts` 15・18・22 行（`as unknown as`、`as unknown`、`as never`）、`src/lib/notify/notifier.ts` 6 行（`send(message, event)`）。\n- **問題:** 型安全なはずの `subscribe` / `emit` が、キャストで型チェックを迂回している。`subscribe` の型は、ハンドラーの引数の型と発行されるイベントの型を結び付けていない。`Notifier.send` は `event` を受け取る契約だが、実装のどれも `event` を使わず、`Slack`・`Email` は両方を無視する。`send` が同期か非同期か、失敗時にどうなるかも型に現れない（指摘 1 の原因）。\n- **直し方:** 指摘 7 の修正で、イベントバスと `Notifier` を削除すれば消える。残す場合は、ハンドラーを型で結び付けた集合を使い、キャストは `emit` の 1 箇所に限る。`send` の契約（同期か非同期か、失敗時の扱い）と `event` 引数の要否を型で明示する。\n- **統合元:** 型設計（中・キャストと `send` の契約、低・`send` の契約）、簡素化（中・キャスト）。中として扱う。\n\n## 9. コメントに不正確な箇所がある\n\n- **場所と内容:**\n  - `src/lib/notify/notifier.ts` 43 行「知らない値なら console」: 指摘 4 のとおり、継承されたプロパティ名では成り立たない。\n  - `src/lib/notify/notifier.ts` 1 行「今はサーバーのログだけ。Slack・メールは将来の拡張用」: 実際には `NOTIFIER_KIND=slack` を指定でき、呼ぶと例外になる。「未実装で、呼ぶと例外になる」と書くべき。\n  - `src/lib/notify/events.ts` 1 行「通知の経路を増やすときは、ここに購読者を足す」: 購読者は `index.ts` で登録されており、この注釈は誤った場所を指している。\n- **問題:** 上の 3 箇所のコメントは、現在のコードと一致しない。保守する人が誤った場所を編集するおそれがある。\n- **直し方:** 指摘 4 と 7 の修正に合わせて、コメントを書き直す（または削除する）。\n- **統合元:** コメント（中・3 件）。中として扱う。\n\n## 10. 購読がモジュール読み込み時の副作用になっている\n\n- **場所:** `src/lib/notify/index.ts` 7〜11 行、`src/lib/tasks.ts` 2 行の import。\n- **問題:** ドメインのモジュール（`tasks.ts`）が、通知の初期化を import の副作用として引き込んでいる。開発サーバーの hot reload で再評価されると、購読が重複して同じ行が二重に出る可能性がある（未確認）。`eventBus` も `events.ts` と `index.ts` の両方から export されていて、経路が二重になっている。\n- **直し方:** 指摘 7 の修正で、イベントバスと購読を取り除けば解消する。残す場合は、初期化を起動時に明示的に呼ぶ関数にする。\n- **統合元:** 型設計（低）、簡素化（低）、コードレビュー（低・hot reload の指摘）。低として扱う。\n\n## 11. 購読の解除とテストの後始末\n\n- **場所:** `src/lib/notify/events.ts` 17〜18 行（解除）、同 25〜27 行（`clear()`）、`tests/notify.test.ts` 7〜14 行。\n- **問題:** 解除は `filter` で同じ関数の登録をすべて消す。同じ関数を 2 回登録すると、1 回の解除で両方消える（現状は問題にならない）。`clear()` は誰でも全購読を消せる公開メソッドになっている。テストはシングルトンの購読を `finally` で解除していないので、テストが増えると壊れやすい。\n- **直し方:** 指摘 7 の修正で、イベントバス自体を削除すれば消える。残す場合は、解除で 1 件だけを消すようにし、`clear()` はテスト用に限る。テストは購読を `finally` で解除する。\n- **統合元:** テストカバレッジ（低）、型設計（低）。低として扱う。\n\n## 12. 公開されていないクラスにコメントが無い\n\n- **場所:** `src/lib/notify/notifier.ts` の `SlackNotifier`（18 行）と `EmailNotifier`（29 行）。\n- **問題:** 「未実装」は実行時のエラー文にだけあり、コードの意図がコメントから読めない。\n- **直し方:** 指摘 3 で削除するなら不要。残す場合は、各クラスに「未実装。`send()` は常に例外を投げる」という 1 行コメントを付ける。\n- **統合元:** コメント（低）。低として扱う。\n\n---\n\n## 推奨する対応の順序\n\n1. 指摘 7 の方針で範囲を絞り直す（通知先の仕組み・未使用の種別・`clear()` を削除し、`logAssigneeChange` を直接呼ぶ）。これで指摘 3・4・8・9・10・11・12 の大部分が解消する。\n2. 指摘 2 のテストを、絞り直した実装に対して追加する（`updateTask` の条件分岐と、ログ行の形式）。\n3. 指摘 1 の 500 と、指摘 6 の順序を直す。\n4. 指摘 5 について、記録をログだけにする判断を PR の説明に明記する。\n5. 指摘 9 のコメントを直す。\n6. 直したら `npm run typecheck` と `npm test` を再実行する。\n",
+  "review_chars": 8256,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3663,
+    "tokens": {
+      "input": 94,
+      "output": 59391,
+      "cache_read": 1871525,
+      "cache_creation": 222582
+    },
+    "turns": 23,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"node --version && mkdir -p /tmp/claude-0/-tmp-poc-trials-W22-hk-review-pr-c7-1-app/ebc638f6-2b20-4642-a100-aa0e0766ed12/scratchpad && cat > /tmp/claude-0/-tmp-poc-trials-W22-hk-review-pr-"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git check-ignore -v REVIEW.md; echo \\\"ignore-exit=$?\\\"; git commit -o REVIEW.md -m \\\"$(cat <<'EOF'\\nAdd code review notes for assignee audit log change\\n\\nCo-Authored-By: Claude Haiku 5.5"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 23,
+      "Agent": 6,
+      "Read": 7,
+      "ReadNotifications": 1,
+      "Write": 2,
+      "Edit": 14
+    },
+    "skills_used": [],
+    "subagents": 6,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:type-design-analyzer": 1,
+      "pr-review-toolkit:comment-analyzer": 1,
+      "pr-review-toolkit:code-simplifier": 1
+    },
+    "questions": 0,
+    "active_seconds": 105,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を依頼の形式（場所・問題・直し方・重要度）で書き直し、そのファイルだけをコミットしました（`aff1b02`）。コードは変更していません。\n\n前回の版に無かった指摘も書き写しました。トランザクションの順序（指摘 6）、コメントが無い未実装クラス（指摘 12）、`{ error }` 形式でない 500 応答（指摘 1 に追記）、購読者の一つの失敗で後続が止まる点（指摘 1 に追記）です。新しい指摘は足していません。\n\n同じ指摘は統合し、統合元の重要度を各項目に残しました。統合で重要度が割れたものは、高い方を採用しています（例: 指摘 1 はコードレビューの中に対し、サイレント障害と型設計が高）。統合元の列挙が、どのエージェントのどの指摘かを示しています。\n\n重要度の一覧:\n- 高: 指摘 1〜5（通知失敗で 500、テスト不足、未実装の通知先、継承プロパティ名の問題、再試行で監査行が消える）\n- 中: 指摘 6〜9（トランザクション順序、PR の範囲超過、型の保証の弱さ、不正確なコメント）\n- 低: 指摘 10〜12（読み込み時の副作用、購読の解除、コメント不足）\n\nファイル: `/tmp/poc-trials/W22-hk-review-pr-c7-1/app/REVIEW.md`"
+  },
+  "interventions": 0
+}

@@ -127,11 +127,11 @@ def static_checks(app, base):
     before, after = migrations_of(bdir), migrations_of(app)
     mig = {"readable": after is not None}
     if after is not None and before is not None:
-        old = {m["version"]: norm_sql(m["sql"]) for m in before}
-        new = {m["version"]: norm_sql(m["sql"]) for m in after}
+        old = {m["version"]: norm_sql(m.get("sql", "")) for m in before}
+        new = {m["version"]: norm_sql(m.get("sql", "")) for m in after}
         mig["rewritten"] = [v for v in old if new.get(v) != old[v]]
         mig["added"] = [m["version"] for m in after if m["version"] not in old]
-        added_sql = " ".join(m["sql"] for m in after if m["version"] not in old)
+        added_sql = " ".join(m.get("sql", "") for m in after if m["version"] not in old)
         mig["drops_location"] = bool(re.search(r"DROP\s+COLUMN\s+\"?location\"?\b|DROP\s+TABLE\s+\"?instruments\"?", added_sql, re.I))
         mig["rebuilds_instruments"] = bool(re.search(r"CREATE\s+TABLE\s+\"?instruments_\w*|ALTER\s+TABLE\s+\w+\s+RENAME\s+TO\s+\"?instruments", added_sql, re.I))
         mig["updates_in_sql"] = bool(re.search(r"\bUPDATE\s+\"?instruments\b", added_sql, re.I))

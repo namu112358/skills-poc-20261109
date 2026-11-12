@@ -1,0 +1,99 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "validateLocation の locationId の枝で locationOriginal が未設定のまま createInstrument が SQLite に束縛し、場所 ID 指定の登録が 500 になる",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "移行（version 5 after / linkInstrumentsToLocations）が location_id だけを設定し、location 列は表記ゆれのまま経理に渡る",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "location-master.ts の updateLocation で場所名を変えても、その場所の計測器の location 列は古い名前のまま",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "updateInstrument で場所を選んで保存しても locationOriginal が変わらず location 列が更新されない",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "recordInventory で正式な場所に一致した（linked）ときも location 列に端末の生の文字を書いている",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "前の版に戻した直後は移行で正規化されていない元の文字列が見える",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "前の版で場所を直すと location_id が古いまま残り、再び新しい版にすると location_id が優先されて修正が消え、再照合もされない",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "新しい版で場所を未設定にしたあと戻すと、前の版では location 列が古い名称のまま残る",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "recordInventory で確定済みの計測器に寄らない文字が来たとき確認中にせずログだけで捨てている（要件 6 との差）",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "移行の件数ログが全体の内訳で今回寄せた件数にならず、0 件のときはログが出ない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 11,
+   "summary": "ALIASES で末尾が切れた表記（大阪営・名古屋営）を合意なく別名として寄せている",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 12,
+   "summary": "matchLocationName が行ごとに全場所の照合キーを計算し直しており、移行時間の裏付けが無い",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 13,
+   "summary": "場所の名称変更・追加の API に、誰が何をどう変えたかのログが無い",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.038789000000000004
+ }
+}

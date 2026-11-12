@@ -1,0 +1,43 @@
+{
+  "trial": "W21-baseline-c1-1",
+  "scenario": "W21",
+  "config": "baseline",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# レビュー: タスクに「保留」ステータスを追加\n\n## 指摘 1（重要度: 高）マイグレーションが無く、`on_hold` の保存が DB の CHECK 制約で失敗する\n\n- 場所: `src/lib/db/migrations.ts` バージョン 1 の `tasks` テーブル定義（21 行目）\n  `status TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'done'))`\n  関連: `src/lib/tasks.ts` の `createTask` / `updateTask`\n- 問題: PR は TypeScript の型・`TASK_STATUSES`・ラベルだけを変更していて、スキーマを変更していない。\n  `validateTaskInput` は `on_hold` を通すが、INSERT / UPDATE の段階で\n  `CHECK constraint failed: status IN ('todo', 'in_progress', 'done')` が発生する。\n  - `POST /api/tasks` に `{\"status\":\"on_hold\", ...}` を送る → 検証は通り、`createTask` が例外を投げて 500 になる。\n  - `PATCH /api/tasks/:id` に `{\"status\":\"on_hold\"}` を送る → 同様に `updateTask` で 500 になる。\n  - つまり PR の「API が `on_hold` を受け付ける」は実際には動かない。\n  実際に `openDb()` の DB で `createTask({ status: \"on_hold\", ... })` を呼び、上記の CHECK 制約エラーになることを確認した。\n  一覧の「保留」絞り込みも、保留のタスクを作れないため常に 0 件になる。\n- 直し方: `migrations.ts` の末尾に version 3 のマイグレーションを追加する（既存のバージョン 1 は書き換えない。CLAUDE.md 規約 7）。\n  SQLite は CHECK 制約を `ALTER` で変更できないため、`tasks` を作り直す。\n  新テーブルを作成 → 既存行をコピー → 旧テーブルを DROP → RENAME →\n  `tasks_assignee` インデックスを再作成、の手順にする。\n  `sessions` など他のテーブルは `tasks` を参照していないので影響しない。\n  `AUTOINCREMENT` の採番（`sqlite_sequence`）が維持されるよう、`id` を含めてコピーすること。\n\n## 指摘 2（重要度: 高）テストがこの不具合を検出できない\n\n- 場所: `tests/tasks.test.ts` 追加した `accepts the on_hold status`、`isTaskStatus` の追加行\n- 問題: 追加したテストは `validateTaskInput` と `isTaskStatus`（メモリ上の検証）だけを見ている。\n  DB への保存は通らないので、指摘 1 の失敗は `npm test` では見つからない。\n  PR の「検証結果: typecheck・test が通った」は、保存できることの根拠にならない。\n- 直し方: `openDb()` の DB で次の単体テストを追加する（規約 5）。\n  - `createTask` で `status: \"on_hold\"` のタスクを作り、`getTask` で `on_hold` が返る。\n  - `updateTask` で既存タスクを `on_hold` に更新できる。\n  - `listTasks({ status: \"on_hold\" })` が保留のタスクだけを返す。\n  - 既存データがマイグレーション後も保持される（行数・ID が変わらない）。\n\n## 指摘 3（重要度: 低）画面での確認が PR に無い\n\n- 場所: `src/app/tasks/page.tsx` の絞り込みリンク\n- 問題: 絞り込みは `TASK_STATUSES` から作られるので「保留」のリンクは出るが、\n  上記のとおり保留のタスクを作れない。マイグレーション後に、\n  `/tasks?status=on_hold` と詳細ページで「保留」と表示されることを確認する項目が PR に無い。\n- 直し方: 指摘 1・2 の修正後、API で作成・更新した保留タスクが一覧と詳細に出ることを確認する。\n",
+  "review_chars": 2003,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2117,
+    "tokens": {
+      "input": 26,
+      "output": 4328,
+      "cache_read": 456509,
+      "cache_creation": 30671
+    },
+    "turns": 13,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat src/lib/db/migrations.ts && sed -n 30,140p src/lib/tasks.ts && cat > /tmp/claude-0/t.test.ts <<'E'\\nimport { openDb } from \\\"/tmp/poc-trials/W21-baseline-c1-1/app/src/lib/db/index.ts\\"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0-tmp.mts; cat > tests/zz_tmp.test.ts <<'E'\\nimport { openDb } from \\\"../src/lib/db/index.ts\\\";\\nimport { createTask } from \\\"../src/lib/tasks.ts\\\";\\nimport { it } from \\\"no"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 8,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 45,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "追加の作業はありませんでした。`REVIEW.md` には前回の指摘がすべて、場所・何が問題か・直し方・重要度の形式で書いてあります。`REVIEW.md` だけを含むコミット `92259d0` として、すでに git に入っています。\n\n書き写す内容は前回のレビューの出力と同じで、`REVIEW.md` に未コミットの差分はありません。新しい指摘は足しておらず、削ってもいません。\n\n| 指摘 | 重要度 |\n|---|---|\n| DB の CHECK 制約にマイグレーションが無く、`on_hold` が保存できず 500 になる | 高 |\n| テストが保存まで通らず、上の不具合を検出できない | 高 |\n| 修正後に、一覧と詳細ページで「保留」と表示されることの確認が PR に無い | 低 |\n\nコードは直していません。`src/lib/tasks.ts` と `tests/tasks.test.ts` の差分は未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,39 @@
+{
+  "trial": "W25-hk-baseline-run-c3-1",
+  "scenario": "W25",
+  "config": "hk-baseline-run",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の CSV ダウンロード（`GET /api/tasks/export`）\n\n対象: 未コミットの差分（`src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`）。\n確認方法: `npm test`（22 件、失敗 0）と `npm run typecheck` は通過。下記の再現は `node --experimental-strip-types` で `src/lib/export.ts` と `src/lib/tasks.ts` の関数を直接呼んで実行した結果。\n\n---\n\n## 1. 引用符の二重化がなく、CSV が壊れる・列がずれる\n\n- **重要度**: 高\n- **場所**: `src/lib/export.ts` の `field()`（`` return `\"${value}\"`; ``）\n- **何が問題か**: 項目をダブルクォートで囲うだけで、項目内の `\"` を `\"\"` にしていない（RFC 4180 違反）。タイトルに `\"` が含まれると、読み取り側がそこで項目を閉じ、列がずれる。PR の「タイトルの記号でも列がずれないようにする」という目的を満たさない。\n- **再現**（実行結果）:\n  - タイトル `He said \"hi\"` → 行が `\"1\",\"He said \"hi\"\",\"未着手\",\"sato\",\"2026-12-01\"` となり、引用符が閉じずに壊れる\n  - タイトルに改行と `\"x\"` を含む場合も同様に壊れる\n  - タイトル `=HYPERLINK(\"http://x\",\"go\")` → `\"3\",\"=HYPERLINK(\"http://x\",\"go\")\",...`（不正）\n- **直し方**: `field()` で値を文字列にし、`\"` を `\"\"` に置き換えてから `\"` で囲む。\n  ```ts\n  function field(value: string | number): string {\n    return `\"${String(value).replace(/\"/g, '\"\"')}\"`;\n  }\n  ```\n  テストに、引用符・改行を含むタイトルのケースを追加する（下記 5 も同じ）。\n\n## 2. `?status=` の不正な値が「指定なし」にならず、0 件になる\n\n- **重要度**: 高\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`（`as TaskStatus | null` のキャスト後、そのまま `listTasks` に渡している）\n- **何が問題か**: PR の表と CLAUDE.md の規約 2 では、不正な値は「指定なし」（一覧と同じ扱い）とされている。しかし実装は型の注釈だけで値を検証しないため、`?status=bogus`、`?status=`、`?status=DONE` はすべて `status = '…'` の条件になり、0 件の CSV が返る。一覧 API（`src/app/api/tasks/route.ts`）は `isTaskStatus` で検証しており、挙動が一致していない。\n- **再現**（実行結果。ルートと同じ引数で `listTasks` を呼んだ結果）: `\"bogus\"` → 0 件、`\"\"` → 0 件、`\"DONE\"` → 0 件。指定なしは 7 件。\n- **直し方**: 一覧と同じく型ガードを通す。\n  ```ts\n  import { isTaskStatus, listTasks } from \"@/lib/tasks\";\n  const raw = new URL(request.url).searchParams.get(\"status\");\n  const csv = toCsv(listTasks({ status: isTaskStatus(raw) ? raw : undefined }));\n  ```\n  この分岐は `src/lib/` の関数（例: `parseStatusParam`）に切り出し、テストする（規約 1）。\n\n## 3. CSV 数式インジェクション（Excel で数式として実行される）\n\n- **重要度**: 中\n- **場所**: `src/lib/export.ts` の `toCsv()`（タイトルなどの値をそのまま出力している）\n- **何が問題か**: 週次報告で Excel に貼り付けることが目的なので、タイトルが `=`、`+`、`-`、`@`（先頭のタブ・改行を含む）で始まると、Excel が数式として解釈する。タイトルは利用者が入力するため、`=HYPERLINK(...)` などが実行される可能性がある。\n- **再現**: 上の 1 の例で、`=HYPERLINK(...)` がそのまま数式として出力される。\n- **直し方**: 上記の文字で始まる文字列の先頭に `'` を付けて無害化する。数値の ID や期限は対象外。方針をテストで固定する。不要と判断する場合は、その理由を PR に明記する。\n\n## 4. エンドポイントのテストが無い（認証・絞り込み）\n\n- **重要度**: 中\n- **場所**: `tests/export.test.ts`（`toCsv` の単体のみ）、`src/app/api/tasks/export/route.ts`\n- **何が問題か**: 未ログインで 401 になること、`?status=` の絞り込みと不正値の扱いが、テストで確認されていない。2 の不具合はテストがあれば検出できた。規約 5（ロジックを追加・変更したら `tests/` に単体テストを追加する）に照らすと、絞り込みの判定を関数に切り出してテストするのが妥当。\n- **直し方**: 2 の修正と合わせて、ステータスの判定関数のテストを追加する。\n\n## 5. テスト名と内容が一致しない\n\n- **重要度**: 低\n- **場所**: `tests/export.test.ts` の `escapes quotes and commas in titles`\n- **何が問題か**: 名前は引用符のエスケープを確認するとあるが、引用符を含むデータを使っていない。1 の不具合が見逃された理由。\n- **直し方**: 1 の修正と合わせ、引用符・改行を含むタイトルのケースを入れ、テスト名を実際の内容に合わせる。\n\n## 6. 確認事項（問題なし）: BOM と Content-Type\n\n- **重要度**: なし（指摘ではなく確認）\n- **場所**: `src/lib/export.ts` の `CSV_BOM`、`src/app/api/tasks/export/route.ts` の `Content-Type`\n- **内容**: BOM は `U+FEFF`（バイト列 `EF BB BF`）で正しく付いている。`Content-Type: text/csv; charset=utf-8` も妥当。修正は不要。\n\n---\n\n## まとめ\n\nマージ前に直すべきもの: **1（引用符のエスケープ）**と **2（不正な status の扱い）**。1 は出力が壊れ、2 は仕様（規約 2）と一覧 API の挙動に反する。3 は Excel に貼る用途なので、マージ前に方針を決めておくことを勧める。4・5 はテストの追加で、1・2 の修正と一緒に行う。\n",
+  "review_chars": 3240,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0207,
+    "tokens": {
+      "input": 26,
+      "output": 12285,
+      "cache_read": 616089,
+      "cache_creation": 42022
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c3-1-app/ddbd9b6d-8448-44a0-b7b8-7ff689c73c4c/scratchpad/repro && cat > /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c3-1-a"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 10,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 66,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を最初の依頼の形式（場所・何が問題か・直し方・重要度）に書き直し、`REVIEW.md` だけをコミットしました（`cee399b`）。コードは変更していません。ステージ済みの `src/` と `tests/` の 3 ファイルはコミットに含めず、ステージのままです。\n\n- 新しい指摘は足していません。直前のレビューの指摘 5 件はすべて残し、重要度を付けました。\n  1. 引用符の二重化がなく CSV が壊れる（高）\n  2. `?status=` の不正値が「指定なし」にならず 0 件になる（高）\n  3. CSV 数式インジェクション（中）\n  4. エンドポイントのテストが無い（中）\n  5. テスト名と内容が一致しない（低）\n- 直前の版にあった「問題なし」の確認項目（BOM と Content-Type）は、削除せず「重要度: なし（確認）」として残しました。\n- 1 と 5 は同じ原因なので、再現と直し方は 1 にまとめ、5 からは 1 の修正と一緒に直すことを書いています。\n\n`afa0d76` で書いた前の版は履歴に残っています。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,43 @@
+{
+  "trial": "W26-baseline-std-d1-2",
+  "scenario": "W26",
+  "config": "baseline-std",
+  "case": "d1",
+  "rep": 2,
+  "review_md": "# レビュー: ダッシュボードを追加する\n\n指摘はすべて、node で関数を呼ぶ再現スクリプトで挙動を確認したものです。\n\n## 高\n\n### 1. キャッシュキーが全ユーザー共通で、他人のダッシュボードが返る\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）、`src/lib/cache.ts`\n- 問題: キーが固定文字列 `\"dashboard\"` で、`userId` を含まない。30 秒以内に別のユーザーがアクセスすると、先に計算された人の結果（タスク名・件数）がそのまま返る。再現: `buildDashboard(\"sato\")` の直後に `buildDashboard(\"suzuki\")` を呼ぶと、どちらも `userId: \"sato\"` が返った。認可の破れ（情報漏えい）にあたる。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。あわせて、タスクの更新後に古い値が最大 30 秒見えることが許容できるか確認する。許容できないなら、更新時にキャッシュを消すか、キャッシュをやめる。プロセス内 Map は無期限に増えるので、期限切れの削除も検討する。\n\n### 2. SQL インジェクション\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`（`WHERE assignee = '${userId}'`）\n- 問題: 値を文字列連結で SQL に埋め込んでいる（規約 8 に違反）。`userId` に `x' OR '1'='1` を渡すと全ユーザーのタスク 7 件が返った。現状の呼び出し元は `user.id` だが、`src/lib/` の公開関数として危険。\n- 直し方: `db.prepare(\"... WHERE assignee = ? ORDER BY due_date, id\").all(userId)` のようにプレースホルダを使う。インジェクションを試すテストも足す。\n\n## 中\n\n### 3. 日曜日に「今週」が翌週になる\n- 場所: `src/lib/week.ts` `weekRange`\n- 問題: `getUTCDay()` は日曜が 0 で、`addDays(today, 1 - dow)` は日曜に翌日（来週の月曜）になる。2026-11-15（日）では `{ start: \"2026-11-16\", end: \"2026-11-22\" }` になり、その週の月〜日（11/09〜11/15）がずれる。日曜は今週の期限が「今週が期限」に出ない。\n- 直し方: `const offset = dow === 0 ? -6 : 1 - dow;` とする。日曜・月曜のテストを足す。\n\n### 4. `countByStatus` が共有定数 `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` `countByStatus`（`TASK_STATUSES as TaskStatus[]` に `.reverse()`）\n- 問題: `reverse()` は元の配列を書き換える（`readonly` を型アサーションで外している）。呼ぶたびに `TASK_STATUSES` 自体が反転し、結果は「完了が先頭」と「未着手が先頭」が交互になる。再現: `[todo, in_progress, done]` → 1 回目の呼び出し後 `[done, in_progress, todo]` → 2 回目の結果は再び `todo` 先頭。`isTaskStatus` や他の画面の並びにも影響する。現行テストは 1 回目の呼び出しなので通ってしまう。\n- 直し方: `[...TASK_STATUSES].reverse()`（または `toReversed()`）にする。`as` による readonly の除去はやめる。同じ入力で 2 回呼んでも結果が同じになるテストを足す。\n\n### 5. タスクが 0 件のとき完了率が `NaN`\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 問題: `0 / 0` で `NaN`。画面に「完了率 NaN%」と出る。API では JSON が `null` になる。担当タスクが無い新規ユーザーで起きる。\n- 直し方: `tasks.length === 0` のときは 0 を返す。0 件のテストを足す。\n\n## 低\n\n### 6. 「今週が期限」に期限切れのタスクが重複して出る\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`\n- 問題: 週の初めから今日の前日までが期限の未完了タスクは、「期限切れ」と「今週が期限」の両方に載る（テストの `[1, 2]` がその状態）。意図どおりか不明。重複させたくないなら、`dueThisWeek` は `dueDate >= max(start, today)` にする。\n- 直し方: 仕様を決めて doc コメントに書き、テストで固定する。\n\n### 7. テストの不足\n- 場所: `tests/dashboard.test.ts`\n- 問題: 上記の 1・2・3・4・5 を検出できるテストが無い。`buildDashboard` のテストは 1 ユーザーだけで、`openDb()` の結果を使っていない `cache` の実体も検証していない。API・ページのテストも無い。\n- 直し方: 別ユーザーでの `buildDashboard`、日曜・月曜、0 件、`countByStatus` の複数回呼び出し、SQL 特殊文字のテストを足す。\n\n### 8. `toTask` / `Row` 型が `tasks.ts` と重複\n- 場所: `src/lib/dashboard.ts`\n- 問題: `tasks.ts` に同じ `TaskRow` と `toTask` がある。片方だけ変更されるとずれる。\n- 直し方: `tasks.ts` から export して再利用するか、`tasks.ts` に担当者での絞り込み（`assignee` フィルタ）を足す。\n",
+  "review_chars": 2695,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2334,
+    "tokens": {
+      "input": 24,
+      "output": 5750,
+      "cache_read": 424811,
+      "cache_creation": 33341
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && git ls-files --others --exclude-standard | xargs -I{} sh -c 'echo \\\"=== {}\\\"; cat {}'\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat src/lib/tasks.ts | head -40; S=/tmp/claude-0/-tmp-poc-trials-W26-baseline-std-d1-2-app/4d544638-2640-4c32-97b1-4e84904c7139/scratchpad; cat > $S/r.ts <<'E'\\nimport { weekRange } from "
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 53,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、前回のレビューで出した 8 件がすべて、場所・問題・直し方・重要度の形式で書いてあります。そのうえで、コミット済みで未コミットの変更もありません。そのため書き写しの作業は不要で、新しいコミットも作っていません。\n\n| 重要度 | 件数 | 内容 |\n|---|---|---|\n| 高 | 2 | 全ユーザー共通のキャッシュキー、SQL インジェクション |\n| 中 | 3 | 日曜日の週範囲、`TASK_STATUSES` の破壊的な `reverse()`、0 件のときの完了率 `NaN` |\n| 低 | 3 | 期限切れの重複表示、テスト不足、`toTask` の重複 |\n\n指摘の追加や削除はしていません。コードも直していません。コミットは 1539930 です。"
+  },
+  "interventions": 0
+}

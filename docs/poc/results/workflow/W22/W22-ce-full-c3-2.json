@@ -1,0 +1,77 @@
+{
+  "trial": "W22-ce-full-c3-2",
+  "scenario": "W22",
+  "config": "ce-full",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# レビュー: タスク一覧の CSV ダウンロード（`GET /api/tasks/export`）\n\n対象: 未コミット差分（`src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`）。\n結論: **マージ前に直すべき問題あり（Not ready）**。高 3 件・中 1 件・低 1 件。\n\n## 指摘\n\n### 1. 【高】引用符をエスケープしておらず、タイトルに `\"` があると CSV が壊れる\n- 場所: `src/lib/export.ts` の `field()`（11 行目）`return \\`\"${value}\"\\`;`\n- 問題: 値を `\"` で囲むだけで、値の中の `\"` を `\"\"` に置き換えていない。タイトルが `見積 \"最終版\" 確認` のように引用符を含むと、出力は `\"3\",\"見積 \"最終版\" 確認\",...` となり、Excel では列がずれるか、後続の行が崩れる。PR の「引用符が含まれても列がずれない」という説明と合わない。タイトルは API から任意の文字列（200 文字以内）を登録できるので、実運用で起きる。\n- 直し方: `` `\"${String(value).replace(/\"/g, '\"\"')}\"` `` にする。改行・カンマは引用符で囲めば足りる。\n\n### 2. 【高】不正な `?status=` が「指定なし」にならず、空の CSV が返る\n- 場所: `src/app/api/tasks/export/route.ts` 10〜11 行目 `searchParams.get(\"status\") as TaskStatus | null` → `listTasks({ status: status ?? undefined })`\n- 問題: 型キャストだけで検証していない。`?status=foo` や `?status=` 以外の文字列がそのまま SQL の `status = :status` に渡るので、該当する行が 0 件になり、見出しだけの CSV が返る。PR の説明（不正な値は一覧と同じく「指定なし」）と、CLAUDE.md の規約 2（型ガードで検証する）に反する。一覧 API（`src/app/api/tasks/route.ts` 10 行目）は `isTaskStatus` を使っている。\n- 直し方: `listTasks({ status: isTaskStatus(status) ? status : undefined })` にし、`TaskStatus` のキャストと import を外す。\n\n### 3. 【高】CSV インジェクション（数式の実行）\n- 場所: `src/lib/export.ts` の `field()`（11 行目）。対象は `title` と `assignee`\n- 問題: 先頭が `=` `+` `-` `@`（や TAB・CR）の文字列をそのまま出力している。ログインしたユーザーなら誰でも `POST/PATCH /api/tasks` で `=HYPERLINK(\"http://…\",\"クリック\")` のようなタイトルを登録でき、週次報告で Excel に貼り付けた人の手元で数式として評価される。引用符で囲んでも、Excel は数式として扱う。社内ツールでも、他のユーザーが作ったデータを開く人が被害を受ける。\n- 直し方: 文字列の値が `/^[=+\\-@\\t\\r]/` で始まるときは、先頭に `'` を付けてから引用符で囲む（ID のような数値は対象外）。\n\n### 4. 【中】テストが PR の説明どおりの内容を検証していない\n- 場所: `tests/export.test.ts` 15〜18 行目「escapes quotes and commas in titles」\n- 問題: テスト名はエスケープの検証だが、使っているタイトル `週次 定例の準備` に引用符もカンマも含まれていない。そのため指摘 1 のバグがあってもテストは通る（PR の「エスケープの単体テストを追加した」は実際には成り立っていない）。ほかに、`?status=` の絞り込み（有効値・不正値）、数式の先頭文字、改行を含むタイトルのテストが無い。規約 5（ロジックを変えたらテストを追加）も満たしていない。また API Route 本体（`src/app/api/tasks/export/route.ts`）にはテストが無く、未ログインの 401、BOM、`Content-Disposition` などのヘッダも検証されていない。\n- 直し方: `a,\"b\"\\nc` のようなタイトルで、期待値 `\"a,\"\"b\"\"\\nc\"` を厳密に比較するテストにする。あわせて、`=1+1` のタイトル、`status` の絞り込み（`listTasks` に渡す値を決める処理は `src/lib/` に切り出してテストする）、不正値で全件になるケースを追加する。\n\n### 5. 【低】行数のテストが初期データに依存している\n- 場所: `tests/export.test.ts` 8〜13 行目（`lines.length === 9`、`lines[1]` が seed の 1 件目）\n- 問題: `toCsv` の入力ではなく `seed.ts` の初期データに依存するため、初期データを変えるとテストが壊れる。\n- 直し方: `Task` を 2 件直接作って渡し、`lines.length === 4` を確認する。\n\n## レビューの範囲と制約\n- 無人実行のため、承認が必要な操作は行っていない。範囲確認用のスクリプト（`review-scope.py`・`run-log.py`）、`npm test`・`npm run typecheck` は実行できておらず、指摘は差分とソースの読解にもとづく（指摘 1・2・3 はコードから確定できる内容）。\n- reviewer は正確性・セキュリティ・テスト・プロジェクト規約の 4 つ（いずれも別々のサブエージェント）。マージ・検証用の追加サブエージェント（合成・validator）は使わず、結果をこの文書で直接統合し、行番号は実ファイルで確認し直した。\n- 敵対的レビュー（別モデルによる外部レビュー）は、コードを社外に出す根拠となる重大な被害の証拠がそろわないため選んでいない。\n- 認証（`requireApiUser` の先頭呼び出し）、SQL のプレースホルダ、BOM、`Content-Disposition`、`/api/tasks/[id]` との経路の競合（静的セグメントが優先）には問題を見つけなかった。\n",
+  "review_chars": 2883,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 1.5007,
+    "tokens": {
+      "input": 120,
+      "output": 28546,
+      "cache_read": 4043882,
+      "cache_creation": 256647
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W22-ce-full-c3-2/plugins/compound-engineering/skills/ce-code-review\\nPY=python3\\nBASE=$(git rev-parse HEAD)\\n$PY $SKILL_DIR/scripts/review-scope.py --base \\\"$BAS"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/poc-trials/W22-ce-full-c3-2/plugins/compound-engineering/skills/ce-code-review && python3 $S/scripts/review-scope.py --base \\\"$(git rev-parse HEAD)\\\" --docs-root docs; D=/tmp/compo"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W22-ce-full-c3-2/app; S=/tmp/poc-trials/W22-ce-full-c3-2/plugins/compound-engineering/skills/ce-code-review; B=$(git rev-parse HEAD); python3 $S/scripts/review-scope.py"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"D=/tmp/compound-engineering-0/ce-code-review/run-1; mkdir -p $D; chmod 700 $D; S=/tmp/poc-trials/W22-ce-full-c3-2/plugins/compound-engineering/skills/ce-code-review; python3 $S/scripts/ru"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/compound-engineering-0/ce-code-review/run-1 && chmod 700 /tmp/compound-engineering-0/ce-code-review/run-1 && cd /tmp/poc-trials/W22-ce-full-c3-2/app && python3 /tmp/poc-tria"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-ce-full-c3-2/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base b1ca893 --docs-root docs\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"R=/tmp/claude-0/-tmp-poc-trials-W22-ce-full-c3-2-app/fd622052-46ad-4a81-a5d2-ecf6cb448eee/scratchpad/run && git diff --name-only HEAD > $R/files.txt && git diff -U10 --irreversible-delete"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W22-ce-full-c3-2-app/fd622052-46ad-4a81-a5d2-ecf6cb448eee/scratchpad/run/copy && rm -rf $S && mkdir -p $S && cp -r src tests package.json tsconfig.json $S/"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/-tmp-poc-trials-W22-ce-full-c3-2-app/fd622052-46ad-4a81-a5d2-ecf6cb448eee/scratchpad/run/project-standards.json <<'EOF'\\n{\\n  \\\"reviewer\\\": \\\"project-standards\\\",\\n  \\"
+      }
+    ],
+    "tool_calls": {
+      "Read": 34,
+      "Bash": 20,
+      "Agent": 4,
+      "ReadNotifications": 6,
+      "Write": 5,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 4,
+    "subagent_types": {
+      "general-purpose": 4
+    },
+    "questions": 0,
+    "active_seconds": 49,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には前回の指摘がすでに「場所・何が問題か・直し方・重要度」の形式で入っていました。新しい指摘は足していません。ただ、reviewer の指摘とつき合わせると、API Route 本体にテストが無いこと（未ログインの 401、BOM、`Content-Disposition` が未検証）が抜けていたため、指摘 4 に追記しました。`REVIEW.md` だけをコミットしています（`3b1b274`）。\n\n指摘は前回と同じ 5 件です。\n\n| # | 重要度 | 内容 |\n|---|---|---|\n| 1 | 高 | 引用符を `\"\"` に置き換えておらず、タイトルに `\"` があると CSV が壊れる |\n| 2 | 高 | 不正な `?status=` が「指定なし」にならず、空の CSV が返る |\n| 3 | 高 | CSV インジェクション（数式の実行） |\n| 4 | 中 | テストが PR の説明どおりの内容を検証していない。Route 本体のテストも無い |\n| 5 | 低 | 行数のテストが初期データに依存している |\n\nコードは変更していません。作業ツリーの 3 ファイルは、前回と同じくコミットしていません。"
+  },
+  "interventions": 0
+}

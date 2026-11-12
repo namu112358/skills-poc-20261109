@@ -1,0 +1,85 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "移行5は location_id だけを設定し、instruments.location 列は元の表記ゆれの文字列のまま残るため、経理が読む列が正式名称にならない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 2,
+   "summary": "location-master.ts の updateLocation で場所を改名しても、計測器の location 列が古い名前のまま残る。",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "画面保存（PATCH {locationId}）では updateInstrument が current.locationOriginal を書き戻すため、場所を変えても location 列が古い文字列のまま残る。ハンディの linked も同様。",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "前の版に戻して location だけを編集すると、新しい版では location_id が優先されて無視され、再度上げたときにその間の編集が消える。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "POST /api/instruments に locationId を付けると、validateLocation が locationOriginal を設定せず、createInstrument が undefined をバインドして 500 になる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "recordInventory は、確定済みの計測器に分からない文字が来たとき確認中にせず文字を捨てており、要件6に反する。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 7,
+   "summary": "updateInstrument の {...current, ...changes} で、locationId だけを変えると locationOriginal が古い値のまま保存され、ずれが再発しやすい作りになっている。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "validateLocation の \"location\" in b の分岐により、台帳の POST/PATCH API が自由記述の location を受け付けて確認中の計測器を作れてしまい、要件3に反する。",
+   "severity": "低",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "ALIASES が末尾の切れた表記（大阪営・名古屋営）を正式な場所に寄せており、「決められない値は寄せない」に反する可能性がある。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "matchLocationName が行ごとに16か所の正規化をやり直しており非効率なので、事前に Map にすべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "登録に当たる画面が無く、一覧から選んで登録する経路が API しかない（その API は locationId で 500 になる）。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0924238
+ }
+}

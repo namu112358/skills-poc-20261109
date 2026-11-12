@@ -1,0 +1,39 @@
+{
+  "trial": "W24-baseline-run-d3-3",
+  "scenario": "W24",
+  "config": "baseline-run",
+  "case": "d3",
+  "rep": 3,
+  "review_md": "# レビュー: ダッシュボードとタスクのコメント\n\n疑わしい箇所は、作業用コピーの外に置いた一時スクリプトで実際に関数を呼んで確かめました。`再現` と書いた項目が該当します。\n\n## 高\n\n### 1. ダッシュボードのキャッシュキーが固定で、他のユーザーの内容が返る\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（64 行目、`cached(\"dashboard\", ...)`）\n- 問題: キャッシュキーがユーザーに関係なく `\"dashboard\"` です。30 秒以内に別のユーザーが開くと、先に開いた人のダッシュボードが返ります。担当タスクのタイトルと期限が他人に見えてしまい、自分のタスクも表示されません。\n- 再現: `buildDashboard(\"sato\")` の直後に `buildDashboard(\"suzuki\")` を呼ぶと、`userId: \"sato\"` が返りました。\n- 直し方: キーに userId を含めます（`dashboard:${userId}`）。キャッシュの値は同じ参照が使い回されるので、返した後に変更しないようにします。もしくはキャッシュをやめます。タスク更新後の最大 30 秒は古い内容が出る点も、仕様として許容できるか確認してください。\n- テスト: `tests/dashboard.test.ts` は 1 人分しか呼んでいません。2 ユーザーを続けて呼ぶテストを追加してください。\n\n### 2. `listAssignedTasks` が SQL に userId を文字列連結している（SQL インジェクション）\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`（29 行目）\n- 問題: `WHERE assignee = '${userId}'` と値を直接埋め込んでいます。CLAUDE.md の規約 8 に反します。userId は現状セッション由来ですが、この関数は export されていて、呼び出し元が増えると危険です。\n- 再現: `listAssignedTasks(\"x' OR '1'='1\", db)` が全 7 件を返しました。\n- 直し方: `WHERE assignee = ?` にして `.all(userId)` と渡します。\n\n### 3. コメント本文を `dangerouslySetInnerHTML` で出していて、`javascript:` リンクによる XSS が起きる\n- 場所: `src/lib/comments.ts` `renderBody`（63 行目）、`src/app/tasks/[id]/page.tsx`（42 行目）\n- 問題: HTML のエスケープはしていますが、`[文字](URL)` の URL を検証せずに `href` へ入れています。\n  - 本文に `[クリック](javascript:alert(1))` と書くと、`<a href=\"javascript:alert(1\" ...>` が出力されます。ログイン済みなら誰でも書けます。\n  - 他のユーザーがクリックすると、そのユーザーの権限でスクリプトが動きます。\n  - 正規表現が `)` までで切れるため、出力も壊れます。\n- 再現: `renderBody(\"[x](javascript:alert(1))\")` の結果は `<a href=\"javascript:alert(1\" rel=\"noopener noreferrer\">x</a>)` でした。\n- 直し方: 次のどちらかにします。\n  - リンクの URL は `https://` と `http://` で始まるものだけを許可し、それ以外はリンクにせずそのまま表示する。\n  - `dangerouslySetInnerHTML` をやめ、React 要素（`<a>` と `<br />`）で組み立てる。こちらの方が安全です。\n- テスト: `javascript:` と `data:` のケースを `tests/comments.test.ts` に追加してください。\n\n### 4. コメントの編集 API に権限チェックがない\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`（14〜21 行目）\n- 問題: ログインしていれば、他人のコメントを書き換えられます。`DELETE` には作者チェックがあるので、実装が食い違っています。\n- 直し方: `comment.authorId !== user.id` なら 403 を返します。\n\n### 5. 今週の範囲が日曜日だけ来週になる\n- 場所: `src/lib/week.ts` `weekRange`（20 行目、`addDays(today, 1 - dow)`）\n- 問題: `getUTCDay()` は日曜日が 0 です。日曜日は `1 - 0 = +1` になり、月曜が「明日」になります。日曜日には「今週」が来週の月〜日になり、今日期限のタスクが「今週が期限」から消えます。\n- 再現: 2026-11-15（日）の `weekRange` は `{ start: \"2026-11-16\", end: \"2026-11-22\" }` でした。正しくは `2026-11-09`〜`2026-11-15` です。\n- 直し方: `const offset = (dow + 6) % 7; start = addDays(today, -offset)` にします。\n- テスト: 既存のテストは水曜日しか見ていません。日曜日、月曜日、月またぎ・年またぎを追加してください。\n\n## 中\n\n### 6. `countByStatus` が共有配列 `TASK_STATUSES` を破壊的に反転する\n- 場所: `src/lib/dashboard.ts` `countByStatus`（36〜37 行目）\n- 問題: `TASK_STATUSES as TaskStatus[]` は同じ配列への参照です。`.reverse()` はその配列を直接入れ替えます。そのため呼ぶたびに並びが反転します。\n  - 「完了が先頭」になるのは奇数回目の呼び出しだけです。\n  - `isTaskStatus` や、`TASK_STATUSES` を使う他の画面の並びも、ダッシュボードを開くたびに変わります。\n- 再現: `countByStatus([])` を呼ぶたびに `TASK_STATUSES` が反転しました。3 回目の結果は `todo, in_progress, done` の順で、「完了が先頭」になっていませんでした。\n- 直し方: `[...TASK_STATUSES].reverse()` にします。または表示順の定数を別に持ちます。\n- テスト: 2 回続けて呼んで、どちらも先頭が `done` であることを確認してください。\n\n### 7. タスクが 0 件のユーザーで完了率が `NaN` になる\n- 場所: `src/lib/dashboard.ts` `completionRate`（47 行目）\n- 問題: `0 / 0` が `NaN` になり、画面に「完了率 NaN%」と出ます。JSON では `null` になります。\n- 再現: `completionRate([])` が `NaN` を返しました。\n- 直し方: `tasks.length === 0` のときは 0 を返します。\n\n### 8. コメントの並びが、日本語の表示用文字列を文字列比較している\n- 場所: `src/lib/comments.ts` `formatCreatedAt`（22 行目）と `listComments`（29 行目、`ORDER BY created_at, id`）\n- 問題: `created_at` に `2026/11/11 23:00:00` のような、ゼロ埋めのない表示用文字列を保存し、それで並べています。文字列順は時刻順になりません。\n  - 時が 1 桁（`9:00:00`）だと、`11:00:00` や `23:00:00` より後ろに並びます。\n  - 日が 1 桁（`12/1`）でも同じ問題が起きます。\n  - 日付の形式は実行環境の ICU に依存します。\n- 再現: UTC 02:00、14:00、15:00 に追加した 3 件が「11:00:00（11 日）、23:00:00（11 日）、0:00:00（12 日）」の順で保存されました。`2026/12/1 9:00:00` を追加したところ、並びが入れ替わっています。\n- 直し方: DB には ISO 8601（`now.toISOString()`）で保存し、表示するときに日本時間へ変換します。マイグレーションを足す場合は、既存データの扱いも決めてください。\n\n### 9. 存在しないタスクにコメントを投稿すると 500 になる\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` `POST`（19〜26 行目）\n- 問題: `GET` は `getTask(id)` で存在を確認していますが、`POST` は確認しません。存在しない ID だと外部キー制約で例外が出て、500 になります。規約 9 では 404 を返す必要があります。\n- 再現: `addComment(9999, ...)` が `FOREIGN KEY constraint failed` を投げました。\n- 直し方: `GET` と同様に `!getTask(id)` で 404 を返します。\n\n## 低\n\n### 10. 「今週が期限」に期限切れが重複して出る\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`（58〜61 行目）\n- 問題: 今週の月曜から昨日までに期限が切れた未完了タスクは、「期限切れ」と「今週が期限」の両方に出ます。実際に水曜日に月曜期限のタスクが両方に入ります。既存のテストも `[1, 2]` でこれを正としています。\n- 直し方: 重複させない仕様にするなら `t.dueDate >= today` を条件に足します。意図どおりなら、PR の説明か画面の文言に書いてください。\n\n### 11. 追加したテストが主な不具合を拾えていない\n- 場所: `tests/dashboard.test.ts`、`tests/comments.test.ts`\n- 問題: 現在の日時が水曜日の 1 ケースだけで、複数ユーザーのキャッシュ、0 件、`countByStatus` の連続呼び出し、コメントの順序、`javascript:` リンク、権限、404 のテストがありません。「`npm test` が通る」ことが上の不具合がないことの確認になっていません。\n- 直し方: 各項目に書いたテストを追加してください。API Route の 401・403・404・400 を検証するテストも併せて追加してください。\n",
+  "review_chars": 4755,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3097,
+    "tokens": {
+      "input": 24,
+      "output": 8803,
+      "cache_read": 483470,
+      "cache_creation": 43325
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W24-baseline-run-d3-3-app/13896857-a4d9-49fd-acf4-b21c66a3a649/scratchpad; cat > $S/r.ts <<'EOF'\\nconst A=\\\"/tmp/poc-trials/W24-baseline-run-d3-3/app/src/l"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 85,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "追加の作業は要りませんでした。直前のレビューで出た指摘 11 件は、すべて `REVIEW.md` に最初の依頼の形式で書き込み済みで、コミットも済んでいます。\n\n- **書き込み済みの内容**: 各指摘に、重要度（高 5 件・中 4 件・低 2 件）、場所（ファイルと関数・行）、何が問題か（再現した入力と結果を含む）、直し方を書いています。\n- **コミット**: `836b32b` で `REVIEW.md` だけをコミットしました。作業ツリーに `REVIEW.md` の未コミットの差分はありません。\n- **今回の変更**: 新しい指摘は足さず、削ってもいません。コードも直していません。PR の差分は、未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

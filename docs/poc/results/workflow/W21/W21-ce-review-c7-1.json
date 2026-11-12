@@ -1,0 +1,44 @@
+{
+  "trial": "W21-ce-review-c7-1",
+  "scenario": "W21",
+  "config": "ce-review",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# コードレビュー: 担当者変更の監査ログ\n\n対象: 未コミットの差分（`git diff HEAD`）。変更は `src/lib/notify/*`（新規 3 ファイル）、`src/lib/tasks.ts`、`tests/notify.test.ts`。\n\n判定: **修正してからマージ（Ready with fixes）**\n\nPR の目的は「担当者が変わったときにログへ 1 行出す」ことです。`updateTask` に 1 か所ログ出力を足せば済みます。実際にはイベントバス、通知の工場クラス、使われない Slack・メール通知が追加されています。この余分な部分が、下の指摘 1・2 の原因です。\n\n## 指摘一覧\n\n### 1. [高] 通知の失敗が、保存済みの更新を API の 500 エラーにする\n\n- **場所**: `src/lib/tasks.ts` の `updateTask`（`UPDATE` 実行後の `eventBus.emit(...)`、122 行目付近）、`src/lib/notify/events.ts` の `EventBus.emit`、`src/lib/notify/notifier.ts` の `SlackNotifier.send` / `EmailNotifier.send`\n- **問題**:\n  - `emit` は購読者を同期で呼び、例外を握りつぶしません。購読者の `notifier.send` が例外を投げると、`updateTask` の中で例外が上がります。\n  - `UPDATE` は `emit` の前に実行済みです。そのため、担当者は変わったのに `PATCH /api/tasks/:id` が 500 を返す、という食い違いが起きます。クライアントは失敗と見なして再送するかもしれません。\n  - `NOTIFIER_KIND=slack` または `email` を設定すると、`SlackNotifier.send` と `EmailNotifier.send` は常に `throw new Error(\"…未実装です\")` します。この設定で、担当者を変える更新がすべて 500 になります。\n  - `NotifierFactory.create` は未知の値を `console` に戻します。しかし `slack` と `email` は未実装なのに有効な値として受け付けます。環境変数の設定ミスが、そのまま障害になります。\n- **直し方**:\n  - 最小の直し方は、イベントバスと通知クラスをやめて、`updateTask` で `console.log` を直接呼ぶことです（指摘 2 と同じ直し方です）。\n  - 仕組みを残すなら、`emit` で購読者ごとに `try/catch` し、失敗は `console.error` に出して更新処理には伝えないようにしてください。\n  - 未実装の通知クラスは、例外を投げる実装を置かず削除してください。\n\n### 2. [中] 依頼の範囲を超えた仕組みが入っている（CLAUDE.md 規約 6）\n\n- **場所**: `src/lib/notify/events.ts`（`EventBus`、未使用の `task.status_changed` と `task.created`）、`src/lib/notify/notifier.ts`（`NotifierKind` の `slack` と `email`、`SlackNotifier`、`EmailNotifier`、`NotifierFactory`、環境変数 `NOTIFIER_KIND` と `SLACK_WEBHOOK_URL`）、`src/lib/notify/index.ts`\n- **問題**:\n  - PR の説明は「記録先は当面サーバーのログだけでよい。ほかの記録先にする予定は今のところない」としています。それでもイベントバス、通知の工場、未実装の Slack・メール通知、使われないイベント型が追加されています。\n  - CLAUDE.md の規約 6（「変更は依頼された範囲にとどめる」）に反します。\n  - 使われないコードは読む量と保守の負担を増やします。指摘 1 の障害もここから生まれています。\n- **直し方**: `src/lib/notify/` を丸ごと削除します。`updateTask` の `UPDATE` の後に、次のように直接ログを出します。形式は PR の説明のとおりです。\n\n  ```ts\n  if (next.assignee !== current.assignee) {\n    console.log(`[audit] task ${id}: assignee ${current.assignee} -> ${next.assignee} at ${new Date().toISOString()}`);\n  }\n  ```\n\n  Slack やメールなどの別の送り先が必要になった時点で、必要な形に合わせて抽象化してください。\n\n### 3. [中] 肝心の挙動を確かめるテストが無い（CLAUDE.md 規約 5）\n\n- **場所**: `tests/notify.test.ts`、`tests/tasks.test.ts`\n- **問題**:\n  - 追加されたテストは、イベントバスの購読と解除、および `NotifierFactory` が返す型だけを調べています。\n  - PR の挙動は次の 2 点です。\n    - 担当者が変わったときだけ、`[audit] task <ID>: assignee <前> -> <後> at <日時>` が出る。\n    - 担当者が変わらない更新では出ない。\n  - この 2 点を確かめるテストはありません。`updateTask` と `src/lib/notify/index.ts` の購読登録の結線が壊れても、テストは通ります。たとえば購読の登録を消す、`!==` を `===` に書き間違える、といった変更です。\n  - PR の「検証結果」は「通知の仕組みの単体テストを追加した」としていて、監査ログが出ることの確認にはなっていません。\n- **直し方**: `tests/tasks.test.ts` に次の 3 件を足します。`console.log` は `node:test` の `mock.method(console, \"log\")` で捕まえます。\n  - 担当者を変える `updateTask` で、期待する 1 行が出る。\n  - 担当者を変えない更新（タイトルだけの変更、同じ担当者の指定）では出ない。\n  - 存在しない ID では出ない。\n\n  指摘 2 のとおり通知の仕組みを削除する場合、`tests/notify.test.ts` も削除します。\n\n### 4. [低] ログ出力が読み込みの副作用に依存している\n\n- **場所**: `src/lib/notify/index.ts`（モジュール読み込み時に `eventBus.subscribe` を実行）、`src/lib/tasks.ts` の `import { eventBus } from \"./notify/index.ts\"`\n- **問題**:\n  - 購読の登録が、`tasks.ts` を読み込んだ副作用として行われます。登録が起きる条件を読み取りにくく、バンドルの設定などで副作用のあるモジュールが除去されると、エラーも出ずに記録が止まります。\n  - 記録が止まっても、監査の要件を満たせなくなったことに気づく手段がありません。\n- **直し方**: 指摘 2 の直し方で解消します。仕組みを残す場合は、`updateTask` の中で明示的にログを呼び、テスト（指摘 3）で結線を確かめてください。\n\n## 確認したが問題が無かった点\n\n- **担当者の値**: `validateTaskInput` が、担当者を `users` テーブルの ID と照合しています。ログの値は検証済みの ID なので、ログに改行などを混ぜる心配はありません。\n- **SQL**: プレースホルダのままで、変更はありません。\n- **ログの出るタイミング**: `next.assignee !== current.assignee` の比較で、担当者が変わらない更新ではログが出ません。\n\n## Coverage\n\n- 軽量パスで、この文脈だけでレビューしました。レビュー用の別エージェントは起動していません。\n- 次の 2 つは実行していません。\n  - 範囲を数える補助スクリプト（承認が必要で、無人実行のため見送りました）。\n  - 実行時の動作確認（`typecheck`・`test`・`build`、サーバー起動、`NOTIFIER_KIND=slack` での再現）。\n\n  上の指摘 1 は、コードを読んでの判断です。\n- 確認した基準ファイルは、ルートの `CLAUDE.md`（規約 5・6・9 など）です。`CODING_STANDARDS.md` と `REVIEW.md` は、基準のコミットにありませんでした。\n- 計画書は見つかりませんでした。要件は PR の説明だけを基にしています。\n- 未追跡ファイルはありません。\n",
+  "review_chars": 3965,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3877,
+    "tokens": {
+      "input": 24,
+      "output": 6780,
+      "cache_read": 594622,
+      "cache_creation": 65106
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W21-ce-review-c7-1/plugins/compound-engineering/skills/ce-code-review; python3 $SKILL_DIR/scripts/review-scope.py --base HEAD --docs-root docs; ls REVIEW.md 2>&1"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W21-ce-review-c7-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 4,
+      "Bash": 8,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 66,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は、前回のレビューで出た 4 件の指摘を、すでに依頼の形式で書いたものです。それぞれに、場所・何が問題か・直し方・重要度（高・中・低）が入っています。作業ツリーに未コミットの差分はなく、2f65fd7 に `REVIEW.md` だけがコミットされています。新しい指摘は足しておらず、削った指摘もありません。そのため、書き写し直しもコミットのやり直しもしていません。コードも変更していません。\n\n指摘は、重要度順に次の 4 件です。\n\n1. **[高]** 通知が失敗すると、保存済みの更新が API の 500 エラーになる。\n2. **[中]** 依頼の範囲を超えた仕組みが入っている（CLAUDE.md の規約 6）。\n3. **[中]** 担当者変更のログが出ることを確かめるテストが無い（規約 5）。\n4. **[低]** ログ出力が、モジュール読み込みの副作用による購読登録に依存している。"
+  },
+  "interventions": 0
+}

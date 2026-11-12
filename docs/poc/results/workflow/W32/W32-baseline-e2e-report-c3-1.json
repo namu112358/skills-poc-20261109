@@ -1,0 +1,82 @@
+{
+  "trial": "W32-baseline-e2e-report-c3-1",
+  "scenario": "W32",
+  "config": "baseline-e2e-report",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: 設置場所を場所マスタから選べるようにする\n\n結論: **マージ不可**。高が 3 件（うち 1 件は実機で 500）。\n\n## 実機での確認結果\n\n`npm run build` は成功。`npm run start -p 3691`（空きポート。DB は既定のインメモリ+seed）で起動し、`sato` でログインして確認した。確認後、起動したサーバーは止めた。\n\n| 対象 | 状態コード | 500・例外・Application error |\n|---|---|---|\n| POST /api/login | 200 | なし |\n| GET /api/locations | 200（16 か所） | なし |\n| POST /api/locations（新規） | 201 | なし |\n| POST /api/locations（表記違いの重複） | 409 | なし（想定どおり） |\n| PATCH /api/locations/1（名称変更） | 200 | なし |\n| PATCH /api/locations/9（使用終了） | 200 | なし |\n| PATCH /api/locations/999 | 404 | なし |\n| GET /api/instruments?location=unconfirmed / none / abc / 7 | 200 | なし |\n| GET /api/instruments/1 | 200 | なし |\n| PATCH /api/instruments/3 `{\"locationId\":9}` | 200 | なし（ただし指摘 1） |\n| PATCH /api/instruments/3 `{\"location\":\"製造部第３ライン\"}`（使用終了の場所） | 200 | なし |\n| PATCH /api/instruments/1 `{\"locationId\":9}`（使用終了の場所） | 400 | なし（想定どおり） |\n| **POST /api/instruments `{\"locationId\":2,…}`** | **500** | **あり（指摘 2）** |\n| POST /api/instruments（locationId なし / 使用終了の場所） | 201 / 400 | なし |\n| 画面 /instruments, /instruments?location=unconfirmed, /instruments/1, /instruments/3, /locations | 200 | なし（curl で取得して状態コードを確認。ブラウザ操作は未実施） |\n| 画面 /instruments/9999 | 404 | 想定どおり |\n| POST /api/handheld/inventory | 401 | **未確認**。サーバーに `HANDHELD_TOKEN` を渡せなかったため、受け付けの動作はコードの読みだけで判断した。 |\n\n注: 最初に 3517 番で動いていた別のサーバーは変更前のコードで（`/api/locations` が 404）、確認には使っていない。止めてもいない。\n\n---\n\n## 指摘一覧\n\n### 指摘 1: 経理が読む `instruments.location` 列に、場所の名前が入らない\n\n- **重要度**: 高（要件 7・8）\n- **場所**: `src/lib/instruments.ts` の `updateInstrument`（`next.locationOriginal` を `location` 列に書く）・`validateLocation`（`locationId` のとき `locationOriginal` を設定しない）・`recordInventory`、`src/lib/location-master.ts` の `updateLocation`（`locations.name` しか更新しない）、`src/lib/locations.ts` の `linkInstrumentsToLocations`（`location_id` だけ設定）、マイグレーション 5。\n- **何が問題か**:\n  - 場所 1 の名称を「品質保証部 精密測定室」に変更 → `GET /api/instruments/1` は `location: \"品質保証部 精密測定室\"` だが、DB の `location` 列（`locationOriginal`）は古い「品質保証部 測定室」のまま（実機で確認）。\n  - 計測器 3 を `locationId: 9`（製造部 第 3 ライン）に変更 → `location` 列は古い「製造部 第1ライン」のまま（実機で確認）。\n  - 移行で寄せた計測器も、表記ゆれの元の値（「製造部第１ライン」など）のまま。\n  - 経理部が月末に DB のコピーから `location` 列を読むと、名称変更・付け替えが反映されない、または別の場所が出る。要件 7「場所の名前が入った状態を保つ」を満たさない。\n  - ロールバック（要件 8）: 前の版は `location` 列だけを読むので、同じ古い・誤った場所が表示される。ロールバック中に前の版が `location` を書き換えても `location_id` は古いままで、新しい版に戻すと `location_id` が優先され、その間の変更が失われる。\n- **直し方**:\n  - 確定した場所の計測器は、`location` 列に常にマスタの名称を書く（登録・更新・棚卸し・移行）。\n  - 場所の名称変更は、同じトランザクションで `UPDATE instruments SET location = ? WHERE location_id = ?` を行う。\n  - 移行でも、結び付けた行の `location` を正式名にする。元の書き方は確認中の行にだけ残す（残したければ別の列に退避する）。\n  - 来期に列を落とす前提のコメントを入れる。\n\n### 指摘 2: `locationId` を指定した計測器の登録（POST /api/instruments）が 500 になる\n\n- **重要度**: 高\n- **場所**: `src/lib/instruments.ts` の `validateLocation` と `createInstrument`。\n- **何が問題か**:\n  - `POST /api/instruments` に `{\"managementNo\":\"MI-9002\",\"name\":\"テスト\",\"managerId\":\"sato\",\"intervalMonths\":12,\"lastCalibratedOn\":\"2026-01-01\",\"locationId\":2}` を送ると **500**。サーバーのログは `TypeError: Provided value cannot be bound to SQLite parameter 4`。\n  - `locationId` が数値のとき `value.locationOriginal` を設定せず、`createInstrument` が `input.locationOriginal`（undefined）を `run()` に渡して失敗する。`locationId: null` や指定なしは `locationOriginal = \"\"` が入るので通る。一覧から場所を選んで登録する、という本 PR の中心の使い方だけが壊れている。\n  - 単体テストが通るのは、`validateInstrumentInput` → `createInstrument` を通す `locationId` 付きのテストが無いか、DB 層で `locationOriginal` を直接渡しているため。\n- **直し方**: 指摘 1 の対応で、`locationId` のときは `location` に場所の名称を設定する。`InstrumentInput` の型で `locationOriginal` を必須にして、渡し忘れをコンパイルで検出する。`validateInstrumentInput` → `createInstrument` を通すテストを追加する。\n\n### 指摘 3: 移行（約 5 万件）の所要時間と結果の確かめ方、寄せ方の根拠が足りない\n\n- **重要度**: 高\n- **場所**: `src/lib/db/migrations.ts` のバージョン 5 の `after`、`src/lib/locations.ts` の `linkInstrumentsToLocations`・`matchLocationName`・`ALIASES`。\n- **何が問題か**:\n  1. 約 5 万件を、起動時のマイグレーション（1 トランザクション）の中で 1 件ずつ JS で正規化・照合し、1 件ずつ UPDATE している。`matchLocationName` は行ごとに 16 か所すべての名前を再正規化する（約 80 万回）。本番の件数での所要時間は測られておらず（今回の確認でも未測定）、「起動して使えるまで何分も止めない」（要件 9）を満たす根拠が PR に無い。\n  2. ログ `locations.migrated` は total / linked / unset / unconfirmed のみ。linked のうち表記ゆれで寄せた件数が分からず、後から確かめにくい。\n  3. `ALIASES`（「大阪営」→「大阪営業所」）は、末尾が切れた表記を寄せるもので「推測で寄せない」に近い。要件 2 の例に無く、依頼者の合意が必要。\n- **直し方**: 場所名の正規化キーを先に 1 回だけ作り Map で引く。`docs/data/location-values.csv`（本番値）で 5 万件相当の所要時間を測り、PR に書く。ログに内訳（元から一致 / 表記ゆれで寄せた）を足す。`ALIASES` は依頼者に確認する（できなければ仮定として PR に書く）。\n\n### 指摘 4: ハンディ端末で、確定済みの計測器に分からない文字が来ると何も反映しない\n\n- **重要度**: 中\n- **場所**: `src/lib/instruments.ts` の `recordInventory`（`outcome: \"unmatched_kept\"`）、`docs/handheld-api.md`。\n- **何が問題か**: 要件 6 は「分からなければ確認中として送られた文字を残す」。実装は、すでに場所が確定している計測器では何も変えずに 200 を返す（ログ `handheld.inventory.unmatched` だけ）。現場で動かされた計測器の棚卸し結果が台帳に反映されず、端末は「送信済み」と表示する。応答の `location` も古い場所のまま。なお実機では `HANDHELD_TOKEN` を渡せず 401 までしか確認できていない。\n- **直し方**: 品質保証部の修正を戻さない意図は理解できるが、要件と違うので依頼者に確認する。確認できないなら、仮定として PR に書き、`docs/operations.md` にログ `handheld.inventory.unmatched` を拾う運用手順を書く。`tests/handheld.test.ts` で期待どおりかを確かめる。\n\n### 指摘 5: 確認中の計測器を直す導線が、1 件ずつの詳細画面に限られる\n\n- **重要度**: 低（中寄り。要件には無い）\n- **場所**: `src/app/instruments/[id]/LocationForm.tsx`、`docs/operations.md`。\n- **何が問題か**: 確認中が大量（実データの CSV で件数を確認すること）に出ると、1 件ずつ直す運用になる。一覧から場所ごとにまとめて直す手段が無い。\n- **直し方**: PR の「残っている課題」に書く。必要なら一覧での一括変更を別の PR で検討する。\n\n### 指摘 6: 使用終了の場所と「確認中」の扱いが API の説明に無い\n\n- **重要度**: 低\n- **場所**: `src/lib/instruments.ts` の `validateLocation`（`location` 文字列の経路）、`CLAUDE.md`。\n- **何が問題か**: いま結び付いている使用終了の場所は文字列の照合に使う（実機で 200）。意図は「echo された値で確認中に戻さない」で妥当。ただし別の計測器から使用終了の場所の名前を `location` 文字列で送ると確認中になる。仕様どおりだが説明が無い。\n- **直し方**: CLAUDE.md と API の説明に、この挙動を書く。\n\n### 指摘 7: 不正な `?location=` が黙って全件になる\n\n- **重要度**: 低\n- **場所**: `src/app/api/instruments/route.ts`・`parseLocationFilter`。\n- **何が問題か**: `GET /api/instruments?location=abc` は 200 で全件を返す（実機で確認）。規約 2（不正な値は指定なし）には沿っているので問題ではない。一方 `location=999`（存在しない ID）は 0 件になり、画面では区別しにくい。\n- **直し方**: 画面で、絞り込みが効いているかが分かる表示を付ける（任意）。\n",
+  "review_chars": 5822,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.7563,
+    "tokens": {
+      "input": 78,
+      "output": 20601,
+      "cache_read": 2492022,
+      "cache_creation": 75228
+    },
+    "turns": 44,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat package.json | grep -A8 '\\\"scripts\\\"'; (npm run build 2>&1 | tail -30); cat src/app/instruments/page.tsx | head -80; cat \\\"src/app/instruments/[id]/LocationForm.tsx\\\"; git diff HEAD -"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3517 DATABASE_PATH=/tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c3-1-app/a5b20ffa-9e10-4c0c-92c0-08046c0d93aa/scratchpad/t.db nohup npm run start -- -p 3517 > /tmp/claude-0"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c3-1-app/a5b20ffa-9e10-4c0c-92c0-08046c0d93aa/scratchpad; rm -f $S/t.db; PORT=3517 DATABASE_PATH=$S/t.db nohup npm run start -- -p "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"DATABASE_PATH=/tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c3-1-app/a5b20ffa-9e10-4c0c-92c0-08046c0d93aa/scratchpad/t.db npm run start -- -p 3517\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp && J=/tmp/claude-0/cj; curl -s -c $J -o /dev/null -w \\\"login %{http_code}\\\\n\\\" -H 'content-type: application/json' -d '{\\\"userId\\\":\\\"sato\\\",\\\"password\\\":\\\"password\\\"}' localhost:3"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"curl -s -c /tmp/claude-0/cj -o /dev/null -w \\\"login %{http_code}\\\\n\\\" -H 'content-type: application/json' -d '{\\\"userId\\\":\\\"sato\\\",\\\"password\\\":\\\"password\\\"}' localhost:3517/api/login\\nfo"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"curl -s -b /tmp/claude-0/cj -o /tmp/claude-0/p1.html -w \\\"instruments %{http_code}\\\\n\\\" localhost:3517/instruments\\ncurl -s -b /tmp/claude-0/cj -o /tmp/claude-0/p2.html -w \\\"instruments?u"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"B=localhost:3691; C=\\\"-s -b /tmp/claude-0/cj2\\\"\\ncurl $C -w \\\"\\\\nHTTP %{http_code}\\\\n\\\" \\\"$B/api/instruments?location=unconfirmed\\\" | head -c 600\\ncurl $C -o /dev/null -w \\\"none %{http_co"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f \\\"next start -p 3691\\\"; pkill -f \\\"next-server\\\"; sleep 1; curl -s -o /dev/null -w \\\"%{http_code}\\\\n\\\" localhost:3691/login\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f \\\"next start -p 3691\\\"\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\nimport re\\np='REVIEW.md'\\ns=open(p,encoding='utf-8').read()\\nhead,rest=s.split('## 指摘',1)\\nitems=re.split(r'\\\\n### \\\\d+\\\\. ',rest)[1:]\\nout=[]\\nfor it in items:\\n    t,"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 36,
+      "Read": 1,
+      "ToolSearch": 1,
+      "TaskStop": 1,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 176,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューで出た 7 件の指摘を、各指摘に **重要度・場所・何が問題か・直し方** を並べる形式に書き直しました。`REVIEW.md` だけをコミットしています（コミット 92b3bbd）。\n\n- **新しい指摘は足していません。** 出た指摘も削っていません。\n- **実機確認の表** は残しています。\n\n指摘の一覧は次のとおりです。\n\n| 指摘 | 重要度 |\n|---|---|\n| 1. 経理が読む `location` 列に場所の名前が入らない（名称変更・付け替え・移行で古い値のまま。前の版に戻したときも誤った場所が出る） | 高 |\n| 2. `locationId` を指定した登録（POST /api/instruments）が 500 になる | 高 |\n| 3. 移行（約 5 万件）の所要時間と内訳が確かめられない。`ALIASES` の寄せ方に合意が要る | 高 |\n| 4. ハンディ端末で、確定済みの計測器に分からない文字が来ても何も反映しない | 中 |\n| 5. 確認中の計測器を直す導線が 1 件ずつの詳細画面だけ | 低 |\n| 6. 使用終了の場所と「確認中」の扱いが API の説明に無い | 低 |\n| 7. 不正な `?location=` が黙って全件になる | 低 |\n\n指摘 5 は、前回は「低〜中」と書いたもので、ここでは低に統一しました。同じ内容の指摘はまとめていません。7 件はそのままの数です。\n\nコードは直していません。ハンディ端末の API は `HANDHELD_TOKEN` を渡せず 401 までしか確かめられていません。この点は表に未確認と書いています。"
+  },
+  "interventions": 0
+}

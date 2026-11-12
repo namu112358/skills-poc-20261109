@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "daysUntilDue は Date.parse の UTC 0 時（日本時間 9 時）と現在時刻の差を floor で数えているため、日本時間 9 時以降は今日が期限のタスクが -1 になり「期限間近」が付かず、テストも日本時間 0 時の 1 点でしか確かめていない",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "isDueSoon が days < DUE_SOON_DAYS なので仕様の「3 日後」が対象外になる off-by-one で、<= にして 3 日後・4 日後の境界テストを足すべき",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "tests/due.test.ts が now を日本時間 0 時の 1 点に固定しており、時間帯や境界（残り 3・4 日、完了済み）を網羅していない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "page.tsx の行に参照されない due-soon クラスが付いており、PR の範囲外の変更である",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 5,
+   "summary": "page.tsx の tasks.map 内で isDueSoon を 2 回呼んでおり、変数に受けるべき",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.052439799999999995
+ }
+}

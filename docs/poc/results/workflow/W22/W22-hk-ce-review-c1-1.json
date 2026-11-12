@@ -1,0 +1,69 @@
+{
+  "trial": "W22-hk-ce-review-c1-1",
+  "scenario": "W22",
+  "config": "hk-ce-review",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスクに「保留」ステータスを追加\n\n対象: 作業ツリーの未コミット差分（`git diff HEAD`）。変更は `src/lib/tasks.ts` と `tests/tasks.test.ts` の 2 ファイル。\n\n## 結論\n\n**Not ready（マージ前に修正が必要）**\n\n「保留」（`on_hold`）は検証を通過しますが、DB の CHECK 制約で拒否されるため、作成・更新で保存できません。PR の「API で保留を選べる」は実際には動きません。\n\n## 指摘\n\n### 1. `on_hold` を保存すると DB の CHECK 制約で失敗する\n\n- **場所**: `src/lib/db/migrations.ts` 21 行目（マイグレーション v1 の `tasks.status` 定義）、および `src/lib/tasks.ts` の `createTask`（105 行目）・`updateTask`（114 行目）\n- **何が問題か**: スキーマが `CHECK (status IN ('todo', 'in_progress', 'done'))` のままです。`validateTaskInput` は `on_hold` を通すため、`POST /api/tasks` や `PATCH /api/tasks/:id` は検証を通過した後に INSERT／UPDATE で例外になり、API は 500 を返します（`createTask` と `updateTask` には try/catch が無い）。`openDb()` で作ったインメモリ DB に対し `createTask({ status: \"on_hold\", ... })` や `updateTask(id, { status: \"on_hold\" })` を実行すると、`CHECK constraint failed: status IN ('todo', 'in_progress', 'done')` が出ることを一時テストで確認しました（リポジトリには残していません）。その結果、保留のタスクを 1 件も作れず、既存タスクを保留に変えることもできず、一覧の「保留」での絞り込みは常に 0 件になります。\n- **直し方**: 既存のマイグレーションは書き換えず（CLAUDE.md の規約 7）、`src/lib/db/migrations.ts` の末尾に `version: 3` を追加します。SQLite は CHECK 制約を ALTER できないため、`tasks_new` を新しい CHECK（`'on_hold'` を含む）で作成し、データを移してから `tasks` を置き換えます（`tasks` を外部キーで参照するテーブルは無いので、手順は単純です）。あわせて、3 つのステータスすべてを保存・取得できることを確認するテストを追加します（指摘 2 を参照）。\n- **重要度**: 高\n\n### 2. 追加したテストでは保存の不具合を検出できない\n\n- **場所**: `tests/tasks.test.ts` の `it(\"accepts the on_hold status\")`（73 行目付近）\n- **何が問題か**: このテストは `validateTaskInput` の戻り値だけを確認します。指摘 1 のとおり、検証は通っても保存で失敗するため、テストは通ってしまいます。「検証結果」に書かれた確認は、実際の動作を示していません。\n- **直し方**: `openDb()` の DB で `createTask` と `updateTask` に `on_hold` を渡し、戻り値の `status` が `on_hold` であり、`getTask` で読み直しても同じ値になることを確認するテストを追加します。指摘 1 の修正前に実行すると失敗する形にしておくと、回帰を防げます。\n- **重要度**: 中\n\n## 確認した範囲と限界\n\n- **レビューの深さ**: 差分は小さく（実行コードの変更は `tasks.ts` の 3 行前後）、認証・金銭・外部公開 API の境界にも当たらないため、軽量レビュー（この文脈での単独読解）としました。独立したレビュー担当（adversarial）は、この変更に具体的な重大な被害の経路が無いため起動していません。\n- **スコープ判定スクリプト**（`review-scope.py`）は実行許可が下りなかったため動かしていません。行数と分類は差分から手で数えました。`stages.jsonl` とスコープ判定の機械的な出力は残っていません。\n- **プラン・要件**: 指定された plan ファイルは無く、PR 本文を要件源として照合しました。要件の欠落は見つかりませんでした（指摘 1 は要件（保留を保存できること）を満たしていない点です）。\n- **Compound Pack**: `.compound-engineering/config.yaml` が無いため、Pack の規則は適用していません。\n- **CLAUDE.md の規約チェック**: 規約 1（データ処理は `src/lib/` に置く）、3（画面の文言は日本語。「保留」）、4（新しいライブラリなし）、5（テストを追加）は満たしています。規約 7（マイグレーション）は指摘 1 の修正で守る必要があります。\n- **未実施**: `npm run typecheck`・`npm test`・`npm run build` は、このレビューの中では実行していません。指摘 1 の再現は一時テストで確認しました。\n",
+  "review_chars": 2429,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0452,
+    "tokens": {
+      "input": 62,
+      "output": 16260,
+      "cache_read": 2152713,
+      "cache_creation": 77760
+    },
+    "turns": 34,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && echo \\\"---\\\" && git rev-parse --show-toplevel && git log --oneline -3 && echo \\\"--- stat\\\" && git diff --stat HEAD && echo \\\"--- untracked\\\" && git ls-files --others"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SCRATCH_ROOT=\\\"/tmp/compound-engineering-$(id -u)\\\"; [ ! -L \\\"$SCRATCH_ROOT\\\" ] && (umask 077; mkdir -p \\\"$SCRATCH_ROOT\\\") 2>/dev/null && [ ! -L \\\"$SCRATCH_ROOT\\\" ] && [ -O \\\"$SCRATCH_ROO"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SCRATCH_ROOT=\\\"/tmp/compound-engineering-$(id -u)\\\"; mkdir -p \\\"$SCRATCH_ROOT\\\" && chmod 700 \\\"$SCRATCH_ROOT\\\" && RUN_ID=$(date +%Y%m%d-%H%M%S)-$(head -c4 /dev/urandom | od -An -tx1 | tr "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/compound-engineering-review-run && chmod 700 /tmp/compound-engineering-review-run && ls -ld /tmp/compound-engineering-review-run\", \"description\": \"Create a private run direc"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-hk-ce-review-c1-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base 216716152ced8a00a39b2c412cff3d160670854c --docs-root docs\","
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/poc-trials/W22-hk-ce-review-c1-1/repro-on-hold.test.ts <<'EOF'\\nimport { it } from \\\"node:test\\\";\\nimport assert from \\\"node:assert/strict\\\";\\nimport { openDb } from \\\"/tmp/poc"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git branch --show-current && ls REVIEW.md 2>&1; git config user.name; git config user.email\", \"description\": \"Check branch, existing REVIEW.md and git identity\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'Add code review notes for on_hold status\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.ai/c"
+      }
+    ],
+    "tool_calls": {
+      "Read": 6,
+      "Bash": 20,
+      "Write": 4,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 91,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "REVIEW.md を、依頼の形式（場所・何が問題か・直し方・重要度）に合わせて書き直し、REVIEW.md だけを `953053b` としてコミットしました。コードは変更していません。\n\n- **指摘 1（重要度: 高）**: `on_hold` を保存すると DB の CHECK 制約で失敗する。直し方は、v1 を書き換えず v3 のマイグレーションで `tasks` テーブルを作り直すことです。\n- **指摘 2（重要度: 中）**: 追加したテストは検証関数しか見ていないため、保存の不具合を検出できない。直し方は、`createTask`・`updateTask` を実 DB で呼ぶテストを足すことです。\n\n新しい指摘は足していません。既存の指摘は削っていません。「確認した範囲と限界」の節はそのまま残しています。書き直しで変えたのは形式だけで、中身は変えていません。前回のコミット `d0f5af1` に続く新しいコミットなので、履歴は 2 件になっています。"
+  },
+  "interventions": 0
+}

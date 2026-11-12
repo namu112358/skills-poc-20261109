@@ -1,0 +1,56 @@
+{
+  "trial": "W22-hk-baseline-c7-1",
+  "scenario": "W22",
+  "config": "hk-baseline",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# コードレビュー: 担当者変更の監査ログ（未コミット差分）\n\n対象: `git diff HEAD`（`src/lib/notify/{events,index,notifier}.ts`、`src/lib/tasks.ts`、`tests/notify.test.ts`）\n\n確認方法: 差分とその周辺（`updateTask`、`PATCH /api/tasks/:id` の route、既存テスト）を読み、`npm test` を実行した（21 件すべて通過）。指摘 1 は読んでの判断で、実行による再現はしていない（実行の許可が下りなかった）。\n\n---\n\n## 指摘\n\n### 1. 送り先が Slack / メールに設定されると、担当者の変更が 500 になり、DB の更新は残る\n\n- **場所**: `src/lib/tasks.ts` `updateTask`（110 行目、`eventBus.emit` は 122 行目）、`src/lib/notify/index.ts` 9 行目（購読者）、`src/lib/notify/notifier.ts` `SlackNotifier.send`（24 行目）と `EmailNotifier.send`（31 行目）、`src/app/api/tasks/[id]/route.ts` `PATCH`（16 行目）\n- **何が問題か**: `updateTask` は `UPDATE` を実行したあと、同期的に `emit` する。購読者は `notifier.send` を呼ぶが、`SlackNotifier.send` と `EmailNotifier.send` は必ず `throw` する。`emit` と `updateTask` には `try/catch` が無く、トランザクションも張っていないので、例外は `updateTask` の外に出る。`PATCH` route にも `try/catch` は無い。\n  - 結果: 環境変数 `NOTIFIER_KIND=slack` か `email` のとき、担当者を変えるすべての `PATCH` が 500 になる。しかし DB の担当者は既に書き換わっている。クライアントは失敗と判断して再試行し、画面と実際の状態がずれる。\n  - 同じ問題は、購読者が例外を投げる将来のどの送り先にも起きる。\n- **直し方**:\n  - 通知の失敗で業務の更新を失敗させない。`emit` の中で購読者ごとに `try/catch` し、失敗はログに出す。または `updateTask` の `emit` 部分を `try/catch` で囲む。\n  - 今回の合意は「サーバーのログだけ」なので、未実装の Slack / メールの送り先（`SlackNotifier`、`EmailNotifier`、`NOTIFIER_KIND` による切り替え）は削除するのが最も単純。削除すれば、この設定で例外が出る経路自体が無くなる（指摘 3 も同時に解消する）。\n- **重要度**: 高\n\n### 2. 担当者変更の経路に単体テストが無い\n\n- **場所**: `tests/notify.test.ts`（6 行目以降の `eventBus` テスト、17 行目以降の `NotifierFactory` テスト）、`tests/tasks.test.ts`（`updateTask` のテストは担当者変更を確かめていない）\n- **何が問題か**: 追加されたテストは、バスの購読・解除と、ファクトリが送り先を選ぶことだけを確かめている。次の点は確かめられていない。\n  - 担当者が変わったとき `updateTask` が `task.assignee_changed` を発行し、`[audit] task <ID>: assignee <前> -> <後> at <日時>` の行が出ること\n  - 担当者が変わらない更新（`status` だけの更新など）では、この行が出ないこと\n  - 指摘 1 の失敗時に、DB の更新が残り、例外が外に出ないこと\n  - `CLAUDE.md` の規約 5（ロジックを変えたら `tests/` に単体テストを追加する）を満たしていない。\n- **直し方**: `openDb()` で独立した DB を作り、`console.log` を一時的に差し替えて（または購読者を登録して）、`updateTask` を呼んだときの発行内容を確かめるテストを `tests/` に追加する。担当者を変えない更新の場合も確かめる。\n- **重要度**: 中\n\n### 3. 依頼の範囲を超えた抽象化（規約 6 違反）\n\n- **場所**: `src/lib/notify/notifier.ts`（4 行目 `Notifier`、9 行目 `NotifierKind`、18 行目 `SlackNotifier`、29 行目 `EmailNotifier`、36 行目 `NotifierFactory`）、`src/lib/notify/index.ts`、`src/lib/notify/events.ts`（4〜5 行目の `task.status_changed` / `task.created` の型）\n- **何が問題か**: PR の合意は「当面サーバーのログだけでよい。ほかの記録先の予定は今のところ無い」。それなのに、送り先を切り替えるファクトリ、未実装の Slack / メールのスタブ、環境変数 `NOTIFIER_KIND`、使われていないイベント種別（`task.status_changed`、`task.created`）が入っている。CLAUDE.md の規約 6 は「変更は依頼された範囲にとどめる」と定めている。使われていない分岐は、指摘 1 のような実害も生む。\n- **直し方**: `updateTask` で担当者が変わったときに、ログの行を直接出す（例: `console.log` を 1 か所に置く小さな関数）。イベントバス、ファクトリ、スタブ、未使用のイベント型は削除する。将来必要になった時点で足す。\n- **重要度**: 中\n\n### 4. 監査ログに「誰が変えたか」が無い\n\n- **場所**: `src/app/api/tasks/[id]/route.ts` `PATCH`（16 行目。操作者は 17 行目で取得し、23 行目の `updateTask` に渡していない）、`src/lib/tasks.ts` `updateTask`（110 行目）、`src/lib/notify/index.ts`（9 行目）\n- **何が問題か**: ログには `from` と `to`（担当者の ID）と日時しか出ない。`PATCH` は `requireApiUser()` で操作者を得ているが、`updateTask` に渡していないので、ログに残らない。監査の依頼が「いつ誰から誰に変わったか」であれば、「誰から誰に」は担当者の変更を指すと読めるが、一般的な監査では操作者を追えることが多い。\n- **直し方**: 監査の担当に、「誰から誰に」が担当者の変更の意味か、操作者も必要かを確認する。必要なら、`updateTask` に操作者を渡し、イベントとログの行に含める。\n- **重要度**: 中\n\n### 5. 購読者の登録が import の副作用になっている\n\n- **場所**: `src/lib/notify/index.ts`（9 行目で `eventBus.subscribe`、モジュール読み込み時に実行）、`src/lib/notify/events.ts` `EventBus.clear`（25 行目）\n- **何が問題か**: ログが出るかどうかは、`tasks.ts` が `notify/index.ts` を import しているかどうかに依存する。今は `tasks.ts` が import しているので動く。ただし、`eventBus.clear()` が呼ばれると購読が消えて、ログが黙って止まる。開発時のホットリロードで同じモジュールが再評価されると、購読が二重に登録され、同じ行が二度出る可能性もある（これは実行して確かめていない）。\n- **直し方**: 指摘 3 のとおり購読の仕組みを外せば、この問題は無くなる。残すなら、登録を明示的な初期化関数で行い、二重登録を防ぐ。\n- **重要度**: 低\n\n---\n\n## 問題が無いと判断した点\n\n- 担当者が変わらない更新では発行されない（`next.assignee !== current.assignee` で判定している）。\n- `from` と `to` の値は、`validateTaskInput` で `users` テーブルに存在する ID に限られるので、ログに任意の文字列は入らない。\n- バスの `unsubscribe` は、登録した同じ関数の参照で外している。既存のテスト（登録・解除）で確かめられている。\n",
+  "review_chars": 3849,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0248,
+    "tokens": {
+      "input": 34,
+      "output": 14336,
+      "cache_read": 860415,
+      "cache_creation": 45278
+    },
+    "turns": 19,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat \\\"src/app/api/tasks/[id]/route.ts\\\" && mkdir -p /tmp/claude-0/scratch-rev 2>/dev/null; S=/tmp/claude-0/-tmp-poc-trials-W22-hk-baseline-c7-1-app/bd419dac-3dac-4f62-96e2-bef85bcae339/sc"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat \\\"src/app/api/tasks/[id]/route.ts\\\"; S=/tmp/claude-0/-tmp-poc-trials-W22-hk-baseline-c7-1-app/bd419dac-3dac-4f62-96e2-bef85bcae339/scratchpad; mkdir -p \\\"$S\\\"; printf '%s\\\\n' 'import "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W22-hk-baseline-c7-1-app/bd419dac-3dac-4f62-96e2-bef85bcae339/scratchpad; cd /tmp/poc-trials/W22-hk-baseline-c7-1/app && echo \\\"--- default\\\"; node --exper"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"NOTIFIER_KIND=slack node --experimental-strip-types --no-warnings /tmp/claude-0/-tmp-poc-trials-W22-hk-baseline-c7-1-app/bd419dac-3dac-4f62-96e2-bef85bcae339/scratchpad/repro.ts\", \"descri"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"env NOTIFIER_KIND=slack node --experimental-strip-types --no-warnings /tmp/claude-0/-tmp-poc-trials-W22-hk-baseline-c7-1-app/bd419dac-3dac-4f62-96e2-bef85bcae339/scratchpad/repro.ts\", \"de"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Read": 1,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 77,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を依頼の形式（場所・何が問題か・直し方・重要度）に書き直し、`REVIEW.md` だけを `9c1ba0b` としてコミットしました。コードは変更していません。\n\n- 指摘は前回と同じ 5 件のままです。新しい指摘は足していません。削った指摘もありません。\n- 場所には行番号を入れました（例: `updateTask` の 110 行目、`emit` の 122 行目、`SlackNotifier.send` の 24 行目）。\n- 重要度は各指摘の末尾に付けました。高が 1 件（指摘 1）、中が 3 件（指摘 2・3・4）、低が 1 件（指摘 5）です。\n- 「問題が無いと判断した点」の節は指摘ではないので残しました。\n\n前回と同じく、指摘 1 は実行で再現しておらず、コードを読んでの判断です。\n\nファイルは [REVIEW.md](/tmp/poc-trials/W22-hk-baseline-c7-1/app/REVIEW.md) にあります。"
+  },
+  "interventions": 0
+}

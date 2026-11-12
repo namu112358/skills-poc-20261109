@@ -1,0 +1,40 @@
+{
+  "trial": "W21-ce-review-c5-2",
+  "scenario": "W21",
+  "config": "ce-review",
+  "case": "c5",
+  "rep": 2,
+  "review_md": "# コードレビュー: 担当者の項目名を `assigneeId` / `assignee_id` に揃える PR\n\n判定: **Not ready（マージ前に 2 件の修正が必要）**\n\n`npm test` は 19 件とも通りますが、下の高の 2 件は既存のテストでは検出されません。\n\n## 指摘\n\n### 1. [高] 一覧画面・一覧 API で担当者が空になる（`SELECT` の別名の直し忘れ）\n\n- 場所: `src/lib/tasks.ts` の `listTasks`（`assignee_id AS assignee` の行）\n- 問題: `listTasks` の SQL が `assignee_id AS assignee` で列を返しますが、`toTask` は `row.assignee_id` を読みます。そのため一覧の全タスクで `assigneeId` が `undefined` になります。\n  - 実際に `listTasks({}, openDb())[0]` を実行すると `assigneeId: undefined` でした。\n  - `/tasks` の担当者の列（`src/app/tasks/page.tsx` の `{task.assigneeId}`）が全行で空になります。\n  - `GET /api/tasks` の JSON では `assigneeId` が出力されません。\n  - `getTask` は `assignee_id` を正しく選んでいるので、詳細画面だけは正常です。\n  - `TaskRow` への型キャストで型エラーにならず、`listTasks` のテストも担当者を検証していないため、`typecheck` と `npm test` をすり抜けています。\n  - 「画面の表示は変えない」という PR の前提に反します。\n- 直し方: `AS assignee` を外し、`SELECT id, title, status, assignee_id, due_date FROM tasks ...` にします。あわせて、`tests/tasks.test.ts` の `listTasks` のテストに担当者の値の検証を足します（例: `listTasks({}, db)[0].assigneeId === \"sato\"`）。\n\n### 2. [高] API の入出力が変わっている（PR の説明の「API は変えない」と矛盾）\n\n- 場所: `src/lib/tasks.ts` の `Task` 型・`validateTaskInput`（`need(\"assigneeId\")` と `b.assigneeId`）。呼び出し側は `src/app/api/tasks/route.ts` と `src/app/api/tasks/[id]/route.ts`。\n- 問題: 内部の名前をそのまま API の JSON に出しているため、次のように契約が変わります。\n  - **レスポンス**: `GET/POST /api/tasks`、`GET/PATCH /api/tasks/:id` が返すタスクの `assignee` が `assigneeId` になります。\n  - **リクエスト**: `POST /api/tasks` と `PATCH /api/tasks/:id` の本文は `assigneeId` のみを受け付けます。従来の `{\"assignee\":\"sato\", ...}` は、POST では「担当者が存在しません」の 400 になります。PATCH では `assignee` が黙って無視され、200 が返るのに担当者が更新されません。\n  - 既存のクライアントや E2E テストが壊れます。PR の「画面の表示と API の入出力は変えません」という方針とも矛盾します。\n- 直し方: どちらかに決めて、PR の説明と合わせます。\n  - A（説明どおり変えない場合）: `validateTaskInput` が受け付ける本文のキーと、API が返す JSON のキーは `assignee` のままにします。内部の `Task.assigneeId` との変換は API 層か `src/lib/` に置きます。`assignee` の入力キーは検証対象に残します。\n  - B（API も改名する場合）: PR の説明を直し、互換性の扱い（移行期間、旧キーの受け付け）を決めます。\n  - どちらの場合も、`POST` / `PATCH` / `GET` の入出力のキー名を確認するテストを足します（規約 5）。\n\n### 3. [低] マイグレーション 3 の動作確認とテストが無い\n\n- 場所: `src/lib/db/migrations.ts` のバージョン 3（`RENAME COLUMN`）、`tests/db.test.ts`\n- 問題: 既存 DB（バージョン 2 の状態でデータが入ったもの）にマイグレーションを当てて、データ・インデックス（`tasks_assignee`）・外部キーが残ることを確認するテストがありません。PR の「データはそのまま」の根拠が、新規の `:memory:` DB でのテストだけになっています。`RENAME COLUMN` 自体は SQLite が正しく処理するため、現時点でバグは見つかっていません。\n- 直し方: 先頭の 2 つのマイグレーションだけを適用して行を入れ、全マイグレーションを適用したあとに、行が `assignee_id` で読めることを確認するテストを足します（規約 5）。あわせて、インデックス名 `tasks_assignee` が列名の変更後も残る点を許容するか決めます（支障はありません）。\n\n## 補足\n\n- 指摘 1・2 の根はどちらも「SQL・API の層と、内部の名前の層が混ざっている」ことです。名前の変換を `toTask` の 1 か所（DB 行から `Task` へ）と、API の入出力の 1 か所に集めると、再発を防げます。\n- 作業ツリー: 今回の差分に未追跡のファイルはありませんでした。\n\n## カバレッジ\n\n- 差分は 8 ファイル（アプリのコード 6、テスト 2）で、1 つの観点（正しさ）を、この場で通して確認しました。サブエージェントやクロスモデルの独立レビューは行っていません。この変更は規模が小さく、認証・金銭・DB 破壊の恐れのある箇所が見当たらないためです。API 契約の変更は指摘 2 として扱いました。\n- 確認したこと: `CLAUDE.md` の規約（クエリの検証、SQL のプレースホルダ、マイグレーションの追加方式、テストの追加）に照らして確認しました。SQL はすべてプレースホルダで書かれており、規約 7 と 8 には反していません。\n- 実行したこと: `npm test`（19 件成功）。`listTasks` の出力を、実際に実行して確認しました（指摘 1）。\n- `REVIEW.md` などのレビュー方針ファイルは、元のコミットに存在しませんでした。\n- 確認していないこと: 学習資産・エージェント向けの整合性・デプロイ手順の観点、ブラウザでの画面確認、`src/app/api/tasks/[id]/route.ts` の内容の通読（`validateTaskInput` と `updateTask` の挙動から推測した部分があります）。\n",
+  "review_chars": 3181,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4157,
+    "tokens": {
+      "input": 32,
+      "output": 6061,
+      "cache_read": 894650,
+      "cache_creation": 66394
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -rn -i \\\"assignee\\\" --exclude-dir=node_modules --exclude-dir=.next . | grep -v \\\"^./tests/\\\\(tasks\\\\|db\\\\).test\\\" | grep -v \\\"^./src/lib/tasks.ts\\\" | grep -v seed.ts; sed -n 1,30p sr"
+      }
+    ],
+    "tool_calls": {
+      "Read": 4,
+      "Bash": 8,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 64,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しい作業はありませんでした。`REVIEW.md` には直前のレビューの指摘 3 件がすでに書かれていて、コミット済み（67e0e64）です。\n\n各指摘は、重要度・場所・何が問題か・直し方の順で書いてあります。指摘は足しても削ってもいません。`REVIEW.md` に未コミットの変更はなく、書き写し直す必要もありませんでした。\n\n- 指摘 1 [高]: 一覧画面と一覧 API で担当者が空になる（`listTasks` の SQL の別名）\n- 指摘 2 [高]: API の入出力が変わっていて、説明の「API は変えない」と矛盾する\n- 指摘 3 [低]: マイグレーション 3 を既存データで確認するテストがない\n\nコードは直していません。元の PR の変更は未コミットのままです。"
+  },
+  "interventions": 0
+}

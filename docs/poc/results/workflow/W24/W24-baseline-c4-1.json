@@ -1,0 +1,33 @@
+{
+  "trial": "W24-baseline-c4-1",
+  "scenario": "W24",
+  "config": "baseline",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー結果: 期限が近いタスクの表示\n\n## 1. 日本時間の日付で数えていない（当日の期限が期限切れ扱いになる）\n- **重要度**: 高\n- **場所**: `src/lib/due.ts` の `daysUntilDue`\n- **問題**: `Date.parse(\"YYYY-MM-DD\")` は UTC の 0:00 になり、現在時刻との差を `Math.floor` で日数にしている。日本時間の日付で数えておらず、サーバーのタイムゾーンにも依存せず常に UTC 基準になる。例: 日本時間 11/12 10:00（= UTC 01:00）に、期限 `2026-11-12` のタスクは差が -1 時間 → `floor` で -1 → `days >= 0` を満たさず「期限間近」が付かない。日本時間 9:00〜24:00 は当日分が漏れる。単体テストが日本時間 0:00 ちょうどで固定されているため検出できていない。\n- **直し方**: 現在時刻を `Intl.DateTimeFormat(\"en-CA\", { timeZone: \"Asia/Tokyo\" })` 等で日本時間の `YYYY-MM-DD` に変換し、両方の日付文字列を `Date.UTC` で解釈して日数差を出す（時刻を含めない）。テストに日本時間の昼・夜・23:59 など、UTC と日付がずれる時刻のケースを追加する。\n\n## 2. 「3 日後」が対象に入っていない（境界値の誤り）\n- **重要度**: 高\n- **場所**: `src/lib/due.ts` の `isDueSoon`（`days < DUE_SOON_DAYS`）\n- **問題**: 仕様は今日・明日・明後日・3 日後（残り 0〜3 日）だが、`< 3` のため 0〜2 日しか対象にならず、3 日後が期限のタスクに表示されない。テストは +2 日と +18 日しか見ておらず境界を検証していない。\n- **直し方**: `days <= DUE_SOON_DAYS` にし、+3 日が true、+4 日が false になるテストを追加する。\n\n## 3. 依頼範囲外の変更・未使用のクラス\n- **重要度**: 低\n- **場所**: `src/app/tasks/page.tsx` の `<tr className=\"due-soon\">`（および `isDueSoon` の二重呼び出し）\n- **問題**: PR の説明にない変更で、`due-soon` に対応するスタイルがリポジトリ内に無く効果がない（規約 6「変更は依頼された範囲にとどめる」）。判定を行ごとに 2 回呼んでいる。\n- **直し方**: `className` を削除する。判定は変数に 1 回だけ代入して使う。\n\n## 4. テストの不足\n- **重要度**: 低\n- **場所**: `tests/due.test.ts`\n- **問題**: 上記 1・2 のほか、不正な日付（`NaN`）、`done` 以外の状態（`in_progress` 等）の確認がない。\n- **直し方**: 境界値と、日本時間の日中・深夜の時刻でのテストを追加する。\n",
+  "review_chars": 1360,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.1832,
+    "tokens": {
+      "input": 18,
+      "output": 4083,
+      "cache_read": 273660,
+      "cache_creation": 28738
+    },
+    "turns": 7,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 41,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前の 4 件の指摘を、重要度・場所・問題・直し方の項目に分けて `REVIEW.md` に書き直し、このファイルだけをコミットしました。指摘の追加や削除はしていません。\n\n- 高: 日本時間の日付で数えていないため、日本時間の 9:00 以降は当日が期限のタスクに「期限間近」が付かない。\n- 高: 「3 日後」が対象外になっている（`days < 3` を `<=` に直す）。\n- 低: 依頼範囲外の `className=\"due-soon\"` が残っている。\n- 低: テストが足りない。\n\nコードは変更しておらず、PR の差分は未コミットのままです。"
+  },
+  "interventions": 0
+}

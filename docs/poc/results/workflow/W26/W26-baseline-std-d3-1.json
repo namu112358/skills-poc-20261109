@@ -1,0 +1,39 @@
+{
+  "trial": "W26-baseline-std-d3-1",
+  "scenario": "W26",
+  "config": "baseline-std",
+  "case": "d3",
+  "rep": 1,
+  "review_md": "# レビュー: ダッシュボードとタスクのコメント\n\n疑わしい箇所は、作業用コピーの外の一時スクリプトで実際に関数を呼んで確認した（「確認済み」と書いたもの）。\n\n## 高\n\n### 1. ダッシュボードのキャッシュが全ユーザーで共有される（情報漏えい）\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）\n- 問題: キャッシュキーが固定の `\"dashboard\"` で、`userId` を含まない。30 秒以内に別のユーザーがアクセスすると、先にアクセスした人のタスク一覧・件数・完了率が返る。`/dashboard` と `GET /api/dashboard` の両方で起きる。\n- 確認済み: `buildDashboard(\"sato\")` の直後に `buildDashboard(\"suzuki\")` を呼ぶと、どちらも `userId: \"sato\"` が返った。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。キーは `now` の日付（週・期限切れ判定が日をまたぐため）も考慮する。現在は TTL 内なら `db` が違っても同じ値を返す点も、テストでは `clearCache()` に頼っている。コメントを追加・タスクを更新した時にも古い値が出るので、キャッシュ自体が本当に必要かも検討する（PoC なら外すのが安全）。\n\n### 2. SQL インジェクション\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`\n- 問題: `` WHERE assignee = '${userId}' `` と文字列連結している（規約 8 違反）。`userId` は現状セッション由来だが、関数の引数としては任意の文字列を受け付ける。\n- 確認済み: `listAssignedTasks(\"x' OR '1'='1\")` が全ユーザーのタスク 7 件を返した。\n- 直し方: `WHERE assignee = ?` にして `.all(userId)` で渡す。\n\n### 3. コメント本文の XSS\n- 場所: `src/lib/comments.ts` `renderBody`、利用側 `src/app/tasks/[id]/page.tsx`（`dangerouslySetInnerHTML`）\n- 問題: HTML のエスケープ後に `[文字](URL)` を `<a href>` に変換しているが、URL のスキームを検証していない。`[クリック](javascript:alert(document.cookie))` のようなコメントを投稿すると、閲覧者がクリックした時にスクリプトが動く（`data:` なども同様）。\n- 確認済み: `renderBody(\"[x](javascript:alert(1))\")` が `<a href=\"javascript:alert(1\" ...>` を出力した。\n- 直し方: URL が `https?://` で始まる場合だけリンクにし、それ以外は文字列のまま出す。できれば `dangerouslySetInnerHTML` をやめ、React 要素（`<br />` と `<a>`）で組み立てる。\n\n### 4. 他人のコメントを編集できる（認可漏れ）\n- 場所: `src/app/api/comments/[commentId]/route.ts` `PATCH`\n- 問題: `DELETE` には作成者チェックがあるが `PATCH` には無い。ログインしていれば誰でも他人のコメントを書き換えられる。\n- 直し方: `comment.authorId !== user.id` の場合は 403 を返す（`DELETE` と同じ）。テストも追加する。\n\n## 中\n\n### 5. 日曜日に「今週」が翌週になる\n- 場所: `src/lib/week.ts` `weekRange`\n- 問題: `getUTCDay()` が日曜で 0 になるため `start = today + 1` となり、日曜日は「翌月曜〜翌日曜」を返す。日曜日に、その日が期限のタスクが「今週が期限」から消える。\n- 確認済み: 2026-11-15（日）の `weekRange` が `2026-11-16〜2026-11-22` だった（正しくは 11-09〜11-15）。\n- 直し方: `const offset = dow === 0 ? -6 : 1 - dow;`。日曜日のテストを追加する（今のテストは水曜のみ）。\n\n### 6. `countByStatus` が共有の `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` `countByStatus`\n- 問題: `TASK_STATUSES as TaskStatus[]` で型を外して `.reverse()` しているので、定数そのものが逆順になる。呼ぶたびに反転し、`/dashboard` を開くたびに表示順が「完了が先頭」と「未着手が先頭」で入れ替わる。`isTaskStatus` や他の画面での並びも変わる。\n- 確認済み: 続けて 2 回呼ぶと `[done, in_progress, todo]`、`[todo, in_progress, done]` と順が変わった。テストは 1 回目しか見ていないので通ってしまう。\n- 直し方: `[...TASK_STATUSES].reverse()`（`toReversed()` でも可）。2 回呼んで同じ結果になるテストを加える。\n\n### 7. 担当タスクが 0 件のとき完了率が `NaN`\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 問題: 0 / 0 で `NaN` になり、画面に「完了率 NaN%」と出る。API の JSON では `null` になる。\n- 確認済み: `completionRate([])` が `NaN`。\n- 直し方: `tasks.length === 0` のとき 0 を返す。テストを追加する。\n\n### 8. コメント追加 API でタスクの存在確認をしていない（500 になる）\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` `POST`\n- 問題: `GET` は `getTask` で確認するが `POST` は確認しない。存在しないタスク ID だと外部キー制約違反で例外になり、規約 9 の 404 ではなく 500 になる。\n- 確認済み: `addComment(9999, ...)` が `FOREIGN KEY constraint failed` を投げた。\n- 直し方: `!getTask(id)` なら 404 を返す。\n\n### 9. コメントの作成日時が文字列で保存され、並び順が狂う\n- 場所: `src/lib/comments.ts` `formatCreatedAt` と `listComments`（`ORDER BY created_at, id`）\n- 問題: 表示用の `2026/11/9 19:00:00` 形式をそのまま保存し、その文字列で並べている。ゼロ埋めされないので、日付や時刻が 1 桁か 2 桁かで順序が逆転する。\n- 確認済み: 11/9 のコメントと 11/10 のコメントを入れると、`2026/11/10 ...` が先に並んだ。\n- 直し方: 保存は ISO 8601（`toISOString()`）にして、表示時に日本時間へ整形する。または `ORDER BY id` にする。保存形式を変えるので既存データの扱いも確認する（このマイグレーションは未リリースなら番号 3 のまま直せる）。\n\n## 低\n\n### 10. 「今週が期限」に期限切れのタスクが重複して出る\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`\n- 問題: 今週の月曜〜今日までに期限が来た未完了タスクは、「期限切れ」と「今週が期限」の両方に載る。意図通りかが不明（テストはこの重複を前提にしている）。\n- 直し方: 重複させたくないなら `t.dueDate >= today` にする。仕様として残すなら画面かコメントで明記する。\n\n### 11. コメントの更新・削除 API の位置づけと検証\n- 場所: `src/app/api/comments/[commentId]/route.ts`\n- 問題: コメント ID の解析に `parseTaskId` を使い回している（名前が紛らわしい）。`DELETE` の 403 は規約 9 に無いが妥当。\n- 直し方: `parseCommentId` を用意するか、汎用名にする。\n\n### 12. テストが不足している\n- 場所: `tests/comments.test.ts`, `tests/dashboard.test.ts`\n- 問題: 上の不具合（キャッシュのユーザー混在、日曜日、空の完了率、`countByStatus` の 2 回呼び出し、`javascript:` リンク、コメントの並び順、他人のコメント編集）を検出するテストが無く、「テストが通る」ことが品質の裏付けになっていない。API Route のテストも無い。\n- 直し方: 各指摘の修正と一緒に回帰テストを足す。\n",
+  "review_chars": 4090,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2717,
+    "tokens": {
+      "input": 22,
+      "output": 7157,
+      "cache_read": 417800,
+      "cache_creation": 39570
+    },
+    "turns": 11,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat src/lib/tasks.ts | head -30; grep -n \\\"foreign\\\" -ri src/lib/db/index.ts; S=/tmp/claude-0/-tmp-poc-trials-W26-baseline-std-d3-1-app/f476ecbd-ff25-4826-af32-7a6956a3df7e/scratchpad; ca"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 63,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しくコミットするものはありませんでした。`REVIEW.md` には、直前のレビューの 12 件がすべて、場所・何が問題か・直し方・重要度の形式で書かれています。内容もコミット `3cbd5d0` に入っていて、未コミットの変更はありません。\n\n指摘を足したり削ったりもしていません。コードも直していません。"
+  },
+  "interventions": 0
+}

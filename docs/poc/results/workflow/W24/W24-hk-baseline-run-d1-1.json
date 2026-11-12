@@ -1,0 +1,53 @@
+{
+  "trial": "W24-hk-baseline-run-d1-1",
+  "scenario": "W24",
+  "config": "hk-baseline-run",
+  "case": "d1",
+  "rep": 1,
+  "review_md": "# コードレビュー: ダッシュボード追加（`/dashboard`・`GET /api/dashboard`）\n\n対象: 未コミットの差分（`src/lib/dashboard.ts`・`src/lib/week.ts`・`src/lib/cache.ts`・`src/app/dashboard/page.tsx`・`src/app/api/dashboard/route.ts`・`tests/dashboard.test.ts`）。\n\n再現方法: 作業用コピーの外（スクラッチパッド）に置いた `repro.ts` / `repro2.ts` で、`src/lib` の関数を `node --experimental-strip-types` から直接呼んで確認した。`npm test` は 27 件すべて通る。下記の「何が問題か」の再現結果はすべて実行して確かめたもの。\n\n---\n\n## 指摘一覧\n\n### 1. キャッシュが利用者をまたいで共有され、別の人のダッシュボードが表示される\n\n- **場所**: `src/lib/dashboard.ts` の `buildDashboard()`（`cached(\"dashboard\", ...)`）、`src/lib/cache.ts` の `cached()`\n- **何が問題か**: キャッシュのキーが `\"dashboard\"` の固定値で、`userId` が含まれていない。30 秒以内に別の人が同じ関数を呼ぶと、前の人の結果がそのまま返る。ダッシュボードには担当タスクのタイトル・期限・リンクが含まれるので、他人のタスク情報が見えてしまう。\n  - 再現（実行結果）:\n    ```\n    buildDashboard(\"sato\", db, now)    → userId: \"sato\"\n    buildDashboard(\"suzuki\", db, now)  → userId: \"sato\"   ← suzuki が sato の結果を受け取る\n    ```\n  - 同じ 30 秒以内に佐藤さんがログインし、鈴木さんが `/dashboard` を開くと、鈴木さんの画面に佐藤さんのタスク一覧が出る。\n- **直し方**: キーに利用者を含める（例: `cached(\\`dashboard:${userId}\\`, ...)`）。あわせて、テストで `openDb()` を分けたときにも結果が混ざらない構造にする。キャッシュを使わないという選択も十分ありえる（PoC の規模では DB 読み込みは 1 回で済む）。その場合は `cache.ts` ごと削除する。テストは「別の利用者の結果が返らないこと」を検証するものを `tests/dashboard.test.ts` に加える。\n- **重要度**: 高\n\n### 2. 日曜日に実行すると、「今週が期限」が 1 週間先の範囲になる\n\n- **場所**: `src/lib/week.ts` の `weekRange()`（`addDays(today, 1 - dow)`）\n- **何が問題か**: `getUTCDay()` は日曜を 0 とするので、日曜（dow = 0）のとき `start = today + 1`（翌月曜）になる。日曜の画面では、今週（月〜日）のタスクではなく来週（翌月〜翌日曜）の期限が「今週が期限」として出る。日曜に今週の期限のタスクは一覧から消える。\n  - 再現（実行結果）:\n    ```\n    今日 2026-11-15（日） → {\"start\":\"2026-11-16\",\"end\":\"2026-11-22\"}   ← 正しくは 11-09〜11-15\n    日曜 11-15 の dueThisWeek（期限 11-09 と 11-15 のタスク）→ []        ← 両方含まれるべき\n    ```\n  - 月曜（11-09）・水曜（11-11）・翌月曜（11-16）は正しい。\n- **直し方**: 月曜はじまりの曜日を次のように求める: `const dow = (new Date(\\`${today}T00:00:00Z\\`).getUTCDay() + 6) % 7;`（月=0 … 日=6）。`start = addDays(today, -dow)`、`end = addDays(start, 6)` とする。テストは日曜（11-15）・月曜（11-09）・土曜（11-14）の `weekRange()` を検証する。現在のテストは水曜 1 日だけなので、このバグを検出できていない。\n- **重要度**: 高\n\n### 3. `countByStatus()` が共有の定数 `TASK_STATUSES` を書き換える\n\n- **場所**: `src/lib/dashboard.ts` の `countByStatus()`（`order.reverse()`）\n- **何が問題か**: `TASK_STATUSES` は `tasks.ts` の共有配列。`reverse()` は配列をその場で並べ替えるので、呼ぶたびに順序が反転し、`TASK_STATUSES` 自体も変わる。TypeScript の `readonly` は実行時には効かない（`as TaskStatus[]` でキャストしている）。結果として、ダッシュボードの表示順が毎回入れ替わり、他の箇所で `TASK_STATUSES` を使うとその順序に影響する。\n  - 再現（実行結果）:\n    ```\n    call#1 order: [\"done\",\"in_progress\",\"todo\"]\n    call#2 order: [\"todo\",\"in_progress\",\"done\"]     ← 2 回目で反転\n    ```\n- **直し方**: コピーしてから並べ替える（`[...TASK_STATUSES].reverse()`）。または並びを明示的に書く（`const DISPLAY_ORDER: TaskStatus[] = [\"done\", \"in_progress\", \"todo\"]`）。後者のほうが意図が読み取りやすい。テストは同じ入力で 2 回呼んでも順序が同じであること、`TASK_STATUSES` が変わらないことを確かめる。\n- **重要度**: 中\n\n### 4. 担当タスクが 0 件のとき、完了率が `NaN` になり、画面に「完了率 NaN%」と出る\n\n- **場所**: `src/lib/dashboard.ts` の `completionRate()`（`Math.round((done / tasks.length) * 100)`）\n- **何が問題か**: `tasks.length === 0` のとき `0 / 0` で `NaN` になる。API では JSON に `null` と出て、画面では「完了率 NaN%」と表示される。新しく担当になった人が最初に見る画面で、必ず壊れた表示になる。\n  - 再現（実行結果）: `completionRate([])` → `NaN`（JSON 化すると `null`）。\n- **直し方**: 件数が 0 のときは 0 を返す（`if (tasks.length === 0) return 0;`）。または `null` にして、画面では「—」を出す。どちらにしても、テストを 1 件追加する。\n- **重要度**: 中\n\n### 5. SQL に利用者 ID を文字列連結で埋め込んでいる（CLAUDE.md 規約 8 違反）\n\n- **場所**: `src/lib/dashboard.ts` の `listAssignedTasks()`（`WHERE assignee = '${userId}'`）\n- **何が問題か**: 規約 8「SQL に値を埋め込むときは必ずプレースホルダを使い、文字列連結で組み立てない」に違反している。今の入力元はログイン中の `user.id`（DB の `users` 表の値）なので、直ちに外部から攻撃できる経路は見当たらない。ただし、引用符を含む ID が 1 つでも入ると、クエリが壊れるか、全件が返る。\n  - 再現（実行結果）:\n    ```\n    listAssignedTasks(\"x' OR '1'='1\")  → 7 件（全タスク数 7）   ← 全員分のタスクが返る\n    listAssignedTasks(\"x'\")            → 例外 \"unrecognized token\"\n    ```\n  - （`x' OR '1'='1` という ID を `users` 表に登録した上で確かめた。）\n- **直し方**: `WHERE assignee = ?` に変え、`.all(userId)` で値を渡す。テストは引用符を含む ID を渡しても、他人のタスクが混ざらないことを確かめる。\n- **重要度**: 中\n\n### 6. テストが、今回見つかったバグを検出できていない\n\n- **場所**: `tests/dashboard.test.ts`\n- **何が問題か**: 週の範囲のテストは水曜日 1 日だけ。日曜の場合・キャッシュの利用者ごとの分離・件数 0 の完了率・並び順を繰り返し呼んだときの安定性はいずれもテストされていない。そのため、指摘 1〜4 の不具合が `npm test` の全件成功のまま残る。\n- **直し方**: 上記の各指摘に対応するテストを加える（指摘 1〜4 はそれぞれ 1 件ずつのテストで検出できる）。\n- **重要度**: 低\n\n---\n\n## 問題がないと確認した点\n\n- 期限切れ（`dueDate < today` かつ未完了）・今週（月〜日、`>=` と `<=`）の比較は、`YYYY-MM-DD` の文字列比較で正しい。\n- `todayJst()` は `Asia/Tokyo` で日付を求めており、UTC 16:00（JST 深夜 1 時）の入力で正しい日付になることを新しいテストで確かめている。\n- ルートは最初に `requireApiUser()` を呼んでおり、未ログインは 401 になる（規約 9）。\n- ページは `requireUser()` で保護されている。\n- `npm test`（27 件、新規テストを含む）は全部通る。ただし、テストが通ることは指摘 1〜5 の不具合がないことを意味しない（指摘 6 参照）。\n",
+  "review_chars": 4478,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0341,
+    "tokens": {
+      "input": 36,
+      "output": 22580,
+      "cache_read": 1056069,
+      "cache_creation": 61075
+    },
+    "turns": 25,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-d1-1-app/b834b5f6-60fa-43f4-b813-2c4d3460d067/scratchpad/repro && cat > /tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-d1-1-a"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-d1-1-app/b834b5f6-60fa-43f4-b813-2c4d3460d067/scratchpad/repro && cat > $S/repro2.ts <<'EOF'\\nconst APP = \\\"/tmp/poc-trials/W24-hk-base"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -o REVIEW.md -m \\\"$(printf 'docs: ダッシュボードのコードレビュー結果を追加\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.ai/co"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -o REVIEW.md -F /tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-d1-1-app/b834b5f6-60fa-43f4-b813-2c4d3460d067/scratchpad/repro/msg.txt; echo exit=$?\", \"d"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Write": 6,
+      "Edit": 3,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 103,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を最初の依頼の形式に書き直し、そのファイルだけをコミットしました（コミット `c9895d8`）。コードは変更していません。\n\n各指摘には「場所」「何が問題か」「直し方」「重要度」を付けました。指摘は前回の 6 件のままで、増やしも削りもしていません。\n\n- 1（高）: キャッシュが利用者をまたいで共有される\n- 2（高）: 日曜日に「今週が期限」が 1 週間先の範囲になる\n- 3（中）: `countByStatus()` が共有の `TASK_STATUSES` を書き換える\n- 4（中）: 担当タスクが 0 件のとき完了率が `NaN` になる\n- 5（中）: SQL に利用者 ID を文字列連結している（規約 8 違反）\n- 6（低）: テストが上の不具合を検出できていない\n\n書き直しの際に一箇所だけ文言を変えました。指摘 6 で「1〜4 は 1 件ずつのテストで検出できた」としていたのを「検出できる」に直しています。私は実際にそのテストを書いて確かめてはいないので、事実に合わせました。\n\n`REVIEW.md` 以外のダッシュボードの差分（6 ファイル）は、これまでどおり未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

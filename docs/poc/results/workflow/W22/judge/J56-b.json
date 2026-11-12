@@ -1,0 +1,36 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "listTasks の SQL が assignee_id AS assignee と別名を付けているのに toTask は row.assignee_id を読むため、一覧と GET /api/tasks で担当者が undefined になる。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "Task 型をそのまま返し、validateTaskInput も assigneeId しか読まないため、API の入出力が assignee から assigneeId に変わる。古い形の POST は 400、PATCH は黙って無視されて 200 になり、PR の説明「変えない」に反する。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "listTasks のテストは件数しか確かめず、API のテストも無いため、担当者の欠落や項目名の変更を検出できない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "インデックス名が tasks_assignee のまま残っていて改名として中途半端なので、新しいマイグレーションで名前を付け直すとよい。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.022167
+ }
+}

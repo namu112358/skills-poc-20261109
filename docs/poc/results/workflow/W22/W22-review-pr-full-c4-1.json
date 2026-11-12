@@ -1,0 +1,42 @@
+{
+  "trial": "W22-review-pr-full-c4-1",
+  "scenario": "W22",
+  "config": "review-pr-full",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー: 期限が近いタスクを一覧で目立たせる\n\n対象: `src/lib/due.ts`（新規）、`src/app/tasks/page.tsx`、`tests/due.test.ts`（新規）\n\n結論: **マージ前に高 2 件・中 2 件を直してください。** 現状の実装は、1 日のうち日本時間 09:00〜24:00 の間、期限が今日のタスクに「（期限間近）」が付かず、PR の仕様（今日〜3 日後）も満たしません。単体テストは `now` を日本時間 0:00 に固定しているため、この不具合を検出できずに通っています（`npm test` / `typecheck` は通ることを確認済み）。\n\n## 指摘一覧\n\n### 1. 【高】日数を「日本の日付」ではなく「現在時刻との差」で数えている\n- 場所: `src/lib/due.ts` `daysUntilDue`（11 行目）\n- 問題: `Date.parse(\"2026-11-12\")` は UTC の 0:00（= 日本時間 9:00）を返します。これを `now` との差（ミリ秒）で割って切り捨てるため、結果が時刻に依存し、日付の境目が日本時間 9:00 にずれます。\n  - `now` = 2026-11-12 10:00 JST、期限 `2026-11-12`: `daysUntilDue` = -1、`isDueSoon` = false（期待は 0 / true）\n  - `now` = 2026-11-12 23:59 JST、期限 `2026-11-12`: 同上で false\n  - `now` = 2026-11-12 10:00 JST、期限 `2026-11-13`: 0 になる（期待は 1）\n  - 日本時間 09:00〜24:00 は、期限が今日のタスクが「期限切れ」扱いになりラベルが消え、残り日数も 1 日少なく出ます。一番緊急なタスクが就業時間中に表示されなくなります。\n  - ホストのタイムゾーンには依存せず（TZ を変えても結果は同じ）、どの環境でも誤ります。\n- 直し方: 時刻ではなく暦日で比べます。`now` を日本時間の `YYYY-MM-DD` にし、2 つの日付（UTC 0:00 として解釈）の差を日数にします。組み込み API だけで書けるため、新しいライブラリは不要です（規約 4）。\n  ```ts\n  const todayJst = new Intl.DateTimeFormat(\"en-CA\", { timeZone: \"Asia/Tokyo\" }).format(now);\n  return Math.round((Date.parse(dueDate) - Date.parse(todayJst)) / DAY_MS);\n  ```\n  コメント（9 行目「今日が期限なら 0」）は、直した後の挙動と一致させます。\n\n### 2. 【高】「3 日後」が対象に入っていない（境界の off-by-one）\n- 場所: `src/lib/due.ts` `isDueSoon`（18 行目 `days < DUE_SOON_DAYS`）\n- 問題: 仕様は「今日・明日・明後日・3 日後」（0〜3）ですが、`< 3` のため 0〜2 しか対象になりません。now = 2026-11-12 0:00 JST、期限 `2026-11-15` で `isDueSoon` = false（期待は true）。現状は時刻次第で同じ日付の結果が変わる（12:00 JST なら true）ことにもなります。\n- 直し方: `days <= DUE_SOON_DAYS`。あわせて 14 行目のコメント「今日から DUE_SOON_DAYS 日以内」と 4 行目の定数の説明に「今日〜今日+3 日（両端を含む）」と書きます。\n\n### 3. 【中】テストが不具合を検出できない（規約 5）\n- 場所: `tests/due.test.ts`（`now` の定義 7 行目、`isDueSoon` の各ケース）\n- 問題:\n  - `now` が日本時間 0:00 の 1 点だけです。ここは現行式がたまたま合う唯一の時間帯（0:00〜9:00）で、指摘 1 を見逃します。\n  - +3 日（`2026-11-15` は true）と +4 日（`2026-11-16` は false）の境界がありません。「遠い」ケースが `2026-11-30` で、指摘 2 を見逃します。\n  - `done` の確認が期限が今日のケースだけです。`in_progress` など `done` 以外が対象になることも未確認です。\n- 直し方: 次を追加します。\n  - `now` を 0:00 / 8:59 / 9:00 / 12:00 / 23:59（JST）にして、期限が今日で 0 かつ true。\n  - UTC と JST で日付がずれる `now`（`2026-11-11T20:00:00Z` = JST 11-12 05:00。`2026-11-11T15:00:00Z` は JST 11-12 0:00 で 0、`14:59:59Z` は JST 11-11 で別の結果）。\n  - 期限が +3 は true、+4 は false。前日（期限切れ）は終日 false。\n  - 月またぎ・年またぎ（例: now 12/30、期限 1/2）。\n  - `done` を +3 日と期限切れでも確認。`in_progress` は true。\n  - これらのテストは、指摘 1・2 を直す前は失敗するはずです。\n\n### 4. 【中】不正な `dueDate` が黙って「期限間近ではない」になる\n- 場所: `src/lib/due.ts` `daysUntilDue` / `isDueSoon`（11・17〜18 行目）、`tests/due.test.ts`\n- 問題: `Date.parse` が `NaN` を返すと `NaN >= 0` が false になり、エラーも表示もなく「期限間近でない」扱いになります。`tasks.due_date` は `TEXT NOT NULL` で CHECK 制約が無く（`migrations.ts`）、書き込み時の検証（`validateTaskInput`）を通らない経路（seed・手動編集・将来のインポート）の値はそのまま読まれます。`now` が Invalid Date の場合は全タスクでラベルが静かに消えます。ラベルが無いことが「問題なし」と読まれるため、期限機能では危険な失敗です。\n- 直し方: `YYYY-MM-DD` の形式を確認し、不正なら `null` を返す（または例外）ようにして、`isDueSoon` が黙って false にしないようにします。入力が不正な場合の挙動を決め、テストで固定します（`\"\"`、`\"not-a-date\"`、`\"2026-02-30\"`、Invalid Date の `now`）。\n\n### 5. 【低】一覧ページで `isDueSoon` を行ごとに 2 回呼んでいる\n- 場所: `src/app/tasks/page.tsx`（44 行目と 52 行目）\n- 問題: 同じ判定を 1 行で 2 回計算しています。指摘 4 のようにログや状態の分岐を足すと二重に出ます。\n- 直し方: 行ごとに 1 回だけ計算して変数に入れます。可能なら `src/lib/` 側で「期限間近・期限切れ・不正・通常」のような状態を返し、ページは表示だけにします（規約 1）。\n\n### 6. 【低】依頼範囲外の `due-soon` クラスと、期限切れの扱い\n- 場所: `src/app/tasks/page.tsx`（44 行目 `className`）、`src/lib/due.ts:18`\n- 問題:\n  - PR の説明に無い `className=\"due-soon\"` が `<tr>` に追加されています（規約 6）。このクラスに対応するスタイルが無いなら不要です。\n  - 期限を過ぎた未完了タスクには何も表示されません。PR の説明では意図どおり（付けない）ですが、「付けない」ことをコードのコメントに残すと誤解が減ります。\n- 直し方: `due-soon` クラスは、使わないなら削除します。期限切れの扱いは、意図であることをコメントで明記します。\n\n## 問題なしと判断した点\n- 判定ロジックを `src/lib/` に置き、ページは表示だけ（規約 1）、文言が日本語（規約 3）、新しい外部ライブラリなし（規約 4）、SQL・スキーマの変更なし。\n- 完了（`done`）の除外と、`now` を引数にしてテストしやすくしている点。\n",
+  "review_chars": 3724,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.7154,
+    "tokens": {
+      "input": 64,
+      "output": 18304,
+      "cache_read": 1109228,
+      "cache_creation": 105955
+    },
+    "turns": 6,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 11,
+      "Agent": 4,
+      "ReadNotifications": 4,
+      "Monitor": 1,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 4,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:comment-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 42,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "このご依頼の内容は、直前の作業で実施済みです。`REVIEW.md` には各エージェントの指摘を、場所・問題・直し方・重要度の形式で書いてあります。`REVIEW.md` だけをコミット済み（e616d43）で、未コミットの変更もありません。\n\n- **まとめた指摘:** 同じ内容の指摘は 1 つにまとめました。時刻で数える問題は、code-reviewer、silent-failure-hunter、test-analyzer、comment-analyzer の 4 つが挙げ、指摘 1 に統合しています。\n- **残した指摘:** 指摘 1〜6 のうち、まとめたのは上の 1 件だけで、どの指摘も削っていません。\n- **追加した指摘:** 新しい指摘は足していません。\n- **コード:** 修正していません。\n\n書き写し直す変更はないので、追加のコミットはしていません。"
+  },
+  "interventions": 0
+}

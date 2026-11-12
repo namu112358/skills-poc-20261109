@@ -1,0 +1,33 @@
+{
+  "trial": "W21-review-pr-c4-2",
+  "scenario": "W21",
+  "config": "review-pr",
+  "case": "c4",
+  "rep": 2,
+  "review_md": "# レビュー結果: 期限が近いタスクを一覧で目立たせる\n\n`due.ts` の日数計算に、PR の仕様（日本時間の日付で数える／今日〜3 日後を対象にする）と合わない箇所があり、マージ前に直す必要があります。\n`now` を変えて `isDueSoon` を実行して確認しました。\n\n## 1. 【高】日数計算が日本時間の「日付」ではなく UTC の時刻差になっている\n\n- 場所: `src/lib/due.ts` の `daysUntilDue`（`Date.parse(dueDate)` と `Math.floor((... - now.getTime()) / DAY_MS)`）\n- 問題: `Date.parse(\"2026-11-12\")` は UTC の 0:00 で、日本時間では 9:00 です。これと現在時刻のミリ秒差を 24 時間で割っているため、日本時間の日付で数えていません。\n  - 2026-11-12 の 0:00（日本時間）に期限 11-12 のタスクを見ると、0 日になり「期限間近」が付きます。\n  - 同じ日の 10:00 や 23:00 になると、期限が当日（今日）のタスクが -1 日になります。「今日が期限」の未完了タスクから「（期限間近）」が消え、期限が最も近いタスクを見逃します。\n  - 実測では、日本時間 11-12 の 10:00 に期限 11-12 のタスクが `false` になりました。\n- 直し方: 日本時間の暦日どうしの差を整数で求めます。\n  - 例: `now` を `Intl.DateTimeFormat(\"en-CA\", { timeZone: \"Asia/Tokyo\" })` で `YYYY-MM-DD` にします。\n  - それを `Date.UTC` で日付に変換し、期限の `YYYY-MM-DD` も `Date.UTC` で変換して、差を `DAY_MS` で割ります（割り切れるので `Math.round` で足ります）。\n  - 実行環境のタイムゾーンに左右されないようにします。\n\n## 2. 【高】「3 日後」が対象に入っていない（境界が 1 日ずれている）\n\n- 場所: `src/lib/due.ts` の `isDueSoon`（`days < DUE_SOON_DAYS`）\n- 問題: PR の説明では今日・明日・明後日・3 日後の 4 日が対象ですが、`days < 3` だと 0〜2 日の 3 日分しか対象になりません。\n  - 日本時間 11-12 の 0:00 に期限 11-15（3 日後）のタスクを見ると `false` になります。\n  - 項目 1 のずれが重なると、時刻によって 3 日後が出たり出なかったりします。11-12 の 10:00 では 11-15 が `true` になりました。\n- 直し方: 比較を `days <= DUE_SOON_DAYS` にします。あわせて `DUE_SOON_DAYS` のコメントに「3 日後を含む」と書きます。\n\n## 3. 【中】テストが上記の不具合を検出できない\n\n- 場所: `tests/due.test.ts`\n- 問題:\n  - `now` が日本時間の 0:00 ちょうどのときだけをテストしています。UTC とのずれが出ない時刻なので、項目 1 は通ってしまいます。\n  - 境界の 3 日後（11-15）のケースがありません（`2026-11-14` と `2026-11-30` だけ）。項目 2 は通ってしまいます。\n  - 日本時間の日付をまたぐ時刻（例: 23:59、09:00 の前後、UTC では前日になる 0:00〜8:59）のケースがありません。\n- 直し方: 次のケースを追加します。\n  - 同じ日の 0:00 / 10:00 / 23:59 で、期限が今日のとき `true` になること。\n  - 3 日後が `true`、4 日後が `false` になること。\n  - 昨日が期限のとき、時刻によらず `false` になること。\n  - `daysUntilDue` が時刻によらず日付だけで決まること。\n\n## 4. 【低】`due-soon` クラスに対応するスタイルが無い\n\n- 場所: `src/app/tasks/page.tsx` の `<tr className=\"due-soon\">`\n- 問題: `due-soon` を定義した CSS が無く、効果のないクラスになっています。PR の変更内容は「（期限間近）」の表示だけです。\n- 直し方: 使わないなら削除します。強調したい場合は CSS を追加します（`isDueSoon` を行と列で 2 回呼んでいるので、変数に 1 回だけ入れると読みやすくなります）。\n",
+  "review_chars": 2035,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2062,
+    "tokens": {
+      "input": 18,
+      "output": 3875,
+      "cache_read": 294622,
+      "cache_creation": 34497
+    },
+    "turns": 7,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 47,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの4件がすでに書かれています。形式も依頼どおりで、場所・問題・直し方・重要度が揃っています。HEAD(5d83be8)で `REVIEW.md` だけがコミット済みです。追加や削除の必要はないので、新しいコミットは作りませんでした。\n\n内容は次の4件です。\n\n1. **【高】** `src/lib/due.ts` の `daysUntilDue`。日数を UTC の時刻差で数えていて、日本時間の日付で数えていません。\n2. **【高】** `isDueSoon` の `days < 3`。3 日後が対象から外れています。\n3. **【中】** `tests/due.test.ts`。上の2件を検出できません。\n4. **【低】** `src/app/tasks/page.tsx` の `due-soon` クラス。対応する CSS がありません。\n\nコードは変更していません。作業ツリーの `src/app/tasks/page.tsx`、`src/lib/due.ts`、`tests/due.test.ts` は、元の未コミットのままです。"
+  },
+  "interventions": 0
+}

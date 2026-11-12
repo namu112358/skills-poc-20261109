@@ -1,0 +1,43 @@
+{
+  "trial": "W26-baseline-std-d1-1",
+  "scenario": "W26",
+  "config": "baseline-std",
+  "case": "d1",
+  "rep": 1,
+  "review_md": "# レビュー: ダッシュボードを追加する PR\n\nnode で再現スクリプトを動かして確認した結果です（`TASK_STATUSES` の破壊、キャッシュの混線、SQL インジェクション、NaN はいずれも再現済み）。\n\n## 高\n\n### 1. キャッシュのキーがユーザーごとになっていない（他人のダッシュボードが表示される）\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）\n- 問題: キーが固定文字列 `\"dashboard\"` のため、30 秒以内は最初に計算した人の結果が全員に返る。再現: `buildDashboard(\"sato\")` の直後に `buildDashboard(\"suzuki\")` を呼ぶと `userId` が `sato` のまま。suzuki が `/dashboard` や `GET /api/dashboard` を開くと sato のタスク名・件数が見える（情報漏えい）。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。`now` や `db` に依存する値なので、テストでは `clearCache()` を使う。そもそもキャッシュが必要か（SQLite のメモリ DB で軽い）も検討し、不要なら削除。タスク更新（PATCH）後も最大 30 秒古い値が出る点も合わせて考慮する。\n\n### 2. SQL インジェクション\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`（`WHERE assignee = '${userId}'`）\n- 問題: 値を文字列連結で埋め込んでおり、規約 8 に反する。再現: `listAssignedTasks(\"x' OR '1'='1\", db)` が全ユーザーのタスク 7 件を返した。現状 `userId` はセッション由来だが、関数が `src/lib/` の公開関数であり、将来の呼び出しで容易に悪用される。\n- 直し方: `WHERE assignee = ?` とし `.all(userId)` で渡す。\n\n## 中\n\n### 3. `countByStatus` が共有の `TASK_STATUSES` を破壊的に反転する\n- 場所: `src/lib/dashboard.ts` `countByStatus`（`order.reverse()`）\n- 問題: `as TaskStatus[]` のキャストで同じ配列を参照しており、`reverse()` は元の配列を書き換える。再現: 1 回呼ぶと `TASK_STATUSES` が `['done','in_progress','todo']` になり、2 回目の呼び出しでは「完了」が先頭ではなく `todo` が先頭になる（表示順がリクエストごとに入れ替わる）。`TASK_STATUSES` を使う他の箇所（検証・フィルタ・選択肢の並び）にも影響する。\n- 直し方: `[...TASK_STATUSES].reverse()` か `toReversed()` を使う。テストで 2 回呼んでも順序が同じこと・`TASK_STATUSES` が不変であることを確認する（現在のテストは 1 回しか呼ばないので見逃している）。\n\n### 4. タスクが 0 件のとき完了率が NaN になる\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 問題: `0 / 0` で `NaN`。画面に「完了率 NaN%」と出て、API の JSON では `completionRate: null` になる。担当タスクが無い新規ユーザーで発生する。\n- 直し方: `tasks.length === 0` のとき `0` を返す。テストを追加する。\n\n### 5. 「期限切れ」と「今週が期限」が重複する\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`\n- 問題: 週の開始日（月曜）以降で今日より前の未完了タスクは、両方の一覧に出る。再現: 今日が水曜のとき、火曜期限の未完了タスクが overdue・dueThisWeek の両方に入る（既存テストも `dueThisWeek` に期限切れの id 1 が入ることを期待している）。同じタスクが二重に表示され、利用者を混乱させる。\n- 直し方: 仕様を決める。「今週」を「今日〜日曜」にする（`t.dueDate >= today`）のが自然。テストの期待値も合わせて直す。\n\n## 低\n\n### 6. `overdueTasks` のコメントは「期限の古い順」だが、順序は SQL の並びに依存\n- 場所: `src/lib/dashboard.ts` `overdueTasks`\n- 問題: `listAssignedTasks` を通さず任意の配列を渡すと順序は保証されない。\n- 直し方: 関数内で `dueDate` で並べ替えるか、コメントを実態に合わせる。\n\n### 7. テストの不足\n- 場所: `tests/dashboard.test.ts`\n- 問題: 上記 1・3・4 を検出できるテストが無い（複数ユーザーでの `buildDashboard`、`countByStatus` の複数回呼び出し、タスク 0 件、日曜・月曜の週境界、SQL 特殊文字）。PR の「テストが通る」は、これらのバグが無いことを示していない。\n- 直し方: 上記の各ケースを追加する。\n\n### 8. ページと API が `buildDashboard` を毎回同じ形で呼ぶだけで、`generatedAt` が日時の文字列を返す点\n- `/dashboard` ページでは `generatedAt` が未使用。問題ではないが、キャッシュを残す場合は古さを利用者に示すか検討する（任意）。\n",
+  "review_chars": 2545,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2275,
+    "tokens": {
+      "input": 22,
+      "output": 5773,
+      "cache_read": 382829,
+      "cache_creation": 32851
+    },
+    "turns": 11,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"TASK_STATUSES\\\\|STATUS_LABELS\\\" src/lib/tasks.ts | head; cat > /tmp/claude-0/-tmp-poc-trials-W26-baseline-std-d1-1-app/2761ee60-5efe-4cae-b1fb-568e24f98670/scratchpad/r.ts <<'EO"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"TASK_STATUSES\\\\|STATUS_LABELS\\\" src/lib/tasks.ts | head -5; S=/tmp/claude-0/-tmp-poc-trials-W26-baseline-std-d1-1-app/2761ee60-5efe-4cae-b1fb-568e24f98670/scratchpad; ls $S >/de"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 56,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "指摘は、前回のコミットですでに `REVIEW.md` に書き込み済みです。そのため、今回は新しくコミットしていません。\n\n`REVIEW.md` は前回のコミット `6417c1d` のままで、未コミットの変更はありません。指摘は8件で、それぞれ重要度、場所、何が問題か、直し方を書いてあります。\n\n- **高:** キャッシュのキーがユーザーごとではない点と、SQL インジェクションの2件。\n- **中:** `countByStatus` が `TASK_STATUSES` を反転してしまう点、タスク0件で完了率が NaN になる点、「期限切れ」と「今週が期限」の重複の3件。\n- **低:** `overdueTasks` の並び順の保証、テストの不足、`generatedAt` の扱い（任意）の3件。\n\n新しい指摘は足しておらず、指摘も削っていません。コードも変更していません。"
+  },
+  "interventions": 0
+}

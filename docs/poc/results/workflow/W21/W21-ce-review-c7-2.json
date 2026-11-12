@@ -1,0 +1,44 @@
+{
+  "trial": "W21-ce-review-c7-2",
+  "scenario": "W21",
+  "config": "ce-review",
+  "case": "c7",
+  "rep": 2,
+  "review_md": "# コードレビュー: 担当者変更の監査ログ\n\n対象: 未コミットの差分（`git diff HEAD`）。`src/lib/notify/*`（新規）、`src/lib/tasks.ts`、`tests/notify.test.ts`（新規）。\n判定: **修正してからマージ**（Ready with fixes）。`npm test` は通る（21 件成功）。\n\nPR の目的は「担当者が変わったときに、サーバーのログへ 1 行出す」ことだけです。ログの内容（前・後・日時）と「変わらない更新では出さない」条件は `updateTask` で実現できています。問題は、その周りに付けた仕組みと、テストが肝心の挙動を見ていない点です。\n\n## 指摘\n\n### 1. [中] ログ以外の送り先が `updateTask` を壊しうる\n\n- 場所: `src/lib/notify/notifier.ts` の `SlackNotifier.send` / `EmailNotifier.send`、`NotifierFactory.create`、`src/lib/notify/events.ts` の `EventBus.emit`、`src/lib/tasks.ts` の `updateTask`（`eventBus.emit` の呼び出し箇所）\n- 問題: `NOTIFIER_KIND=slack`（または `email`）を設定してサーバーを起動すると、`send()` は必ず `Error` を投げます。`emit` は購読者の例外を捕まえず、`updateTask` は `UPDATE` を実行した後に `emit` を呼ぶので、`PATCH /api/tasks/:id` で担当者を変えると次の結果になります。\n  - DB には新しい担当者が保存されたまま、API は 500 を返す。\n  - 監査の記録は 1 件も残らない。\n  - 呼び出し側は更新が失敗したと誤解して再送しうる。\n  \n  誤設定（`NOTIFIER_KIND` に未知の値）は黙って `console` に落ちるので、設定ミスに気づけない点も同じ種類の弱点です。\n- 直し方: 先に 4 を採用して Slack・メールの未実装クラスと環境変数による切り替えを消すのが最善です。購読者の仕組みを残す場合は、`emit` 内で購読者ごとに `try/catch` し、失敗はログに出して握りつぶすことで、記録の失敗が本体の更新を壊さないようにしてください。\n\n### 2. [中] 依頼の範囲を超えた仕組みが入っている（CLAUDE.md 規約 6）\n\n- 場所: `src/lib/notify/events.ts`、`src/lib/notify/notifier.ts`、`src/lib/notify/index.ts`\n- 問題: 合意は「記録先は当面サーバーのログだけ。ほかの記録先にする予定は今のところない」です。それに対して次のものが追加されています。\n  - 汎用のイベントバス（`EventBus`）\n  - `Notifier` インターフェースと `NotifierFactory`\n  - 常に例外を投げるだけの `SlackNotifier` / `EmailNotifier`\n  - 環境変数 `NOTIFIER_KIND` / `SLACK_WEBHOOK_URL`\n  - どこからも発行されない `task.status_changed` / `task.created` イベント\n  \n  使われないコードがほとんどで、レビューと保守の負担になります。1 のような不具合の原因にもなっています。\n- 直し方: `updateTask` 内で、担当者が変わったときに `console.log(\\`[audit] task ${id}: assignee ${current.assignee} -> ${next.assignee} at ${new Date().toISOString()}\\`)` を出す小さな関数（例: `src/lib/audit.ts` の `logAssigneeChange`）だけにします。送り先を増やす話が出た時点で抽象化してください。\n\n### 3. [中] 肝心の挙動を確かめるテストが無い（CLAUDE.md 規約 5）\n\n- 場所: `tests/notify.test.ts`\n- 問題: 追加されたテストは、イベントバスの購読・解除と、ファクトリの種類選択だけです。PR の要件を確かめるテストがありません。確かめられていない点は次のとおりです。\n  - `updateTask` で担当者を変えたときに、`[audit] task <ID>: assignee <前> -> <後> at <日時>` の形式で 1 行出る。\n  - 担当者を変えない更新（タイトルだけ変えるなど）では出ない。\n  - 存在しないタスクでは出ない。\n  \n  これらが壊れても `npm test` は通ります。\n- 直し方: `openDb()` の独立した DB を使って `updateTask(id, { assignee: ... }, db)` を呼び、`console.log` を差し替えて出力を検証するテストを追加します。変更あり・変更なし・同じ値で更新の 3 ケースを入れてください。2 の方針なら、バスとファクトリのテストは不要になります。\n\n### 4. [低] `tasks.ts` を読み込むだけで副作用が起きる\n\n- 場所: `src/lib/notify/index.ts`（読み込み時に `NotifierFactory.create()` を実行して購読を登録）、`src/lib/tasks.ts` の import\n- 問題: 購読の登録が import の副作用で行われ、`eventBus` はプロセス全体で共有されます。`tasks.ts` を import したテストや別の経路から使うとき、ログ出力がテスト側から見えにくく、差し替えもできません。2 の方針で関数に寄せれば解消します。\n\n## 問題なしと判断した点\n\n- 担当者が変わったかどうかの判定（`next.assignee !== current.assignee`）は、更新の対象項目が `undefined` のときも含めて、現状の呼び出し（`validateTaskInput` を通した値）では正しく動きます。\n- ログに出る値は ID と ISO 日時だけで、SQL への埋め込みや外部入力の混入はありません（担当者は `users` に存在する ID に検証済みです）。\n\n## 検証の範囲\n\n- レビューは 1 つの文脈で行い、レビュー用のサブエージェントは起動していません。追加の独立した読み取りが必要になるほどの被害の想定（権限・金銭・永続データの破損）はなく、差分も小さいためです。\n- `npm test` を実行して成功を確認しました。コードは直していません。\n- 無人実行のため、スコープ計算の補助スクリプトは承認待ちで実行できず、差分は `git diff HEAD` から直接読みました。\n",
+  "review_chars": 3052,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3856,
+    "tokens": {
+      "input": 26,
+      "output": 6661,
+      "cache_read": 653933,
+      "cache_creation": 63381
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W21-ce-review-c7-2/plugins/compound-engineering/skills/ce-code-review; python3 $SKILL_DIR/scripts/review-scope.py --base HEAD --docs-root docs; \\nSCRATCH_ROOT=\\\""
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W21-ce-review-c7-2/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 4,
+      "Bash": 8,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 67,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` にはすでに、4 件の指摘がすべて、場所・何が問題か・直し方・重要度の形式で入っています。コミット済み（575d406）で、未コミットの差分もありません。\n\n指摘は追加も削除もしていません。コミットを重ねる必要はないため、新しいコミットは作っていません。コードも直していません。\n\n| 重要度 | 指摘 |\n|---|---|\n| 中 | ログ以外の送り先が `updateTask` を壊しうる |\n| 中 | 依頼の範囲を超えた仕組みが入っている |\n| 中 | 肝心の挙動を確かめるテストが無い |\n| 低 | `tasks.ts` を読み込むだけで副作用が起きる |"
+  },
+  "interventions": 0
+}

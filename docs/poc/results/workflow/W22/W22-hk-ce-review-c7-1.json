@@ -1,0 +1,52 @@
+{
+  "trial": "W22-hk-ce-review-c7-1",
+  "scenario": "W22",
+  "config": "hk-ce-review",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# コードレビュー: 担当者変更の監査ログ\n\n## 対象と範囲\n\n- 範囲: `base:HEAD`（作業ツリー。ステージ済みの新規ファイルと `src/lib/tasks.ts` の変更を含む。5 ファイル・+117 行）\n- 対象ファイル: `src/lib/notify/events.ts`（新規）、`src/lib/notify/notifier.ts`（新規）、`src/lib/notify/index.ts`（新規）、`src/lib/tasks.ts`（変更）、`tests/notify.test.ts`（新規）\n- 確認に使った呼び出し元: `src/app/api/tasks/[id]/route.ts`（PATCH）\n\n## Coverage（レビューの範囲と限界）\n\n- 今回は文脈内での単独レビュー（lite 相当）として実施した。変更は小さく、担当者の変更はログ出力だけで、データの消失や金銭・権限の影響が見当たらないため、敵対的な別レビューは選ばなかった。\n- `review-scope.py` のスコア計算、複数のレビュー観点への分担、別モデルによる独立レビューは実行していない。シェルでの実行・ディレクトリ作成が承認待ちになり、実行できなかった。\n- `npm run typecheck`・`npm test` の再実行はしていない（承認待ちのため）。指摘は読んだコードに基づく。\n- 作業は報告のみ。コードは変更していない。\n\n## 指摘\n\n### 1. 高: 送り先が `slack` / `email` のとき、担当者の更新がエラーになる（DB は更新済み）\n\n- 場所: `src/lib/tasks.ts` の `updateTask`（担当者変更時の `eventBus.emit`）、`src/lib/notify/notifier.ts` の `SlackNotifier.send` / `EmailNotifier.send`、`src/lib/notify/index.ts` の購読者、`src/app/api/tasks/[id]/route.ts` の `PATCH`\n- 何が問題か: `NOTIFIER_KIND=slack`（または `email`）だと、`NotifierFactory.create` はその送り先を作る。その送り先の `send` は未実装で例外を投げる。`updateTask` は先に `UPDATE` を実行して書き込みを確定させてから `emit` する。例外は `updateTask` から `PATCH` に伝わるが、`PATCH` には `try/catch` が無いので 500 が返る。結果として、担当者は DB では変わっているのにクライアントには失敗が返る。再送しても、担当者が同じなので差分が無く、ログも出ない。さらに `emit` は購読者を順に呼ぶだけで例外を隔離していないため、1 つの購読者が例外を投げると後続の購読者が動かない。\n- 再現の例: `NOTIFIER_KIND=slack` で起動し、`PATCH /api/tasks/1` で `assignee` を変更する → 500 が返るが、`GET /api/tasks/1` で担当者は変わっている。\n- 直し方（どれか一つ、または組み合わせ）:\n  - `NotifierFactory.create` で未実装の送り先（`slack`・`email`）を作らないようにする。未実装の間は `console` に戻すか、起動時にエラーにする。\n  - `eventBus.emit` で各購読者を `try/catch` で囲み、失敗は `console.error` などに記録して握りつぶす（監査ログの失敗で業務の更新を失敗させない）。\n  - 送り先が未実装の例外を投げるなら、`SlackNotifier` / `EmailNotifier` は未実装と分かる形で起動時に失敗させる。\n  - 併せて、この経路（送り先が例外を投げても PATCH が成功すること）のテストを追加する。\n\n### 2. 中: 追加した担当者変更の記録がテストされていない\n\n- 場所: `tests/notify.test.ts`、`src/lib/tasks.ts` の `updateTask`\n- 何が問題か: テストは `eventBus` の購読・解除と `NotifierFactory` の作成だけを確かめている。今回の機能の本体（`updateTask` で担当者が変わったときだけ `task.assignee_changed` を出すこと、ログの行の形式 `[audit] task <ID>: assignee <前> -> <後> at <日時>`）は確かめていない。`CLAUDE.md` の規約 5（ロジックを追加・変更したら `tests/` に単体テストを追加する）に当たらない。\n- 直し方: `openDb()` で独立した DB を作り、次を確かめるテストを追加する。(a) 担当者を変えると 1 回だけ出る、(b) 担当者が同じ更新（ステータスだけの変更など）では出ない、(c) ログの行の形式が仕様どおり。ログは `mock.method(console, \"log\")` で捕まえる。\n\n### 3. 低: 購読が「読み込み時の副作用」に頼っている\n\n- 場所: `src/lib/notify/index.ts`（購読の登録）、`src/lib/notify/events.ts` の `clear()`\n- 何が問題か: 購読は `notify/index.ts` を読み込んだときに 1 回だけ登録される。`tasks.ts` が `notify/index.ts` を読み込んでいるので今は動くが、`eventBus.clear()` を呼ぶと、以後は担当者変更の記録が黙って出なくなる。テストで `clear()` を使うと、後続のテストに影響する。\n- 直し方: 購読の登録を明示的な初期化関数にまとめて呼ぶ形にする。または、テストでは `clear()` を使わず、個別に `off()` で解除する。\n\n### 4. 低: 担当者の変更の記録の対象（作成時の担当者が記録されない）\n\n- 場所: `src/lib/tasks.ts` の `createTask`\n- 何が問題か: 作成時に担当者を指定しても、記録は出ない。依頼は「いつ誰から誰に変わったか」を追うことなので、作成時の担当者設定は「誰から」が空の変更として扱うかどうかで結論が変わる。今回の変更は作成時には何も記録しない。\n- 直し方: 依頼者と仕様を確認する。記録するなら、作成時も `from: \"\"`（または「未割当」）として `task.assignee_changed` を出す。記録しないなら、その旨を PR の説明に書く。\n\n### 5. 低: 記録がトランザクションの確定前に出る\n\n- 場所: `src/lib/tasks.ts` の `updateTask`\n- 何が問題か: 今は `updateTask` が単独で `UPDATE` を実行するので問題はない。しかし将来、呼び出し側が複数の更新をまとめてトランザクションにし、後で取り消すと、ログには確定していない変更が残る。\n- 直し方: 記録を、トランザクションの確定後に出す（確定後のフックにする）。今は対応しなくてもよいが、コメントで注意を残す。\n\n## 総合判定\n\n**Not ready（マージ前に指摘 1 を直す）**\n\n指摘 1 は、設定の値を一つ変えるだけで担当者の更新が失敗に見える問題で、監査ログの機能そのものが業務の更新を壊す。指摘 2 は、今回の機能がテストされていないという、規約（`CLAUDE.md` 規約 5）の未達。指摘 3〜5 は今すぐ直す必要はない。\n\n今回の変更は、担当者の変更がログに 1 行残るという目的には合っている。担当者が変わらない更新で出ないこと、ログの行の形式は、読んだかぎりでは正しい。\n",
+  "review_chars": 3419,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.03,
+    "tokens": {
+      "input": 34,
+      "output": 12983,
+      "cache_read": 1002933,
+      "cache_creation": 67569
+    },
+    "turns": 21,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=\\\"/tmp/poc-trials/W22-hk-ce-review-c7-1/plugins/compound-engineering/skills/ce-code-review\\\"; cd /tmp/poc-trials/W22-hk-ce-review-c7-1/app && BASE=$(git merge-base HEAD HEAD) &&"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SCRATCH_ROOT=\\\"/tmp/compound-engineering-$(id -u)\\\"; mkdir -p \\\"$SCRATCH_ROOT\\\" && chmod 700 \\\"$SCRATCH_ROOT\\\" && RUN_ID=$(date +%Y%m%d-%H%M%S)-$(head -c4 /dev/urandom | od -An -tx1 | tr "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/compound-engineering-0/ce-code-review && chmod 700 /tmp/compound-engineering-0 && ls -ld /tmp/compound-engineering-0 && id -u\", \"description\": \"Create scratch root and check"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-hk-ce-review-c7-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs\", \"description\": \"Run the scope signa"
+      }
+    ],
+    "tool_calls": {
+      "Read": 9,
+      "Bash": 8,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 75,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "REVIEW.md は、直前のレビューの指摘を場所・何が問題か・直し方・重要度の形式で、すでに書き写してあります。コミット `87c8635` に入っていて、作業ツリーにも差分はありません。そのため今回は新しいコミットを作っていません。\n\n指摘は 5 件すべて残っています。\n\n1. 高: 送り先が `slack` / `email` のとき、担当者の更新が 500 になるのに DB は更新済み\n2. 中: 担当者変更の記録がテストされていない\n3. 低: 購読が読み込み時の副作用に頼っている\n4. 低: 作成時に設定された担当者が記録されない\n5. 低: 記録がトランザクションの確定前に出る\n\nコードは変更していません。ほかのファイルも触っていません。ステージ済みの変更（`src/lib/notify/*`、`src/lib/tasks.ts`、`tests/notify.test.ts`）は、これまでどおり残っています。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,59 @@
+{
+  "trial": "W25-baseline-run-c7-1",
+  "scenario": "W25",
+  "config": "baseline-run",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# レビュー結果: 担当者変更の監査ログ\n\n確認方法: `updateTask` を一時スクリプトで直接呼び、担当者が変わったときだけ `[audit] task <ID>: assignee <前> -> <後> at <日時>` が出ること（同じ担当者への更新では出ないこと）を確認した。以下は、それ以外の問題。\n\n## 1. 依頼範囲を大きく超える実装\n\n- 重要度: 高\n- 場所: `src/lib/notify/events.ts`、`src/lib/notify/notifier.ts`、`src/lib/notify/index.ts`（新規 3 ファイル）。規約 6 に反する。\n- 問題: 依頼は「担当者が変わったらサーバーログに 1 行出す」だけで、PR 説明にも「ほかの記録先にする予定は今のところない」とある。それなのに、イベントバス、誰も発行しない `task.status_changed` / `task.created`、呼ぶと必ず throw する `SlackNotifier` / `EmailNotifier`、`NotifierFactory`、環境変数 `NOTIFIER_KIND` / `SLACK_WEBHOOK_URL` が入っている。使われないコードが約 100 行あり、レビューと保守の負担になる。\n- 直し方: `updateTask` 内で `console.log(...)` を 1 回呼ぶだけにする（必要なら `src/lib/` に小さな関数を 1 つ）。バス・ファクトリ・スタブ・未使用イベント型・環境変数は削除する。\n\n## 2. 通知が失敗すると、DB は更新済みなのに API がエラーになる\n\n- 重要度: 高\n- 場所: `src/lib/tasks.ts` `updateTask`（`UPDATE` の後の `eventBus.emit`）、`src/lib/notify/events.ts` `emit`\n- 問題: `emit` は購読者の例外をそのまま投げ、`updateTask` は `UPDATE` の後で呼ぶ。`NOTIFIER_KIND=slack` または `email` を設定すると（スタブは必ず throw する）、担当者変更のたびに例外になる。`PATCH /api/tasks/:id` は 500 を返すが、担当者は既に変更済みで、クライアントは失敗と受け取る。なお、この再現は実行権限の都合で行っておらず、コードを読んだ判断。\n- 直し方: 項目 1 のとおり単純化すれば解消する。残す場合は、通知を try/catch で包み、更新結果に影響させない。\n\n## 3. 新しい挙動のテストが無い\n\n- 重要度: 中\n- 場所: `tests/notify.test.ts`。規約 5 に反する。\n- 問題: テストはバスの購読解除とファクトリの種別しか見ていない。本題である「担当者が変わったときだけログが出る」は `updateTask` を通して検証されておらず、PR の検証結果に書かれたテストは要件を守ってくれない。ファクトリのテストは、削除すべきコード（項目 1）のものでもある。\n- 直し方: `openDb()` の DB で `updateTask` を呼び、`console.log` を差し替えて、(a) 担当者変更で 1 回、`task <ID>: assignee <前> -> <後>` の形式で出る、(b) 同じ担当者への更新・他の項目だけの更新では出ない、(c) 存在しない ID では出ない、をテストする。\n\n## 4. モジュール読み込み時の副作用と、開発サーバーでの重複・欠落の恐れ\n\n- 重要度: 中\n- 場所: `src/lib/notify/index.ts`、`src/lib/notify/events.ts` の `export const eventBus`\n- 問題: `index.ts` は import しただけで購読者を登録し、`tasks.ts` はそれに依存している。バスは `globalThis` に載っていないため、Next.js の開発サーバー（HMR、ルートごとのバンドル）でモジュールが複数回評価されると、インスタンスが分かれて購読者の登録が重複または欠落し得る。実際の Next 環境では動かしておらず、懸念としての指摘。\n- 直し方: 項目 1 の単純化で解消する。\n\n## 5. 不要な購読解除の実装\n\n- 重要度: 低\n- 場所: `src/lib/notify/events.ts` `subscribe` の戻り値（解除関数）\n- 問題: ログ出力の用途では使われない。同じハンドラが重複登録されていると `filter` で全て消える挙動もある。\n- 直し方: 項目 1 の単純化で一緒に削除する。\n",
+  "review_chars": 2056,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2773,
+    "tokens": {
+      "input": 30,
+      "output": 7987,
+      "cache_read": 566536,
+      "cache_creation": 35186
+    },
+    "turns": 17,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"export\\\" src/lib/db/index.ts | head; cat > $TMPDIR/r.ts 2>/dev/null || true\\nS=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c7-1-app/f38418aa-714a-4f07-a1d2-5914295b2ff1/scrat"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W25-baseline-run-c7-1/app\\nS=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c7-1-app/f38418aa-714a-4f07-a1d2-5914295b2ff1/scratchpad\\ncat > $S/r.mts <<'EOF'\\nconst root"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W25-baseline-run-c7-1/app; S=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c7-1-app/f38418aa-714a-4f07-a1d2-5914295b2ff1/scratchpad; echo --console; node $S/r.mts 2>&1"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W25-baseline-run-c7-1/app; node /tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c7-1-app/f38418aa-714a-4f07-a1d2-5914295b2ff1/scratchpad/r.mts 2>&1 | tail -6; echo --sla"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"NOTIFIER_KIND=slack node /tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c7-1-app/f38418aa-714a-4f07-a1d2-5914295b2ff1/scratchpad/r.mts 2>&1\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"env NOTIFIER_KIND=slack node /tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c7-1-app/f38418aa-714a-4f07-a1d2-5914295b2ff1/scratchpad/r.mts 2>&1 | head -5\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Write": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 70,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を、指摘ごとに「重要度・場所・問題・直し方」を並べた形式に書き直し、`REVIEW.md` だけをコミットしました。コードは直していません。\n\n指摘は前回と同じ 5 件です（高 2、中 2、低 1）。新しい指摘は足しておらず、削ってもいません。前回の項目 5 は見出しに「ログ形式が変更者を含まない」と書いていました。これは指摘として成り立たないので、本文どおり「不要な購読解除の実装」に直しています。"
+  },
+  "interventions": 0
+}

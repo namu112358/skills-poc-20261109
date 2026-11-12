@@ -1,0 +1,57 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "migrations.ts の tasks.status の CHECK 制約が旧 3 値のままなので、on_hold で createTask・updateTask を実行すると例外になり、API は 500 を返す。新しいマイグレーションでテーブルを作り直す必要がある。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "追加したテストは validateTaskInput と isTaskStatus だけで、on_hold を DB に保存するテストがないため、CHECK 制約の不具合を見逃している。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "POST と PATCH の API Route が DB の例外を捕捉しないため、規約の JSON 形式にならず、本文が空の 500 になる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "TaskStatus 型と TASK_STATUSES 配列が別々に定義されていて、抜けを型検査で検出できない。as const の配列から型を導出すべき。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 5,
+   "summary": "PATCH /api/tasks/:id が updateTask の戻り値 undefined を検査しないため、競合時に {} の 200 を返す。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "readJson が JSON の構文エラーを握りつぶし、ログも詳細も残さない（差分外）。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "STATUS_LABELS と TASK_STATUSES の対応（on_hold が「保留」であることなど）を確認するテストがない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0757398
+ }
+}

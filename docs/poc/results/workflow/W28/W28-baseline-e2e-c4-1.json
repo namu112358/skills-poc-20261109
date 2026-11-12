@@ -1,0 +1,68 @@
+{
+  "trial": "W28-baseline-e2e-c4-1",
+  "scenario": "W28",
+  "config": "baseline-e2e",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー: 西日本校正センターの CSV 取込\n\n本番ビルド（`npm run build`）→ `npm run start` で起動し、ログインして `POST /api/calibrations/import` を実際に呼んで確かめた。\n\n## 指摘（マージ前に直す）\n\n### 1. [高] BOM 付きの西日本 CSV が取り込めない（要件 3 に反する）\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の `isNishinihonCsv`（先頭の BOM 判定で `return false`）、`src/app/api/calibrations/import/route.ts`\n- 問題: BOM 付き UTF-8 を「別の形式（東日本）」として扱うため、西日本の CSV でも BOM が付くと東日本の取込に回る。その結果「管理番号の列がありません」の 400 になり、1 件も取り込めない。要件 3「BOM の有無で取り込めなくならない」に反する。BOM 付きの東日本 CSV は以前から来ているので、BOM の有無は形式の判別に使えない。\n- 実測: BOM 付きで見出しが `機器番号,...` のファイルを送ると `400 {\"error\":\"CSV の形式が違います（1 行目に「管理番号」の列がありません）\"}`。BOM なしの同じ内容は 200。\n- 直し方: BOM があれば先に取り除き、UTF-8 として復号して見出しで判別する。判別は見出し（`機器番号` か `管理番号` か）だけで行う。`importNishinihonCsv` も BOM を取り除いてから行に分ける（今のままだと 1 行目の先頭に U+FEFF が残る）。BOM 付きのテストを足す（現在のテストに無い）。\n\n### 2. [高] 同じ機器・同じ校正日で成績書番号が違う行を、2 件とも取り込む（要件 7 に反する）\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv`（`const key = \\`${no}|${date}|${cert}\\``）と、取込済みの判定の SQL\n- 問題: 要件 7 は「ファイル内の重複は A 社と同じ決まりで後の行を読み飛ばす」。A 社（`src/lib/legacy/calib-import.ts`）の重複の決まりは「管理番号＋校正日」で、証明書番号は含まない。本変更は成績書番号まで含めているため、同日・同機器で成績書番号だけ違う行が重複と見なされない。\n- 実測: `MI0009,...,2026-11-06,PASS,B1` と `MI0009,...,2026-11-06,PASS,B2` の 2 行を送ると、2 件とも取り込まれ（imported:2）、MI-0009 の校正記録が同日に 2 件できた。\n- 直し方: ファイル内の重複のキーを `管理番号|校正日` にして、後の行を「同じファイルの中で重複」で読み飛ばす。台帳との照合（取込済み）は A 社と同じく「機器・校正日・成績書番号」のままでよい。重複のテスト（成績書番号違い）を足す。\n\n### 3. [低] 要件にない「未来日の拒否」を足している\n\n- 場所: `importNishinihonCsv` の `date > today` の判定、`docs/calibration-import.md`\n- 問題: 合意した要件 8 は「台帳に無い機器番号・読めない判定」を誤りにするというもの。未来日・成績書番号の 51 文字以上の拒否は要件に無く、A 社の取込とも挙動が違う（CLAUDE.md の「変更は依頼された範囲にとどめる」）。ただし誤記の未来日を防ぐ意図は理解できる。\n- 直し方: 残すなら、仮定として PR の説明に明記して依頼者の承認を得る。残さないなら削除する。\n\n### 4. [低] 取込の失敗（400）がログに残らない\n\n- 場所: `importNishinihonCsv` の `ok: false` で返す経路（件数の不一致・END 欠落など）\n- 問題: 成功時は `calibration.imported` を出すが、END の件数の不一致で全体を止めたときはログが無い。転送が途中で切れた事象は運用で追いたい（開発標準 15）。\n- 直し方: 全体を止めるときに `logger.warn` で、理由・END の件数・実際の行数を出す。\n\n## 確認して問題なかった点\n\n- 同じファイルの再取込: 2 回目は全行「取込済み」で imported:0（冪等）。\n- ハイフン無しの機器番号（MI0003）の照合、改行コード CRLF、END の件数の不一致は 400 で何も取り込まない。\n- COND は合格として取り込み、備考に「条件付き合格（2026-11-05）: コメント」が追記された（MI-0010 で確認）。\n- 台帳に無い機器番号・読めない判定は errors に入り、ほかの行は取り込まれる。応答の形も変わっていない。\n- 東日本（A 社）側のコードは変更されていない。\n",
+  "review_chars": 2201,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4203,
+    "tokens": {
+      "input": 48,
+      "output": 9636,
+      "cache_read": 1244114,
+      "cache_creation": 49870
+    },
+    "turns": 30,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run build 2>&1 | tail -5) && (PORT=3417 nohup npm run start -- -p 3417 > /tmp/claude-0/srv.log 2>&1 &) ; sleep 5; cat /tmp/claude-0/srv.log | tail -3; grep -n \\\"username\\\\|userId\\\\|b"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"nohup npm run start -- -p 3417 > /tmp/claude-0/srv.log 2>&1 &\\nsleep 6; tail -3 /tmp/claude-0/srv.log\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c4-1-app/95b7de32-912b-4868-a945-73d894488007/scratchpad && sleep 4\\nB=http://localhost:3417\\ncurl -s -c j -X POST -H 'content-type: appl"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c4-1-app/95b7de32-912b-4868-a945-73d894488007/scratchpad && cat > t.sh <<'EOF'\\nB=http://localhost:3417\\ncurl -s -c j -X POST -H 'content"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c4-1-app/95b7de32-912b-4868-a945-73d894488007/scratchpad && bash t.sh\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c4-1-app/95b7de32-912b-4868-a945-73d894488007/scratchpad/t.sh\"}"
+      },
+      {
+        "tool": "Write",
+        "input": "{\"file_path\": \"/tmp/claude-0/bom.csv\", \"content\": \"﻿# 西日本校正センター\\n機器番号,品名,校正実施日,判定結果,成績書番号,有効期限,コメント\\nMI0009,オシロ,2026-11-06,PASS,B1,,\\nMI0009,オシロ,2026-11-06,PASS,B2,,\\nEND,2\\n\"}"
+      },
+      {
+        "tool": "Write",
+        "input": "{\"file_path\": \"/tmp/claude-0/nobom.csv\", \"content\": \"# 西日本校正センター\\n機器番号,品名,校正実施日,判定結果,成績書番号,有効期限,コメント\\nMI0009,オシロ,2026-11-06,PASS,B1,,\\nMI0009,オシロ,2026-11-06,PASS,B2,,\\nMI0099,x,2026-11-06,PASS,B3,,\\nM"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 20,
+      "Write": 6,
+      "TaskStop": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 92,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、前回出した指摘 4 件がすでに、場所・何が問題か・直し方・重要度の形式で入っていて、コミットも済んでいます（コミット 0a74e7e）。そのため、今回は書き換えていません。新しい指摘も足していませんし、削ってもいません。コードも直していません。\n\n内訳は次のとおりです。\n\n1. 高: BOM 付きの西日本 CSV が取り込めません。\n2. 高: 同じ機器・同じ校正日で成績書番号だけ違う行が、重複として読み飛ばされません。\n3. 低: 要件にない未来日などの拒否が追加されています。\n4. 低: END の件数が合わず 400 で止めたときに、ログが残りません。\n\n問題がなかった点の一覧も、同じファイルに残しています。"
+  },
+  "interventions": 0
+}

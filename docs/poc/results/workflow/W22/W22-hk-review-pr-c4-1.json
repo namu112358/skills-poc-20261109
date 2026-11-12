@@ -1,0 +1,39 @@
+{
+  "trial": "W22-hk-review-pr-c4-1",
+  "scenario": "W22",
+  "config": "hk-review-pr",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー: 期限が近いタスクを一覧で目立たせる（未コミット差分）\n\n対象: `git diff HEAD`（`src/app/tasks/page.tsx`、`src/lib/due.ts`（新規）、`tests/due.test.ts`（新規））\n\n判定: **マージ前に修正が必要**。`npm test` と `npm run typecheck` は通るが、テストが現在の不具合を検出できていない。\n\n---\n\n## 高: 日付の数え方が日本時間の「日」になっていない（今日のタスクが、午前 9 時以降は「期限切れ」扱いになる）\n\n- 場所: `src/lib/due.ts` の `daysUntilDue`（1 行目の計算）\n- 何が問題か:\n  `Date.parse(\"2026-11-12\")` は UTC の 0 時として解釈される。一方、比較対象は現在時刻の瞬間（`now.getTime()`）で、日本時間の「日」の境界は見ていない。そのため、日本時間の 0:00〜9:00 の間だけ「今日」が 0 になり、9:00 以降は 1 日ずれる。\n  - 再現（確認済み）: `now = 2026-11-12T10:00:00+09:00`、期限 `2026-11-12` → `daysUntilDue` は **-1**、`isDueSoon` は **false**。今日が期限のタスクに「（期限間近）」が付かない。\n  - 再現（確認済み）: `now = 2026-11-12T23:00:00+09:00`、期限 `2026-11-12` → 同じく -1。\n  - サーバーの TZ を変えても結果は変わらない（計算が瞬間ベースのため）。PR の「日本時間の日付で数える」という要件を満たしていない。\n  - 実際の利用では、「今日が期限のタスク」が一日の大半で見落とされる。PR の狙い（期限切れに気づく前に目立たせる）に直接反する。\n- 直し方:\n  今日の日付を日本時間の暦日で求め、その暦日同士の差を取る。\n  ```ts\n  const JST_DAY = new Intl.DateTimeFormat(\"en-CA\", { timeZone: \"Asia/Tokyo\" }); // format(now) => \"YYYY-MM-DD\"\n  export function daysUntilDue(dueDate: string, now: Date = new Date()): number {\n    const today = JST_DAY.format(now);\n    return Math.round((Date.parse(`${dueDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / DAY_MS);\n  }\n  ```\n  テストで、同じ日の 0:00 と 23:59（JST）、9:00 以降の時刻を必ず含めること（下の「中」の指摘を参照）。\n\n## 高: 「3 日後」が「期限間近」に含まれない（仕様の境界がずれている）\n\n- 場所: `src/lib/due.ts` の `isDueSoon`（`days < DUE_SOON_DAYS`）\n- 何が問題か:\n  PR の仕様は「今日から 3 日以内（今日・明日・明後日・3 日後）」。コードは `days >= 0 && days < 3` なので、0・1・2 しか通らず、3 日後のタスクが除外される。\n  - 再現（確認済み）: `now = 2026-11-12T00:00:00+09:00`、期限 `2026-11-15` → `daysUntilDue` は 3、`isDueSoon` は **false**。仕様では true のはず。\n  - 既存のテストは 2 日後（`2026-11-14`）までしか確認していないため、この誤りを検出できない。\n- 直し方:\n  `return days >= 0 && days <= DUE_SOON_DAYS;` に変更する。`DUE_SOON_DAYS` の定義（3）と PR の仕様は一致している。\n\n## 中: テストが不具合を隠している（時刻が常に日本時間の 0:00 に固定されている）\n\n- 場所: `tests/due.test.ts` の `const now = new Date(\"2026-11-12T00:00:00+09:00\")`\n- 何が問題か:\n  基準時刻が常に日本時間の 0:00 で、UTC 基準の計算でも偶然正しく見える。そのため、9:00 以降の「今日」や、3 日後の境界を検出できない。`npm test` が通ることは、この PR の正しさの根拠にならない。\n- 直し方:\n  以下のケースを追加する（時刻を変えて `daysUntilDue` と `isDueSoon` の両方を確認）。\n  - 2026-11-12T00:00+09:00 / 9:00 / 23:59 の各時刻で、期限 `2026-11-12` は 0・「期限間近」が true\n  - 期限 `2026-11-15`（3 日後）は true、`2026-11-16`（4 日後）は false\n  - 期限 `2026-11-11`（昨日）は -1・false（既存）\n  - 可能なら、`TZ=America/Los_Angeles` など別の TZ で実行しても結果が変わらないことを確認する（`npm test` は TZ を指定しないため、テストの中で結果が TZ に依存しないことを検証する形にする）\n\n## 低: `due-soon` の class に対応するスタイルが存在しない\n\n- 場所: `src/app/tasks/page.tsx` の `<tr ... className={isDueSoon(task, now) ? \"due-soon\" : undefined}>`\n- 何が問題か:\n  リポジトリ内に `.css` ファイルがなく、`due-soon` を定義している箇所もない。現状では class は効果がなく、目立たせるのは「（期限間近）」の文字だけになる。PR の「目立たせる」という目的と、実装の意図がずれている。\n- 直し方:\n  スタイルを定義するか（既存のスタイル手段に合わせる）、使わないなら className を削除する。どちらにするかは作者の判断。\n\n## 低: 同じ判定を行 1 件あたり 2 回呼んでいる\n\n- 場所: `src/app/tasks/page.tsx`（`tasks.map` 内の `isDueSoon(task, now)` が 2 箇所）\n- 何が問題か:\n  表示には影響しないが、同じ計算を 2 回行い、将来ロジックを変えたときに片方だけ直される危険がある。\n- 直し方:\n  `const dueSoon = isDueSoon(task, now);` を 1 回だけ計算し、両方で使う。\n\n## 低: コメントが実装の前提を説明していない\n\n- 場所: `src/lib/due.ts` の `daysUntilDue` の JSDoc（「今日が期限なら 0」）\n- 何が問題か:\n  「今日」が日本時間の暦日であることが書かれていない。上の高の指摘を直すと、コメントも併せて直す必要がある。\n- 直し方:\n  「日本時間（Asia/Tokyo）の暦日で数える。今日が期限なら 0、過ぎていれば負の数」と明記する。\n\n---\n\n## 問題が無いと判断した点（参考）\n\n- 既存のテストは通る（22 件、失敗 0）。`npm run typecheck` も通る。\n- 判定ロジックは `src/lib/due.ts` に分離されており、ページは表示だけを担当している（CLAUDE.md の規約 1 に沿う）。\n- 完了（`done`）のタスクを除外している点は仕様どおり。期限切れ（負の日数）を除外している点も仕様どおり（ただし上の高の指摘のため、現状では今日のタスクまで除外されてしまう）。\n- 「（期限間近）」の文言は日本語で、仕様どおり。\n- 新しい外部ライブラリは追加されていない。\n- エラー処理: 判定は純粋関数で、例外を握りつぶす箇所はない。不正な日付文字列（`NaN`）は比較が false になり「期限間近」にならないだけで、表示は壊れない。\n\n## 推奨する対応の順番\n\n1. `daysUntilDue` を日本時間の暦日ベースに直す（高）\n2. `isDueSoon` の境界を `<=` にする（高）\n3. テストを追加し、時刻を変えても正しく判定されることを確認する（中）\n4. `due-soon` の class を整理する（低）\n5. 判定の呼び出しを 1 回にまとめ、コメントを補う（低）\n",
+  "review_chars": 3757,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0194,
+    "tokens": {
+      "input": 22,
+      "output": 10880,
+      "cache_read": 498646,
+      "cache_creation": 44852
+    },
+    "turns": 11,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short REVIEW.md; echo \\\"diff-exit: $(git diff --quiet HEAD -- REVIEW.md; echo $?)\\\"; grep -n '^## ' REVIEW.md\", \"description\": \"Check REVIEW.md status and list its finding he"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 70,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "その必要はありませんでした。`REVIEW.md` には前回のレビューの指摘が、最初の依頼の形式（場所・何が問題か・直し方・重要度）ですでに書かれており、コミット済みの内容と一致しています。差分がないので、今回は書き換えもコミットもしていません。空のコミットも作っていません。\n\n中身は次の 5 件です。\n\n- **高:** 日付の数え方が日本時間の「日」になっていない（`src/lib/due.ts` の `daysUntilDue`）\n- **高:** 「3 日後」が「期限間近」に含まれない（`src/lib/due.ts` の `isDueSoon`）\n- **中:** テストが不具合を隠している（`tests/due.test.ts` の基準時刻）\n- **低:** `due-soon` の class に対応するスタイルがない（`src/app/tasks/page.tsx`）\n- **低:** 判定を行ごとに 2 回呼んでいる、およびコメントが JST 前提を説明していない\n\n新しい指摘は足していません。コードも変更していません。ステージ済みの `src/lib/due.ts` と `tests/due.test.ts` は、今回も触っていません。"
+  },
+  "interventions": 0
+}

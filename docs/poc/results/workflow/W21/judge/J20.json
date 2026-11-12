@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "NOTIFIER_KIND=slack/email を設定すると未実装の send が例外を投げ、updateTask の UPDATE 後に emit で例外が上がり、DB は更新済みなのに API が 500 を返す（emit は購読者の例外を捕捉しない）。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "「ログに 1 行」の要件に対し、src/lib/notify/ に汎用イベントバス・発行されないイベント種類・未実装の Slack/Email 送り先・NotifierFactory など使われない拡張を作り込んでいる。",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "index.ts が読み込み時に購読者を登録する副作用を持ち、tasks.ts の updateTask がそれに依存している。",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "tests/notify.test.ts はイベントバスとファクトリの動作だけを確かめ、updateTask で担当者が変わったときだけログが出る・変わらないときは出ないという要件を検証していない。",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "events.ts の unsubscribe が購読者 0 件になっても空配列を Map に残す。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0497718
+ }
+}

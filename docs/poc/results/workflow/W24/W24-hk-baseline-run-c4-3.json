@@ -1,0 +1,43 @@
+{
+  "trial": "W24-hk-baseline-run-c4-3",
+  "scenario": "W24",
+  "config": "hk-baseline-run",
+  "case": "c4",
+  "rep": 3,
+  "review_md": "# コードレビュー: 期限が近いタスクの表示\n\n対象: 未コミットの差分（`src/app/tasks/page.tsx`、`src/lib/due.ts`、`tests/due.test.ts`）\n\n結論: **このままではマージできません。** 「日本時間の日付で数える」「今日から 3 日以内」という要件を満たしていません。既存テストは通りますが、テストが検出できない条件でしか確かめていないため、この不具合を見逃しています。\n\n検証方法: `src/lib/due.ts` の `isDueSoon` / `daysUntilDue` を node で直接呼ぶ再現スクリプトを作業用の一時ファイルに書いて実行しました（`TZ=UTC` と `TZ=Asia/Tokyo` の両方）。両者の結果は同じでした。リポジトリのファイルは変更していません。\n\n---\n\n## 指摘 1: 日付の数え方が日本時間の「日」になっていない\n\n- **場所**: `src/lib/due.ts` `daysUntilDue()`（10〜11 行目: `Math.floor((Date.parse(dueDate) - now.getTime()) / DAY_MS)`）\n- **何が問題か**:\n  - `Date.parse(\"2026-11-12\")` は **UTC の 0:00**（日本時間 9:00）を返します。一方 `now` は現在時刻の瞬間です。\n  - その差を `Math.floor` で切り捨てるため、結果は「暦の日数」ではなく「現在時刻から期限日の UTC 0:00 までの経過日数」になります。現在時刻が日本時間の 9:00 を過ぎると、同じ日のタスクが「期限切れ（-1）」になります。\n  - 再現結果（`now` が 2026-11-12 の日本時間。期限日は `dueDate`）:\n\n    | 現在時刻（JST） | due=11-12 の `daysUntilDue` | 期待（暦日の差） | `isDueSoon` | 期待 |\n    |---|---|---|---|---|\n    | 11-12 00:00 | 0 | 0 | true | true |\n    | 11-12 08:59 | 0 | 0 | true | true |\n    | 11-12 12:00 | **-1** | 0 | **false** | true |\n    | 11-12 23:30 | **-1** | 0 | **false** | true |\n\n    同様に 11-11 23:30 の時点では、今日が期限の 11-11 が `-1`（期限切れ）になり、表示されません。\n  - つまり、**期限当日のタスクは日本時間の 9:00 から翌 8:59 までの大半の時間帯で「期限間近」が付かない**ことになります。期限を過ぎてから気づく問題を解決するための機能なので、ここが一番重要です。\n- **直し方**: 「日本時間の暦の日」同士で差を取ります。\n  ```ts\n  const JST_OFFSET_MS = 9 * 60 * 60 * 1000;\n  const DAY_MS = 24 * 60 * 60 * 1000;\n\n  /** now を日本時間の暦日として見たときの 0:00（UTC 表記の時刻） */\n  function jstDayStartMs(now: Date): number {\n    const ymd = new Date(now.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);\n    return Date.parse(`${ymd}T00:00:00Z`);\n  }\n\n  export function daysUntilDue(dueDate: string, now: Date = new Date()): number {\n    return Math.round((Date.parse(`${dueDate}T00:00:00Z`) - jstDayStartMs(now)) / DAY_MS);\n  }\n  ```\n  この形で、`now` を日本時間 0:00〜23:59 の各時刻に変えても、期限日の -2〜+5 日のすべてで期待どおりになることを確認しました（一時スクリプトで検証、不一致 0 件）。\n- **重要度**: 高\n\n## 指摘 2: 「3 日以内」の範囲が 1 日足りない（3 日後が含まれない）\n\n- **場所**: `src/lib/due.ts` `isDueSoon()`（18 行目: `return days >= 0 && days < DUE_SOON_DAYS;`）。定数は 5 行目 `DUE_SOON_DAYS = 3`\n- **何が問題か**: PR の要件は「今日・明日・明後日・3 日後」で、0〜3 日後（4 日分）です。`< DUE_SOON_DAYS`（= `< 3`）だと 0〜2 日後の 3 日分しか含まれません。\n  - 再現: `now` = 2026-11-12 0:00 JST のとき、期限 2026-11-15（3 日後）の `isDueSoon` は `false`。要件では `true` であるべきです。\n- **直し方**: 上限を含めます。\n  ```ts\n  return days >= 0 && days <= DUE_SOON_DAYS;\n  ```\n  または定数の意味を「3 日後まで」に合わせ、コメントも揃えます。\n- **重要度**: 高\n\n## 指摘 3: テストが指摘 1・2 を検出できない\n\n- **場所**: `tests/due.test.ts` 1 行目の `now` 定義（`new Date(\"2026-11-12T00:00:00+09:00\")`）、`describe(\"isDueSoon\")` の 24〜35 行目\n- **何が問題か**:\n  - `now` が常に「日本時間 2026-11-12 0:00」ちょうどです。この時刻だけ、指摘 1 の不具合が出ません（一日の中で唯一、正しく動く時刻）。\n  - 3 日後（指摘 2 の境界）のケースがありません。`isDueSoon` のテストは「2026-11-14（2 日後）」が true で、「2026-11-30」が false とだけ確かめています。\n  - 時刻の違い（例: 日本時間 12:00、23:30）や、日付の境界（前日 23:59 と当日 0:00）を確かめていません。\n- **直し方**: 次のケースを追加します。\n  - `now` を日本時間の 0:00・12:00・23:59 にそれぞれ設定し、期限が今日・明日・3 日後・4 日後になるタスクの `isDueSoon` を確かめる。\n  - `daysUntilDue` が日付だけで決まり、時刻に依存しないことを確かめる。\n  - 「未完了」の判定（`done` は false）は既存のテストのままで問題ありません。\n- **重要度**: 中\n\n## 指摘 4: 「期限間近」の強調が CSS に定義されていない\n\n- **場所**: `src/app/tasks/page.tsx` 44 行目 `className={isDueSoon(task, now) ? \"due-soon\" : undefined}`\n- **何が問題か**: リポジトリ内に `.due-soon` のスタイル定義がありません。強調は `<strong>（期限間近）</strong>`（52 行目）の文字だけになります。クラス名だけ付いていて効果がないため、意図と食い違います。\n- **直し方**: スタイルを定義するか、クラス名を削除します。テキストで十分なら削除で構いません。\n- **重要度**: 低\n\n## 指摘 5: `isDueSoon` の呼び出しが行ごとに 2 回\n\n- **場所**: `src/app/tasks/page.tsx` 44 行目と 52 行目（両方で `isDueSoon(task, now)` を呼んでいる）\n- **何が問題か**: 動作には影響しません。同じ判定を 1 行の中で 2 回計算しています。\n- **直し方**: 行の中で `const dueSoon = isDueSoon(task, now);` と一度だけ計算し、両方で使います。\n- **重要度**: 低\n\n---\n\n## 問題が無いと判断した点\n\n- `now` を `page.tsx` で 1 回だけ作り、一覧全体で同じ基準時刻を使っている点（一覧の途中で日付が変わる問題はありません）。\n- 完了（`done`）のタスクを除外している点。\n- 期限が不正な文字列のときの動作: `Date.parse` が `NaN` を返し、比較がすべて `false` になるため、「期限間近」は付かず安全側に働きます。\n- 並び順や共有状態への影響はありません（一覧の `ORDER BY id` は変わらず、モジュールに可変状態はありません）。\n",
+  "review_chars": 3902,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0241,
+    "tokens": {
+      "input": 28,
+      "output": 15915,
+      "cache_read": 688669,
+      "cache_creation": 46422
+    },
+    "turns": 18,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/poc-trials/W24-hk-baseline-run-c4-3/scratch-review 2>/dev/null; S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-c4-3-app/48c24baf-ff2b-405e-a54f-a681de7cb07d/scratchpad;"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-c4-3-app/48c24baf-ff2b-405e-a54f-a681de7cb07d/scratchpad; echo \\\"== TZ=UTC\\\"; TZ=UTC node --experimental-strip-types --no-warnings $S/r"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Write": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 78,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を依頼の形式に書き直し、そのファイルだけをコミットしました（コミット `da08fd2`）。コードは変更していません。\n\n直前のレビューの 5 件をそのまま残し、各指摘に「場所・何が問題か・直し方・重要度」を付けました。新しい指摘は足していません。場所には行番号を入れています。\n\n1. **日付の数え方が日本時間の「日」になっていない**（`src/lib/due.ts` `daysUntilDue`、10〜11 行目）。重要度: 高\n2. **「3 日以内」が 3 日後を含まない**（`src/lib/due.ts` `isDueSoon`、18 行目）。重要度: 高\n3. **テストが 1・2 を検出できない**（`tests/due.test.ts`）。重要度: 中\n4. **`.due-soon` のスタイルが定義されていない**（`src/app/tasks/page.tsx` 44 行目）。重要度: 低\n5. **`isDueSoon` の呼び出しが行ごとに 2 回**（`src/app/tasks/page.tsx` 44・52 行目）。重要度: 低\n\n作業ツリーには `src/app/tasks/page.tsx`・`src/lib/due.ts`・`tests/due.test.ts` の差分が元のまま残っています。`due.ts` と `due.test.ts` は index にステージされたままですが、今回のコミットには含めていません。"
+  },
+  "interventions": 0
+}

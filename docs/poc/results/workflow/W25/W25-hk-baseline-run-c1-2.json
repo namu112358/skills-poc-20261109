@@ -1,0 +1,45 @@
+{
+  "trial": "W25-hk-baseline-run-c1-2",
+  "scenario": "W25",
+  "config": "hk-baseline-run",
+  "case": "c1",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスクに「保留」ステータスを追加\n\n対象: 未コミットの差分（`src/lib/tasks.ts`、`tests/tasks.test.ts`）\n\n## 指摘\n\n### 1. DB の CHECK 制約が `on_hold` を許可しておらず、保留にしようとすると必ず失敗する\n\n- **場所**: `src/lib/db/migrations.ts` の migration 1（`tasks.status` の `CHECK (status IN ('todo', 'in_progress', 'done'))`）。書き込みは `src/lib/tasks.ts` の `createTask` と `updateTask`。API は `src/app/api/tasks/route.ts` の `POST` と `src/app/api/tasks/[id]/route.ts` の `PATCH`。\n- **何が問題か**: `validateTaskInput` は `on_hold` を通すので、`POST /api/tasks` と `PATCH /api/tasks/:id` の入力検証は成功する。しかし DB の CHECK 制約に `on_hold` が無いため、INSERT / UPDATE で SQLite が例外を投げる。API では 400 も 404 も返らず、未処理の例外（500）になる。PR の「API で保留を選べるようになる」は実際には成り立たない。\n  - 再現（`openDb()` の DB で実行、スクラッチ用スクリプトで確認済み）:\n    - `validateTaskInput({ status: \"on_hold\" }, { partial: true })` → `{ ok: true, value: { status: \"on_hold\" } }`\n    - `createTask({ ..., status: \"on_hold\" })` → `CHECK constraint failed: status IN ('todo', 'in_progress', 'done')`\n    - `updateTask(1, { status: \"on_hold\" })` → 同じ例外\n    - `listTasks({ status: \"on_hold\" })` → `[]`（例外は出ないが、保留のタスクは作れないので常に空）\n  - 一覧の絞り込みに「保留」が出ても、どのタスクも保留にできないため結果は常に 0 件になる。\n  - 既存の DB（`DATABASE_PATH` のファイル）は migration 1 の制約を持ったままなので、マイグレーションを足さない限り、ファイル DB では直らない。\n- **直し方**: `src/lib/db/migrations.ts` の末尾に version 3 のマイグレーションを追加する（既存のマイグレーションは書き換えない。CLAUDE.md 規約 7）。SQLite では CHECK 制約を変更できないので、テーブルを作り直す。作業用の DB で動作を確認済みの SQL の例:\n\n  ```sql\n  CREATE TABLE tasks_new (\n    id       INTEGER PRIMARY KEY AUTOINCREMENT,\n    title    TEXT NOT NULL,\n    status   TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'on_hold', 'done')),\n    assignee TEXT NOT NULL REFERENCES users(id),\n    due_date TEXT NOT NULL\n  );\n  INSERT INTO tasks_new SELECT * FROM tasks;\n  DROP TABLE tasks;\n  ALTER TABLE tasks_new RENAME TO tasks;\n  CREATE INDEX tasks_assignee ON tasks(assignee);\n  ```\n\n  確認結果: 7 行すべて残り、`UPDATE ... SET status = 'on_hold'` が成功し、`tasks_assignee` インデックスも再作成されている。`PRAGMA foreign_keys = ON` の状態でも同じ手順が通り、外部キーの整合性チェック（`PRAGMA foreign_key_check`）も問題が無いことを確認済み。\n- **重要度**: 高\n\n### 2. テストが「保留の検証を通る」ことしか確かめておらず、DB への保存を確かめていないため、上の不具合を見逃している\n\n- **場所**: `tests/tasks.test.ts` の `validateTaskInput` の `accepts the on_hold status` と、`isTaskStatus` のテスト。\n- **何が問題か**: 追加したテストは検証関数だけを見ている。`createTask` / `updateTask` で `on_hold` を保存するテストが無いので、CHECK 制約の不具合でテストが落ちない。PR の「検証結果」は実際の保存を確かめていない。\n- **直し方**: `openDb()` で DB を作り、`createTask` と `updateTask` に `status: \"on_hold\"` を渡して、保存された値が `on_hold` になることを確かめるテストを追加する（`tests/tasks.test.ts` の `createTask / updateTask` のブロック内）。マイグレーションのテスト（`tests/db.test.ts`）では、マイグレーション後に `on_hold` の UPDATE が通ることも確かめると、既存の DB でも直ったことが分かる。\n- **重要度**: 中\n\n### 3. PR の説明と実装の差\n\n- **場所**: PR の説明（「一覧の絞り込み … 「保留」でも絞り込める」「API で `on_hold` を選べる」）。\n- **何が問題か**: 指摘 1 のとおり、現状では保留にできないので、説明の内容は満たされていない。\n- **直し方**: 指摘 1 を直せば説明どおりになる。PR の説明に「DB のマイグレーションを追加した」を書き足すこと。\n- **重要度**: 低\n\n## 問題が無いと判断した点\n\n- `TASK_STATUSES`・`STATUS_LABELS`・`TaskStatus` の型の追加、`isTaskStatus` の判定は正しい。\n- 一覧画面（`src/app/tasks/page.tsx`）の絞り込みの選択肢は `TASK_STATUSES` から作られるので、保留が自動で増える。\n- `on_hold` は `\"todo\" | \"in_progress\" | \"done\"` の並び順とは無関係で、並び順（`ORDER BY id`）に影響しない。\n",
+  "review_chars": 3096,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0258,
+    "tokens": {
+      "input": 34,
+      "output": 14113,
+      "cache_read": 886536,
+      "cache_creation": 49428
+    },
+    "turns": 23,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c1-2-app/8cc308e0-7951-4275-a637-abe714b416ac/scratchpad/repro && cat > /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c1-2-a"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -q -m \\\"$(printf 'Add code review notes for on_hold status\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.a"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Write": 5,
+      "Edit": 2,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 68,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き直し、そのファイルだけをコミットしました（コミット `7c6a59e`）。コードは変更していません。\n\n各指摘に「場所」「何が問題か」「直し方」「重要度」を明示的な項目として書きました。内容は前回と同じで、指摘は 3 件のまま削っていません。\n\n1. **高**: DB の CHECK 制約が `on_hold` を許可しておらず、保留にできない。\n2. **中**: テストが保存を確かめておらず、1 の不具合を見逃している。\n3. **低**: PR の説明と実装が合っていない。\n\n作業ツリーには、`src/lib/tasks.ts` と `tests/tasks.test.ts` の未コミットの差分がそのまま残っています。\n\n前回のコミット `99817a5` は残っています。前回と今回のコミット メッセージは同じ内容です。"
+  },
+  "interventions": 0
+}

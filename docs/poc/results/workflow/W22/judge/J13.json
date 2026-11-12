@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "listTasks の SQL が assignee_id AS assignee と別名を付ける一方、toTask は row.assignee_id を読むため、一覧の全要素で assigneeId が undefined になる。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "Task 型と validateTaskInput を変えたことで API の応答のキーが assignee から assigneeId に変わり、旧キーで POST すると 400 になる。PR の説明「API の入出力は変えない」と矛盾する。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "PATCH に旧キー assignee を送ると検証を通って何も変わらず、200 が返り、失敗が黙って無視される。",
+   "severity": "中",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "バージョン 2 の DB からマイグレーション 3 を適用したときのデータ保持と外部キーを確かめるテストが無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 5,
+   "summary": "API の入出力のキーや PATCH の未知キーといった契約を固定するテストが無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 6,
+   "summary": "updateTask で担当者を更新するテストが無く、assignee_id の割り当てを検証していない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "画面の担当者表示を確かめるテストが無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "SQL の列指定と TaskRow 型が別々に書かれ as でキャストしているため、列名のずれを型で検出できない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "列を assignee_id に変えたのにインデックス名が tasks_assignee のままなので、マイグレーション 3 で作り直すべき。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 10,
+   "summary": "新規作成の検証結果が Partial 型のままで、route で TaskInput にキャストしている。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "seed の assigneeId が DB の assignee_id に正しく入るかを確かめるテストが無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "updateTask が assigneeId: undefined を受け付け、既存の値を undefined で上書きして SQL に渡しうる（現在の API 経路では到達しない）。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0827438
+ }
+}

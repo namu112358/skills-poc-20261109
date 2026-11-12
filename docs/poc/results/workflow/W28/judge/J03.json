@@ -1,0 +1,127 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "listActiveUsers() が返す node:sqlite の null プロトタイプの行を Client Component の InspectionForms にそのまま渡しているため、本番で計測器の詳細画面がすべて 500 になる",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "recordInspection が貸出中（on_loan）の計測器も「要修理」で suspended にしてしまい、貸出の状態と食い違う",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "合意した要件「担当者で絞り込み・並べ替え」が一覧の画面・API に実装されていない",
+   "severity": "高",
+   "match": "G1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "合意した要件「担当者ごとの遅れ台数を毎朝知りたい」が画面・API・ジョブのどれにも無い",
+   "severity": "高",
+   "match": "G2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "最後の点検日が MAX(inspected_on) なので、未来寄りに誤入力した日付を古い日付の記録で訂正できない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "古い日付の「要修理」を後から記録すると、最新の点検が良好でも計測器が使用停止になる",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "訂正の記録という概念が無く、誤って要修理を入れたときに点検の側から使用停止を戻す手段が無い",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "担当者が未設定の計測器の遅れは誰にも通知されない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "使用停止・廃棄の計測器も「期限切れ」「未点検」と表示される",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 10,
+   "summary": "移行の名前照合で入力側だけ空白を除去し users.name 側を正規化しないため、空白入りの名前が一致しない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 11,
+   "summary": "敬称（さん・様・殿・氏）を先に外すため、「氏」で終わる名前の照合が変わる。完全一致を先に試すべき",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "extra が壊れた JSON の計測器が移行でログも無く黙って飛ばされる",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 13,
+   "summary": "移行テストがシードの例だけで、空白入り・同姓同名・退職者・和暦の境界などのテストが無い",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 14,
+   "summary": "読めない旧日付（inspected_on が NULL）の記録しかない計測器が「未点検」と表示される",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 15,
+   "summary": "ロールバック時に旧版と新版で担当者・点検記録が食い違い、再度上げても移行が再実行されない。運用文書に注意を書くべき",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 16,
+   "summary": "ログインしていれば誰でも担当者・周期を変更でき、他人を点検者として記録できる",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 17,
+   "summary": "一覧の listInspectionPlans() が毎回約 5 万件を全件取得して Map に載せており、SQL 側に寄せるべき",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0844078
+ }
+}

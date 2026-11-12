@@ -1,0 +1,51 @@
+{
+  "trial": "W24-baseline-run-c4-1",
+  "scenario": "W24",
+  "config": "baseline-run",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー結果: 期限が近いタスクを一覧で目立たせる\n\n対象: `src/lib/due.ts`（新規）、`src/app/tasks/page.tsx`、`tests/due.test.ts`（新規）。\n`due.ts` の関数を node で実際に呼んで確認した結果に基づく。\n\n## 指摘 1\n\n- **重要度**: 高\n- **場所**: `src/lib/due.ts` の `daysUntilDue`\n- **何が問題か**: `Date.parse(\"YYYY-MM-DD\")` は UTC の 0:00（日本時間 9:00）になり、これと現在時刻（瞬間）の差を `Math.floor` で日数にしている。日本時間の暦日で数える処理がなく、PR の「日本時間の日付で数える」を満たしていない。日本時間 9:00 を境に日数が 1 日ずれる。\n  再現（期限 2026-11-12 のタスク）:\n\n  | now（JST） | 期限 11-12 の残り日数 / 判定 | 期限 11-15 の残り日数 / 判定 |\n  |---|---|---|\n  | 11-12 00:00〜09:00 | 0 / true | 3 / false |\n  | 11-12 15:00 | **-1 / false** | 2 / true |\n  | 11-12 23:59 | **-1 / false** | 2 / true |\n\n  日本時間 9:00 以降は、今日が期限のタスクが「期限切れ」扱いになり表示されない（最も目立たせたいタスクが消える）。また対象範囲が 1 日早くずれる。既存テストは `now` を日本時間 0:00 に固定しているため検出できない。\n- **直し方**: `now` を日本時間の日付文字列（例: `Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" }).format(now)` で `YYYY-MM-DD`）に変換し、期限と同じ形式（どちらも UTC 0:00 として `Date.parse`）で `(期限 - 今日) / DAY_MS` を整数（`Math.round`）で求める。\n\n## 指摘 2\n\n- **重要度**: 高\n- **場所**: `src/lib/due.ts` の `isDueSoon`（`days < DUE_SOON_DAYS`）\n- **何が問題か**: PR は「今日・明日・明後日・3 日後」を対象としているが、`days < 3` のため 0〜2 日後しか true にならない。再現: 日本時間 11-12 0:00 のとき、期限 11-15（3 日後）は `daysUntilDue = 3`、`isDueSoon = false`。\n- **直し方**: `days <= DUE_SOON_DAYS` にする。「3 日後は true、4 日後は false」のテストを追加する。\n\n## 指摘 3\n\n- **重要度**: 中\n- **場所**: `tests/due.test.ts`（`daysUntilDue` / `isDueSoon` のテスト全体）\n- **何が問題か**: `now` が日本時間 0:00 だけで、指摘 1・2 の不具合をすり抜ける。3 日後・4 日後の境界も確認していない（確認しているのは 2 日後と 18 日後）。\n- **直し方**: 日中・夜（例: 15:00、23:59 JST）など UTC と日本時間で日付が違う時刻のケース、3 日後・4 日後の境界、期限切れ（-1）、`done` かつ期限間近の組み合わせを追加する。\n\n## 指摘 4\n\n- **重要度**: 低\n- **場所**: `src/lib/due.ts` の `daysUntilDue` / `isDueSoon`\n- **何が問題か**: `dueDate` が不正だと `Date.parse` が `NaN` になり、`days >= 0` が false で表示されないだけで落ちはしない。DB には検証済みの値が入るため実害は小さい。\n- **直し方**: 意図を明示するなら `Number.isNaN` で早期に false を返す。\n\n## 指摘 5\n\n- **重要度**: 低\n- **場所**: `src/app/tasks/page.tsx` の一覧行（`tasks.map` 内）\n- **何が問題か**: 行ごとに `isDueSoon(task, now)` を 2 回呼んでいる。動作への影響はない。\n- **直し方**: 変数に一度入れて使う。\n",
+  "review_chars": 1976,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2599,
+    "tokens": {
+      "input": 30,
+      "output": 7483,
+      "cache_read": 545802,
+      "cache_creation": 32595
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"dueDate\\\" src/lib/tasks.ts | head; grep -n \\\"due\\\" src/lib/db/seed.ts | head -5; mkdir -p /tmp/claude-0/r && cat > /tmp/claude-0/r/t.ts <<'E'\\nimport { daysUntilDue, isDueSoon }"
+      },
+      {
+        "tool": "Write",
+        "input": "{\"file_path\": \"/tmp/claude-0/r/t.ts\", \"content\": \"import { daysUntilDue, isDueSoon } from \\\"/tmp/poc-trials/W24-baseline-run-c4-1/app/src/lib/due.ts\\\";\\nconst t = (d: string) => ({ id: 1, title: \\\"t\\\""
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W24-baseline-run-c4-1-app/25a19780-b5c3-48e2-892c-d2e0ddfeab90/scratchpad/t.ts; TZ=UTC node --experimental-strip-types $S 2>&1 | grep -v -i warn; echo ---;"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 9,
+      "Write": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 63,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘 5 件を、指摘ごとに「重要度・場所・何が問題か・直し方」の形で `REVIEW.md` に書き直し、`REVIEW.md` だけをコミットしました。指摘の追加や削除はなく、コードも直していません。\n\n| # | 重要度 | 内容 |\n|---|---|---|\n| 1 | 高 | `daysUntilDue` が日本時間の暦日で数えていない。日本時間 9:00 以降は、今日が期限のタスクが期限切れ扱いになる |\n| 2 | 高 | `isDueSoon` の `days < 3` で、3 日後が対象外になっている |\n| 3 | 中 | テストが日本時間 0:00 だけで、境界値を見ていない |\n| 4 | 低 | 不正な日付の扱いを明示していない |\n| 5 | 低 | `page.tsx` で `isDueSoon` を行ごとに 2 回呼んでいる |\n\nPR の変更（`page.tsx`、`due.ts`、`due.test.ts`）は元のまま、未コミットで残っています。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,73 @@
+{
+  "trial": "W32-baseline-e2e-report-c4-1",
+  "scenario": "W32",
+  "config": "baseline-e2e-report",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー: 西日本校正センターの CSV 取込\n\n## 動作確認の結果\n\n`npm run build`（成功）→ `npm run start -p 3517`（本番モード）で起動し、`sato` でログインして確認した。\n\n| 対象 | 結果 |\n|---|---|\n| `POST /api/login` | 200 |\n| `/instruments`・`/instruments/3`・`/instruments/10`（画面） | すべて 200。Application error・500 の表示なし |\n| `GET /api/instruments/10` | 200。COND の備考「条件付き合格（2026-11-05）: 湿度 90%RH のレンジで許容差外」が入っていた |\n| `POST /api/calibrations/import`（付属サンプル CSV） | 200 `imported:3` |\n| 同じファイルをもう一度 | 200 `imported:0`、3 行とも「取込済み」 |\n| 未ログインで取込 | 401 |\n| END の件数が合わないファイル | 400（1 件も取り込まれない） |\n| **BOM 付きの西日本 CSV** | **400「1 行目に『管理番号』の列がありません」→ 指摘 1** |\n| **同じ機器・同じ校正日で成績書番号だけ違う 2 行** | **200 `imported:2`（A 社なら 2 行目は読み飛ばし）→ 指摘 2** |\n\n500・例外・Application error が出た画面・API は無かった。\n\n## 指摘\n\n### 1. [高] BOM 付きの西日本 CSV が取り込めない（要件 3 違反）\n- 場所: `src/lib/calib-import-nishinihon.ts` `isNishinihonCsv`（先頭の BOM 判定で `false` を返す）／`src/app/api/calibrations/import/route.ts`\n- 問題: BOM 付き UTF-8 は A 社の形式とみなされ、A 社の取込に回る。実際に BOM 付きの西日本 CSV を送ると 400「1 行目に『管理番号』の列がありません」になった。「保存のしかた（BOM の有無）の違いで取り込めなくならない」という要件を満たさない。また `importNishinihonCsv` は BOM を除かずに復号するので、判別を直しても 1 行目が `#` で始まらない場合は先頭の見出し名が `﻿機器番号` になって失敗する。\n- 直し方: 判別と取込の両方で、先頭の BOM（EF BB BF）を取り除いてから UTF-8 として復号する。判別は「UTF-8 として復号でき、見出しに『機器番号』がある」かどうかだけで決める（Shift_JIS の A 社ファイルは UTF-8 として復号できないので区別できる）。BOM 付き・CRLF・BOM 付き＋CRLF のテストを足す。\n\n### 2. [高] ファイル内の重複の判定が A 社と違う（要件 7 違反）\n- 場所: `calib-import-nishinihon.ts` `importNishinihonCsv` の `const key = \\`${no}|${date}|${cert}\\``\n- 問題: 要件は「同じファイルの中の重複も A 社と同じ決まりで後の行を読み飛ばす」。A 社（`legacy/calib-import.ts`）の決まりは「機器 + 校正日」が同じなら後の行を読み飛ばす（証明書番号は見ない）。この変更は証明書番号まで含めて比べるので、同じ機器・同じ日で成績書番号だけ違う 2 行がどちらも取り込まれた（確認済み）。前回校正日や状態（FAIL なら使用停止）に二重に影響する。\n- 直し方: ファイル内の重複キーを `${no}|${date}` にする。台帳との取込済み判定（機器・校正日・成績書番号）は今のままでよい。テストを追加する。\n\n### 3. [低] 取込の途中で例外が出たときの扱い\n- 場所: `calib-import-nishinihon.ts` の取込ループ → `calibrations.ts` `recordCalibration`\n- 問題: 事前に備考の長さを確認しているので通常は起きないが、`recordCalibration` が備考の追記に失敗して例外を投げると、それまでの行は取り込まれたまま API が 500 になる（応答に件数が出ない）。再送すれば「取込済み」で回復するため影響は小さい。\n- 直し方: 行ごとに `try/catch` して、その行を `errors` に入れて続ける。\n\n## 確認して問題が無かった点\n- END 件数の不一致・END 行なし・END 後のデータは 400 で、1 件も取り込まれない。\n- 機器番号のハイフン無し（MI0003）・COND の備考追記・2 回目の取込は意図どおり。応答の形（imported・skipped・errors と line）も同じ。\n- A 社の取込のコードは変更されていない。ただし A 社の取込を実際に呼ぶ確認は、Shift_JIS のテストファイルを作れず（コマンドが承認待ちになった）、できなかった。\n",
+  "review_chars": 2274,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4943,
+    "tokens": {
+      "input": 58,
+      "output": 10957,
+      "cache_read": 1602366,
+      "cache_creation": 56090
+    },
+    "turns": 32,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run build 2>&1 | tail -15) && (PORT=3517 nohup npm run start -- -p 3517 > /tmp/srv.log 2>&1 &) ; sleep 5; cat /tmp/srv.log | tail -5; grep -n \\\"username\\\\|userId\\\\|id\\\" src/app/api/l"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"nohup npm run start -- -p 3517 > /tmp/srv.log 2>&1 &\\nsleep 6; tail -3 /tmp/srv.log\", \"run_in_background\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/scratch 2>/dev/null || cd /tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c4-1-app/b6336d21-2305-48f2-95ea-a84ef6895d5a/scratchpad\\nS=$PWD; B=http://localhost:3517;"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c4-1-app/b6336d21-2305-48f2-95ea-a84ef6895d5a/scratchpad/t.sh\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c4-1-app/b6336d21-2305-48f2-95ea-a84ef6895d5a/scratchpad/t.sh 2>&1\", \"description\": \"Run API check script against local server\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c4-1-app/b6336d21-2305-48f2-95ea-a84ef6895d5a/scratchpad; for p in /instruments /instruments/3 /instruments/10 /login; do curl -s "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c4-1-app/b6336d21-2305-48f2-95ea-a84ef6895d5a/scratchpad; printf '\\\\xef\\\\xbb\\\\xbf# c\\\\n機器番号,品名,校正実施日,判定結果,成績書番号,有効期限,コメント\\\\nMI0004"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c4-1-app/b6336d21-2305-48f2-95ea-a84ef6895d5a/scratchpad; head -c 4 bom.csv | od -c | head -1; for f in bom dupkey bad; do curl -s"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f \\\"next start\\\" ; pkill -f \\\"next-server\\\"; sleep 1; curl -s -o /dev/null -w \\\"%{http_code}\\\\n\\\" http://localhost:3517/login\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 22,
+      "Write": 5,
+      "ToolSearch": 1,
+      "TaskStop": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 112,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘は、すでに依頼の形式で `REVIEW.md` に書いてあり、コミット f31bc25 に入っています。作業ツリーの `REVIEW.md` に未コミットの変更はありませんでした。そのため、書き直しも追加のコミットもしていません。\n\n`REVIEW.md` の指摘は 3 件で、削ったものも足したものもありません。\n\n1. **[高]** BOM 付きの西日本 CSV が取り込めません。場所は `isNishinihonCsv` です。\n2. **[高]** ファイル内の重複の判定が A 社と違い、成績書番号まで含めて比べています。場所は `importNishinihonCsv` の `key` です。\n3. **[低]** 取込の途中で例外が出ると、API が 500 になります。\n\n各指摘に、場所・何が問題か（入力と結果）・直し方・重要度を書いています。画面と API を確かめた結果の表も同じファイルに入っています。コードは直していません。"
+  },
+  "interventions": 0
+}

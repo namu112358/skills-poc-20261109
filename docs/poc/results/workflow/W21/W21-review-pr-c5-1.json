@@ -1,0 +1,33 @@
+{
+  "trial": "W21-review-pr-c5-1",
+  "scenario": "W21",
+  "config": "review-pr",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# レビュー結果\n\n対象: 担当者の項目名を `assignee` → `assigneeId` / `assignee_id` に変える変更（未コミットの差分）。\n`npm run typecheck`・`npm test` は通るが、下の高の 2 件は両方とも残っている。\n\n## 1. [高] 一覧画面・`GET /api/tasks` で担当者が空になる\n\n- 場所: `src/lib/tasks.ts` の `listTasks`（SELECT 文の `assignee_id AS assignee`）と `toTask`（`row.assignee_id`）\n- 問題: `listTasks` だけ SELECT で `assignee_id AS assignee` と別名を付けているが、`toTask` は `row.assignee_id` を読む。そのため行に `assignee_id` が無く、`assigneeId` が `undefined` になる。\n  - `/tasks` の一覧の「担当者」列が全件空になる。\n  - `GET /api/tasks` の応答では `assigneeId` が JSON から落ちる。\n  - 「画面の表示を変えない」という PR の前提に反する。`getTask` は `assignee_id` のまま取っているので、詳細画面は正しく出る。\n- なぜ検知されなかったか: テストに `listTasks` の担当者を確かめるものが無い。型は `as TaskRow[]` のキャストで通ってしまう。\n- 直し方: `AS assignee` を外し、`SELECT id, title, status, assignee_id, due_date FROM tasks ...` にする。`listTasks` が各タスクの `assigneeId`（例: 1 件目は `\"sato\"`）を返すテストを追加する。\n\n## 2. [高] API の入出力が変わっている（PR の「API は変えない」に反する）\n\n- 場所: `src/lib/tasks.ts` の `validateTaskInput`（`need(\"assigneeId\")` / `b.assigneeId`）、`Task` 型（`toTask` の出力）。`POST /api/tasks`・`PATCH /api/tasks/:id`・`GET /api/tasks`・`GET /api/tasks/:id` が影響する。\n- 問題: API のリクエスト・レスポンスの JSON キーがそのまま `assignee` から `assigneeId` に変わる。\n  - 既存のクライアントが `{ \"assignee\": \"sato\", ... }` を送る POST は、「担当者が存在しません」で 400 になる。\n  - PATCH で `assignee` だけを送ると、`partial` 扱いで未知のキーとして黙って無視される。担当者が更新されないのに 200 が返る。\n  - 応答からは `assignee` が消える。\n- 直し方: PR の方針どおり API を変えないなら、`validateTaskInput` の入力と、API の応答の JSON では `assignee` を維持する。\n  - 入力は `b.assignee` を読み、`value.assigneeId` に入れる。\n  - 出力は API Route で `assignee` に変換する。内部の `Task` 型だけを `assigneeId` にする。\n- API も変えるつもりなら、PR の説明を直したうえで、クライアントへの影響と互換期間（旧キーの受け入れ）を決める。\n- テスト: `validateTaskInput` と API の応答のキー名を確かめるテストを追加する。今回の差分ではテストも新しいキー名に書き換えられていて、互換性を確認できなくなっている。\n\n## 3. [低] マイグレーション 3 の動作確認が無い\n\n- 場所: `src/lib/db/migrations.ts` のバージョン 3、`tests/db.test.ts`\n- 問題: `ALTER TABLE ... RENAME COLUMN` 自体は、インデックス `tasks_assignee` や外部キーを SQLite が付け替えるので問題ない。ただ、バージョン 2 までの DB（既存データ入り）からバージョン 3 に上げてもデータと外部キー制約が残ることを確かめるテストが無い。インデックス名 `tasks_assignee` が列名と食い違うので、気になるなら別のマイグレーションで付け替える。\n- 直し方: バージョン 2 の状態の DB にデータを入れ、バージョン 3 を適用して、データと外部キーが保たれることを確かめるテストを追加する。DB を永続化している環境があるなら、適用前にバックアップを取る。\n",
+  "review_chars": 2141,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2397,
+    "tokens": {
+      "input": 20,
+      "output": 3516,
+      "cache_read": 373931,
+      "cache_creation": 41775
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 42,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの指摘 3 件がすでに書かれています。形式は、場所・何が問題か・直し方・重要度です。コミット `fafbf09` に入っていて、未コミットの変更もありません。新しい指摘は足さず、削ってもいないので、このままで依頼どおりです。\n\n1. **[高]** `listTasks` が一覧画面と `GET /api/tasks` で担当者を空にする（`AS assignee` と `toTask` の食い違い）。\n2. **[高]** API の入出力キーが `assignee` から `assigneeId` に変わり、PR の「API は変えない」に反する。\n3. **[低]** マイグレーション 3 を既存データ入りの DB に適用するテストが無い。\n\nPR の差分（コード側）は、これまでどおり未コミットのまま残してあります。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,70 @@
+{
+  "trial": "W31-baseline-2pass-c4-2",
+  "scenario": "W31",
+  "config": "baseline-2pass",
+  "case": "c4",
+  "rep": 2,
+  "review_md": "# コードレビュー: 西日本校正センターの CSV の取込\n\nレビューは 2 回行った（1 回目: 要件ごとにコードを読んで確認。2 回目: 本番ビルド・本番モード `npm run start` で `POST /api/calibrations/import` を実際に呼んで確認）。指摘は下の 5 件にまとめた。\n\n## 指摘の一覧\n\n| # | 重要度 | 内容 | 確認 |\n|---|---|---|---|\n| 1 | 高 | BOM 付きの B 社 CSV が取り込めない（要件 3 に反する） | コード・実機 |\n| 2 | 高 | ファイル内の重複の判定が A 社と違う（要件 7 に反する） | コード・実機 |\n| 3 | 中 | 合意した範囲を超えて、行を誤りにする条件が増えている（要件 8 の範囲外） | コード |\n| 4 | 低 | A 社の処理の複製がある | コード |\n| 5 | 低 | PR の検証結果の書き方（テストが問題の挙動を固定している） | コード |\n\n## 要件ごとの確認（1 回目のレビュー）\n\n| # | 要件 | 実装の該当箇所 | 判定 |\n|---|---|---|---|\n| 1 | B 社の形式・校正機関名「西日本校正センター」 | `calib-import-nishinihon.ts` の `NISHINIHON_AGENCY`、`REQUIRED_COLUMNS`、`importNishinihonCsv` | 満たす |\n| 2 | 同じ送り先で両形式 | `api/calibrations/import/route.ts` の `isNishinihonCsv` で分岐 | 満たす（ただし 3 の問題あり） |\n| 3 | 形式の自動判別。BOM の有無・改行コードで取り込めなくならない | `isNishinihonCsv` | **反する**（指摘 1）。改行は LF/CRLF/CR とも可 |\n| 4 | COND は合格＋備考に追記、有効期限は不使用 | `RESULTS`、`appendToNote`、`recordCalibration(appendNote)` | 満たす（実機でも確認） |\n| 5 | ハイフン無しの機器番号 | `normalizeManagementNo` | 満たす（A 社の処理の複製。指摘 4） |\n| 6 | END の件数が合わなければ全件を取り込まない | `importNishinihonCsv`（`declared !== rows.length`） | 満たす（単体テストの範囲。実機では送っていない） |\n| 7 | 2 回取り込んでも二重にならない。ファイル内の重複は A 社と同じ決まりで後の行を読み飛ばす | `dup`（取込済み）／`seen` | 取込済みは満たす（実機でも確認）。**ファイル内の重複は A 社と違う**（指摘 2） |\n| 8 | 台帳に無い機器番号・読めない判定は誤り、他の行は取り込む | `errors.push` 各所 | 満たす（合意外の誤り条件を追加。指摘 3） |\n| 9 | 応答の形を変えない | route の `NextResponse.json(imported.result)`。`ImportResult` を共用 | 満たす（実機でも確認） |\n| 10 | A 社の取込は今までどおり | `legacy/calib-import.ts` は無変更。route は B 社と判定されたときだけ分岐 | 満たす（A 社の BOM 付き UTF-8 は実機で今までどおり取り込めた）。ただし指摘 1 のとおり、B 社の BOM 付きは A 社の処理に回る |\n\n## 指摘\n\n### 1. 【高】BOM 付きの西日本校正センターの CSV が取り込めない（要件 3 に反する）\n\n- 場所: `src/lib/calib-import-nishinihon.ts` `isNishinihonCsv`（先頭の BOM 判定で `return false`）。`docs/calibration-import.md` の「UTF-8・BOM なしで…」と、`tests/calib-import-nishinihon.test.ts` の「detects the sample file and rejects other formats」の BOM の行が、この挙動を正としている。\n- 問題: 月初のファイルを Excel などで開いて保存し直すと、UTF-8 の BOM が付く。BOM 付きの B 社ファイルは B 社と判定されず、A 社の取込（`legacy/calib-import.ts`）に回る。A 社の取込は BOM を外して読むが、見出しに「管理番号」が無いため、route は 400「CSV の形式が違います（1 行目に「管理番号」の列がありません）」を返し、1 件も入らない。改行コードの違いは吸収されるので、BOM だけが穴になっている。\n- 実機の確認: END の件数が合っている BOM 付きの B 社ファイルを送ると、上のとおり 400 で 1 件も入らなかった。エラーの文言が A 社向けなので、担当者は B 社のファイルだと気づけない（月初のスクリプトには原因が分からない）。\n- 直し方: `isNishinihonCsv` と `importNishinihonCsv` の両方で、先頭が EF BB BF なら外してからデコードする。その後に見出しを見分ける。BOM 付きの B 社ファイルを正常に取り込むテストを足し、BOM を「別の形式」として扱うテストの行と、docs の記述を直す。BOM 付き・CRLF 付きで END の件数が合わない場合に、ファイル全体が止まるテストも足す。\n- 注意: A 社の BOM 付き UTF-8（見出しが「管理番号」）は、今までどおり A 社の取込に行く必要がある。判別は「見出しに機器番号があるか」だけで行い、BOM の有無を判別に使わない。\n\n### 2. 【高】ファイル内の重複の判定キーが A 社と違う（要件 7 に反する）\n\n- 場所: `calib-import-nishinihon.ts` `importNishinihonCsv` の `const key = \\`${no}|${date}|${cert}\\``。A 社は `legacy/calib-import.ts` で `no + \"|\" + d`（機器と校正日だけ）。\n- 問題: 要件は「同じファイルの中の重複も、A 社と同じ決まりで後の行を読み飛ばす」。B 社の実装は成績書番号まで含めているので、同じ機器・同じ日付で成績書番号だけ違う 2 行（例: `MI0003,…,2026-11-04,PASS,WN-1` と `MI0003,…,2026-11-04,PASS,WN-2`）が、両方とも取り込まれる。A 社では 2 行目が「同じファイルの中で重複」で読み飛ばされる。\n- 実機の確認: `MI0005,…,2026-11-04,PASS,A-1` と `MI0005,…,2026-11-04,PASS,A-2`（END,2）を送ると、200 `imported: 2`、`skipped: []` で、MI-0005 に A-1・A-2 の 2 件の校正記録ができた。\n- 直し方: キーを `${no}|${date}` にする（DB の「取込済み」は A 社と同じく機器・校正日・成績書番号のままでよい）。同じ機器・同じ日付・違う成績書番号のテストを足す。\n- 補足: この変更を A 社の決まりと違うまま残すなら、その理由を PR に書き、依頼者の確認を取る。\n\n### 3. 【中】合意した範囲を超えて、行を誤りにする条件が増えている\n\n- 場所: `importNishinihonCsv` の「未来の日付」「成績書番号が空」「50 文字を超える」「備考に追記できない」の各 `errors.push`。docs にも書き足されている。\n- 問題: 要件 8 で誤りにすると決まったのは「台帳に無い機器番号・読めない判定」だけ。A 社の取込は、証明書番号が空でも、未来日でも取り込む。たとえば成績書番号が空の B 社の行が、依頼者の知らないうちに取り込まれず errors に入る。月初のスクリプトは errors を見ていないと、取込漏れに気づけない。未来日の拒否は、CLAUDE.md の規約 6（変更は依頼された範囲にとどめる）にも反する。ただし、成績書番号 51 文字以上と、備考 1000 文字超えは、DB の制約・既存の検証（`validateCalibrationInput`・備考の上限）に合わせた防御で、妥当性は高い。\n- 直し方: 未来日と空の成績書番号の扱いは、依頼者に確認して決める。確認できないなら、合意した要件に合わせて取り込む側に倒し、前提を PR に書く。50 文字超えと備考超過は残してよいが、PR の説明に「合意外の追加」として書く。\n\n### 4. 【低】A 社の処理の複製がある\n\n- 場所: `calib-import-nishinihon.ts` `normalizeManagementNo`（`legacy/calib-import.ts` の管理番号の整形と同じ処理）、`csv.ts` `parseCsvLine`（同じく行の分割）。\n- 問題: 開発標準 3（同じ処理を複製しない）に反する。A 社の処理は「触らない」方針なので、今回は直さなくてもよいが、仕様が分かれていく恐れがある（片方だけ全角の扱いが変わるなど）。\n- 直し方: PR に「A 社の処理を共通化するのは別の PR」と書く。あるいは A 社の処理が新しい部品を使うように、挙動を変えずに付け替える（A 社のテストを先に足す）。\n\n### 5. 【低】PR の検証結果の書き方（テストが問題の挙動を固定している）\n\n- 場所: PR の説明の「検証結果」と、`tests/calib-import-nishinihon.test.ts` の「detects the sample file and rejects other formats」。\n- 問題: typecheck・test・build が通ったとあるが、指摘 1 の BOM はテストが逆の挙動（BOM 付きは B 社ではない）を固定している。テストが通っても要件 3 を確かめたことにならない。\n- 直し方: 受け入れの確認項目に「BOM 付き・CRLF の B 社ファイル」を加える。\n\n## 実機で確認して問題が無かった点（2 回目のレビュー）\n\n本番ビルド・本番モードで、`sato` でログインして `POST /api/calibrations/import` を呼んだ。\n\n- 仕様書のサンプル（LF・BOM なし）: 200 `imported: 3`。校正機関は「西日本校正センター」。MI-0004（FAIL）は使用停止。\n- 同じサンプルの 2 回目: 200 `imported: 0`、3 行とも「取込済み」。二重にならない。\n- MI-0010（COND）: 備考が `条件付き合格（2026-11-05）: 湿度 90%RH のレンジで許容差外`、前回校正日 2026-11-05、状態は使用中。\n- 未ログイン: 401。\n- A 社形式の BOM 付き UTF-8: 200 `imported: 1`（今までどおり）。\n- 応答の形（imported・skipped・errors）は変わっていない。\n\n## 確認できなかった点\n\n- 画面の変更は無く、API だけの変更なので、画面は開いていない（`/instruments/10` が 200 で開くことだけ確認した）。\n- END の不一致・誤りの行・備考超過などは、単体テストの範囲で、実機では送っていない。\n",
+  "review_chars": 5050,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.6423,
+    "tokens": {
+      "input": 68,
+      "output": 19643,
+      "cache_read": 1922715,
+      "cache_creation": 63377
+    },
+    "turns": 35,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -n 1,37p tests/calib-import-nishinihon.test.ts; cat > /tmp/poc-trials/W31-baseline-2pass-c4-2/app/../x.test.ts <<'EOF'\\nEOF\\nrm ../x.test.ts\\nSC=/tmp/claude-0/-tmp-poc-trials-W31-base"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat docs/operations.md | head -40; (npm run build 2>&1 | tail -15)\", \"timeout\": 400000}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"id:\\\" src/lib/db/seed.ts | head -5; (PORT=3217 nohup npm run start -- -p 3217 > /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c4-2-app/75e29675-a27b-4931-b9ba-7caca2022d4e/sc"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"nohup npm run start -- -p 3217 > /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c4-2-app/75e29675-a27b-4931-b9ba-7caca2022d4e/scratchpad/srv.log 2>&1 &\\nsleep 6; curl -s -o /dev/null -w"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c4-2-app/75e29675-a27b-4931-b9ba-7caca2022d4e/scratchpad && S=/tmp/poc-trials/W31-baseline-2pass-c4-2/app/docs/agencies/nishinihon-samp"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c4-2-app/75e29675-a27b-4931-b9ba-7caca2022d4e/scratchpad && curl -s -c cj -H 'content-type: application/json' -d '{\\\"userId\\\":\\\"sato\\\","
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c4-2-app/75e29675-a27b-4931-b9ba-7caca2022d4e/scratchpad && F=/tmp/poc-trials/W31-baseline-2pass-c4-2/app/docs/agencies/nishinihon-samp"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f \\\"next start\\\" ; pkill -f \\\"next-server\\\"; sleep 1; curl -s -o /dev/null -w '%{http_code}\\\\n' localhost:3217/login\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 24,
+      "Read": 1,
+      "Write": 4,
+      "ToolSearch": 1,
+      "TaskStop": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 190,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "2 回のレビューの指摘を、`REVIEW.md` の 1 つの指摘一覧にまとめ直して、`REVIEW.md` だけをコミットしました（10732f8）。新しい指摘は足しておらず、削った指摘もありません。コードは直していません。\n\n指摘は 5 件です。同じ指摘は、コードを読んだ確認と実機の確認を 1 件にまとめました。\n\n| # | 重要度 | 内容 |\n|---|---|---|\n| 1 | 高 | BOM 付きの B 社 CSV が 400 で全件失敗する（要件 3 に反する）。実機でも再現 |\n| 2 | 高 | ファイル内の重複の判定に成績書番号が入っていて、A 社と違う（要件 7 に反する）。実機でも再現 |\n| 3 | 中 | 合意外の誤り条件が増えている（未来日・成績書番号の空・51 文字以上・備考超過） |\n| 4 | 低 | A 社の処理の複製がある（管理番号の整形・CSV の行の分割） |\n| 5 | 低 | PR の検証結果の書き方。BOM のテストが問題の挙動を固定している |\n\n各指摘には、場所・何が問題か・直し方を書いてあります。1 と 2 には実機での確認結果も入れています。要件 10 項目ごとの判定表、実機で問題が無かった点、確認できなかった点も残してあります。"
+  },
+  "interventions": 0
+}

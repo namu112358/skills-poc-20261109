@@ -1,0 +1,45 @@
+{
+  "trial": "W22-hk-principles-c1-1",
+  "scenario": "W22",
+  "config": "hk-principles",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# レビュー: タスクに「保留」（`on_hold`）ステータスを追加\n\n## レビューの要約\n\nタスクのステータスに「保留」を追加する変更です。ステータスの一覧と表示名を 1 か所にまとめ、一覧の絞り込み画面もその一覧から作られるので、変更の形はよいです。ただし、DB のスキーマに `on_hold` が入っていないため、作成と更新の API が「保留」を選ぶと必ず失敗します。テストもこの失敗を捕まえていません。**修正を求めます。**\n\n確認に使った手順: `npm run typecheck` は通りました。`npm test` は 20 件すべて通りました。さらに、`openDb()` で作った DB に対して `createTask` と `updateTask` を `status: \"on_hold\"` で呼ぶスクラッチスクリプト（リポジトリの外のスクラッチパッドに置いた。リポジトリは変更していない）を実行しました。結果は次のとおりです。\n\n- `validateTaskInput({ status: \"on_hold\" }, { partial: true })` → `{ ok: true, ... }`（検証は通る）\n- `createTask(...on_hold...)` → `CHECK constraint failed: status IN ('todo', 'in_progress', 'done')` で例外\n- `updateTask(1, { status: \"on_hold\" })` → 同じ例外\n- `listTasks({ status: \"on_hold\" })` → `[]`（絞り込みはできるが、該当タスクは作れない）\n\n## 良い点\n\n- `TASK_STATUSES` と `STATUS_LABELS` を `src/lib/tasks.ts` の 1 か所にまとめているので、一覧の絞り込みの選択肢（`src/app/tasks/page.tsx`）と表示名は、この変更だけで両方に反映される。\n- `STATUS_LABELS` の型を `Record<TaskStatus, string>` にしているので、ステータスを増やしたときに表示名の書き忘れは型エラーになる。この仕組みを残してほしい。\n- 一覧の絞り込みのクエリ値と API の値を、既存の型ガード `isTaskStatus` で検証している（コーディング規約 2 のとおり）。\n- 変更は依頼された範囲に収まっていて、無関係な書き換えがない。\n\n## 指摘\n\n### 1. DB の CHECK 制約に `on_hold` が無く、保留への作成・更新が必ず失敗する\n\n- 重要度: 高\n- 場所: `src/lib/db/migrations.ts:21`（マイグレーション 1 の `tasks.status` の `CHECK (status IN ('todo', 'in_progress', 'done'))`）。影響する関数は `src/lib/tasks.ts` の `createTask`（102 行目付近）と `updateTask`（110 行目付近）、そして `src/app/api/tasks/route.ts` の `POST`（18 行目）と `src/app/api/tasks/[id]/route.ts` の `PATCH`（23 行目）。\n- 何が問題か: `POST /api/tasks` や `PATCH /api/tasks/:id` で `status: \"on_hold\"` を送ると、検証（`validateTaskInput`）は通ります。しかし INSERT・UPDATE で SQLite が CHECK 制約違反の例外を投げます。API にはこの例外を捕まえる処理がないため、利用者には 400 ではなく 500 が返ります。PR の「API で保留を選べるようになる」は満たされていません。一覧の「保留」での絞り込みも、保留のタスクが作れないので常に空です。\n- 判断の根拠: 状態の知識（取りうる状態の一覧）が、TypeScript 側（`TASK_STATUSES`）と SQL 側（CHECK 制約）の 2 か所に書かれていて、片方だけが更新されました。これは DRY で防ぎたい「同じ知識の食い違い」そのものです。また、ありえない値を DB の段階で止める「早く失敗する」の仕組みが、新しい値を正しく受け付けていない状態です。\n- 直し方: 既存のマイグレーションは書き換えず（`CLAUDE.md` 7 のとおり）、`src/lib/db/migrations.ts` の末尾に version 3 のマイグレーションを追加します。SQLite は既存の CHECK 制約を変更できないので、テーブルを作り直します。CHECK の値は、そのマイグレーションの時点の値をリテラルで書きます（マイグレーションは過去の記録として固定するため、`TASK_STATUSES` から組み立てない）。\n\n  ```ts\n  {\n    version: 3,\n    name: \"task_status_on_hold\",\n    sql: `\n      CREATE TABLE tasks_new (\n        id       INTEGER PRIMARY KEY AUTOINCREMENT,\n        title    TEXT NOT NULL,\n        status   TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'on_hold', 'done')),\n        assignee TEXT NOT NULL REFERENCES users(id),\n        due_date TEXT NOT NULL\n      );\n      INSERT INTO tasks_new (id, title, status, assignee, due_date)\n        SELECT id, title, status, assignee, due_date FROM tasks;\n      DROP TABLE tasks;\n      ALTER TABLE tasks_new RENAME TO tasks;\n      CREATE INDEX tasks_assignee ON tasks(assignee);\n    `,\n  },\n  ```\n\n  適用後、既存の 7 件のタスクの ID と内容が残ることを確かめるテストも加えてください。なお、この作り直しでは `sqlite_sequence` の採番が引き継がれません（新しい採番は既存行の最大 ID から続く）。過去に削除されたタスクより大きい ID が使われていた場合、その ID が再び払い出される可能性があります。採番を保ちたいなら、`sqlite_sequence` の値も移すようにしてください。`tasks` を参照している外部キーが他のテーブルに無いことは確認済みですが、マイグレーションの途中で `foreign_keys = ON` の下で DROP するので、テストで確かめてください。\n\n### 2. 受入条件（作成・更新で保留を選べる）をテストが確かめていない\n\n- 重要度: 高\n- 場所: `tests/tasks.test.ts` の `it(\"accepts the on_hold status\", ...)`（72 行目付近、`validateTaskInput` のテスト）と、`isTaskStatus` の追加テスト（96 行目付近）。\n- 何が問題か: 追加したテストは `validateTaskInput` の戻り値しか見ていません。そのため、指摘 1 の失敗があっても全部通ります（実際、`npm test` は 20 件すべて成功しています）。テスト名 `accepts the on_hold status` は「保留を受け付ける」と読めるので、実際より広く保証しているように見えます。PR の「検証結果」に書かれた確認内容は、受入条件の一部しか満たしていません。\n- 判断の根拠: 変更した振る舞い（受入条件）ごとに、公開された入口を通して結果を確かめるテストが必要です。ここでは `createTask` と `updateTask` を DB に対して呼び、保存された値を読み戻すことが入口になります。\n- 直し方: `createTask` と `updateTask` を、`TASK_STATUSES` の全要素について呼ぶテストを追加します（指摘 3 の対策にもなります）。\n\n  ```ts\n  describe(\"status persistence\", () => {\n    for (const status of TASK_STATUSES) {\n      it(`stores and reads back status \"${status}\" on create and update`, () => {\n        const db = openDb();\n        const created = createTask({ title: \"t\", status, assignee: \"sato\", dueDate: \"2026-12-01\" }, db);\n        assert.equal(getTask(created.id, db)?.status, status);\n        const updated = updateTask(created.id, { status }, db);\n        assert.equal(updated?.status, status);\n      });\n    }\n  });\n  ```\n\n  また、`validateTaskInput` のテストは「検証が通る」だけを確かめているので、名前を `accepts the on_hold status` のままにするなら、保存までのテストと組み合わせて読めるようにしてください。\n\n### 3. ステータスの一覧を 2 か所で管理していて、食い違いを検出する仕組みがない\n\n- 重要度: 中\n- 場所: `src/lib/tasks.ts` の `TASK_STATUSES`（13 行目）と、`src/lib/db/migrations.ts` の CHECK 制約（21 行目）。\n- 何が問題か: 今後ステータスを増やすとき、同じ手順の書き忘れが再び起きます。指摘 2 のテストを入れれば、食い違いは CI で検出できます。\n- 判断の根拠: 同じ知識を 2 か所に書くこと自体は、マイグレーションが過去の記録である限り避けられません（書き換えると既存 DB の意味が変わるため）。ここで守るべきなのは「食い違ったまま気付かない」ことです。\n- 直し方: まず指摘 2 のテストで、`TASK_STATUSES` と DB の制約が一致することを保証してください。CHECK 制約をアプリ側の一覧から組み立てる案は、過去のマイグレーションを変えることになるので勧めません。\n\n### 4. 想定外の DB エラーが 500 として外に出る\n\n- 重要度: 中\n- 場所: `src/app/api/tasks/route.ts` の `POST`（18 行目）と `src/app/api/tasks/[id]/route.ts` の `PATCH`（23 行目）。\n- 何が問題か: 指摘 1 のような食い違いが起きると、利用者には原因の分からない 500 が返ります。`CLAUDE.md` の規約では、入力誤りは 400、対象が無いときは 404 と決まっています。この PR の範囲で全体のエラー処理を変える必要はありませんが、指摘 1 を直したあとも、`createTask` や `updateTask` の失敗が「保留が選べない」として見えないことには注意してください。\n- 判断の根拠: 早く失敗させることは大事ですが、失敗の理由を利用者に隠して 500 にするのは、原因の追跡を遅らせます。\n- 直し方: この PR では指摘 1〜3 の修正に集中してください。エラー処理の改善は、別の変更として後で扱ってよいです。\n\n## 指摘の要約\n\n| # | 重要度 | 場所 | 内容 |\n|---|---|---|---|\n| 1 | 高 | `migrations.ts:21`、`createTask`、`updateTask`、POST・PATCH | DB の CHECK 制約に `on_hold` が無く、作成・更新が失敗する（マイグレーション 3 で作り直す） |\n| 2 | 高 | `tests/tasks.test.ts`（`accepts the on_hold status`） | 受入条件（作成・更新で保留を選べる）をテストが確かめていない |\n| 3 | 中 | `tasks.ts:13`、`migrations.ts:21` | ステータス一覧が TS と SQL に分かれていて、食い違いを検出できない |\n| 4 | 中 | POST（`route.ts:18`）、PATCH（`[id]/route.ts:23`） | 想定外の DB エラーが 500 になる（この PR では必須ではない） |\n",
+  "review_chars": 5754,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.032,
+    "tokens": {
+      "input": 38,
+      "output": 18542,
+      "cache_read": 1045333,
+      "cache_creation": 61572
+    },
+    "turns": 20,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -n 1,40p src/lib/db/index.ts && mkdir -p /tmp/claude-0/scratch-check && cat > /tmp/claude-0/scratch-check/check.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W22-hk-principles-"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git branch --show-current && git diff --cached --name-only && echo \\\"(staged list above)\\\" && npm run typecheck 2>&1 | tail -5; echo \\\"exit=$?\\\"; ls /tmp/poc-trials/W22-hk-principles-c1-1"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Write": 3,
+      "Edit": 1,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 93,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を依頼の形式に書き直し、そのファイルだけをコミットしました（コミット `e830b5d`）。コードは変更していません。\n\n- 4 件の指摘はそのまま残しています。新しい指摘は足していません。\n- 各指摘に「場所（ファイル・関数・行）」「何が問題か」「直し方」「重要度」を付けました。\n- 重要度は依頼どおり「高・中・低」にしました。前回の「必須」は「高」、「推奨」は「中」に対応させています。\n  - 1（CHECK 制約に `on_hold` が無い）：高\n  - 2（受入条件のテストが無い）：高\n  - 3（ステータス一覧が 2 か所にある）：中\n  - 4（想定外の DB エラーが 500 になる）：中\n- 末尾に重要度つきの要約表を付けました。\n\n作業ツリーには、もともとの未コミットの変更（`src/lib/tasks.ts` と `tests/tasks.test.ts`）が残っています。"
+  },
+  "interventions": 0
+}

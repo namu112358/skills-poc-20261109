@@ -1,0 +1,48 @@
+{
+  "trial": "W22-ce-full-c1-1",
+  "scenario": "W22",
+  "config": "ce-full",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスクに「保留」(`on_hold`) を追加する\n\n対象: `git diff HEAD`（`src/lib/tasks.ts`、`tests/tasks.test.ts`）\n\n判定: **マージ不可（高 1 件・中 1 件・低 1 件）**\n\n## 指摘\n\n### 1. 【高】DB の CHECK 制約が `on_hold` を拒否する（マイグレーション未追加）\n\n- 場所: `src/lib/db/migrations.ts` のバージョン 1 `users_and_tasks`（21 行目 `CHECK (status IN ('todo', 'in_progress', 'done'))`）。この PR は DB 側を変更していない。\n- 問題: 型・`TASK_STATUSES`・ラベルだけを変えたので、`validateTaskInput` は `on_hold` を通すが、保存の段階で SQLite が拒否する。次の操作は手元で再現して確認済み。\n  - `createTask({ ..., status: \"on_hold\" })` は `CHECK constraint failed: status IN ('todo', 'in_progress', 'done')` を投げる。\n  - `updateTask(1, { status: \"on_hold\" })` も同じエラーを投げる。\n  - 結果として、`POST /api/tasks` と `PATCH /api/tasks/:id` に `{\"status\":\"on_hold\"}` を送ると、400 ではなく未処理例外の 500 になる。PR の中心である「API で保留を選べる」が動かない。\n  - 一覧の絞り込み（`?status=on_hold`）は、保留のタスクが作れないため常に空になる。\n- 検証が漏れた理由: 追加した単体テストは `validateTaskInput` と `isTaskStatus` だけで、DB に書き込む `createTask` / `updateTask` を通していない。そのため `npm test` が通ってしまう。\n- 直し方:\n  - `src/lib/db/migrations.ts` の末尾にバージョン 3 を追加する（規約 7。バージョン 1 は書き換えない）。SQLite は CHECK 制約を `ALTER` で変更できないので、テーブルの作り直しにする。\n    1. `CREATE TABLE tasks_new (...)` を、`status` の CHECK に `'on_hold'` を加えて作る（列・外部キーは現行と同じ）。\n    2. `INSERT INTO tasks_new SELECT ... FROM tasks` でデータを移す。\n    3. `DROP TABLE tasks` → `ALTER TABLE tasks_new RENAME TO tasks`。\n    4. `CREATE INDEX tasks_assignee ON tasks(assignee)` を作り直す（DROP で消えるため）。\n  - `migrate()` が 1 つのトランザクションで実行するので、途中で失敗しても元に戻る。\n  - `DATABASE_PATH` にファイルを指定している環境では、既存データを失わず移行できることが必須。\n\n### 2. 【中】DB に保存する経路のテストが無い／マイグレーションのテストが無い\n\n- 場所: `tests/tasks.test.ts` の追加分（`accepts the on_hold status`、`isTaskStatus` への 1 行）。`tests/db.test.ts` も未変更。\n- 問題: 規約 5 は、ロジックを変えたらテストを足すことを求める。今回の追加は、型ガードと検証関数が `on_hold` を通すことしか見ていない。指摘 1 のとおり、実際に壊れているのは保存の段階で、そこは未検証。\n- 直し方:\n  - `createTask` と `updateTask` で `on_hold` を保存し、`getTask` で読み戻せることを確認するテストを追加する。\n  - `listTasks({ status: \"on_hold\" })` が保留のタスクだけを返すテストを追加する。\n  - マイグレーション 3 について次をテストする。\n    - 新規 DB に `on_hold` を挿入できる。\n    - バージョン 2 の状態の DB（既存タスク入り）から移行しても、タスクの内容が保たれる。\n    - 不正な status は引き続き拒否される。\n    - `tasks_assignee` インデックスが残っている。\n\n### 3. 【低】PR の説明と実装の食い違い（検証結果の記載）\n\n- 場所: PR 説明の「検証結果」。\n- 問題: 「`npm run typecheck`・`npm test` が通る」ことは、指摘 1 の不具合が無いことを意味しない。DB を通すテストが無いので、この 2 つが通っても API は壊れたままになる。説明が実態より安心させる書き方になっている。\n- 直し方: 指摘 1・2 の対応後に、DB への保存と API の動作確認（`POST` / `PATCH` で `on_hold` が 201 / 200 になること）まで検証結果に含める。\n\n## 問題なしと判断した点\n\n- `src/app/tasks/page.tsx` と `src/app/tasks/[id]/page.tsx` は `TASK_STATUSES` と `STATUS_LABELS` を参照しており、保留は自動で表示・絞り込みに出る。`STATUS_LABELS` は `Record<TaskStatus, string>` なので、ラベルの付け忘れは型エラーになる。\n- 絞り込みの URL クエリは `isTaskStatus` で検証され、不正な値は「指定なし」になる（規約 2）。SQL はプレースホルダを使っている。\n\n## 確認の範囲\n\n- レビューは差分と周辺コード（マイグレーション、API Route、ページ）を手元で読み、指摘 1 は実際に実行して再現した。\n- この環境では補助スクリプト（スコープ判定）の実行が承認されなかったため、複数レビュアーの並列実行は行っていない。単独で `depth:full` 相当の観点（正しさ・API 契約・データ移行・テスト）を確認した。\n",
+  "review_chars": 2835,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4181,
+    "tokens": {
+      "input": 36,
+      "output": 6938,
+      "cache_read": 1009039,
+      "cache_creation": 61936
+    },
+    "turns": 19,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W22-ce-full-c1-1/plugins/compound-engineering/skills/ce-code-review; PY=python3\\ngit config --get-regexp . >/dev/null; cat .compound-engineering/config.yaml 2>/d"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W22-ce-full-c1-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base HEAD --docs-root docs; ls REVIEW.md .compound-engineering 2>&1\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/-tmp-poc-trials-W22-ce-full-c1-1-app/bb9662ba-cd05-4aab-adfd-17e88fd0ac6e/scratchpad/repro.test.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W22-ce-full-c1-1/a"
+      }
+    ],
+    "tool_calls": {
+      "Read": 2,
+      "Bash": 12,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 71,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "書き写す作業は不要でした。直前のレビューで出た 3 件の指摘は、すでに `REVIEW.md` に最初の依頼の形式で入っていて、`cab57bf` でコミット済みです。`REVIEW.md` に未コミットの変更はなく、新しいコミットは作っていません。\n\n- 指摘 1【高】: DB の CHECK 制約が `on_hold` を拒否する。マイグレーションが未追加。\n- 指摘 2【中】: DB に保存する経路とマイグレーションのテストが無い。\n- 指摘 3【低】: PR の「検証結果」の書き方が実態より安心させる。\n\n各指摘に、場所、何が問題か、直し方、重要度を書いています。指摘は足しても削ってもいません。コードも触っていません。"
+  },
+  "interventions": 0
+}

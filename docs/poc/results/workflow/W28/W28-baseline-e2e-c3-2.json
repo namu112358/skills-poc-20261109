@@ -1,0 +1,60 @@
+{
+  "trial": "W28-baseline-e2e-c3-2",
+  "scenario": "W28",
+  "config": "baseline-e2e",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# レビュー: 設置場所を場所マスタから選べるようにする\n\n## 確認の方法と範囲\n\n- `npm run build` は成功した。\n- 本番相当の DB を作って確かめた。`docs/data/location-values.csv` の件数どおり 48,892 件の計測器を入れ、`user_version = 4` の状態にしたもの。このコードの `migrate()`、`validateInstrumentInput` / `updateInstrument`、`updateLocation`、`recordInventory` を直接呼んだ。\n- `npm run start` での起動、ログイン、画面表示、curl での API 呼び出しは **できていない**。実行の許可が下りなかったため。次の点は未確認で、コードを読んだだけの判断になる。\n  - `/locations` と `/instruments?location=…` の画面表示\n  - `/api/locations` と `/api/instruments?location=…` の HTTP 応答\n  - ハンディ端末の API の HTTP 応答\n- 移行は 48,892 件で約 0.5 秒だった。結果は確定 43,856 件、未設定 1,491 件、確認中 3,545 件。ログ `locations.migrated` に出る。9 の「何分も止めない」「件数を後で確かめられる」は満たしている。\n\n## 指摘\n\n### 1. 【高】要件 7 を満たしていない。`instruments.location` に場所の名前が入った状態が保たれない\n\n- 場所: `src/lib/db/migrations.ts` migration 5 の `after`、`src/lib/locations.ts` `linkInstrumentsToLocations`、`src/lib/instruments.ts` `validateLocation` / `updateInstrument` / `recordInventory`\n- 問題: 経理部が毎月末に DB のコピーから読む `location` 列が、場所マスタの名前にならない。\n  - 移行は `location_id` を付けるだけで、`location` 列は元の文字列のまま残す。実測では、確定した 43,856 件のうち 138 通りの違う文字列が `location` 列に残った。\n    - 例: `工事倉庫`（1,206 件）が `工事部 倉庫` に結び付いているのに、列は `工事倉庫` のまま。\n    - 例: `製造部 第 2 ライン `（末尾に空白）が、列にそのまま残る。\n  - 画面の `LocationForm` で場所を選んでも、PATCH は `locationId` だけを送る。`validateLocation` は `locationOriginal` を設定しないので、`location` 列は古い文字列のままになる。実測では `製造第1ライン` の計測器に「品質保証部 測定室」を選んでも、列は `製造第1ライン` のまま。つまり、選んだ場所と列の内容が食い違う。\n  - 場所の名称を変えると（`updateLocation`）、`locations.name` だけが変わる。計測器の `location` 列は旧名称のまま。実測では `品質保証部 測定室` → `品質保証部 計測室` に変えても、列は `品質保証部 測定室` のまま。\n  - ハンディ端末で確定した場合（`recordInventory`）も、列には端末から送られた文字列を入れていて、正式な名前ではない。\n  - 経理部の月末の集計は、表記ゆれの列を読むことになる。改名後は古い名前、画面で選び直した計測器は食い違う場所を読む。\n- 直し方:\n  - `location_id` が付く・変わるたびに、`location` 列へ `locations.name` を書く。次の 3 つのすべてでそうする。\n    - 移行（`UPDATE instruments SET location = (SELECT name …) WHERE location_id IS NOT NULL`）\n    - 計測器の登録・更新・ハンディ端末の受け付け\n    - 場所の改名（`updateLocation`。同じトランザクションで該当の計測器の `location` を更新する）\n  - 確認中の元の文字列は、`location` 列に残す。経理部が読む列に確認中の文字が入ることは、仕様どおり。\n  - 元の書き方を残す必要があるなら、移行で別の列（例: `location_raw`）に退避してから書き換える。\n  - 4 月に列を外すときは、その時点で別マイグレーションにする。\n\n### 2. 【高】要件 8 を満たしていない。前の版に戻すと場所が食い違い、再度進めると壊れる\n\n- 場所: 同上（`location` 列と `location_id` の二重管理）、`src/lib/db/index.ts` `migrate`\n- 問題: 前の版は `location` 列だけを読み書きして、`location_id` を知らない。\n  - 前の版で場所を編集・登録すると、`location` 列だけが変わる。実測では前の版を想定して `location` 列だけを更新した後、新しい版は `location_id` 側の古い場所を表示し続けた。\n  - 前の版で新規登録した計測器は `location_id` が NULL になる。新しい版に戻すと、正しい名前が入っていても「確認中」と表示される。\n  - 移行は `user_version = 5` になった後は二度と動かない。起動時の再照合もない。そのため食い違いは自動では直らない。\n  - 「DB はそのまま」で戻すという前提では、ここで場所の編集内容が失われる。\n- 直し方:\n  - 1 を直して、`location` 列を常に最新の名前に保つ。前の版はその列だけ読めば正しく動く。\n  - 戻した後で進めるときのために、起動時に `location_id IS NULL` のものを `location` の名前と照合して結び付ける処理を入れる。これは何度動かしても結果が同じ形にする（`linkInstrumentsToLocations` を起動時にも呼ぶ形が近い）。\n  - 食い違いが起きたら `location` 列を優先する、という方針を運用メモに書く。\n  - ロールバックの手順（戻した後に増えた計測器の扱い）も運用メモに書く。\n\n### 3. 【中】ハンディ端末: 一致しない文字を、確定済みの計測器では捨てている（要件 6 との差）\n\n- 場所: `src/lib/instruments.ts` `recordInventory`（`unmatched_kept`）、`docs/handheld-api.md`\n- 問題: 要件は「分からなければ確認中として送られた文字を残す」。実装は、計測器の場所がすでに確定していると、一致しない文字は何も記録しないで 200 を返す。実測では確定済みの計測器に `どこか不明` を送ると、場所は変わらず、送られた文字はどこにも残らない。\n  - 端末は `ok` だけを見て「送信済み」と表示する。作業者は「棚卸し済み」と思うが、台帳には何も反映されない。\n  - 実際には別の場所へ移動していた計測器を、台帳が気づけない。ログ `handheld.inventory.unmatched` に出るだけで、一覧では探せない。\n  - 「品質保証部の修正を戻さないため」という意図は分かる。ただし、要件にない判断を黙って入れている。\n- 直し方（どちらかを選び、PR に理由を書く）:\n  - 要件どおり、確認中にして送られた文字を残す。品質保証部の修正が戻るのが問題なら、受け付けた文字を別の列か表（棚卸しの報告）に残し、確認中の一覧で探せるようにする。\n  - 今の動き（確定済みは保つ）にするなら、依頼者に確認する。確認できなければ仮定として PR に書く。報告を残す場所は必要。\n\n### 4. 【中】テストが 1・2 の食い違いを見逃している\n\n- 場所: `tests/locations-db.test.ts`、`tests/instrument-location.test.ts`、`tests/handheld.test.ts`\n- 問題: テストは `getInstrument().location`（JOIN で作った表示）しか見ていない。`instruments.location` の生の列を確かめるものがない。そのため `npm test` が通っても、要件 7 と 8 は守られていない。\n- 直し方:\n  - 次を確認するテストを足す。\n    - 移行の後\n    - 画面からの選び直しの後\n    - 改名の後\n    - ハンディ端末の後\n    - いずれも `SELECT location FROM instruments` が場所マスタの名称と一致すること。\n  - 「前の版が読み書きしたあとに新しい版で読む」流れのテストも足す。\n\n### 5. 【低】`工事倉庫` を `工事部 倉庫` に寄せている（1,206 件）\n\n- 場所: `src/lib/locations.ts` `normalizeLocationKey`（`DEPARTMENTS` の前方一致と部署名の補完）\n- 問題: 部署名の「部」を補うだけの変換なので、`工事倉庫` が `工事部 倉庫` になる。要件 2 は「表記ゆれで同じ場所と分かるものだけ」だが、`倉庫` だけ（743 件）は確認中にしている。同じ工事部の倉庫と読めるかは、品質保証部の判断が要る。\n- 直し方: 品質保証部に確認する。確認できなければ仮定として PR に書く。確認中にするなら、`工事倉庫` の 1,206 件が確認中の一覧に出る。\n\n### 6. 【低】改名の重複判定は正規化したキーで行い、`updateLocation` は検証を前提にしている\n\n- 場所: `src/lib/location-master.ts` `updateLocation`\n- 問題: `updateLocation` は `name` / `active` が未指定の項目を現在値で補うだけで、重複の確認は呼び出し側の `validateLocationInput` に任せている。API 経由では問題ない。他の経路から呼ぶと、重複した名称が入る。DB の UNIQUE 制約は完全一致しか防げない。\n- 直し方: 低い優先度。1 を直す際に `updateLocation` を同じトランザクションで書き換えるので、そこで合わせて確認する。\n",
+  "review_chars": 4640,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.5713,
+    "tokens": {
+      "input": 50,
+      "output": 13834,
+      "cache_read": 1587913,
+      "cache_creation": 68529
+    },
+    "turns": 24,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SP=/tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c3-2-app/ed51e99b-d96a-4257-9add-95bf2e46e991/scratchpad && git stash list | head -2; cat > $SP/mk.ts <<'EOF'\\nimport { DatabaseSync } fr"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"SP=/tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c3-2-app/ed51e99b-d96a-4257-9add-95bf2e46e991/scratchpad; ls $SP; ls $SP/mk.ts\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"P=/tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c3-2-app/ed51e99b-d96a-4257-9add-95bf2e46e991/scratchpad && sed -i 's|migrate(db, MIGRATIONS.filter((m) => m.version <= 4));\\\\nseed(db);||"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"rm -f /tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c3-2-app/ed51e99b-d96a-4257-9add-95bf2e46e991/scratchpad/prod.db* ; node --experimental-strip-types --no-warnings /tmp/claude-0/-tmp-p"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"DATABASE_PATH=/tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c3-2-app/ed51e99b-d96a-4257-9add-95bf2e46e991/scratchpad/prod2.db HANDHELD_TOKEN=tok npm run start -- -p 3457 > /tmp/claude-0/"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"env DATABASE_PATH=/tmp/claude-0/-tmp-poc-trials-W28-baseline-e2e-c3-2-app/ed51e99b-d96a-4257-9add-95bf2e46e991/scratchpad/prod2.db HANDHELD_TOKEN=tok npm run start --prefix /tmp/poc-trial"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 17,
+      "Write": 3,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 136,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しくコミットするものはありません。直前のレビューの 6 件は、依頼の形式（重要度・場所・何が問題か・直し方）のまま `REVIEW.md` に書いてあり、コミット済みです（155de18）。`REVIEW.md` に未コミットの差分はありません。\n\n6 件の内訳は次のとおりです。高が 2 件（`location` 列に名前が入らない、前の版に戻すと食い違う）、中が 2 件（ハンディ端末で一致しない文字が捨てられる、テストが生の列を見ていない）、低が 2 件（`工事倉庫` を寄せている、`updateLocation` が重複の確認を呼び出し側に任せている）です。指摘の追加も削除もしていません。コードも直していません。\n\n`REVIEW.md` の冒頭には、確認の範囲も書いてあります。`npm run start` の実行が通らなかったため、画面と HTTP 応答は確かめていません。"
+  },
+  "interventions": 0
+}

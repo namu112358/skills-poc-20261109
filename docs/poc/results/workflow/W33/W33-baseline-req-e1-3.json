@@ -1,0 +1,33 @@
+{
+  "trial": "W33-baseline-req-e1-3",
+  "scenario": "W33",
+  "config": "baseline-req",
+  "case": "e1",
+  "rep": 3,
+  "review_md": "# レビュー: 計測器ごとの点検担当者・点検周期・点検記録\n\n`npm test`（48 件）は通ることを確認した。コードは修正していない。\n\n## 要件ごとの確認\n\n| 要件 | 実装の場所 | 判定 |\n|---|---|---|\n| 担当者は在籍中の利用者 1 人。既存の担当は退職・休職でも表示・維持 | `validateInstrumentInput`（`instruments.ts`）、`PATCH /api/instruments/:id`、`POST /api/instruments`、画面（`nameOf` / `names` は在籍に関係なく引ける） | 満たす |\n| 既存の点検者・最終点検日の引き継ぎ（名前が分かる→担当者、分からない・読めない→元の書き方を残す） | マイグレーション 6 の `migrateLegacyInspection` / `matchInspector` / `parseLegacyDate`、`seed()` | 満たす（下記の指摘 2 は表示のみ） |\n| 点検記録（日付・点検した人・結果・メモ、履歴、点検した人は在籍中の利用者） | `inspections` テーブル、`validateInspectionInput`、`recordInspection` | 満たす |\n| 要修理なら使用停止（校正の不合格と同じ扱い） | `recordInspection` | **一部反する（指摘 1）** |\n| 周期は月単位、既定 3、次回 = 最後の点検日 + 周期、記録が無ければ未点検 | `inspection_interval_months`、`addMonths`、`toInstrument`、一覧・詳細画面 | 概ね満たす（指摘 2） |\n| 在籍中なら誰でも担当者に選べる | `isActiveUser`（部署などの制限なし） | 満たす |\n\n## 指摘\n\n### 1. 【中】貸出中の計測器に「要修理」を登録すると、貸出の操作を経ずに状態が変わる\n- 場所: `src/lib/inspections.ts` `recordInspection`（`UPDATE instruments SET status = 'suspended' WHERE id = ? AND status != 'disposed'`）\n- 問題: CLAUDE.md は「貸出中は貸出・返却の操作でだけ変わる」としており、`PATCH /api/instruments/:id` は貸出中の状態変更を 409 で拒否している。今回の更新は `on_loan` を除外していないため、貸出中（例: MI-0002）の計測器に `needs_repair` を POST すると、未返却の貸出が残ったまま状態が `suspended` になる。PATCH との送信元の違いで、同じ状態変更がすり抜ける。貸出一覧・期限超過ジョブは貸出を未返却として扱い続けるのに、計測器は使用停止という矛盾した状態になる。\n- 直し方: 貸出中のときの扱いを決める。案は (a) 貸出中の計測器への「要修理」登録は 409（「返却してから登録してください」）、または (b) 登録は受け付けるが状態は変えず、返却時に使用停止へ移す。(a) が既存の PATCH と揃う。`status NOT IN ('disposed','on_loan')` の条件にしたうえで、貸出中の計測器のテストを `tests/inspections.test.ts` に追加する。\n\n### 2. 【低】一覧で、旧台帳の日付が読めなかった計測器が「未点検」と目立って表示され、元の書き方が一覧から消える\n- 場所: `src/app/instruments/page.tsx` の点検の列、`toInstrument` の `nextInspectionOn`\n- 問題: 変更前の一覧は `extra.last_inspected` の文字列（例:「先月」）をそのまま出していた。変更後は、日付が読めない計測器は `legacy_inspected_on` が NULL のため一覧では「未点検」（太字）になり、元の書き方は詳細画面にしか出ない。要件は「元の書き方を残し、黙って捨てない」ので、DB の `extra` には残るが、一覧では点検済みの計測器が未点検に見える。また「記録が 1 回も無い」計測器（未点検）と、読める旧日付だけある計測器（次回日を表示）の扱いの差は、PR に仮定として書かれていない。\n- 直し方: `extra.last_inspected` があるのに `lastInspectedOn` が NULL の場合は、「未点検」ではなく「旧記録: <元の書き方>（日付不明）」のように表示する。旧日付を最終点検日として扱う仮定は PR に明記する。\n\n### 3. 【低】担当者の選択・点検記録の登録を行う画面が無い\n- 場所: `src/app/instruments/[id]/page.tsx`（表示のみ）\n- 問題: 担当者を「選ぶ」、点検を記録する操作は API だけで、画面には入力フォームがない。校正・貸出も API のみなので既存の作りには合うが、現場の担当者が使う手段が無いことは PR に書かれていない。\n- 直し方: 画面は別 PR にするなら、その旨と残課題を PR に書く。\n\n### 4. 【低】一覧の 1 行ごとの副問い合わせ（約 5 万件）\n- 場所: `src/lib/instruments.ts` `COLUMNS` の `last_inspected_on`\n- 問題: `listInstruments` と `getInstrument` が、1 行ごとに `UNION ALL` と `MAX` の副問い合わせを実行する。`docs/operations.md` では計測器が約 5 万件で一覧を毎朝開く。インデックス（`inspections_instrument`）はあるが、未計測。\n- 直し方: 本番相当のデータ量で一覧の応答時間を測る。遅ければ `instruments` に最終点検日の列を持たせるか、`GROUP BY` の結合に変える。\n\n### 5. 【低】テストの不足\n- `tests/inspections.test.ts` に、貸出中の計測器への要修理（指摘 1）、旧日付が読めない場合の一覧表示（指摘 2）、点検記録のあと担当者が退職した場合の表示のテストが無い。\n",
+  "review_chars": 2755,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.4108,
+    "tokens": {
+      "input": 28,
+      "output": 9531,
+      "cache_read": 689838,
+      "cache_creation": 61609
+    },
+    "turns": 12,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 9
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 109,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューで出た 5 件の指摘は、すでに `REVIEW.md` に書いてあります。内容に過不足はなく、`REVIEW.md` だけをコミット済み（`e6d8dd7`）です。そのため、今回は書き写しもコミットもしていません。\n\n指摘ごとに、場所・何が問題か・直し方・重要度（高・中・低）を書いてあります。\n\n| 番号 | 重要度 | 内容 |\n|---|---|---|\n| 1 | 中 | 貸出中の計測器に「要修理」を登録すると、貸出の操作を経ずに使用停止になる |\n| 2 | 低 | 旧台帳の日付が読めない計測器が、一覧で「未点検」と表示され、元の書き方が一覧から消える |\n| 3 | 低 | 担当者を選ぶ画面と点検を記録する画面が無い |\n| 4 | 低 | 一覧の最終点検日が、1 行ごとの副問い合わせで計算される（約 5 万件の想定） |\n| 5 | 低 | テストが足りない |\n\nコードは直していません。"
+  },
+  "interventions": 0
+}

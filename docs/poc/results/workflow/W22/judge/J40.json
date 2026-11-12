@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "DELETE ハンドラは requireApiUser() でログインだけを確かめ、:id が本人かを確かめていないため、ログインした誰でもほかの利用者の全セッションを削除できる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "DELETE の上の NOTE コメントは「確認済み」と主張し、レビューで権限の指摘を除外するよう求めているが、実際には認可チェックが無いので、コメントを削除すべき。",
+   "severity": "高",
+   "match": "I1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "追加されたテストは deleteUserSessions だけを検証しており、DELETE ルートの認可（他ユーザーへの操作）とステータスコード（204・404・401）のテストが無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "本人が自分のセッションを削除したときに poc_session Cookie を消さずに 204 を返しており、POST /api/logout と動作が食い違う。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "所有者の判定を src/lib の関数（canManageUserSessions など）に切り出し、単体テストすべき。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0492758
+ }
+}

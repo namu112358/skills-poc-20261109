@@ -1,0 +1,33 @@
+{
+  "trial": "W21-review-pr-c3-1",
+  "scenario": "W21",
+  "config": "review-pr",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: タスク一覧の CSV エクスポート（`GET /api/tasks/export`）\n\n対象: `src/app/api/tasks/export/route.ts`、`src/lib/export.ts`、`tests/export.test.ts`（未コミットの差分）。\nコードは修正していない。マージ前に直すべき点を重要度順に示す。\n\n## 1. 【高】タイトル中のダブルクォートがエスケープされず、CSV が壊れる\n\n- 場所: `src/lib/export.ts` の `field()`\n- 問題: 値を `\"${value}\"` で囲むだけで、値の中の `\"` を `\"\"` に置換していない。\n  タイトルが `彼は\"確認済み\"と言った` のタスクは `\"…彼は\"確認済み\"と言った…\"` と出力され、\n  その行の列が崩れる（列数が変わる、以降の項目が結合される）。\n  PR の説明にある「引用符を含んでも列がずれない」を満たしていない。\n  タイトルは `validateTaskInput` で 200 文字以内の任意の文字列を受け付けるため、実運用で起こる。\n- 直し方: `` `\"${String(value).replaceAll('\"', '\"\"')}\"` `` にする。カンマ・改行は引用符で囲めば足りる。\n\n## 2. 【高】`?status=` を検証しておらず、不正な値が「指定なし」にならない\n\n- 場所: `src/app/api/tasks/export/route.ts` の `GET`（`as TaskStatus | null` のキャスト）\n- 問題: 型アサーションだけで `isTaskStatus` を通していない。`?status=foo` だと `listTasks({status:\"foo\"})` が\n  `status = 'foo'` で絞り込み、0 件（見出しだけの CSV）を返す。PR の説明（不正な値は一覧と同じく「指定なし」）と\n  CLAUDE.md の規約 2（型ガードで検証する）に反する。`GET /api/tasks`（`route.ts:10`）や `tasks/page.tsx:11` と挙動が食い違い、\n  「全件のはずが空の CSV」を黙って渡す。また `?status=` （空文字）も同様に 0 件になる。\n- 直し方: `const s = searchParams.get(\"status\"); listTasks({ status: isTaskStatus(s) ? s : undefined })` とし、`TaskStatus` のキャストをやめる。\n\n## 3. 【中】CSV（数式）インジェクション対策がない\n\n- 場所: `src/lib/export.ts` の `field()`（タイトル・担当者の出力）\n- 問題: タイトルが `=HYPERLINK(...)`、`=cmd|' /C calc'!A0`、`+`、`-`、`@` で始まるタスクを、ログインユーザーなら誰でも作れる\n  （`POST /api/tasks`）。この CSV を週次報告で Excel に開く別ユーザーのセルが数式として評価され、\n  外部への情報送信やコマンド実行の確認ダイアログを誘発する。ダブルクォートで囲んでも Excel は数式として扱う。\n- 直し方: 文字列の項目が `=` `+` `-` `@`、タブ、CR で始まるときは先頭に `'` を付ける（OWASP の推奨）。\n  数値項目（ID）は対象外にする。対応後に「先頭が `=` のタイトル」のテストを追加する。\n\n## 4. 【中】テストが PR の説明どおりのことを検証していない\n\n- 場所: `tests/export.test.ts`\n- 問題:\n  - 「escapes quotes and commas」のタイトルは `週次 定例の準備`（カンマも引用符も無い）。エスケープを何も検証しておらず、\n    項目 1 の不具合を見逃している。名前と内容が一致していない。改行を含むタイトルのテストも無い。\n  - 1 件目のテストが `listTasks({}, openDb())` のシード（7 件、先頭タスクの内容）に依存した固定値で、シードを変えると壊れる。\n    行数は「改行を含む値」で分割して数えると狂うため、CSV を解釈して検証するほうがよい。\n  - BOM（`CSV_BOM`）、ルート（401・`status` 絞り込み・不正値・`Content-Type` / `Content-Disposition`）のテストが無い。\n    項目 2 はルートのテストがあれば検出できた。\n- 直し方: 引用符・カンマ・改行・先頭 `=` を含むタイトルのテストを追加し、期待値は `\"` を `\"\"` にした文字列で比較する。\n  ステータス絞り込みの処理は `src/lib/` の関数に出してテストする（規約 1・5）。\n\n## 5. 【低】絞り込みの処理がルートに書かれている\n\n- 場所: `src/app/api/tasks/export/route.ts`\n- 問題: クエリの解釈をルートに直書きしているため、`GET /api/tasks` と重複し、乖離しやすい（項目 2 が実例）。\n- 直し方: クエリ → フィルタの変換を共通の関数にして両方から使う。\n\n## 6. 【低】`CSV_BOM` が不可視文字のリテラル\n\n- 場所: `src/lib/export.ts` の `CSV_BOM`\n- 問題: ソース中に U+FEFF が直書きされていて、レビューやエディタで見えず、整形で消えるおそれがある。\n- 直し方: `\"﻿\"` と書く。\n",
+  "review_chars": 2456,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.217,
+    "tokens": {
+      "input": 18,
+      "output": 4120,
+      "cache_read": 300288,
+      "cache_creation": 36444
+    },
+    "turns": 7,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 43,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しく書き写すものはありませんでした。直前のレビューの 6 件は、すでに `REVIEW.md` に最初の依頼の形式（重要度・場所・問題・直し方）で書いて、コミット済みです（fed19d9）。`REVIEW.md` に未コミットの変更はありません。\n\n内容は次のとおりです。\n\n- **高**: タイトル中の `\"` がエスケープされない（`src/lib/export.ts` の `field()`）。\n- **高**: `?status=` を検証していない（`src/app/api/tasks/export/route.ts` の `GET`）。\n- **中**: CSV（数式）インジェクション対策がない（`field()`）。\n- **中**: テストが説明どおりのことを検証していない（`tests/export.test.ts`）。\n- **低**: クエリの解釈がルートに直書きされ、`GET /api/tasks` と重複している。\n- **低**: `CSV_BOM` が不可視文字のリテラルになっている。\n\n指摘の追加や削除はしていません。コードも直していません。"
+  },
+  "interventions": 0
+}

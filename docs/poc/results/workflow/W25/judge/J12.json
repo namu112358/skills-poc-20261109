@@ -1,0 +1,50 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "NOTIFIER_KIND=slack を選ぶと、DB を更新した後に未実装の SlackNotifier.send が例外を投げ、API は 500 を返すが更新は済んでいる。未実装の送り先は起動時にエラーにすべき。",
+   "severity": "中",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "notify/index.ts が読み直されると、読み込み時の subscribe が重複して登録され、担当者変更の監査ログが 2 行出る。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "監査ログに変更を行ったユーザーが残らず、updateTask が呼び出し元のユーザーを受け取らないので記録できない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 4,
+   "summary": "追加テストは eventBus と NotifierFactory だけを確かめており、担当者が変わったときだけ updateTask がログを出すという要件を確かめていない。",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "ログに 1 行という依頼に対し、Slack・Email のスタブ、NotifierFactory による切り替え、使われないイベント種別まで作っており、範囲を超えている。",
+   "severity": "低",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "updateTask は db を引数で受けるが、イベントは全体で共有する eventBus に出るため、独立した DB を使うテストでも本番の購読者が動いてログが出る。",
+   "severity": "低",
+   "match": "P2",
+   "kind": ""
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0624918
+ }
+}

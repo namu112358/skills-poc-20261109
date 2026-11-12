@@ -1,0 +1,38 @@
+{
+  "trial": "W24-baseline-d1-1",
+  "scenario": "W24",
+  "config": "baseline",
+  "case": "d1",
+  "rep": 1,
+  "review_md": "# レビュー: ダッシュボードを追加する\n\nマージ前に直すべき問題です。重要度順に並べています。\n\n## 1. 【高】キャッシュのキーがユーザーごとに分かれていない（他人のデータが見える）\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）\n- 問題: キーが固定の `\"dashboard\"` のため、サーバー全体で 1 つの結果を共有する。sato が開いた後 30 秒以内に suzuki が `/dashboard` や `GET /api/dashboard` を開くと、sato の担当タスク・件数・`userId` がそのまま返る（情報漏えい）。\n- 直し方: キーに `userId` を含める（例: `` `dashboard:${userId}` ``）。あわせて、(a) タスクの作成・更新（`POST /api/tasks`、`PATCH /api/tasks/:id`）後に古い結果が最大 30 秒残る点、(b) キーに `db` が含まれずテストと干渉する点、(c) 期限切れエントリが削除されず溜まる点を考え、キャッシュが本当に必要か検討する（SQLite のメモリ上の集計は十分速いので、キャッシュ自体を外すのが最も安全）。\n\n## 2. 【高】`countByStatus` が共有の定数 `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` `countByStatus`（`order.reverse()`）\n- 問題: `TASK_STATUSES as TaskStatus[]` は同じ配列への参照なので、`reverse()` がモジュール共有の `TASK_STATUSES` を書き換える。呼ぶたびに順序が反転し（1 回目は「完了」先頭、2 回目は「未着手」先頭）、表示順が不安定になる。`isTaskStatus` や他の画面・検証で `TASK_STATUSES` を使う箇所の順序も変わる。単体テストは 1 回しか呼ばないので気づけない。\n- 直し方: `[...TASK_STATUSES].reverse()` とコピーしてから並べ替える（`toReversed()` でもよい）。同じ入力で 2 回呼んでも同じ順になるテストを追加する。\n\n## 3. 【高】SQL に値を文字列連結で埋め込んでいる\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`（`WHERE assignee = '${userId}'`）\n- 問題: CLAUDE.md の規約 8 に違反する。現状の `userId` はセッション由来だが、この関数は `userId` を引数に受けるため、将来別の入力（クエリ文字列など）が渡ると SQL インジェクションになる。`'` を含む ID でもクエリが壊れる。\n- 直し方: `WHERE assignee = ?` とし、`.all(userId)` で値を渡す。\n\n## 4. 【中】担当タスクが 0 件のとき完了率が `NaN` になる\n- 場所: `src/lib/dashboard.ts` `completionRate`、表示は `src/app/dashboard/page.tsx`\n- 問題: 担当タスクが無いユーザーだと `0 / 0` で `NaN`。画面には「完了率 NaN%」、API の JSON では `completionRate: null` になる。\n- 直し方: `tasks.length === 0` のときは `0` を返す（または「該当なし」を表示する）。0 件のテストを追加する。\n\n## 5. 【中】テストが不足している（上の不具合をいずれも検出できない）\n- 場所: `tests/dashboard.test.ts`\n- 問題: 規約 5 に対して、次が無い。2 ユーザーでのキャッシュ分離（#1）、`countByStatus` の 2 回呼び出し（#2）、タスク 0 件（#4）、`GET /api/dashboard` の 401。`buildDashboard` のテストは sato 1 人だけで、キャッシュの挙動を確認していない。`listAssignedTasks` のテストは seed のデータ件数（3）に依存している。\n- 直し方: 上記のケースを追加する。\n\n## 6. 【低】「期限切れ」と「今週が期限」が重複する\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`（`t.dueDate >= start`）、`tests/dashboard.test.ts`\n- 問題: 今週の月曜〜昨日が期限の未完了タスクは、両方の一覧に出る（テストも `[1, 2]` でそれを前提にしている）。意図的でなければ紛らわしい。\n- 直し方: 仕様を決める。重複させないなら `dueThisWeek` の下限を `max(start, today)` にする。\n\n## 7. 【低】`/dashboard` から他画面への内部リンクが `<a>` になっている\n- 場所: `src/app/dashboard/page.tsx`\n- 問題: `/tasks/:id` や `/tasks` への遷移でページ全体を再読み込みする。既存画面の書き方と揃えるのがよい。\n- 直し方: 既存ページに合わせて `next/link` の `Link` を使う。\n",
+  "review_chars": 2373,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2002,
+    "tokens": {
+      "input": 20,
+      "output": 4236,
+      "cache_read": 325694,
+      "cache_creation": 31298
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && git ls-files --others --exclude-standard | xargs -I{} sh -c 'echo \\\"=== {}\\\"; cat {}'\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 45,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘 7 件は、すでに `REVIEW.md` に指定の形式（場所・何が問題か・直し方・重要度）で書いてあります。コミット `94286a6` に入っていて、`REVIEW.md` に未コミットの変更はありません。そのため、書き写しの作業とコミットを新たに行う必要はなく、何も変更していません。\n\n指摘は足しても削ってもいません。コードも直していません。\n\n内訳は高 3 件、中 2 件、低 2 件です。\n\n1. 【高】キャッシュのキーがユーザーごとに分かれていない。\n2. 【高】`countByStatus` が共有の `TASK_STATUSES` を書き換える。\n3. 【高】SQL に値を文字列連結で埋め込んでいる。\n4. 【中】担当タスクが 0 件のとき完了率が `NaN` になる。\n5. 【中】テストが不足している。\n6. 【低】「期限切れ」と「今週が期限」が重複する。\n7. 【低】内部リンクが `<a>` になっている。"
+  },
+  "interventions": 0
+}

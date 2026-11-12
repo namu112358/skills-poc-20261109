@@ -1,0 +1,34 @@
+{
+  "trial": "W22-hk-review-pr-c2-1",
+  "scenario": "W22",
+  "config": "hk-review-pr",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の「期限の近い順」並べ替え\n\n対象: 未コミットの差分（`git diff HEAD`）。変更ファイルは `src/lib/tasks.ts`、`src/app/api/tasks/route.ts`、`src/app/tasks/page.tsx`、`tests/tasks.test.ts`。\n\n確認結果: `npm run typecheck` は通過。`npm test` は 23 件すべて通過。\n\nマージを止めるほどの問題（重要度「高」）は見つからなかった。指摘は次の 4 件（中 1、低 3）。\n\n---\n\n## 1. ORDER BY の列名をテンプレート文字列で SQL に埋め込んでいる（重要度: 中）\n\n- **場所**: `src/lib/tasks.ts` の `listTasks`（`ORDER BY ${SORT_COLUMNS[filter.sort ?? \"id\"]}, id` を組み立てている行）\n- **何が問題か**:\n  - 今の入力では注入は起きない。列名に入るのは `SORT_COLUMNS` の固定値（`id` / `due_date`）だけで、利用者の値は `isTaskSort` の検証を通ってから表を引く。\n  - ただし、CLAUDE.md の規約 8（「SQL に値を埋め込むときは必ずプレースホルダ（`?` / `:name`）を使い、文字列連結で組み立てない」）に反している。\n  - 安全性が `TaskSort` 型とホワイトリストだけに頼っている。将来このテンプレートに利用者の入力が直接入るよう変えると、そのまま SQL 注入になる。\n- **直し方**: 列名を文字列で組み立てず、並べ替えごとに固定の SQL を持つ。例:\n\n  ```ts\n  const LIST_SQL = {\n    id: \"SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id\",\n    due: \"SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY due_date, id\",\n  } as const;\n  // listTasks 内: db.prepare(LIST_SQL[filter.sort ?? \"id\"]).all({ status: filter.status ?? null })\n  ```\n\n  `SORT_COLUMNS` は不要になる。下の 2 も同時に解消する。\n\n## 2. 並べ替えの表が通常のオブジェクトで、型を回避した値で SQL が壊れる（重要度: 低）\n\n- **場所**: `src/lib/tasks.ts` の `SORT_COLUMNS` と、その参照 `SORT_COLUMNS[filter.sort ?? \"id\"]`\n- **何が問題か**:\n  - 型を通らない値を `listTasks` に渡すと（JS から直接呼ぶ、`as` で型を通すなど）、`sort: \"constructor\"` のときに `SORT_COLUMNS[\"constructor\"]` が `Object` 関数になる。テンプレート文字列に入るとその関数のソース文字列が SQL に混ざり、SQL 構文エラー（API では 500）になる。\n  - API と画面の経路は `isTaskSort` で守られているので、現状では再現しない。\n- **直し方**: 上の 1 の直し方（並べ替えごとの固定 SQL を持つ）で、このオブジェクト参照自体がなくなる。残す場合は `Object.hasOwn` で確認してから引く。\n\n## 3. API の `sort` パラメータの振る舞いがテストされていない（重要度: 低）\n\n- **場所**: `src/app/api/tasks/route.ts` の `GET`、`tests/tasks.test.ts`\n- **何が問題か**:\n  - `GET /api/tasks?sort=due` で期限順になること、不正な `sort` の値を登録順として扱うことは、PR の説明で約束している振る舞い。しかしルートのテストがない。テストは `listTasks` と `isTaskSort` の単体だけ。\n  - ルートで `sort` を `isTaskSort` に通して `listTasks` に渡す配線を誤っても、テストでは検出できない。\n  - CLAUDE.md の規約 5（ロジックを変えたら `tests/` に単体テストを追加する）に照らすと、ルートの変更は薄いが、1 件あると安心できる。\n- **直し方**: API のログイン済みリクエストを送る手段がなければ、「クエリ → フィルタ」の変換を `src/lib/tasks.ts` の関数（例: `parseTaskQuery(searchParams)`）に取り出してテストする。ルートはそれを呼ぶだけにする。\n\n## 4. 並べ替えのテストが seed データの値に依存している（重要度: 低）\n\n- **場所**: `tests/tasks.test.ts` の「sorts by due date, then by id」と「combines the status filter and the sort」\n- **何が問題か**:\n  - 「同じ期限は id 順」のテストは `[2, 8]` と `2026-11-12` を、「絞り込みとの組み合わせ」のテストは `todo` の期限 3 件を、`src/lib/db/seed.ts` の値に直接書いている。\n  - 今は決定的に通るが、seed の値を変えるとテストの意図が分かりにくいまま壊れる。\n- **直し方**: 組み合わせのテストでは、期限を自分で `createTask` して並びを作る（`openDb(\":memory:\", { seed: false })` を使えば空の DB から始められる）。seed の値を前提にしない。\n\n---\n\n## 問題なしと判断した点（参考）\n\n- `sort` の検証と既定の扱い: `isTaskSort` は既知の 2 値だけを通し、未指定や不正な値は登録順として扱う（規約 2 どおり）。テストに `due_date`・インジェクション風の文字列・`__proto__`・空文字が含まれている。\n- 絞り込みとの組み合わせ: 既存の `(:status IS NULL OR status = :status)` と並べ替えが独立して動く。画面では絞り込みフォームに並べ替えも入るので、両方の値が GET で保たれる。\n- 同じ期限の並び: `ORDER BY ..., id` で決定的。\n- 日付の並び: `due_date` は `validateTaskInput` で `YYYY-MM-DD` 形式に限られるので、文字列順が日付順と一致する。\n- 画面の文言は日本語（規約 3）。新しいライブラリは追加していない（規約 4）。スキーマ変更はない。\n",
+  "review_chars": 3148,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0213,
+    "tokens": {
+      "input": 24,
+      "output": 11576,
+      "cache_read": 557992,
+      "cache_creation": 49885
+    },
+    "turns": 13,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 8,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 66,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を依頼の形式（場所・何が問題か・直し方・重要度）に書き直し、`REVIEW.md` だけをコミットしました（コミット `3c8776b`）。コードは直していません。\n\n指摘は前回と同じ 4 件のままです。新しい指摘は足していません。\n\n- 1（中）: `listTasks` の ORDER BY を文字列テンプレートで組み立てている（規約 8 違反）\n- 2（低）: `SORT_COLUMNS` が通常のオブジェクトで、`\"constructor\"` のような型を回避した値で SQL が壊れる\n- 3（低）: API の `sort` パラメータの振る舞いにルートのテストがない\n- 4（低）: 並べ替えのテストが seed データの値に依存している\n\n書き直しで変えたのは形式だけです。「何が問題か」は入力や状況と結果が分かるように書き直しました。末尾の「問題なしと判断した点」は指摘ではないので残しました。不要であれば削除できます。\n\n並べ替えの変更 4 ファイルは未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

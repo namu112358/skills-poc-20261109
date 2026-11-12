@@ -1,0 +1,85 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で userId を含まず、30 秒以内に別の利用者が開くと他人のダッシュボード（担当タスク）が返る",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "countByStatus が共有定数 TASK_STATUSES を型断定で readonly を外して reverse() し、元配列を破壊的に並べ替えるため、タスク一覧の絞り込みの並びなども変わる",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "weekRange で日曜は dow=0 のため 1-dow が +1 になり、日曜の「今週」が翌週の月〜日になる（(dow+6)%7 で直し、日曜のテストを足す）",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "completionRate がタスク 0 件のとき 0/0 で NaN を返し、画面に「完了率 NaN%」と出る",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり規約 8 違反で、引用符を含む値でクエリが壊れるためプレースホルダにすべき",
+   "severity": "中",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "キャッシュのため、タスク更新後も最大 30 秒は古い件数・完了率が表示される",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "キャッシュにヒットすると引数の now が無視され、日付をまたいだ直後も前の時刻基準で期限切れ・今週の判定が行われる",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "weekRange のテストが水曜日だけで、日曜・月曜・月またぎのケースがない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "完了率 0 件、利用者ごとのキャッシュ分離、TASK_STATUSES 不変のテストがない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "listAssignedTasks のテストがシードデータの件数（sato の 3 件）に依存しており壊れやすい",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "/dashboard と /api/dashboard の未ログイン時の 401・リダイレクトを確かめるテストがない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.033846600000000004
+ }
+}

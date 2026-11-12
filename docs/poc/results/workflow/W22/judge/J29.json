@@ -1,0 +1,57 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "追加テストはイベントバスとファクトリの動作だけを確かめており、updateTask で担当者が変わったときだけ監査ログが出るという要件（変わらないとき・存在しない ID では出ないことも含む）を検証していない。",
+   "severity": "高",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "NOTIFIER_KIND=slack/email にすると未実装の send が例外を投げ、DB 更新後に PATCH API が 500 になり、更新は済んでいるのに記録は出ない。",
+   "severity": "中",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "要件は console.log 1 行で足りるのに、汎用イベントバス、使われないイベント型、Slack・Email の送り先、ファクトリ、環境変数などを作っており過剰設計である。",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "index.ts の読み込み時の副作用で購読が登録されるため、登録されるかどうかが import の経路に左右される。",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "updateTask に new Date() が直書きされており、テストで日時を固定できない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 6,
+   "summary": "実装の無い SlackNotifier/EmailNotifier が NotifierKind・registry で選べる状態のまま公開されており、選ぶと障害になる。未実装の種類は外すか、起動時の明示的なエラーにすべきである。",
+   "severity": "低",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "監査ログに、変更を行ったログインユーザーが含まれていない（ただし書式は PR で指定されたもの）。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0710958
+ }
+}

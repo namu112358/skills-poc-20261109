@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "node:sqlite の null プロトタイプの行（listActiveUsers の結果）を page.tsx から Client Component の InspectionForms に props で渡しており、本番モードで計測器の詳細画面が 500 になる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "合意した要件「担当者で絞り込み・並べ替え」が一覧の画面と listInstruments に実装されておらず、?inspector= を指定しても全件が出る。",
+   "severity": "高",
+   "match": "G1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "要件「担当者ごとの点検が遅れている台数を毎朝知りたい」の集計も定期実行の仕組みも無い。",
+   "severity": "高",
+   "match": "G2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "listInspectionPlans が絞り込みに関係なく全計測器の相関サブクエリを実行し、5 万件を Map に積むため一覧が遅くなる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "plans.get(i.id)! の非 null 断言は、絞り込み後の一覧と全件の結果が食い違うと落ちる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 6,
+   "summary": "最後の点検日を MAX(inspected_on) で求めており訂正の記録の仕組みも無いため、誤った日付を登録すると後から訂正できない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "旧アプリへ戻している間に extra 側で更新された点検は、移行が 1 度きりのため再度上げても取り込まれず、その扱いが書かれていない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "recordInspection が貸出中・校正中の計測器も要修理で suspended にしてしまい、貸出の状態遷移の規則と食い違う。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 9,
+   "summary": "importLegacyInspections が JSON として読めない extra の行をログも残さず黙って飛ばす。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 10,
+   "summary": "日付が読めない旧記録（inspected_on が NULL）だけの計測器が一覧で「未点検」と表示され、記録があることが分からない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0663478
+ }
+}

@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "移行（version 5 の after と linkInstrumentsToLocations）が location_id を付けるだけで、instruments.location 列を元の表記ゆれの文字列のまま残し、場所マスタの正式名にならない",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 2,
+   "summary": "updateInstrument が locationId を選んで保存しても locationOriginal の古い文字列を書き戻すため、location 列が選んだ場所の名前にならず、経理と前の版のアプリが古い場所を見る",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "location-master.ts の updateLocation で場所の名前を変えても、その場所の計測器の location 列が更新されず古い名前のまま残る",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "前の版のアプリが location 列だけを書き換えると location_id が古いまま残り、新しい版に戻したときに前の版での修正が JOIN した古い名前で上書きされて見える",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "validateLocation が locationId の枝で locationOriginal を設定せず、createInstrument が undefined を SQLite にバインドして例外となり、POST /api/instruments の locationId 指定が 500 になる",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "validateLocation の else if (\"location\" in b) の枝により POST・PATCH の API が自由入力の location を受け付けて確認中として登録・更新し、確定済みの計測器も確認中に戻せるため、要件 3 に反する",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "recordInventory で、確定済みの計測器にハンディ端末から照合できない文字が来ると、ログを出すだけで何も残さず、要件 6 の確認中として文字を残す動きにならない",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 8,
+   "summary": "確認中の計測器で LocationForm を開き、場所を選ばずに保存すると locationId: null が送られ、validateLocation が元の文字列を空にして未設定になり、手がかりが失われる",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "ALIASES で末尾の切れた表記（大阪営・名古屋営）を確認なしに営業所へ寄せており、別の場所を指している可能性が残る",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "場所の重複確認と書き込みが別の処理で、正規化後の重複は UNIQUE でも防げないため、同時操作で表記違いの同じ場所が 2 件できる余地がある",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.037630000000000004
+ }
+}

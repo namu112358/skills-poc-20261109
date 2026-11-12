@@ -1,0 +1,39 @@
+{
+  "trial": "W21-cr-high-c7-2",
+  "scenario": "W21",
+  "config": "cr-high",
+  "case": "c7",
+  "rep": 2,
+  "review_md": "# コードレビュー結果\n\n対象: 「担当者が変わったときに、変更の記録をサーバーのログに残す」PR（未コミットの差分）。\n指摘は 8 件。重要度の高い順に並べています。\n\n## 1. 【高】通知ハンドラーが例外を投げると、更新の保存後にリクエストが失敗する\n\n- 場所: `src/lib/notify/events.ts:22`（`EventBus.emit`）\n- 問題: `emit` はハンドラーを try/catch なしで呼ぶ。そのため、通知ハンドラーが例外を投げると、`updateTask` の UPDATE がコミットされた後に例外が呼び出し元へ伝わる。\n  - 例: `NOTIFIER_KIND=slack` または `email` にすると、`send()` は常に例外を投げる（コード自身が「未実装」としている）。担当者を変える `PATCH /api/tasks/:id` は、新しい担当者を DB に書いた後で 500 を返す。クライアントは失敗と受け取って再試行するが、変更は保存済みになる。\n  - 同じイベントの後続ハンドラーも実行されない。\n  - 副作用である通知が、本来の処理を壊してはいけない。\n- 直し方: ハンドラー呼び出しごとに try/catch で囲み、失敗はログに残して握りつぶす（呼び出し元へ伝えない）。または非同期で emit する。\n\n## 2. 【高】データ層の `updateTask` がグローバルな通知を発火する\n\n- 場所: `src/lib/tasks.ts:121`（`updateTask`）\n- 問題: `db` を注入できるデータ層の関数の中で、グローバルなバスにイベントを emit している。このため、インメモリ DB を使う単体テストを含む、すべての呼び出し元で通知が副作用として動く。\n  - 例: テストやスクリプトで `updateTask(id, { assignee }, testDb)` を呼ぶと、本物のコンソールに `[audit] ...` が出る。`NOTIFIER_KIND` が console 以外だと例外になる。\n  - emit は UPDATE の後でトランザクションの外にある。ハンドラーが失敗すると、状態は変わったのに呼び出しは失敗する。\n- 直し方: 成功後に API Route 側（`PATCH /api/tasks/:id`）から通知する。または通知先（notifier）を引数などで注入できるようにし、`updateTask` はグローバル状態に触れないようにする。\n\n## 3. 【中】`NOTIFIER_KIND` の検索で継承プロパティが解決される\n\n- 場所: `src/lib/notify/notifier.ts:46`（`NotifierFactory.create`）\n- 問題: 種類の検索に素のオブジェクトの添字アクセスを使っているため、`toString`・`constructor`・`__proto__` などの継承キーが `Object.prototype` のメンバーに解決される。\n  - 例: `NOTIFIER_KIND=constructor`（または `toString`）にすると、`registry['constructor']` が真と評価される。`make()` は Notifier ではない値を返し、最初の担当者変更で `notifier.send is not a function` が起きる。これは指摘 1 と同様に `updateTask` を壊す。\n  - 「未知の値は console にフォールバックする」という文書化された挙動にも反する。\n- 直し方: `Object.hasOwn(registry, kind)` で確認する。または `Map` を使う。\n\n## 4. 【中】購読がインポート時の副作用で、環境変数が読み込み時に 1 回だけ読まれる\n\n- 場所: `src/lib/notify/index.ts:6`\n- 問題: notifier の生成と購読がインポート時の副作用で行われる。`NOTIFIER_KIND` と `SLACK_WEBHOOK_URL` もモジュール読み込み時に 1 回だけ読まれる。\n  - 例: `tasks.ts` をインポートするすべてのモジュール（すべてのテストを含む）がグローバルな購読者を登録する。\n  - Next の dev HMR や、route と page のバンドルが別々にモジュールを評価する場合、購読者が複数登録されうる。その場合、担当者の監査ログが二重に出る。逆に `events.ts` だけをインポートしたバンドルでは購読が欠ける。\n  - 登録をリセットしたり、テストから設定したりできない。\n- 直し方: 購読の登録を明示的な初期化関数にして、冪等にする（二重登録を防ぐ）。環境変数は使用時に読む。テストからリセットや注入ができるようにする。\n\n## 5. 【中】新しい動作の単体テストがない\n\n- 場所: `tests/notify.test.ts:1`\n- 問題: `updateTask` が担当者変更時にだけ emit する動作と、`notify/index.ts` の購読者にテストがない。CLAUDE.md の規約 5「ロジックを追加・変更したら `tests/` に単体テストを追加する」に反する。\n  - 担当者変更で emit すること、他の項目の変更や担当者が同じ場合は emit しないこと、ハンドラーが例外を投げたときの挙動、のいずれも検証されていない。\n  - ファクトリーのテストは slack の `.kind` を見るだけで、指摘 1 のような例外経路の退行を検出できない。\n- 直し方: 次のテストを追加する。\n  - 担当者が変わったときだけログが出る。\n  - 他項目のみの更新では出ない。\n  - 担当者が変わらない場合は出ない。\n  - ハンドラーが例外を投げても更新が成功する。\n  - 未知の `NOTIFIER_KIND`（`constructor` など）が console にフォールバックする。\n\n## 6. 【中】未実装のスタブが選択でき、過剰な構造になっている\n\n- 場所: `src/lib/notify/notifier.ts:18`（`SlackNotifier` / `EmailNotifier`）\n- 問題: `send()` が常に例外を投げるスタブが、環境変数 `NOTIFIER_KIND` で選べる状態で登録されている。\n  - 例: 設定で `NOTIFIER_KIND=slack` または `email` にすると、担当者変更のたびに例外になる。\n  - PR の説明では記録先は当面サーバーのログだけ（ほかの記録先の予定はない）。にもかかわらず、ファクトリー・レジストリー・バス・未使用のイベント型（`task.status_changed` と `task.created` はどこからも emit されない）を足している。CLAUDE.md の規約 6「変更は依頼された範囲にとどめる」に反する。\n- 直し方: スタブとファクトリー・レジストリー、未使用のイベント型を削除する。担当者変更時に小さな関数（または console 専用の notifier）を直接呼ぶ形にする。\n\n## 7. 【低】購読解除が同じ関数の登録をすべて外す／型キャストで型安全性が失われている\n\n- 場所: `src/lib/notify/events.ts:16`（`on` が返す購読解除）\n- 問題: 購読解除が、同じハンドラー関数の登録をすべて取り除く。また `as unknown` / `as never` のキャストにより、イベント型とハンドラーの不整合が見逃される。\n  - 例: 同じ関数参照を 2 回購読した場合（独立した 2 つの利用者など）、片方が `off()` を呼ぶと両方の購読が外れ、もう一方が黙って動かなくなる。\n- 直し方: `indexOf` と `splice` で 1 件だけ取り除く。または購読ごとのラッパーを `Set` で管理する。キャストをやめ、ジェネリクスでイベント型とハンドラー型を対応づける。\n\n## 8. 【低】監査ログに操作者が含まれない\n\n- 場所: `src/lib/notify/index.ts:9`（監査メッセージ）／`src/lib/tasks.ts`（`updateTask`）\n- 問題: ログ行 `[audit] task N: assignee A -> B` は誰に割り当てたかは分かるが、誰が変更したかが分からない。`updateTask` が現在のユーザーを受け取らないため、「いつ誰から誰に変わったか」を追う監査の用途には不十分。\n  - `at`（日時）もリクエストではなくデータ層の中で生成される。\n- 直し方: ルート（`requireApiUser()` で得たユーザー）から操作者を `updateTask` かイベントに渡し、ログに含める。日時はリクエストの処理時点で生成する。\n",
+  "review_chars": 3863,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2496,
+    "tokens": {
+      "input": 16,
+      "output": 6968,
+      "cache_read": 228457,
+      "cache_creation": 46313
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; echo ---; git diff HEAD\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 4,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 68,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を作成し、`REVIEW.md` だけをコミットしました（1fdf8f6）。コードは直していません。PR の変更は未コミットのままです（`git add` で追加済みの新規ファイルを含みます）。\n\nレビューで出た 8 件を、場所・問題・直し方・重要度の形式で書き写しました。新しい指摘は足しておらず、削ったものもありません。\n\n重要度は、レビューの出力に付いていなかったため、書き写すときに私が付けました。\n\n| 重要度 | 指摘 |\n|---|---|\n| 高 | 1. 通知ハンドラーが例外を投げると、更新の保存後にリクエストが失敗する（`events.ts:22`） |\n| 高 | 2. データ層の `updateTask` がグローバルな通知を発火する（`tasks.ts:121`） |\n| 中 | 3. `NOTIFIER_KIND` の検索で、`constructor` などの継承プロパティが解決される（`notifier.ts:46`） |\n| 中 | 4. 購読がインポート時の副作用で、環境変数が読み込み時に 1 回だけ読まれる（`index.ts:6`） |\n| 中 | 5. 新しい動作の単体テストがない（`tests/notify.test.ts`） |\n| 中 | 6. 未実装のスタブが選択でき、1 つのログ出力に対して構造が過剰（`notifier.ts:18`） |\n| 低 | 7. 購読解除が同じ関数の登録をすべて外す。型キャストで型安全性も失われている（`events.ts:16`） |\n| 低 | 8. 監査ログに操作者が含まれない（`index.ts:9`） |\n\n指摘 8 は、依頼の目的が「いつ誰から誰に変わったかを追う」ことなので、実質的には重要度が上がりうる点です。"
+  },
+  "interventions": 0
+}

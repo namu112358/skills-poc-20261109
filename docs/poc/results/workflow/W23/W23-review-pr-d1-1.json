@@ -1,0 +1,34 @@
+{
+  "trial": "W23-review-pr-d1-1",
+  "scenario": "W23",
+  "config": "review-pr",
+  "case": "d1",
+  "rep": 1,
+  "review_md": "# レビュー: ダッシュボードを追加する\n\n対象: `git diff HEAD`（`/dashboard`、`GET /api/dashboard`、`src/lib/dashboard.ts`・`cache.ts`・`week.ts`、`tests/dashboard.test.ts`）。\n`typecheck` / `npm test` が通るだけでは見つからない問題が下記のとおりある。高の 3 件はマージ前に必ず直すこと。\n\n## 高\n\n### 1. キャッシュのキーが全ユーザー共通で、他人のタスクが見える\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）\n- 問題: キーが固定文字列 `\"dashboard\"` で `userId` を含まない。sato が開いてから 30 秒以内に suzuki が `/dashboard` や `GET /api/dashboard` を開くと、sato のキャッシュ（`userId: \"sato\"`、sato のタスク名・件数）がそのまま返る。ページでは見出しに suzuki の名前、中身は sato のタスクという表示になる。情報漏えいかつ表示の誤り。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。あわせて、別ユーザーで呼んでも中身が混ざらないテストを追加する（現在のテストは 1 ユーザーでしか呼ばないため検出できない）。\n\n### 2. SQL を文字列連結で組み立てている（SQL インジェクション）\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`（`WHERE assignee = '${userId}'`）\n- 問題: CLAUDE.md の規約 8 違反。現状 `userId` はセッション由来だが、`src/lib/` の関数は引数を信頼できる前提にできない。`userId` に `' OR '1'='1` のような値が渡ると全ユーザーのタスクを読める。\n- 直し方: `WHERE assignee = ?` とし `.all(userId)` で値を渡す。\n\n### 3. `countByStatus` が共有定数 `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` `countByStatus`（`const order = TASK_STATUSES as TaskStatus[]; order.reverse()`）\n- 問題: `as TaskStatus[]` で readonly を外しており、`reverse()` は元の配列を書き換える。ダッシュボードを 1 回表示するたびに `src/lib/tasks.ts` の `TASK_STATUSES` が逆順になり、(a) `/tasks` のステータス絞り込みの並びが変わる、(b) ダッシュボード自身も呼ぶたびに「完了」が先頭と末尾で入れ替わる（キャッシュで再計算が走る度に表示順が変わる）。現在のテストは 1 回しか呼ばないので通る。\n- 直し方: `[...TASK_STATUSES].reverse()` か `.toReversed()` を使い、キャストをやめる。2 回呼んでも順序が変わらないこと、`TASK_STATUSES` が変化しないことをテストする。\n\n## 中\n\n### 4. 担当タスクが 0 件のとき完了率が `NaN` になる\n- 場所: `src/lib/dashboard.ts` `completionRate`（`done / tasks.length`）\n- 問題: タスクのないユーザー（新規ユーザーなど）では `0 / 0 = NaN`。画面には「完了率 NaN%」と出て、API の JSON では `null` になる。\n- 直し方: `tasks.length === 0` のときは 0 を返す。0 件のテストを追加する。\n\n### 5. 「期限切れ」と「今週が期限」が重複し、期限切れのキャッシュ・更新の反映も遅れる\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`、`buildDashboard`\n- 問題 (a): 今週（月曜〜）の期限で、すでに過ぎている未完了タスクは `overdue` と `dueThisWeek` の両方に出る（テストも `dueThisWeek` に期限切れの id 1 を含む想定で書かれている）。画面で同じタスクが 2 回出る。意図なら仕様として明記し、そうでなければ `dueThisWeek` を `dueDate >= today` に絞る。\n- 問題 (b): 30 秒キャッシュのため、`PATCH /api/tasks/:id` で完了にしても最大 30 秒ダッシュボードに反映されない。「自分の状況を見る画面」としては古い表示が目立つ。タスク更新時に無効化するか、キャッシュをやめる（SQLite の読み取りは軽く、導入の必要性が薄い）ことを検討する。\n- また、`overdueTasks` の doc コメントは「期限の古い順」だが、順序は SQL の `ORDER BY due_date` に依存しており、関数単体では保証されない。\n\n### 6. テストが不具合を検出できていない\n- 場所: `tests/dashboard.test.ts`\n- 問題: 上記 1・3・4 を検出するテストがない。`countByStatus` は `counts[0]` しか見ず 1 回しか呼ばない。キャッシュ（`cache.ts`、`buildDashboard` の TTL・ユーザー別）の単体テストもない。API Route（未ログイン 401）のテストもない。`beforeEach(clearCache)` はあるが、キャッシュを検証するテスト自体が存在しない。`listAssignedTasks` のテストは seed の件数 3 に依存している。\n- 直し方: 別ユーザーで呼ぶ、2 回呼ぶ、0 件、キャッシュ期限切れ（`now` を進める）、セッション無しで 401、のテストを追加する。規約 5 を参照。\n\n## 低\n\n### 7. キャッシュ値が可変オブジェクトの共有で、保持も無制限\n- 場所: `src/lib/cache.ts` `cached`\n- 問題: 同じオブジェクト参照を全呼び出し元に返すため、呼び出し側が書き換えると次の呼び出しに影響する。期限切れのエントリも削除されず、キーを増やす使い方（ユーザー別にした場合）ではユーザー数だけ残り続ける。モジュールレベルの `Map` なので、サーバーレス実行や複数プロセスでは共有されず効果も一定でない。\n- 直し方: 上記 5(b) のとおりキャッシュをやめるのが最も簡単。残すなら期限切れ削除と、値の複製か `Object.freeze` を行う。\n\n### 8. 画面の細部\n- 場所: `src/app/dashboard/page.tsx`\n- 問題: タスクへのリンクが `<a href>` で、`Link` を使う他ページと揃っているか未確認（`/tasks` 側の実装に合わせる）。`generatedAt` は API で返すが画面には出ていない（キャッシュ使用時に古さが分からない）。\n- 直し方: 既存ページの書き方に合わせる。\n\n## 良い点（参考）\n- `requireApiUser` / `requireUser` でログイン確認をしている。\n- 週の範囲を JST の日付文字列で扱い、`now` を引数で渡せるためテストしやすい。\n",
+  "review_chars": 3307,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2381,
+    "tokens": {
+      "input": 18,
+      "output": 5067,
+      "cache_read": 309501,
+      "cache_creation": 39100
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 4,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 50,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回のレビューで出した 8 件の指摘は、すでに `REVIEW.md` に書いてあり、コミット済みです（`3b33971`）。形式は依頼どおりで、各指摘に場所・何が問題か・直し方・重要度（高・中・低）が入っています。`REVIEW.md` に未コミットの変更はありません。そのため、新しいコミットは作っていません。\n\n内訳は高 3 件、中 3 件、低 2 件で、足した指摘も削った指摘もありません。\n\n- **高**\n  - キャッシュキーに `userId` がない。\n  - SQL を文字列連結で組み立てている。\n  - `TASK_STATUSES` を `reverse()` で書き換えている。\n- **中**\n  - タスク 0 件で完了率が `NaN` になる。\n  - 期限切れが「今週が期限」と重複し、キャッシュで更新の反映も遅れる。\n  - 上記を検出するテストがない。\n- **低**\n  - キャッシュの共有オブジェクトと保持が無制限であること。\n  - 画面の細かい点。\n\nコードは変更していません。"
+  },
+  "interventions": 0
+}

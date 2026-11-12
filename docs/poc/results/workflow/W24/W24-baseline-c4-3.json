@@ -1,0 +1,33 @@
+{
+  "trial": "W24-baseline-c4-3",
+  "scenario": "W24",
+  "config": "baseline",
+  "case": "c4",
+  "rep": 3,
+  "review_md": "# レビュー結果: 期限が近いタスクを一覧で目立たせる\n\n## 指摘 1: 「3 日後」が期限間近にならない\n- **重要度**: 高\n- **場所**: `src/lib/due.ts` の `isDueSoon`（`days < DUE_SOON_DAYS`）\n- **問題**: PR の仕様は「今日・明日・明後日・3 日後」（残り 0〜3 日）だが、`days < 3` のため 0〜2 日しか対象にならない。期限が 3 日後のタスクに「（期限間近）」が付かない。テストも最大 2 日後までしか見ておらず、見逃されている。\n- **直し方**: `days <= DUE_SOON_DAYS` にする。3 日後（true）と 4 日後（false）の境界テストを追加する。\n\n## 指摘 2: 日付の数え方が日本時間になっていない\n- **重要度**: 高\n- **場所**: `src/lib/due.ts` の `daysUntilDue`\n- **問題**: `Date.parse(\"YYYY-MM-DD\")` は UTC 0:00（日本時間 9:00）として解釈され、現在時刻との差（時刻の差）を 24 時間で割って切り捨てている。暦日の差ではないため、例えば日本時間 2026-11-12 10:00 に期限 `2026-11-12`（今日）のタスクは差が -1 時間 → -1 日となり、期限切れ扱いで「期限間近」が付かない。日本時間 9:00 以降は判定が 1 日ずれる。サーバーが UTC で動いていても同様。\n- **直し方**: 現在時刻を日本時間の日付（`Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" })` などで `YYYY-MM-DD`）にし、期限の `YYYY-MM-DD` と暦日同士（`Date.UTC(y, m-1, d)` 同士）で差を取る。\n\n## 指摘 3: テストが不具合を検出できない\n- **重要度**: 中\n- **場所**: `tests/due.test.ts`\n- **問題**: `now` を日本時間 0:00 ちょうどに固定しているため、指摘 2 の不具合（9:00 以降のずれ）が出ない。3 日後の境界も無い。テストが通ることが正しさの根拠になっていない。\n- **直し方**: 同じ日の 0:00 / 12:00 / 23:59（JST）、UTC と JST で日付が異なる時刻、3 日後・4 日後、月またぎのケースを追加する。\n\n## 指摘 4: 未定義の CSS クラス `due-soon`\n- **重要度**: 低\n- **場所**: `src/app/tasks/page.tsx` の `<tr className=...>`\n- **問題**: `due-soon` のスタイルがどこにも無く効果の無いクラス。PR の説明にもなく、変更範囲外（規約 6）。\n- **直し方**: 削除する。強調するならスタイルを定義し、PR の説明に書く。\n\n## 指摘 5: `isDueSoon` を行ごとに 2 回呼んでいる\n- **重要度**: 低\n- **場所**: `src/app/tasks/page.tsx` の `tasks.map` 内\n- **問題**: 同じ判定を className と表示で重複して計算している。\n- **直し方**: `const soon = isDueSoon(task, now);` として使い回す。\n",
+  "review_chars": 1497,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.1853,
+    "tokens": {
+      "input": 18,
+      "output": 4394,
+      "cache_read": 272019,
+      "cache_creation": 28533
+    },
+    "turns": 7,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 43,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの 5 件を、指摘ごとに「重要度・場所・問題・直し方」の見出しで `REVIEW.md` に書き直し、`REVIEW.md` だけをコミットしました（`706c4f7`）。指摘の追加と削除はしていません。コードも直していません。\n\n- **高:** 3 日後が対象外になる。日付が日本時間で数えられていない。\n- **中:** テストが不具合を検出できない。\n- **低:** 未定義の CSS クラス `due-soon`。`isDueSoon` の二重呼び出し。\n\nPR の差分（`src/app/tasks/page.tsx`、`src/lib/due.ts`、`tests/due.test.ts`）は、これまでどおり未コミットのままです。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "一覧の API・画面に、担当者での絞り込み（inspector）と並べ替え（sort）の要件が実装されていない。",
+   "severity": "高",
+   "match": "G1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "担当者ごとに点検が遅れている台数を出す集計（関数・画面・毎朝のジョブ）が実装されていない。",
+   "severity": "高",
+   "match": "G2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "一覧を開くたびに全計測器について相関サブクエリで最終点検日を計算し、JS で全件の期限判定を行い、ページ分割も無いので 5 万件規模で遅い。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "recordInspection の要修理の記録で、貸出中（on_loan）の計測器まで suspended に変わり、返却処理で状態が戻らなくなる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "toPlan / judgeDue が廃棄済み・使用停止の計測器も期限切れ・未点検として数え、遅れ台数を多くする。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "新版は extra.inspector / last_inspected を更新しないため、旧版へロールバックすると点検情報が見えず、新旧の値が食い違う。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "既存 API の PATCH で extra.inspector / last_inspected を書いても受け付けられるだけで、表示にも点検状況にも反映されず黙って無視される。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "旧データの取り込みで、点検者名からは空白を除くが users.name 側は除かないため、空白入りの氏名と一致しない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "旧データの取り込みで、壊れた JSON の行を黙って飛ばし、文字列以外の値を空扱いにするため、移行結果に記録が残らない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 10,
+   "summary": "日付が読めない記録しか無い計測器は、一覧で「未点検」と表示され、点検日が不明であることが区別されない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "parseLegacyDate が「2026年9月1日」や元年などの書き方に対応していない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "点検記録の訂正を示す項目・画面が無く、最終点検日を MAX で求めるため、訂正しても日付が戻らない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0710158
+ }
+}

@@ -1,0 +1,48 @@
+{
+  "trial": "W25-hk-baseline-run-c2-1",
+  "scenario": "W25",
+  "config": "hk-baseline-run",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の「期限の近い順」並べ替え\n\n対象: 未コミットの差分（`src/app/api/tasks/route.ts`、`src/app/tasks/page.tsx`、`src/lib/tasks.ts`、`tests/tasks.test.ts`）\n\n確認方法: `npm run typecheck` と `npm test` は通過（テスト 23 件、失敗 0）。疑わしい箇所は `node --experimental-strip-types` で関数を直接呼ぶ再現スクリプトで確かめた（作業用コピーの外、スクラッチパッドに置いた）。\n\n---\n\n## 指摘 1: 並べ替えの列を SQL 本文に埋め込んでいる\n\n- **場所**: `src/lib/tasks.ts` の `listTasks`（58 行目付近）\n- **何が問題か**:\n  - `ORDER BY ${SORT_COLUMNS[filter.sort ?? \"id\"]}, id` のように、テンプレートリテラルで SQL 本文を組み立てている。\n  - 現状は `SORT_COLUMNS` を経由し、API・ページも `isTaskSort` で検証済みなので、注入は起きない。\n  - しかし CLAUDE.md の規約 8「SQL に値を埋め込むときは必ずプレースホルダを使い、文字列連結で組み立てない」に違反する。規約は値だけでなく SQL の組み立て方そのものを縛っている。\n  - 再現: `listTasks({ sort: \"due_date\" })` は `no such column: undefined`、`{ sort: \"__proto__\" }` は `no such column: object Object`、`{ sort: \"constructor\" }` は SQL の構文エラーになる（`repro1.ts`）。表にない値が SQL 本文に届き、例外になる。\n- **直し方**: SQL 本文を固定にし、並べ替えの指定もプレースホルダで渡す。`ORDER BY CASE WHEN :sort = 'due' THEN due_date END, id` とし、`.all({ status: filter.status ?? null, sort: filter.sort ?? \"id\" })` で呼ぶ。`sort` が `\"id\"` のときは最初の式が全行 NULL になり、登録順（`id`）だけで並ぶ。この形で「既定」「期限順」「期限順＋ステータス絞り込み」の結果が正しいことを確認した（`repro2.ts`）。`SORT_COLUMNS` は不要になる。\n- **重要度**: 中\n\n## 指摘 2: `listTasks` が `sort` の値を実行時に検証しない\n\n- **場所**: `src/lib/tasks.ts` の `listTasks`（`filter.sort` を `SORT_COLUMNS` で引く部分）\n- **何が問題か**: 型 `TaskSort` は実行時には守られない。`isTaskSort` を通さずに未知の値（`due_date`、`__proto__` など）で呼ぶと、指摘 1 のとおり意味の分からない SQL エラーになる。今の API とページは `isTaskSort` を通すので実害はない。しかし将来の呼び出し元が検証を省くと、そのまま 500 になる。\n- **直し方**: 指摘 1 の CASE 方式にすれば、未知の値は「期限順ではない」として登録順に落ちるので、例外にならない。別案として、`SORT_COLUMNS` を `Object.hasOwn` で引き、無ければ `id` に戻す。\n- **重要度**: 低\n\n## 指摘 3: API とページの結果が自動テストされていない\n\n- **場所**: `src/app/api/tasks/route.ts`（GET）、`src/app/tasks/page.tsx`\n- **何が問題か**: 追加されたテストは `listTasks` と `isTaskSort` だけ。`GET /api/tasks?sort=due`、`?sort=bogus`（登録順として扱われること）、`?status=todo&sort=due` の組み合わせはテストされていない。route のクエリ読み取りに誤りがあっても、テストでは検出されない。\n- **直し方**: 既存の API テストの方式があればそれに合わせ、`sort` の未指定・不正・正しい値の 3 ケースを追加する。ページは表示ロジックなので、必要なら Playwright で「並べ替え」を選んで送信し、行の順序を見る。\n- **重要度**: 低\n\n## 指摘 4: 「期限の近い順」の仕様が未確認（完了済みの扱い）\n\n- **場所**: `src/lib/tasks.ts` の `listTasks`（`ORDER BY due_date ASC`）\n- **何が問題か**: 期限を昇順にすると、期限切れのタスクや「完了」のタスク（シードでは 11-02、11-05 の完了済み）が先頭に来る。「締め切りの近いタスクから片付けたい」という目的には、完了済みを後ろに回すか、未完了だけを対象にするほうが合う可能性がある。PR の説明には完了済みの扱いが書かれていない。\n- **直し方**: 仕様を確認する。完了済みを後ろに回すなら、`ORDER BY (status = 'done'), due_date, id` のように状態を先の並べ替えキーにする。どちらにするかは PR の作成者と決める。\n- **重要度**: 低（仕様の確認事項）\n\n## 指摘 5: 差分の外にある既存の問題（存在しない日付が通る）\n\n- **場所**: `src/lib/tasks.ts` の `validateTaskInput`（`DATE_RE` と `Date.parse` の検証）\n- **何が問題か**: `2026-02-30` のような存在しない日付が検証を通り、DB に保存される（`repro1.ts`。`Date.parse(\"2026-02-30\")` は値を返す）。並べ替え自体は `YYYY-MM-DD` の固定桁の文字列順で時系列どおりになるので、この差分による並び順の不具合ではない。\n- **直し方**: 別の変更として、年月日を分解して暦上の日付と一致するかを確かめる。この PR の範囲外でよい。\n- **重要度**: 低（差分の外・既存）\n\n---\n\n## 問題が無いと判断した点\n\n- `due_date` は `NOT NULL` で、`DATE_RE` により `YYYY-MM-DD` の 4 桁年に限られるため、文字列順が時系列順と一致する。\n- `ORDER BY ..., id` により同じ期限は登録順になる（テスト「sorts by due date, then by id」で確認）。\n- ページの `<select>` は GET フォームで両方送られ、`isTaskSort` で検証してから使われている。`?sort=` が無い・不正な場合は既定の `id` になる。\n- `status` の絞り込みと `sort` は同じ `WHERE` と `ORDER BY` で組み合わさり、既存の `:status` のプレースホルダも変わっていない。\n",
+  "review_chars": 3183,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0314,
+    "tokens": {
+      "input": 40,
+      "output": 17381,
+      "cache_read": 1146505,
+      "cache_creation": 55971
+    },
+    "turns": 22,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run typecheck 2>&1 | tail -5); echo \\\"TC=$?\\\"; (npm test 2>&1 | tail -15); grep -rn \\\"listTasks\\\\|isTaskSort\\\\|sort\\\" src tests --include=*.ts --include=*.tsx | grep -v \\\"^src/lib/ta"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p \\\"$HOME/../scratchpad-review\\\" 2>/dev/null; D=/tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c2-1-app/7b1b1aec-9a69-456f-b190-eeacd8358ef0/scratchpad; mkdir -p \\\"$D/repro\\\" &&"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"ls REVIEW.md 2>&1; git log --oneline -3; git config user.name; git config user.email; git status --short\", \"description\": \"Check REVIEW.md existence, git log and identity\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 14,
+      "Write": 4,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 98,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を最初の依頼の形式に書き直し、`REVIEW.md` だけをコミットしました（コミット `1cd8b88`）。コードは変更していません。\n\n前回の指摘は 5 件すべて残しています。新しい指摘は足していません。各指摘は「場所」「何が問題か」「直し方」「重要度」の順に並べ、重要度を明示しました。\n\n- 指摘 1: SQL 本文の組み立て（中）\n- 指摘 2: `listTasks` の `sort` 未検証（低）\n- 指摘 3: API・ページのテスト不足（低）\n- 指摘 4: 「期限の近い順」の完了済みの扱い（低・仕様の確認）\n- 指摘 5: 差分の外にある、存在しない日付の通過（低）\n\n内容の変更は、形式を揃えたことと、指摘 2 の「何が問題か」に再現した入力（`due_date`、`__proto__` など）を明記したことだけです。\n\nCo-Authored-By と Claude-Session の 2 行は、前回と同じく付けています。"
+  },
+  "interventions": 0
+}

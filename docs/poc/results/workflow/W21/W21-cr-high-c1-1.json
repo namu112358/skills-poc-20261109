@@ -1,0 +1,39 @@
+{
+  "trial": "W21-cr-high-c1-1",
+  "scenario": "W21",
+  "config": "cr-high",
+  "case": "c1",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスクに「保留」(on_hold) ステータスを追加\n\n## 指摘 1【高】tasks テーブルの CHECK 制約が更新されていない（マイグレーション無し）\n\n- 場所: `src/lib/db/migrations.ts:21`（tasks テーブルの `status` CHECK 制約）\n- 問題: CHECK 制約が `('todo','in_progress','done')` のままです。TypeScript 側には `on_hold` が追加されていますが、マイグレーションが無いため、DB では `on_hold` の INSERT/UPDATE が失敗します。\n  - `POST /api/tasks` に `{status:\"on_hold\"}` を送ると、`validateTaskInput` は通りますが、`createTask` の INSERT で `CHECK constraint failed` が発生し、API が 500 を返します。\n  - `PATCH /api/tasks/:id` に `{status:\"on_hold\"}` を送っても、`updateTask` で同様に失敗します。\n  - 結果として、この機能は使えません。\n- 直し方: `MIGRATIONS` の末尾に新しい番号（version 3）のマイグレーションを追加します。SQLite は CHECK を ALTER できないため、新しい CHECK 付きで tasks テーブルを作り直し、行をコピーし、`tasks_assignee` インデックスを再作成します。既存のマイグレーション 1・2 は書き換えません（CLAUDE.md 規約 7）。永続的な `DATABASE_PATH` を使う既存 DB にもこのマイグレーションが適用されます。\n\n## 指摘 2【中】新しいテストが DB への書き込みを検証していない\n\n- 場所: `tests/tasks.test.ts:73`\n- 問題: 追加されたテストは `validateTaskInput` と `isTaskStatus`（メモリ上の検証）だけです。`on_hold` を実際の DB に書き込むテストが無く、スキーマの CHECK 不一致（指摘 1）に気づけません。全テストが通るのに、`openDb()` に対する `createTask` / `updateTask` の `on_hold` は例外になります。\n- 直し方: `createTask({status:'on_hold',...}, openDb())`、`updateTask(id, {status:'on_hold'})`、`listTasks({status:'on_hold'})` のテストを追加します。version 3 のスキーマが `on_hold` を受け付け、既存の行が保持されることを確認するマイグレーションのテストも追加します（CLAUDE.md 規約 5）。\n\n## 指摘 3【中】ステータス一覧が 3 か所に別々に定義されている\n\n- 場所: `src/lib/tasks.ts:13`（`TaskStatus` 型・`TASK_STATUSES`・SQL の CHECK）\n- 問題: 同じ値の一覧が `TaskStatus` のユニオン型、`TASK_STATUSES`、SQL の CHECK に分かれていて、互いに連動していません。このずれが、今回の変更が一部しか反映されていない原因です。今後ステータスを追加するときも、型チェックと入力検証は通るのに DB で失敗する、という同じ事故が起こります。\n- 直し方: `TASK_STATUSES` を `as const` の配列にし、型を `typeof TASK_STATUSES[number]` から導出します。`TASK_STATUSES` のすべての値が tasks テーブルに INSERT できることを確認するテストを追加します。\n\n## 指摘 4【低】絞り込みで「保留」を選ぶと常に空になる（指摘 1 が解消すれば解決）\n\n- 場所: `src/app/tasks/page.tsx:22`（`TASK_STATUSES` から作るステータス絞り込みのプルダウン）\n- 問題: プルダウンに「保留」が出ますが、書き込みが CHECK 制約で失敗し、シードデータにも該当行が無いため、該当するタスクが存在しません。「保留」を選ぶと常に空の一覧になり、未対応なのか該当なしなのかが画面からも API からも分かりません。\n- 直し方: 指摘 1 のマイグレーションで解消します。あわせて、シードデータに保留のタスクを入れることと、新しいステータスの UI テストの追加を検討してください。\n",
+  "review_chars": 2042,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2775,
+    "tokens": {
+      "input": 20,
+      "output": 4213,
+      "cache_read": 285092,
+      "cache_creation": 67706
+    },
+    "turns": 4,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && git diff @{upstream}...HEAD 2>&1 | head -5; git diff main...HEAD --stat 2>&1 | tail -5; git diff HEAD --stat\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 38,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの 4 件を `REVIEW.md` に書き写し、`REVIEW.md` だけをコミットしました。コードは直していません。未コミットの PR の差分（`src/lib/tasks.ts` と `tests/tasks.test.ts`）はそのまま残っています。\n\n指摘の追加や削除はしていません。重要度は、レビュー結果に付いていなかったため、内容から私が割り当てました。\n\n1. **【高】** `src/lib/db/migrations.ts:21`: tasks テーブルの CHECK 制約が更新されておらず、マイグレーションもありません。そのため `on_hold` の作成・更新は DB で失敗し、API が 500 を返します。\n2. **【中】** `tests/tasks.test.ts:73`: 新しいテストは入力の検証しか見ておらず、DB への書き込みを確認していません。\n3. **【中】** `src/lib/tasks.ts:13`: ステータスの一覧が 3 か所に別々に定義されています。\n4. **【低】** `src/app/tasks/page.tsx:22`: 絞り込みで「保留」を選ぶと、該当するタスクが存在しないため常に空になります。指摘 1 が解消すれば直ります。"
+  },
+  "interventions": 0
+}

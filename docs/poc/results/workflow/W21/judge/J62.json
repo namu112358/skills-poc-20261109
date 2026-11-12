@@ -1,0 +1,57 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "src/lib/export.ts の field が値をダブルクォートで囲むだけで、値の中の \" を \"\" に置き換えていないため、引用符を含むタイトルで列がずれたり行が壊れたりする。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "export/route.ts の GET が status を as TaskStatus | null でキャストするだけで検証しておらず、?status=foo のとき「指定なし」ではなく見出しだけの空の CSV になる（規約 2 と PR の説明に反する）。",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "field で =・+・-・@ で始まる文字列項目を無害化していないため、Excel で開くと数式として評価される（CSV インジェクション）。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "テスト「escapes quotes and commas in titles」の入力タイトルに引用符もカンマも含まれていないため、何も確かめておらず B1 を見逃している。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "status の絞り込み（不正値を含む）と、API Route の 401・Content-Type・BOM・Content-Disposition を確かめるテストが無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "先頭のテストが seed の 7 件に依存しており（lines.length === 9）、seed が変わると壊れる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "数値の ID までダブルクォートで囲んでいるため、Excel で数値として扱えない場合があり、囲まずに出すべきだとしている。",
+   "severity": "低",
+   "match": "D3",
+   "kind": ""
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0513918
+ }
+}

@@ -1,0 +1,40 @@
+{
+  "trial": "W21-review-pr-c7-1",
+  "scenario": "W21",
+  "config": "review-pr",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# レビュー: 担当者変更の記録（サーバーログ）\n\n対象: 未コミットの差分（`src/lib/tasks.ts`、`src/lib/notify/*`（新規）、`tests/notify.test.ts`（新規））。\n`npm run typecheck`・`npm test` は通ることを確認した。コードは変更していない。\n\n要約: 要件は「担当者が変わったときに `[audit] ...` を 1 行ログに出す」だけだが、イベントバス・通知先の切り替え・未実装の Slack/メール送信まで追加されている。そのせいで、設定次第で「DB は更新済みなのに API が 500」になる不具合が入り、肝心の要件（ログが出る／変わらなければ出ない）にはテストが無い。\n\n| # | 重要度 | 指摘 |\n|---|---|---|\n| 1 | 高 | 送信が例外を投げると、DB 更新後に PATCH が 500 になる |\n| 2 | 高 | 依頼の範囲を大きく超えている（規約 6） |\n| 3 | 高 | 肝心の要件にテストが無い（規約 5） |\n| 4 | 中 | `NOTIFIER_KIND` の未知値が無言で console になり、`constructor` などで壊れる |\n| 5 | 中 | 監査ログがモジュール読み込みの副作用に依存している |\n| 6 | 低 | イベント型・イベントバスの細かい不整合 |\n\n## 1. 送信が例外を投げると、DB 更新後に PATCH が 500 になる\n\n- **重要度**: 高\n- **場所**: `src/lib/notify/notifier.ts` の `SlackNotifier.send`・`EmailNotifier.send`（常に throw）、`src/lib/notify/events.ts` の `EventBus.emit`（try/catch なし）、`src/lib/tasks.ts` の `updateTask` 末尾（`eventBus.emit`）、`src/app/api/tasks/[id]/route.ts` の PATCH（try/catch なし）。\n- **問題**: `NOTIFIER_KIND=slack`（または `email`）で起動して `PATCH /api/tasks/:id` に `{\"assignee\":\"suzuki\"}` を送ると、`UPDATE` は実行済みのあとに `send` が throw し、例外が `updateTask` の外へ出て API は既定の 500（`{ error }` 形式でもない）になる。担当者は実際には変わっている。クライアントがリトライすると、担当者が同じなので `emit` は走らず 200 になり、失敗と見えた操作が成功していたという食い違いが起きる。購読者を複数にした場合は、1 つが落ちると後続の購読者にも届かない。環境変数の誤設定 1 つで、担当者変更が毎回失敗する。また、Slack/メールは未実装なのにレジストリに登録され、環境変数で選べる状態で出荷される（`SlackNotifier` のエラーメッセージも、どのタスクの通知かが分からない）。\n- **直し方**: 根本的には指摘 2 のとおり、仕組みごと外してログ出力を直接書く（この不具合も消える）。仕組みを残すなら、`emit` で購読者ごとに try/catch して `console.error` に残し、通知の失敗で本処理を失敗させない。未実装の通知先はレジストリから外す。\n\n## 2. 依頼の範囲を大きく超えている（規約 6 違反）\n\n- **重要度**: 高\n- **場所**: `src/lib/notify/events.ts`（全体）、`src/lib/notify/notifier.ts`（`SlackNotifier`・`EmailNotifier`・`NotifierFactory`・`NotifierKind`）、`src/lib/notify/index.ts`。\n- **問題**: PR の合意は「記録先は当面サーバーのログだけ。ほかの記録先にする予定は今のところない」。それなのに、汎用イベントバス、どこからも発行されない `task.status_changed` / `task.created`、常に throw する Slack/メールの送信、環境変数 `NOTIFIER_KIND` / `SLACK_WEBHOOK_URL`、ファクトリが入っている（約 90 行）。維持費が増え、指摘 1・4・5・6 の原因にもなっている。規約 4・6 の趣旨（必要な範囲にとどめる）にも合わない。\n- **直し方**: `src/lib/notify/` を削除する。`updateTask` で `UPDATE` の後に、担当者が変わったときだけ直接 `console.log` する。書式は小さな関数（例: `formatAssigneeAudit(taskId, from, to, at)`）に切り出してテストする。\n  ```ts\n  if (next.assignee !== current.assignee) {\n    console.log(formatAssigneeAudit(id, current.assignee, next.assignee, new Date()));\n  }\n  ```\n  将来別の記録先が決まった時点で抽象化すればよい。\n\n## 3. 肝心の要件にテストが無い（規約 5 違反）\n\n- **重要度**: 高\n- **場所**: `tests/notify.test.ts` 全体。\n- **問題**: テストは `eventBus` の購読/解除（使っているのは要件と無関係の `task.created`）と `NotifierFactory` の種別だけ。`updateTask` を一度も呼ばず、`notify/index.ts` も import していない。次の要件はどれも検証されておらず、`emit` の削除、購読の削除、書式の破壊をしてもテストは通る。\n  - 担当者が変わったとき、`[audit] task <ID>: assignee <前> -> <後> at <ISO 日時>` が 1 行だけ出る。\n  - 担当者が変わらない更新（同じ担当者の指定、title/status/dueDate だけの更新、空の変更）では出ない。\n  - 存在しないタスクの更新では出ない。\n  - 1 回の更新でログは 1 行（担当者とステータスを同時に変えても 1 行）。\n  - 送信側が例外を投げても `updateTask` が更新後のタスクを返す（仕組みを残す場合）。\n- **直し方**: `tests/tasks.test.ts` に、`openDb()` の独立した DB と `mock.method(console, \"log\")`（`node:test`）で上のケースを追加する。日時は正規表現か、書式関数を切り出して固定した `Date` で検証する。\n\n## 4. `NOTIFIER_KIND` の未知値が無言で console になり、`constructor` などで壊れる\n\n- **重要度**: 中\n- **場所**: `src/lib/notify/notifier.ts` の `NotifierFactory.create` / `registry`、`tests/notify.test.ts` の `\"unknown\"` のケース、`src/lib/notify/index.ts` の `NotifierFactory.create()`（読み込み時に実行）。\n- **問題**: `NOTIFIER_KIND=slak` や `Slack` のような誤記が警告なしに console になる（運営者は別の送り先に出ていると思い込む）。また、レジストリが素のオブジェクトで `kind as NotifierKind` と型を上書きしているため、`constructor` / `toString` / `__proto__` を指定すると `Object.prototype` の関数が引かれ、`make()` が不正な値を返して `send` が無い状態になり、担当者変更のたびに TypeError（指摘 1 と同じく 500）になる。テストは「未知値は console」という挙動をそのまま固定している。\n- **直し方**: 指摘 2 で消える。残すなら、未設定のときだけ既定にし、設定されているのに未知なら `Object.hasOwn` で確認して起動時に throw（原因が分かるメッセージにする。最低でも `console.warn`）する。テストも差し替える。\n\n## 5. 監査ログがモジュール読み込みの副作用に依存している\n\n- **重要度**: 中\n- **場所**: `src/lib/notify/index.ts`（読み込み時に購読を登録）、`src/lib/tasks.ts` の先頭の import、`EventBus.clear`。\n- **問題**: ログが出るかどうかが「`tasks.ts` が `notify/index.ts` を import していること」に依存する。`eventBus.clear()` を（テストなどで）呼ぶと、以降プロセスが終わるまで監査ログが何のエラーもなく止まる（`index.ts` は一度しか登録しない）。`eventBus` はグローバルなので、テスト間でも購読が漏れる。監査目的の記録としては壊れやすい。\n- **直し方**: 指摘 2 の直接呼び出しにすれば解消する。\n\n## 6. イベント型・イベントバスの細かい不整合\n\n- **重要度**: 低\n- **場所**: `src/lib/notify/events.ts`（`AppEvent` の `task.status_changed` / `task.created`、`subscribe` の解除関数、`emit` の `event as never`）。\n- **問題**: 発行元の無いイベント型があり、通知が網羅されているように見える。解除関数は `Map.set` の結果を返し（宣言は `() => void`）、同じハンドラを二重登録すると `filter` が両方外す。`as never` で型が潰れ、購読者の例外にも守りがない。\n- **直し方**: 指摘 2 で消える。仕組みを残す場合は未使用の型を削り、型キャストを避ける。\n\n## 問題なしと判断した点（参考）\n\n- 変更の判定 `next.assignee !== current.assignee` は `UPDATE` の後で、`validateTaskInput` が指定された項目だけを値に入れるため、条件自体は正しい。\n- 担当者 ID は `users` テーブルで検証済みのため、ログへの値の混入（ログ注入）の心配は小さい。\n",
+  "review_chars": 4692,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.8035,
+    "tokens": {
+      "input": 50,
+      "output": 18246,
+      "cache_read": 799217,
+      "cache_creation": 137318
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 10,
+      "Agent": 3,
+      "ReadNotifications": 2,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 3,
+    "subagent_types": {
+      "pr-review-toolkit:code-reviewer": 1,
+      "pr-review-toolkit:silent-failure-hunter": 1,
+      "pr-review-toolkit:pr-test-analyzer": 1
+    },
+    "questions": 0,
+    "active_seconds": 62,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を整理し、`REVIEW.md` だけをコミットしました（c79f30d）。コードは直していません。\n\n前回の 6 件はそのままで、削った指摘はありません。各指摘を「重要度・場所・問題・直し方」の項目に分け、冒頭に一覧表を付けました。\n\n新しい指摘は足していません。ただし、前回のエージェント報告にあった次の細部は、元の指摘の中に書き足しました。\n\n- 指摘 1: 未実装の Slack・メールが選べる状態で出荷されること。\n- 指摘 3: 送信側が例外を投げても更新が成功するテストが必要なこと。\n- 指摘 4: 起動時の失敗は原因が分かるメッセージにすること。\n\nPR の変更は未コミットのままです。"
+  },
+  "interventions": 0
+}

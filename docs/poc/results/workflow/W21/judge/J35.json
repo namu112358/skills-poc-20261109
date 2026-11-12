@@ -1,0 +1,71 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "export.ts の field() が値の中の \" を \"\" に重ねずに囲むだけなので、引用符を含むタイトルで列がずれ CSV が壊れる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "field() が先頭の = + - @ タブ CR を無害化しないため、Excel で開くと数式（CSV インジェクション）が実行される。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "route.ts の status クエリが isTaskStatus で検証されず as でキャストされるだけなので、不正値や空文字で全件ではなく見出しだけの空の CSV になる。",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "tests/export.test.ts の \"escapes quotes and commas in titles\" は入力タイトルに引用符もカンマも無く、B1 を検出できない。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "改行・数式・BOM・status 絞り込み・未ログイン時 401 などのテスト、特にルートのテストが無い（規約 5）。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "CSV_BOM が不可視の U+FEFF のリテラルで書かれていて、エディタなどで消えても気付けないので、エスケープ表記にしてテストを足すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "status の解釈や BOM の連結・レスポンスの組み立てがルートに直接書かれ、一覧 API と重複しているので src/lib/ のヘルパーに移すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "認証済みユーザーのデータの CSV を Cache-Control: no-store なしで返しているので、共有キャッシュから漏れるおそれがある。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "Content-Disposition のファイル名が常に tasks.csv 固定で、絞り込み条件や日付が反映されない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.06516380000000001
+ }
+}

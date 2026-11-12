@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で利用者を含まないため、30 秒以内に別の利用者が開くと他人のダッシュボードが返り情報が漏れる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり（規約 8 違反）、SQL インジェクションが可能なのでプレースホルダにすべき。",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "weekRange で getUTCDay() が日曜に 0 を返すため、日曜には翌週の範囲が返り「今週が期限」が誤る（テストは水曜のみ）。",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "buildDashboard のキャッシュにより、タスクを更新しても最大 30 秒は古い完了率・件数が表示される。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "キャッシュがプロセス全体で共有され db 引数もキーに含まれないため、別の DB（テスト間など）の結果が混ざる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "countByStatus が TASK_STATUSES as TaskStatus[] に reverse() を呼び、共有定数をその場で書き換えるため、呼ぶたびに順序が入れ替わり他の画面にも影響する。",
+   "severity": "中",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "completionRate が担当タスク 0 件のとき 0/0 で NaN を返し、画面に「完了率 NaN%」と出る。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "dueThisWeek が今週の月曜〜昨日の期限切れタスクも含み、「期限切れ」と重複するのが紛らわしい。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "複数ユーザーのキャッシュ、日曜・月曜の weekRange、0 件の完了率、countByStatus の連続呼び出しを検出するテストが不足している。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "API Route の未ログイン時 401 のテストが無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.06537180000000001
+ }
+}
