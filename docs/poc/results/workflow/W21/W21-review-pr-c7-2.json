@@ -1,0 +1,34 @@
+{
+  "trial": "W21-review-pr-c7-2",
+  "scenario": "W21",
+  "config": "review-pr",
+  "case": "c7",
+  "rep": 2,
+  "review_md": "# レビュー: 担当者変更の監査ログ\n\n要件は「担当者が変わったとき、サーバーのログに 1 行出す。記録先は当面ログだけ」です。実際に必要なのは `updateTask` 内の `console.log` 1 行です。この PR はそこに、イベントバス・通知先の抽象化・Factory を足しています。そのため下の指摘 1・2 のような問題が出ています。\n\n## 指摘\n\n### 1. 【高】未実装の通知先を環境変数で選べて、選ぶとタスク更新が失敗する\n- 場所: `src/lib/notify/notifier.ts` の `SlackNotifier.send` / `EmailNotifier.send` / `NotifierFactory.create`。呼び出し側は `src/lib/tasks.ts` の `updateTask`（`eventBus.emit` の箇所）。`EventBus.emit`（`src/lib/notify/events.ts`）は購読者の例外を握りつぶさない。\n- 問題: `NOTIFIER_KIND=slack`（または `email`）を設定すると、担当者を変える PATCH の `emit` で購読者が例外を投げます。例外は `updateTask` を抜けて `PATCH /api/tasks/:id` が 500 になります。DB の `UPDATE` はすでに実行済みなので、クライアントにはエラーが返るのに担当者は変わっています。記録が目的なのに、記録の失敗が本処理を壊し、しかも監査ログは 1 行も残りません。\n- 直し方: 未実装の `SlackNotifier` / `EmailNotifier` と `NOTIFIER_KIND` を削除します。`updateTask` で `console.log` するだけにします。将来必要になった時点で追加します（CLAUDE.md の規約 6「変更は依頼された範囲にとどめる」）。\n\n### 2. 【中】依頼範囲を超えた抽象化がある\n- 場所: `src/lib/notify/` の 3 ファイル全体。\n- 問題:\n  - 発行元のない `task.status_changed` / `task.created` イベント型がある。\n  - 使われない `Notifier.kind`、`SlackNotifier`、`EmailNotifier`、`NotifierFactory.registry`、`EventBus.clear` がある。\n  - 「ほかの記録先にする予定は今のところない」という合意に反している。\n  - 読み込み時の副作用（`notify/index.ts` の import で購読が登録される）に依存していて、配線が追いにくい。\n  - 未知の `NOTIFIER_KIND` を黙って `console` にフォールバックするので、設定ミスに気づけない。\n  - PR 説明にない `SLACK_WEBHOOK_URL` / `NOTIFIER_KIND` という環境変数が増える。\n- 直し方: 指摘 1 と同じく、`updateTask` 内で変更があったときだけ `[audit] task ${id}: assignee ${from} -> ${to} at ${new Date().toISOString()}` を `console.log` します。ファイルは 5 つから 2 つ（`tasks.ts` と、そのテスト）に減ります。\n\n### 3. 【中】肝心の動作（担当者が変わったときだけログが出る）のテストが無い\n- 場所: `tests/notify.test.ts`（追加）、`tests/tasks.test.ts`（変更なし）。\n- 問題: 追加されたテストは EventBus と Factory の単体だけです。`updateTask` が担当者変更時にだけ記録を出すこと、メッセージの書式、担当者が変わらない更新（タイトルだけ変更など）で出ないこと、存在しない ID で出ないことは、どれも検証されていません。PR 説明の「通知の仕組みのテストを追加」は、要件の検証になっていません。規約 5 の趣旨にも合いません。`tests/tasks.test.ts` には `updateTask` のテストがあるので、そこに足す形が自然です。\n- 直し方: `openDb()` の DB で `updateTask` を呼び、`console.log` を差し替えるなどして、次を確認するテストを足します。\n  - 担当者を変えたときに 1 行出る。\n  - 同じ担当者を指定したとき、または他の項目だけ変えたときは出ない。\n  - 存在しないタスクでは出ない。\n\n### 4. 【低】`emit` が `UPDATE` の後・戻り値の取得前にあり、ログ失敗の影響範囲が広い\n- 場所: `src/lib/tasks.ts` の `updateTask` 末尾。\n- 問題: 指摘 1 を直して `console.log` だけにすれば実害は小さいです。それでも、ログ出力で例外が起きると更新済みなのに失敗が返る構造は残ります。\n- 直し方: 記録は `getTask` の後に行います。あるいは、ログ出力は例外を投げない前提のまま単純な 1 行にとどめます。\n\n### 5. 【低】メッセージの `from` / `to` が内部のユーザー ID のまま\n- 場所: `src/lib/notify/index.ts` の購読者（`updateTask` が渡す `current.assignee` / `next.assignee`）。\n- 問題: 監査担当が「誰から誰に」を追う用途です。ログには `assignee` 列の値（ユーザー ID）がそのまま出ます。ユーザー名との対応が分かる値かを確認してください。分からない値なら、ログから追えません。\n- 直し方: ID で追えるなら現状のままでかまいません。追えないなら、ユーザー名を併記します。\n\n## 問題なしと判断した点\n- 担当者が変わらない更新ではイベントを出さない比較（`next.assignee !== current.assignee`）は正しいです。\n- `updateTask` の既存の SQL はプレースホルダを使っていて、変更はありません。\n",
+  "review_chars": 2714,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2139,
+    "tokens": {
+      "input": 18,
+      "output": 3920,
+      "cache_read": 300738,
+      "cache_creation": 36148
+    },
+    "turns": 8,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 4,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 49,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの 5 件がすべて、場所・問題・直し方・重要度の形式で書かれています。内容は 961f697 でコミット済みで、ファイルに未コミットの変更もありません。指摘を足したり削ったりする必要はなく、新しいコミットも作っていません。コードも直していません。\n\n指摘の内訳は次のとおりです。\n\n1. 高: 未実装の通知先を `NOTIFIER_KIND` で選ぶと、担当者の更新が 500 になります。\n2. 中: 依頼範囲を超えた抽象化があります。\n3. 中: 担当者変更時にだけログが出る動作のテストがありません。\n4. 低: `emit` が `UPDATE` の後・戻り値の取得前にあり、ログ失敗の影響範囲が広くなっています。\n5. 低: ログの担当者が内部のユーザー ID のままです。"
+  },
+  "interventions": 0
+}

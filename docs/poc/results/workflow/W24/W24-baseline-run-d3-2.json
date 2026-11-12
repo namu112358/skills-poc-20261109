@@ -1,0 +1,52 @@
+{
+  "trial": "W24-baseline-run-d3-2",
+  "scenario": "W24",
+  "config": "baseline-run",
+  "case": "d3",
+  "rep": 2,
+  "review_md": "# レビュー結果：ダッシュボードとタスクのコメント\n\nマージ前に直すべき点を、重要度の高い順に書きます。「再現」と書いた項目は、`node` の小さなスクリプトで実際に動かして確かめました。\n\n## 高\n\n### 1. ダッシュボードのキャッシュのキーにユーザーが入っていない（他人の情報が見える）\n- 場所: `src/lib/dashboard.ts` の `buildDashboard`（`cached(\"dashboard\", ...)`）、`src/lib/cache.ts`\n- 問題: キーが固定文字列 `\"dashboard\"` で、30 秒間はユーザーを問わず同じ結果を返す。sato が開いた直後に suzuki が `/dashboard` や `GET /api/dashboard` を開くと、sato のタスクと件数が見える。\n- 再現: `buildDashboard(\"sato\")` の直後に `buildDashboard(\"suzuki\")` を呼ぶと、どちらも `userId: \"sato\"` が返った。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。キャッシュが本当に必要かも検討する（件数が少ないので、キャッシュしないのが最も安全）。タスクを更新しても 30 秒は古い値が出る点も同じ原因。`now` を引数に取る関数が、プロセス共有のキャッシュのせいでテストしにくくなっている点も解消できる。\n\n### 2. SQL インジェクション\n- 場所: `src/lib/dashboard.ts` の `listAssignedTasks`\n- 問題: `WHERE assignee = '${userId}'` と文字列連結で SQL を組んでいる（規約 8 違反）。今は `userId` がセッション由来なので直ちに悪用はできないが、引数の値がそのまま SQL になる。\n- 再現: `listAssignedTasks(\"x' OR '1'='1\")` が全ユーザーのタスク 7 件を返した。\n- 直し方: `WHERE assignee = ?` にして `.all(userId)` で値を渡す。\n\n### 3. コメント本文のリンクで XSS の恐れ（`dangerouslySetInnerHTML`）\n- 場所: `src/lib/comments.ts` の `renderBody`、`src/app/tasks/[id]/page.tsx`\n- 問題: `[文字](URL)` をそのまま `<a href>` にしており、URL のスキームを検証していない。`javascript:` を使ったリンクをコメントに書くと、閲覧者がクリックしたときにその人の権限でスクリプトが動く。正規表現が最初の `)` で切れるので `javascript:alert(1)` は構文エラーになるが、`javascript:alert\\`1\\`` のように `)` を含まない書き方で成立する。\n- 再現: `renderBody(\"[x](javascript:alert(1))\")` は `<a href=\"javascript:alert(1\" ...>x</a>)` を返した（スキームが素通しになることを確認）。\n- 直し方: URL が `https?://` で始まるものだけリンクにする。それ以外は文字のまま出す。そもそも HTML 文字列を作らず、React の要素として描画する方が安全。\n\n### 4. コメントの編集に投稿者の確認がない\n- 場所: `src/app/api/comments/[commentId]/route.ts` の `PATCH`\n- 問題: `DELETE` は `comment.authorId !== user.id` で 403 にしているが、`PATCH` には同じ確認が無い。ログインしていれば誰でも他人のコメントを書き換えられる。\n- 直し方: `PATCH` にも同じ 403 の確認を入れる。テストも追加する。\n\n## 中\n\n### 5. 日曜日に「今週」が翌週になる\n- 場所: `src/lib/week.ts` の `weekRange`\n- 問題: `dow` が日曜で 0 になるため、`start = today + (1 - 0)` となり日曜に翌月曜〜翌日曜を返す。日曜に「今週が期限」が空か翌週の分になる。\n- 再現: 2026-11-15（日）で `{ start: '2026-11-16', end: '2026-11-22' }` が返った（正しくは 11-09〜11-15）。月曜は正しい。\n- 直し方: `const offset = dow === 0 ? -6 : 1 - dow;` とする。日曜のテストを追加する（既存のテストは水曜しか見ていない）。\n\n### 6. `countByStatus` が共有の定数 `TASK_STATUSES` を書き換える\n- 場所: `src/lib/dashboard.ts` の `countByStatus`\n- 問題: `TASK_STATUSES as TaskStatus[]` はコピーではなく同じ配列で、`.reverse()` がその場で並びを逆にする。呼ぶたびに順序が入れ替わるので、ダッシュボードの先頭が「完了」→「未着手」→「完了」と交互になる。`TASK_STATUSES` を使う他の処理（フォームの選択肢など）の順序も壊れる。\n- 再現: 3 回呼ぶと先頭が `todo, done, todo` と変わった。\n- 直し方: `[...TASK_STATUSES].reverse()` にする（`toReversed()` でも可）。テストには 2 回続けて呼ぶケースを入れる。\n\n### 7. 担当タスクが 0 件のとき完了率が `NaN`\n- 場所: `src/lib/dashboard.ts` の `completionRate`\n- 問題: 0 件だと `0 / 0` で `NaN`。画面に「完了率 NaN%」と出る。API では JSON にすると `null` になる。\n- 再現: `completionRate([])` が `NaN`。\n- 直し方: `tasks.length === 0` なら 0 を返す。テストを追加する。\n\n### 8. コメントの並び順が正しくない（日時を文字列で保存して `ORDER BY`）\n- 場所: `src/lib/comments.ts` の `formatCreatedAt` / `listComments`\n- 問題: `toLocaleString(\"ja-JP\")` は `2026/11/9 10:00:00` のようにゼロ埋めしない。文字列として並べると、日や月が 1 桁のコメントが 2 桁のものより後ろに来る。\n- 再現: 11/9・11/10・11/11・12/1 に投稿した 4 件が、11/10, 11/11, 11/9, 12/1 の順で返った。\n- 直し方: DB には ISO 8601（`toISOString()`）を保存し、表示するときだけ日本時間に整形する。並びは `ORDER BY id` でも足りる。既存テストは同日の別時刻でしか見ておらず検出できない。\n\n### 9. 存在しないタスクにコメントすると 500 になる\n- 場所: `src/app/api/tasks/[id]/comments/route.ts` の `POST`\n- 問題: `GET` は `getTask(id)` で 404 にしているが `POST` は確認しない。存在しない ID だと外部キー違反の例外が出て 500 になる（規約 9: 対象が無いときは 404）。\n- 再現: `addComment(9999, ...)` が `FOREIGN KEY constraint failed` を投げた。\n- 直し方: `GET` と同じく `!getTask(id)` で 404 を返す。\n\n## 低\n\n### 10. 今週の期限と期限切れが重なる\n- 場所: `src/lib/dashboard.ts` の `dueThisWeek`\n- 問題: 今週の月曜〜昨日が期限の未完了タスクは、「期限切れ」と「今週が期限」の両方に出る。既存テストはこの重なりを期待値にしている（`[1, 2]`）。意図なら注釈を入れ、意図でなければ `dueDate >= today` から数える。\n- 再現: 水曜に期限が火曜のタスクが `dueThisWeek` にも含まれた。\n\n### 11. コメント ID の検証に `parseTaskId` を流用している\n- 場所: `src/app/api/comments/[commentId]/route.ts` の `PATCH` / `DELETE`\n- 問題: コメント ID の検証にタスク用の `parseTaskId` を使っている。動作は同じだが名前が紛らわしく、タスク ID の規則だけを変えたときにコメントの API が巻き込まれる。\n- 直し方: `parseId` などの汎用の名前にするか、コメント用の関数を用意する。\n\n### 12. コメント API のテストが無い\n- 場所: `tests/`（対象は `src/app/api/comments/[commentId]/route.ts` と `src/app/api/tasks/[id]/comments/route.ts`）\n- 問題: ルートに対するテストが無く、401（未ログイン）・403（他人のコメント）・404（対象なし）・400（入力誤り）が確認されていない。上の 4 と 9 を見逃した一因（規約 5・9）。\n- 直し方: 各ルートに正常系と、401・400・403・404 の異常系のテストを追加する。\n\n### 13. `/dashboard` への導線が無い\n- 場所: `src/app/dashboard/page.tsx` と既存の画面（例: `/tasks`）\n- 問題: 他の画面から `/dashboard` へのリンクが無く、URL を直接入力しないと開けない。\n- 直し方: タスク一覧などにダッシュボードへのリンクを置く。\n",
+  "review_chars": 4385,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3579,
+    "tokens": {
+      "input": 28,
+      "output": 11738,
+      "cache_read": 598093,
+      "cache_creation": 45156
+    },
+    "turns": 15,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"TASK_STATUSES\\\\|parseTaskId\\\" -A4 src/lib/tasks.ts | head -40; grep -n \\\"foreign\\\" -ri src/lib/db/index.ts; cat src/lib/api.ts | head -40; node -v\\nmkdir -p /tmp/claude-0/s && c"
+      },
+      {
+        "tool": "Write",
+        "input": "{\"file_path\": \"/tmp/claude-0/s/r.ts\", \"content\": \"import { openDb } from \\\"/tmp/poc-trials/W24-baseline-run-d3-2/app/src/lib/db/index.ts\\\";\\nimport * as D from \\\"/tmp/poc-trials/W24-baseline-run-d3-2/"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W24-baseline-run-d3-2-app/8178e5d8-585b-4e35-a99a-7e256265cb3a/scratchpad; mkdir -p $S; cat > $S/r.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W24"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\np=\\\"REVIEW.md\\\"\\ns=open(p,encoding=\\\"utf-8\\\").read()\\ni=s.index(\\\"### 11. 追加で気づいた点\\\")\\nnew=\\\"\\\"\\\"### 11. コメント ID の検証に `parseTaskId` を流用している\\n- 場所: `src/app/api/comments"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 8,
+      "Write": 3,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 95,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には前回の指摘がすでに全部入っていたので、書き写しの代わりに、形式がそろっていなかった末尾の項目だけ直してコミットしました。指摘の追加と削除はしていません。コードも直していません。\n\n- **直した箇所:** 旧 11 番は「追加で気づいた点」として 3 件が箇条書きでまとまっていて、場所・問題・直し方・重要度がそろっていませんでした。これを 11 番（ID 検証に `parseTaskId` を流用）、12 番（コメント API のテストが無い）、13 番（`/dashboard` への導線が無い）に分け、3 件とも低として、各項目に場所・問題・直し方を付けました。\n- **件数:** 指摘は 11 件から 13 件になりましたが、増えたのは旧 11 番を分けたぶんだけです。1〜10 番はそのままです。\n- **12 番の補足:** 4 番と 9 番を見逃した一因だと一言添えました。\n- **コミット:** 今回のコミットは `REVIEW.md` だけで、PR の変更は未コミットのままです。"
+  },
+  "interventions": 0
+}

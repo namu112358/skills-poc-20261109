@@ -1,0 +1,113 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で利用者を含まないため、30 秒以内に別の利用者が開くと他人のダッシュボードが返る。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "renderBody がリンクの URL のスキームを検査しないため、javascript: のリンクが作られ dangerouslySetInnerHTML 経由で保存型 XSS になる。",
+   "severity": "高",
+   "match": "B6",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり、規約 8 違反で SQL インジェクションの恐れがある。",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "countByStatus が readonly をキャストで外して共有の TASK_STATUSES を reverse() で破壊的に並べ替え、呼ぶたびに順序が反転する。",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "completionRate が担当タスク 0 件のとき 0/0 で NaN になり、画面に「完了率 NaN%」、API では null になる。",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "コメントの PATCH が投稿者かを確認しないため、ログインした誰でも他人のコメントを編集できる。",
+   "severity": "中",
+   "match": "B7",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "コメント POST がタスクの存在を確認せず、存在しない ID では外部キー制約の例外で 500 になる。",
+   "severity": "中",
+   "match": "B8",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "コメント ID の解析にタスク用の parseTaskId を流用しており意味が合わない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "PATCH で JSON が不正なときも「コメントを入力してください」の 400 になり原因が分かりにくい。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "作成日時を toLocaleString の表示用文字列で保存し文字列で ORDER BY するため、桁の違いで時系列順にならない。",
+   "severity": "中",
+   "match": "B9",
+   "kind": ""
+  },
+  {
+   "n": 11,
+   "summary": "ダッシュボードとコメントのテスト（キャッシュ、順序反転、0 件、API のステータス）が不足している。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "/dashboard へのリンクが他の画面に無く、URL を直接入力しないと開けない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 13,
+   "summary": "dueThisWeek が期限切れのタスクも含み、「期限切れ」と重複表示になる。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 14,
+   "summary": "cache.ts が期限切れのエントリを消さず、キーが増えるとメモリが膨らむ。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 15,
+   "summary": "タスク更新時にキャッシュが無効化されず、最大 30 秒古い値が表示される。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0365672
+ }
+}

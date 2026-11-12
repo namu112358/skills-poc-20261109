@@ -1,0 +1,38 @@
+{
+  "trial": "W21-baseline-c7-1",
+  "scenario": "W21",
+  "config": "baseline",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# レビュー: 担当者変更の監査ログ\n\nテストと型チェックは通るが、マージ前に直すべき点が 3 つある。\n\n## 1. [高] 通知の失敗で、更新済みのタスクが API エラーになる\n\n- 場所: `src/lib/notify/notifier.ts` の `SlackNotifier.send` / `EmailNotifier.send`、`src/lib/notify/events.ts` の `EventBus.emit`、`src/lib/tasks.ts` の `updateTask`\n- 問題: `NOTIFIER_KIND=slack`（または `email`）を設定すると、`send` は常に例外を投げる。`updateTask` は `UPDATE` を実行した後で `emit` を呼ぶ。そのため担当者が変わる `PATCH /api/tasks/:id` で DB は更新済みなのに例外が上がり、クライアントには 500 が返る。`emit` は購読者の例外を捕捉しないので、同じイベントを受ける後続の購読者も実行されない。`NOTIFIER_KIND` が環境変数なので、設定ミス 1 つで担当者変更が事実上できなくなる。\n- 直し方: 下の 2 で未実装の送り先を削除する。そのうえで、監査ログの出力が失敗しても更新の結果を壊さないようにする（`console.log` なら実質起きない）。\n\n## 2. [中] 依頼の範囲を超えた作り込み（規約 6）\n\n- 場所: `src/lib/notify/` 全体（`events.ts`、`notifier.ts`、`index.ts`）\n- 問題: 依頼は「担当者が変わったら、サーバーのログに 1 行出す」だけで、記録先は当面ログだけと合意済み。差分には次が入っている。\n  - 汎用のイベントバス。\n  - 誰も発行しない `task.status_changed` と `task.created`。\n  - 必ず例外を投げる `SlackNotifier` と `EmailNotifier`。\n  - 環境変数で切り替える `NotifierFactory`。\n  - 将来の拡張用の仕組み。\n  - 1 の障害は、この使われない拡張点が原因。\n  - 読み込み時に購読者を登録する副作用が `index.ts` にあり、`tasks.ts` がそれに依存している。\n- 直し方: `updateTask` の中、または `src/lib/` の小さな関数 1 つ（例: `logAssigneeChange(taskId, from, to, at)`）で `console.log(\"[audit] task ...\")` を出す。`notify/` ディレクトリは削除する。送り先を増やす話が出た時点で抽象化すればよい。\n\n## 3. [中] 肝心の動作のテストが無い（規約 5）\n\n- 場所: `tests/notify.test.ts`\n- 問題: 追加されたテストは、イベントバスの購読と解除（発行されない `task.created` を使っている）と、`NotifierFactory` の型判定だけである。PR の中身である次の点は検証されていない。\n  - `updateTask` で担当者を変えると `[audit] task <ID>: assignee <前> -> <後> at <日時>` が出ること。\n  - 担当者が変わらない更新（タイトルだけ変更、同じ担当者を指定）では出ないこと。\n  - 存在しない ID の更新では出ないこと。\n  - `src/lib/notify/index.ts` の購読登録も未検証。\n- 直し方: `tests/tasks.test.ts` に、`openDb()` の DB で `updateTask` を呼び、`console.log` を差し替えて出力を確認するテストを追加する。上の 3 ケースを網羅する。\n\n## 補足（低）\n\n- [低] `src/lib/notify/events.ts` の `unsubscribe` は、購読者が 0 件になると空の配列を `Map` に残す。2 を直せば消える。\n",
+  "review_chars": 1794,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.1912,
+    "tokens": {
+      "input": 22,
+      "output": 3366,
+      "cache_read": 367522,
+      "cache_creation": 30193
+    },
+    "turns": 9,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files -o --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 40,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "書き写す作業は要りませんでした。前回のレビューの指摘はすでに `REVIEW.md` に、ご指定の形式（場所・何が問題か・直し方・重要度）で書いてあり、コミット済みです（コミット 4c563a7）。`REVIEW.md` に未コミットの変更はありません。\n\n内容は次の 4 件です。指摘は増やしても削ってもいません。\n\n1. **高:** 通知の失敗で、更新済みのタスクが API エラーになります。\n2. **中:** 依頼の範囲を超えた作り込みです（規約 6）。\n3. **中:** 肝心の動作のテストがありません（規約 5）。\n4. **低:** 購読者が 0 件になっても、空の配列が `Map` に残ります。\n\nコードは直していません。PR の差分は未コミットのままです。"
+  },
+  "interventions": 0
+}

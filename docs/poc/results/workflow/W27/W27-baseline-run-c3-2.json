@@ -1,0 +1,65 @@
+{
+  "trial": "W27-baseline-run-c3-2",
+  "scenario": "W27",
+  "config": "baseline-run",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# レビュー: 設置場所を場所マスタから選べるようにする\n\n結論: **マージ前に直すべき問題あり（高 4 件・中 3 件・低 2 件）**。`instruments.location` 列（要件 7・8）の扱いと、API からの新規登録が壊れている点が中心。\n下の「確認」はすべて、一時スクリプトで関数を実際に呼んで確かめた結果（`openDb(\":memory:\")`、5 万件の移行は `docs/data/location-values.csv` の件数どおりに 48,882 件を作って実行）。\n\n---\n\n## 高\n\n### 1. `location` 列に場所の名前が入らない（要件 7 違反。経理の月末集計が壊れる）\n- 場所: `src/lib/instruments.ts` の `validateLocation` / `updateInstrument` / `recordInventory`、`src/lib/location-master.ts` の `updateLocation`、`src/lib/db/migrations.ts` version 5 の `after`\n- 問題: 要件 7 は「来期まで `location` 列を残し、**場所の名前が入った状態を保つ**」。実装は `location` を「元の書き方」として扱い、場所マスタの名称を書き込む箇所が無い。\n  - 移行: 寄せた 43,846 件の `location` は元の表記のまま（例: `品証 測定室`、`製造部第２ライン`）。正式名にならない。\n  - 画面から `locationId` を選んで保存（`PATCH {locationId: 1}`）: `location_id` だけ変わり、`location` は古い文字のまま。確認: MI-0004 を場所 1（品質保証部 測定室）に変更しても `location = '製造部第２ライン'`。経理は「製造部第２ライン」と読む。\n  - `locationId: null`（未設定）にすると `location` は `\"\"` になる（これは妥当）。\n  - 名称変更（`updateLocation`）: `location_id` を持つ計測器の `location` を更新しない。確認: 場所 1 を「品質保証部 計測室」に改名後も、該当計測器の `location` は `品質保証部 測定室` / `品証 測定室` のまま。\n  - ハンディ端末で正式な場所に寄った場合も、`location` には端末が送った生の文字（`製造部第３ライン`）が入る。\n- 直し方: 確定している（`location_id` がある）計測器の `location` は常にマスタの正式名で保存する。\n  1. 移行の `after` で、寄せた行の `location` を正式名で上書きする。ただし要件 2「元の書き方を残す」は確認中の行だけが対象なので、寄せた行の元の文字列は移行ログ・別列（例: `location_original`）に退避するか、`docs/data` と同様にバックアップで担保する（要件 7 と要件 8 のどちらを優先するかを決めてメモに残す）。\n  2. `updateInstrument` で `locationId` が非 null のときは `location = マスタの名称` にする（`locationOriginal` を信用しない）。\n  3. `updateLocation` で名称を変えるときは、同じトランザクションで `UPDATE instruments SET location = ? WHERE location_id = ?` も行う。5 万件でも `instruments_location` の索引があるので軽い。\n  4. 各ケースの `location` 列の値を直接確かめるテストを足す（現状のテストは `getInstrument().location`＝`COALESCE` 後の表示値しか見ておらず、列そのものを見ていない）。\n\n### 2. `POST /api/instruments` に `locationId` を渡すと 500 になる\n- 場所: `src/lib/instruments.ts` の `validateLocation`（`\"locationId\" in b` かつ非 null の枝）と `createInstrument`\n- 問題: その枝は `value.locationId` だけを設定し `value.locationOriginal` を設定しない。`createInstrument` は `input.locationOriginal`（undefined）を SQL に束縛するため例外になる。確認: `validateInstrumentInput({managementNo, name, locationId: 2, ...})` は ok を返し、`createInstrument` が `TypeError: Provided value cannot be bound to SQLite parameter 4.` で落ちる。API では未処理例外の 500。CLAUDE.md が「計測器の設置場所は `locationId` で指定する」と書いている正規の使い方がそのまま壊れる。要件 3（登録を一覧から選ぶ形に）も満たせない。\n- 直し方: 上の 1 と同じく、`locationId` があれば `location` にはマスタ名称を入れる（`createInstrument`/`updateInstrument` 側で `location_id` から名称を引く）。`POST` の `locationId` 指定（有効・使用終了・存在しない ID・null）のテストを追加する。\n- 補足: 画面側は詳細ページの変更フォーム（`LocationForm`、PATCH）だけで、新規登録の画面は元々無いので画面からは見えない。API の利用者（他システム）が踏む。\n\n### 3. 前の版へ戻したとき、前の版が間違った場所を表示・編集する（要件 8 違反）\n- 場所: マイグレーション 5 と上記の `location` 列の扱い全般（設計）\n- 問題: 前の版は `location` 列しか読まない。1 で見たとおり、新しい版で場所を変えても `location` が更新されないので、ロールバックすると（新版で直した）場所の変更がすべて古い値に戻って見える。逆に、前の版で場所を編集・ハンディ受信すると `location` だけが更新され `location_id` が古いまま残る。その後また新しい版に進むと `COALESCE(l.name, i.location)` により **`location_id` の古い場所が表示され、前の版で入った新しい値が見えなくなる**（前の版の更新が静かに消える）。\n- 直し方: 1 を直した上で、新しい版は `location_id` と `location`（正式名）が一致しているかを起動時（または表示時）に確かめ、`location_id` の名称と `location` が食い違う計測器は「前の版で変更された」とみなして `location` を優先して再照合する（`linkInstrumentsToLocations` を `location_id IS NULL` だけでなく `location` ≠ マスタ名称の行にも対象を広げる）。運用メモに「ロールバック後に再度新版へ進むときの手順」を書く。\n\n### 4. ハンディ端末の入力が、確定済みの計測器では黙って捨てられる（要件 6 と不整合）\n- 場所: `src/lib/instruments.ts` の `recordInventory`（`unmatched_kept`）、`docs/handheld-api.md`\n- 問題: 要件 6 は「分からなければ確認中として、**送られた文字を残す**」。実装は、計測器にすでに `location_id` があると、分からない文字は破棄してログ 1 行だけ残す。棚卸しで作業者が「実際は別の場所にあった」と入力した情報（正式名に寄らない表記や新しい場所）が、画面にも DB にも残らず、確認中にも上がらない。確認: 確定済みの MI-0003 に `ふめい` を送ると `outcome: unmatched_kept`、DB は変化なし。\n  意図（品質保証部の修正を戻さない）は理解できるが、要件にない独自判断で、しかも依頼者への確認も PR の「仮定」にも書かれていない（ドキュメントに書いたのみ）。\n- 直し方: 要件どおり「確認中にして送られた文字を残す」を基本にする（`location_id = NULL`、`location = 送られた文字`）。品質保証部の修正を保護したいなら、要件を依頼者に確認するか、確定を外さずに別列（例: `inventory_reported_location`）に最後の端末入力を残し、確認中一覧とは別に確認できるようにする。どちらにしても PR に仮定として明記する。\n\n---\n\n## 中\n\n### 5. 「大阪営」「名古屋営」を正式な場所に寄せている（推測。要件 2 の線引きを超える）\n- 場所: `src/lib/locations.ts` の `ALIASES`\n- 問題: 要件 2 は「表記ゆれ（全角・半角、第1／第一、空白、品証・品保、号車など）で同じ場所と分かるものだけ」。`大阪営`（580 件）・`名古屋営`（245 件）は末尾が欠けた文字で、`大阪営業所` と決めるのは推測にあたる（コメントも「現場で多い」としか根拠が無い）。825 件が確認なしに確定になる。`工事倉庫`（1,206 件）→`工事部 倉庫`、`工事 倉庫`（339 件）も「部」の省略を補っているが、こちらは「部署名の省略」で品証・品保と同じ種類のゆれなので許容範囲と考える。\n- 直し方: `ALIASES` を外して確認中に回すか、依頼者（品質保証部）に「欠けた文字も同じ場所と見なしてよいか」を確認し、答えを PR に書く。件数（移行ログ `linked`）に影響するので、`locations-real-data.test.ts` の 85% の閾値や期待も合わせて見直す。\n\n### 6. 場所の名前を変えるときの重複判定が、使用終了の場所とも衝突する／同名の再利用ができない\n- 場所: `src/lib/location-master.ts` の `validateLocationInput`\n- 問題: 使用終了の場所と表記だけ違う名称を追加しようとすると 409（「同じ場所がすでに登録されています」）になる。メッセージが「その場所は使用終了になっています。『使用中に戻す』を使ってください」とは分からず、利用者は直せない（CLAUDE.md の「エラーは利用者が直せる言葉で」）。\n- 直し方: 衝突した相手が使用終了なら、メッセージにその旨と再開の手順を書く。\n\n### 7. 場所の名称変更・使用終了が、同時に別の人が変更した結果を上書きする\n- 場所: `src/lib/location-master.ts` `updateLocation`\n- 問題: `{...current, ...changes}` で全列を書き戻す（`name` と `active` の両方）。名称変更と使用終了を別の人が同時に行うと、読み取り後の相手の変更を元の値で上書きする（lost update）。要件 4 は「誰でも変更できる」ので、同時操作は起こりうる。\n- 直し方: 変更する列だけを `UPDATE` する（`SET name = COALESCE(?, name)` など）。\n\n---\n\n## 低\n\n### 8. 画面: 設置場所の保存後に `window.location.reload()` している\n- 場所: `src/app/instruments/[id]/LocationForm.tsx`\n- 問題: 成功メッセージを出した直後にリロードするので、メッセージが利用者の目に残らない（CLAUDE.md の開発標準 19「操作の結果を画面で分かるように」）。Next.js なら `router.refresh()` を使える。\n- 直し方: `useRouter().refresh()` に変え、メッセージを残す。\n\n### 9. テスト: 本番値の照合テストが `location` 列そのものを見ていない\n- 場所: `tests/locations-real-data.test.ts`、`tests/instrument-location.test.ts`\n- 問題: 1・2・3 のどれもテストでは検出できていない（表示値 `COALESCE` と `location_id` しか確かめていない）。`npm test` が通るという検証は、要件 7・8 を確かめたことにならない。\n- 直し方: DB を直接 `SELECT location, location_id FROM instruments` して、確定行の `location` が正式名であること、PATCH・名称変更・ハンディ受信後も同様であることを確かめるテストを足す。`POST` に `locationId` を渡すテストも足す。\n\n---\n\n## 問題なしと確認した点（参考）\n- 5 万件（48,882 件）の移行は約 0.5 秒（in-memory、同一トランザクション）。起動は止まらない。内訳ログは 確定 43,846 / 未設定 1,491 / 確認中 3,545 で出る。\n- 本番値 171 種の照合: 空欄・「倉庫」だけ・「不明」・「工事部 倉庫 棚B」・「車両1号」などは確認中のまま。`第一/第１/ﾗｲﾝ/号車` などは正しく同じ場所に寄る（上の 5 の 2 値を除く）。\n",
+  "review_chars": 5952,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.6995,
+    "tokens": {
+      "input": 56,
+      "output": 19506,
+      "cache_read": 1868872,
+      "cache_creation": 79371
+    },
+    "turns": 39,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c3-2-app/3c7cefdc-2b98-483a-afa1-9ee4f3293ac7/scratchpad && cat > $S/m.ts <<'EOF'\\nimport { readFileSync } from \\\"node:fs\\\";\\nimport { ope"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c3-2-app/3c7cefdc-2b98-483a-afa1-9ee4f3293ac7/scratchpad; ls $S; node --experimental-strip-types --no-warnings $S/m.ts\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c3-2-app/3c7cefdc-2b98-483a-afa1-9ee4f3293ac7/scratchpad/u.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W27-baseline-run-c3-2/"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'EOF'\\nimport re\\ns=open('REVIEW.md',encoding='utf8').read()\\ns=re.sub(r'### 6\\\\..*?(?=### 7\\\\.)','',s,flags=re.S)\\ns=re.sub(r'### 10\\\\..*?(?=### 11\\\\.)','',s,flags=re.S)\\ns=s"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i -e '89d' -e '74,78d' -e '50,54d' REVIEW.md && sed -i -e 's/^### 7\\\\. /### 6. /' -e 's/^### 8\\\\. /### 7. /' -e 's/^### 9\\\\. /### 8. /' -e 's/^### 11\\\\. /### 9. /' REVIEW.md && sed -"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i -e '89d' -e '74,78d' -e '50,54d' REVIEW.md\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i -e 's/^### 7\\\\. /### 6. /' -e 's/^### 8\\\\. /### 7. /' -e 's/^### 9\\\\. /### 8. /' -e 's/^### 11\\\\. /### 9. /' -e 's/高 4 件/高 4 件・中 3 件・低 2 件/' REVIEW.md\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 24,
+      "Write": 5,
+      "Read": 1,
+      "Edit": 6
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 165,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューで出した9件がすべて入っていて、すでにコミット済み（`0eb6427`）です。作業ツリーとの差分も無いので、今回は書き換えもコミットもしていません。\n\n各指摘は、場所・何が問題か・直し方の順に書いています。重要度は「高」「中」「低」の見出しで付けていて、内訳は次のとおりです。\n\n- **高（4件）:**\n  - 1: `location` 列に場所の名前が入らない\n  - 2: `locationId` 付きの `POST` が 500 になる\n  - 3: 前の版へ戻すと場所が食い違う\n  - 4: ハンディの分からない文字が捨てられる\n- **中（3件）:**\n  - 5: 「大阪営」「名古屋営」を推測で寄せている\n  - 6: 重複エラーのメッセージが使用終了の場所に対して分かりにくい\n  - 7: 場所の更新が同時操作で上書きされる\n- **低（2件）:**\n  - 8: 保存後のリロードで成功メッセージが残らない\n  - 9: テストが `location` 列を見ていない\n\n途中の下書きにあった、実行で確かめていない2件（定期再実行での再照合、正規化の語中置換）は、最終報告に含めなかったため `REVIEW.md` から外しています。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,64 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "updateTask の UPDATE 文に priority が無く、PATCH で優先度を変えても保存されず応答も元の値のままで、更新のテストも無い。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "優先度の値と表示名が route.ts の PRIORITIES や page.tsx の PRIORITY_LABELS などに書き写され、定義（registry）が使われていないので、値を足すと直し漏れが出る。",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "優先度 1 つのために registry.ts の汎用の登録の仕組み（singleton・whereClause・import 時の副作用での登録）を作っており作りすぎなので、status と同じ単純な形にすべき。",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "page.tsx の `params.priority in PRIORITY_LABELS` はプロトタイプの名前（constructor・toString）も有効とみなし、無効な値が listTasks や select に渡る。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "絞り込みの検証が画面・API・whereClause の 3 か所に分かれ、TaskFilter.priority が string なので型でも守られていない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "不正な型・POST で省略したときの既定値・API の 400 を確かめるテストが無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "1 つの it が既定値と作成の 2 つの振る舞いを確かめているので、テストを分けるべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "createTask の既定値 'medium' が DB の DEFAULT と TS の定義の 2 か所にあるので、定数 1 つにするか DB の DEFAULT に任せるべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0631318
+ }
+}

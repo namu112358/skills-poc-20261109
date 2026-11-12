@@ -1,0 +1,50 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "「counts a new task that is due today」が UTC の日付（toISOString）で今日を作るため、集計が日本時間で数える 0:00〜9:00 に前日扱いになって失敗する。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "「summarizes the seed data」が本物の現在時刻で集計し、今日の日付を前提にした件数を決め打ちしているため、日付が変わると失敗する。固定の now を渡すべき。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "overdue・完了除外・JST 日付境界・dueSoon の範囲・parseSoonDays の境界値・空 DB など、集計の境界条件のテストが無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "GET /api/tasks/summary のルート自体（401・400・200 の分岐）のテストが無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "「is fast enough for the dashboard」の 300 ms の実時間閾値は負荷で偶発的に落ちる flaky なテストで価値も低いため削除すべき。",
+   "severity": "低",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "summarizeTasks のコメントが「未完了を数える」とあるが total は完了を含む全件で、コメントと動作が食い違う。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.058767799999999995
+ }
+}

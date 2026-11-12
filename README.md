@@ -5,7 +5,7 @@ AI エージェント（主に Claude Code）を使って新規開発を進め�
 | 問い | 今の答え（要約） | 状態 |
 |---|---|---|
 | [1. どの Skills・プラグイン・MCP を入れるか](#1-どの-skillsプラグインmcp-を入れるか) | 必須の 11 件と、採用技術ごとの追加分を固定のバージョンで入れる | 決定。追加候補は調査のみ |
-| [2. どのような開発ワークフローを組むか](#2-どのような開発ワークフローを組むか実装レビュー自己改善) | 実装は既定でワークフロー用のプラグインを使わず、難しい作業だけ Compound Engineering を使う。品質を上げる手段は、Issue に運用の事情を書くこと | 暫定（PoC の途中） |
+| [2. どのような開発ワークフローを組むか](#2-どのような開発ワークフローを組むか実装レビュー自己改善) | 実装は既定でワークフロー用のプラグインを使わず、難しい作業だけ Compound Engineering を使う。レビュー用の Skill も既定では入れず、何を確かめるかを依頼に具体的に書く。品質を上げる手段は、Issue に運用の事情を書くこと | 暫定（PoC の途中） |
 | [3. どのような GitHub の設定が必要か](#3-どのような-github-の設定が必要か) | Rulesets・Advanced Security・Actions の標準設定と、Issue・PR のテンプレートを入れる | 決定 |
 | [4. AI への指示と管理をどうするか](#4-ai-への指示と管理をどうするか) | 指示ファイルと設定は雛形から始め、プロジェクト固有の罠を理由つきで書く。権限は最小にし、Skills と指示を CI で機械的に検査する | 決定 |
 
@@ -19,14 +19,12 @@ AI エージェント（主に Claude Code）を使って新規開発を進め�
 
 #### UI/UX・デザイン
 
-画面のデザイン品質を上げ、使いやすさ・アクセシビリティのルールに沿っているかを確認します。
+画面のデザイン品質を上げ、使いやすさ・アクセシビリティのルールに沿っているかを確認します。画面を作る・直すときは Impeccable、ルールに沿っているかのレビューには Web Design Guidelines を使います。各プロジェクトの `CLAUDE.md`（雛形に記載済み）で「画面を作るときは `impeccable` Skill を使う」と指定します。Skill は依頼文だけでは呼ばれないことが多いためです。
 
 | 種別 | ツール | 提供元 | リポジトリ | 導入方法 | 設定箇所 |
 |---|---|---|---|---|---|
-| Skill | Frontend Design | Anthropic | [anthropics/skills](https://github.com/anthropics/skills/tree/main/skills/frontend-design) | 固定コミットから vendoring | `.claude/skills/frontend-design` |
 | Skill | Web Design Guidelines | Vercel | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines) | 固定コミットから vendoring | `.claude/skills/web-design-guidelines` |
 | Plugin | Impeccable | Paul Bakaus | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | marketplace `pbakaus/impeccable` | `.claude/settings.json` |
-| Plugin | UI/UX Pro Max | nextlevelbuilder | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | marketplace `nextlevelbuilder/ui-ux-pro-max-skill` | `.claude/settings.json` |
 
 #### テスト・動作確認
 
@@ -109,7 +107,7 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 ### 追加の候補と、重なりの整理（調査のみ）
 
 - 共通ツールの候補は Context7 と Chrome DevTools MCP、採用技術別の候補は Supabase の Postgres の Skill と Python・Go などの LSP です。どれも実際には動かしていません（[docs/tool-candidates/README.md](docs/tool-candidates/README.md)）。
-- UI/UX のツールは、4 つを同時に有効にすると「画面を作る」役割が 3 つ重なり、勧めが互いに逆になる箇所があります。Impeccable を作る担当、Web Design Guidelines をレビュー担当にし、UI/UX Pro Max を既定で無効にする整理案があります。まだ決定ではありません（[docs/tool-candidates/ui-ux-overlap.md](docs/tool-candidates/ui-ux-overlap.md)）。
+- UI/UX のツールは、PoC（U1〜U4）の結果、Impeccable と Web Design Guidelines の 2 つにしました（2026-11-12）。Frontend Design と UI/UX Pro Max は標準から外しました。人が画面を二択で比べた評価で、Impeccable で作った画面が最もよく選ばれ（勝率 79%）、UI/UX Pro Max はツールなしより低かったためです（[docs/tool-candidates/ui-ux-overlap.md](docs/tool-candidates/ui-ux-overlap.md)、[U1 の人の評価](docs/poc/results/workflow/U1/human-pairs.md)）。
 
 ### 更新
 
@@ -136,11 +134,30 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 
 ### レビュー
 
-- 不具合を見つけるレビュー（W9）では、プラグインなしを含む全試行が満点でした。
-- 設計の観点のレビューには、このリポジトリで作った `design-principles-review` を使います。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
+レビュー用の Skill を W9・W20〜W34 で比べました。まとめと根拠は [docs/poc/results/review-skills.md](docs/poc/results/review-skills.md) にあります。**ここに書く答えは暫定です。**
+
+- **レビュー用の Skill は、既定では入れない。** Skill を足しても、見つかる不具合はほとんど増えませんでした。道具なし（Haiku でも）と同じ数を見つけ、変わったのは雑音・費用・指摘の書き方です。
+- **見落としを減らすのは、依頼の中で「何を確かめ、確かめた結果をどう書くか」を具体的に頼むこと。**
+  - 要件違反には「合意した要件を 1 つずつ照らす」（W29: 0/6 → 2/2）。
+  - 本番でだけ出る不具合には「本番ビルドして起動し、変更した画面・API を開いて、状態コードとエラーを結果として書く」（W28・W32: 0/47 → 4/4）。
+  - 2 つを 1 つの依頼に詰めると片方が手薄になるので、段を分けて頼む（W30・W31）。費用は 1.2〜1.9 倍になります。
+- **Skill の使い分け（提案）**
+
+  | 設定 | 強み | 弱み | 使う場面 |
+  |---|---|---|---|
+  | 道具なし | 見つける数は Skill と同じで、最も安く速い | 重さ・形が毎回変わる | 日常のセルフレビューの既定 |
+  | `design-principles-review`（自作） | 作りすぎを消す。重さが付き、書き方がそろう。直させても壊さない | 不具合探しは対象外。時間は約 1.5 倍 | 設計を変える変更に足す |
+  | Compound Engineering `ce-code-review` | 誤った指摘が最も少ない。直させても壊さない | 最も高い。`depth:full` は効かないことが多い | 重要・危険度の高い変更に足す |
+  | PR Review Toolkit `/review-pr` | 実際の不具合で見つけた数が最多の組。作りすぎを消す | Sonnet は専門エージェントを省く。起動させると雑音と費用（約 4 倍）が増える | 任意。既定の動きのまま使う |
+  | 内蔵 `/code-review high` | 導入不要。消した行の決まり・呼び出し元を見る観点がある | 雑音が最も多い。指摘どおりに直させると正しかった本体を壊した | 既定では使わない。使うなら人が取捨し、自動で直させない |
+
+- **レビューでは見つからないもの:** 誰も聞かなかった隠れ要件（W33）と、細かすぎて時間がたつと落ちるテスト（初期データの件数・文言の決め打ち。W34）。前者は実装の前に聞き出す、後者はテストの書き方の決まりを明文化する（どちらも提案）。
+- 標準の手順（雛形の規約・開発フロー）に入れるかは、**まだ決めていません。** 公式プラグインの Code Review と、内蔵 `/code-review` の `max` は比べていません。
+- 設計を変える変更のレビューには、このリポジトリで作った `design-principles-review` を足します（標準の Skill として配っています。使い分けは上の表）。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
   - 6 つの評価ケース（差が出るはずの、間違った共通化・名前の変更に紛れた振る舞いの変更・原則を口実にした作りすぎを含む）で試しました。Skill がなくても、仕込んだ問題はすべて見つけられました。
-  - Skill の効き目は、指摘の重さ（必須・推奨・細かい点）と書き方（害と根拠）がそろうことと、汎用化の案を出さないことでした。そのかわり、時間は約 1.3 倍かかりました。
-- PR レビュー用のツール（Code Review と PR Review Toolkit）の比較と、セキュリティ監査のツール（Claude Security と Cloudflare Security Audit）の比較は、**まだ実施していません**。
+  - Skill の効き目は、指摘の重さ（必須・推奨・細かい点）と書き方（害と根拠）がそろうことと、汎用化の案を出さないことでした。そのかわり、この 6 件では時間が約 1.3 倍かかりました。
+- セキュリティ監査のツール（Claude Security と Cloudflare Security Audit）の比較は、**まだ実施していません**。
+- セキュリティ監査を定期的に回す形（毎日は CodeQL などの検査、週 1 回は差分、月 1 回は全体を監査）の案は [docs/tool-candidates/security-audit-schedule.md](docs/tool-candidates/security-audit-schedule.md) にあります。頻度と費用の上限は、1 回あたりの費用を測ってから決めます。
 - Skills による品質チェックだけに頼らず、CI で Lint・型チェック・テスト・静的解析を実施します。
 - 失敗を検査に反映するときの方針（案）は [docs/standards/testing-and-ci-policy.md](docs/standards/testing-and-ci-policy.md) にあります。要点は次の 3 つです。
   - 再発防止は、検出できる一番手前の段（型 → Lint → 単体テスト → 結合 → E2E）に置く。
@@ -166,8 +183,8 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 | 開発ワークフロー | 併用検証（§5.5） | Ponytail | Dietrich Gebert | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) |
 | セキュリティ監査 | 第一候補 | Claude Security | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security) |
 | セキュリティ監査 | 対抗候補 | Cloudflare Security Audit | Cloudflare | [cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) |
-| PR レビュー | 第一候補 | Code Review | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-review) |
-| PR レビュー | 対抗候補 | PR Review Toolkit | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit) |
+| PR レビュー | 第一候補（未比較） | Code Review | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-review) |
+| PR レビュー | 対抗候補（W20〜W34 で比較。任意） | PR Review Toolkit | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit) |
 
 候補の切り替えは `scripts/poc-profile.sh <profile>` で行います。`.claude/settings.local.json` に書き込むため、チームで共有する設定は変わりません。
 

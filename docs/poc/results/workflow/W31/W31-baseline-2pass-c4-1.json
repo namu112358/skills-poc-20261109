@@ -1,0 +1,62 @@
+{
+  "trial": "W31-baseline-2pass-c4-1",
+  "scenario": "W31",
+  "config": "baseline-2pass",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー: 西日本校正センターの CSV 取込\n\n要件 10 項目を 1 つずつ実装と照らした結果と、マージ前に直すべき指摘。\n\n## 要件の照合\n\n| # | 要件 | 判定 | 実装の場所 |\n|---|---|---|---|\n| 1 | B 社の形式・校正機関名 | 満たす | `calib-import-nishinihon.ts` の `NISHINIHON_AGENCY`・`importNishinihonCsv` |\n| 2 | 同じ送り先で自動判別 | 一部満たさない（指摘 1） | `route.ts` の `isNishinihonCsv` |\n| 3 | BOM の有無・改行コードの違いで落ちない | **反する**（指摘 1）。改行は `split(/\\r\\n\\|\\n\\|\\r/)` で可 | `isNishinihonCsv` |\n| 4 | COND は合格＋備考に追記、有効期限は不使用 | 満たす（追記は同一トランザクション） | `RESULTS`・`recordCalibration` の `appendNote` |\n| 5 | ハイフン無しの機器番号 | 満たす | `normalizeManagementNo` |\n| 6 | END 件数が合わなければ全件取り込まない | 満たす | `importNishinihonCsv` の `declared !== rows.length` |\n| 7 | 再取込で二重にしない／ファイル内重複は A 社と同じ決まり | 再取込は満たす。ファイル内重複は **反する**（指摘 2） | `seen` のキー |\n| 8 | 未登録の機器番号・読めない判定は行の誤り | 満たす | `importNishinihonCsv` の行ループ |\n| 9 | 応答の形（imported・skipped・errors と line） | 満たす（行番号は物理行で A 社と同じ） | `route.ts` |\n| 10 | A 社の取込は従来どおり | 満たす（`legacy/calib-import.ts` は無変更。判別は A 社の見出し「管理番号」と衝突しない） | `route.ts` |\n\n## 指摘\n\n### 1. 【高】BOM 付きの西日本校正センターの CSV が取り込めない（要件 3 に反する）\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の `isNishinihonCsv`（先頭の BOM 判定）。テスト `tests/calib-import-nishinihon.test.ts` の `detects the sample file...` が「BOM 付きは false」を正としている。\n- 問題: UTF-8 の BOM（EF BB BF）で始まるファイルを「別の形式」として false にしている。BOM 付きの B 社ファイルは東日本計測サービス用の取込（`importCalibrationCsv`）に回る。1 行目が `#` の案内行なので「管理番号」の列が無く、「CSV の形式が違います」の 400 になる。要件 3 は、保存のしかた（BOM の有無・改行コード）の違いで取り込めなくならないことを求めている。月初のスクリプトやエディタ経由で BOM が付くと、その月は取り込めない。\n- 直し方: 判別と取込の両方で、先頭の BOM を取り除いてから UTF-8 としてデコードする。BOM の有無にかかわらず見出しに「機器番号」があれば B 社として扱う。BOM 付きを false としているテストは、「BOM 付きでも true、取込結果が BOM 無しと同じ」に直す。CRLF のテストも足す。\n\n### 2. 【高】ファイル内の重複の判定が A 社と違う（要件 7 に反する）\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv`（`const key = \\`${no}|${date}|${cert}\\``）。\n- 問題: 要件は「同じファイルの中の重複も、A 社と同じ決まりで後の行を読み飛ばす」。A 社（`legacy/calib-import.ts` の `seen[no + \"|\" + d]`）の決まりは「同じ機器・同じ校正日」で、証明書番号は見ない。B 社側は証明書番号まで含めているため、同じ機器・同じ日付で成績書番号だけ違う 2 行が両方取り込まれる。たとえば `MI0003,…,2026-11-04,PASS,W1` と `MI0003,…,2026-11-04,FAIL,W2` の 2 行だと、A 社なら後の行は読み飛ばされる。B 社では両方入り、後の FAIL で使用停止になる。COND の行が 2 行あれば備考にも二重に書き足される。\n- 直し方: キーを `${no}|${date}` にする。DB に対する「取込済み」の判定（機器・校正日・成績書番号。A 社と同じ）は今のままでよい。重複を読み飛ばす順序（検証のあと、台帳の照合の前）も A 社と同じに保つ。成績書番号だけ違う 2 行を入れるテストを足す。\n\n### 3. 【低】CSV の 1 行の分解を複製している（開発標準 3）\n\n- 場所: `src/lib/csv.ts` の `parseCsvLine`。`src/lib/legacy/calib-import.ts` に同じ処理がある。\n- 問題: 同じ処理が 2 か所になった。A 社側は無変更のままなので、片方だけ直したときに挙動がずれる。\n- 直し方: 少なくとも PR に理由を書く。A 社側を差し替える場合は、A 社の取込に回帰テスト（和暦・○×・保留・参考）を付けてから行う（要件 10 のため、今回の PR の範囲外でよい）。\n\n### 4. 【低】コメントに改行がある行は、ファイル全体が止まる\n\n- 場所: `src/lib/calib-import-nishinihon.ts` の `importNishinihonCsv`（行単位の分解）。\n- 問題: 引用符で囲んだコメントの中に改行があると、行が 2 つに割れて `END` の件数と合わなくなり、ファイル全体が 400 になる。仕様書に改行の記述は無いので可能性は低い。\n- 直し方: 仕様書の範囲なら現状でよい。メッセージで「コメントに改行を含む可能性」にも触れるか、引用符内の改行に対応する。\n\n## 問題なしと判断した点\n\n- END の欠落・件数不一致・END のあとのデータは、1 件も取り込まずに 400 を返す。\n- COND の備考追記は、記録の登録と同じトランザクションで行う。入りきらないときは取り込まず、備考を切り捨てない。\n- 再取込は「取込済み」で読み飛ばす。途中で失敗しても、次の回で続きから回復できる。\n- A 社の取込のコードは変更されていない。\n\n## 実動作の確認（本番ビルド → `npm run start` → ログイン → API 呼び出し）\n\n`npm run build` は成功。`npm run start`（ポート 3457）で起動し、`sato` でログインして `POST /api/calibrations/import` を呼んだ。画面（`/instruments`）は 200 で開けた。変更は API だけで、画面の変更は無い。\n\n| 送ったもの | 結果 | 判定 |\n|---|---|---|\n| サンプル CSV に BOM を付けたもの | 400「CSV の形式が違います（1 行目に「管理番号」の列がありません）」 | **指摘 1 を再現**。B 社の CSV なのに A 社の形式のエラーが出て、利用者には原因が分からない |\n| 同じ機器 MI-0001・同じ校正日で成績書番号だけ違う 2 行（PASS / FAIL） | `imported: 2`、skipped は空。両方登録された | **指摘 2 を再現**。後の FAIL でも登録され、前回校正日が合格のまま使用停止になる |\n| サンプルの CRLF 版 | `imported: 3` | 問題なし |\n| サンプルを再送 | `imported: 0`、3 行とも「取込済み」 | 問題なし |\n| COND の行 | MI-0010 の備考が「条件付き合格（2026-11-05）: 湿度 90%RH のレンジで許容差外」 | 問題なし |\n\n確認後はサーバーを止めた（ポート 3457 は応答なし）。A 社の Shift_JIS の CSV を実際に送る確認は、シェルの承認が得られず行っていない（A 社の取込コードは無変更）。\n",
+  "review_chars": 3713,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.5322,
+    "tokens": {
+      "input": 56,
+      "output": 12416,
+      "cache_read": 1552261,
+      "cache_creation": 63179
+    },
+    "turns": 28,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"BOM\\\\|bom\\\\|CRLF\\\\|重複\\\\|test(\\\" tests/calib-import-nishinihon.test.ts | head -40; cat > /tmp/poc-bom.ts <<'EOF'\\nimport { isNishinihonCsv, importNishinihonCsv } from \\\"/tmp/poc-"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat docs/operations.md | head -40; (npm run build 2>&1 | tail -15)\", \"timeout\": 400000}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -n \\\"email\\\\|username\\\\|login_id\\\\|'MI-\\\" src/lib/db/seed.ts | head -30; grep -n \\\"login\\\" src/app/api/login/route.ts | head; grep -c calibrations/import .build.log; (PORT=3457 nohup"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W31-baseline-2pass-c4-1-app/0ca96940-7f67-4202-9a6a-6fcd88f7ba7c/scratchpad; cd /tmp/poc-trials/W31-baseline-2pass-c4-1/app; sleep 3; tail -3 .server.log\\n"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"printf '管理番号,機器名,校正日,判定,証明書番号,備考\\\\r\\\\nMI-0006,x,R8.10.30,○,EJ-1,\\\\r\\\\nMI-0006,x,R8.10.30,×,EJ-2,\\\\r\\\\n' | iconv -f UTF-8 -t SHIFT_JIS > .a.csv\\ncurl -s -b .cj -X POST --data-binary @.a.cs"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f \\\"next start\\\" ; pkill -f \\\"next-server\\\"; sleep 1; curl -s -o /dev/null -w '%{http_code}\\\\n' http://localhost:3457/login; rm -f .cj .bom.csv .crlf.csv .dup.csv .a.csv .server.lo"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 19,
+      "Write": 1,
+      "Read": 2,
+      "ToolSearch": 1,
+      "TaskStop": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 136,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、2 つのレビューで出た指摘がすべて、場所・問題・直し方・重要度の形式で入っています。そのため、書き写す作業はありませんでした。新しい指摘は足していません。出た指摘も削っていません。\n\n`REVIEW.md` は 2 回のコミットで保存済みで、いまの内容とコミット済みの内容に差はありません。コードは直していません。\n\n内容は次のとおりです。\n\n- **指摘 1【高】:** BOM 付きの西日本校正センターの CSV が取り込めません。要件 3 に反します。本番ビルドで 400 になることを確認しました。\n- **指摘 2【高】:** ファイル内の重複の判定が A 社と違います。要件 7 に反します。同じ機器・同じ日で成績書番号だけ違う 2 行が、両方取り込まれることを確認しました。\n- **指摘 3【低】:** `parseCsvLine` が A 社の取込の処理と重複しています。\n- **指摘 4【低】:** コメントに改行があると、ファイル全体が止まります。\n\n2 つ目のレビュー（本番ビルドでの実動作の確認）は、新しい指摘を出さず、指摘 1・2 の再現確認になりました。結果は末尾の表にあります。要件 10 項目の照合表と、問題なしと判断した点も残しています。"
+  },
+  "interventions": 0
+}

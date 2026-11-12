@@ -1,0 +1,39 @@
+{
+  "trial": "W22-hk-principles-c5-1",
+  "scenario": "W22",
+  "config": "hk-principles",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# レビュー: 担当者の項目名を `assigneeId` / `assignee_id` に揃える（未コミット差分）\n\n## レビューの要約\n\n変更の目的は、`Task.assignee` と `tasks.assignee` を、利用者の ID であることが分かる `assigneeId` / `assignee_id` に改名し、画面と API の入出力は変えないことです。改名の大部分は正しく、マイグレーション 3 もデータを残す形になっています。ただし、一覧の取得で担当者の ID が失われる不具合があり、API の入出力も実際には変わっています。**修正を求めます。**\n\n## 良い点\n\n- マイグレーション 3 は `ALTER TABLE ... RENAME COLUMN` で、データを移さずに列名だけを変えています。既存のマイグレーション 1・2 は書き換えていません（CLAUDE.md の規約 7 に従っています）。\n- SQL の値はすべてプレースホルダ（`?`）で渡しています（規約 8）。\n- 初期データ（`seed.ts`）、INSERT（`index.ts`）、`createTask` / `updateTask`、テストの項目名が、一つの名前に揃っています。\n- `npm run typecheck` と `npm test`（19 件）は通ります。\n\n## 指摘\n\n### 1. [必須] `listTasks` が担当者の ID を返さない（一覧の担当者が空になる）\n\n- 場所: `src/lib/tasks.ts:37`（`listTasks` の SQL）と `src/lib/tasks.ts:31-32`（`toTask`）\n- 何が起きるか: `listTasks` の SQL は `assignee_id AS assignee` と別名を付けていますが、`toTask` は `row.assignee_id` を読みます。そのため `assigneeId` が `undefined` になります。実際に確かめた結果は次のとおりです。\n  - `listTasks({}, db)[0]` → `{\"id\":1,\"title\":\"要件定義書のレビュー\",\"status\":\"done\",\"dueDate\":\"2026-11-02\"}`（`assigneeId` が無い）\n  - `getTask(1, db)` → `assigneeId: \"sato\"` が入っている\n  - その結果、`/tasks` 一覧の「担当者」列は空になり、`GET /api/tasks` の応答からも担当者が消えます。\n  - 型は通ります。`as TaskRow[]` の型アサーションが、SQL の別名と `TaskRow` の食い違いを隠しているためです。既存のテストは件数しか見ていないので、これも検出できません（指摘 3 を参照）。\n- 判断の根拠: 「早く失敗する」の原則。型で守れるはずの SQL と行の形の対応を、キャストで握りつぶしています。また、この別名は改名の目的（列名を `assignee_id` に揃える）に反して、古い名前を一覧のクエリに残しています。\n- 提案: 別名を外し、`getTask` と同じ列の並びにします。\n\n  ```ts\n  const rows = db\n    .prepare(\"SELECT id, title, status, assignee_id, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id\")\n    .all({ status: filter.status ?? null }) as TaskRow[];\n  ```\n\n  あわせて、指摘 3 のテストを追加してください。\n\n### 2. [必須] API の入出力が変わっている（PR の「変えない」と食い違う）\n\n- 場所: `src/app/api/tasks/route.ts:16`（POST）、`src/app/api/tasks/[id]/route.ts:21`（PATCH）、`src/lib/tasks.ts:87-92`（`validateTaskInput`）、`src/lib/tasks.ts:9`（`Task` 型の JSON 形）\n- 何が起きるか: 次の 3 点が、API を使う側の見える形で変わっています。確かめた結果も含みます。\n  - 送る項目名が `assignee` から `assigneeId` になりました。以前の形で送ると、次のようになります。\n    - POST `/api/tasks` に `{\"assignee\":\"sato\", ...}` → 400「担当者が存在しません」（確認済み）\n    - PATCH `/api/tasks/:id` に `{\"assignee\":\"nobody\"}` → **200 で、項目は黙って無視されます**。`validateTaskInput({assignee:\"nobody\"}, {partial:true})` は `{ok:true, value:{}}` を返します（確認済み）。呼ぶ側は更新できたと思い込みます。\n  - 応答の JSON のキーが `assignee` から `assigneeId` になりました（`Task` 型をそのまま返しているため）。\n  - PR の「API の入出力は変えない」は満たされていません。\n- 判断の根拠: 「驚き最小」と「早く失敗する」の原則。送られた古い項目が黙って捨てられるのが一番の害です。また、内部の名前の改名と、外部に公開している API の形の変更を、同じ変更に混ぜています（変更の分け方）。\n- 提案: 次のどちらかにしてください。\n  - (a) 外部の形を変えない: ルート層で `assignee` ↔ `assigneeId` を相互に変換します（`validateTaskInput` に渡す前、応答を返す前）。PATCH で未知の項目を黙って捨てないよう、`assignee` が送られたら 400 で返します。\n  - (b) 外部の形を変える: API の変更として PR の説明に書き、クライアントの対応を明記します。PATCH の未知の項目は、同様に 400 で返します。\n  \n  どちらにしても、PR の説明を実際の振る舞いに合わせてください。\n\n### 3. [推奨] テストが指摘 1・2 を検出できない\n\n- 場所: `tests/tasks.test.ts:14-17`（`listTasks`）、テスト全体\n- 何が起きるか: `listTasks` のテストは件数（7 件）しか確かめないため、`assigneeId` が消えても通ります。API のテストも無く、項目名の変更が応答に出ることを確かめていません。\n- 判断の根拠: TDD の観点。改名という振る舞いの変更に対応するテストが無く、この PR の不具合が「通るテスト」の中に隠れています。\n- 提案: `listTasks` が `assigneeId` を返すこと（例: 1 件目で `assert.equal(tasks[0].assigneeId, \"sato\")`）を確かめるテストを足します。指摘 2 を (a) で直す場合は、`assignee` で送ったときの 400、PATCH で `assignee` を送ったときの 400 も確かめてください。\n\n### 4. [細かい点] インデックスの名前が `tasks_assignee` のまま\n\n- 場所: `src/lib/db/migrations.ts:42-47`（マイグレーション 3）\n- 何が起きるか: 列名は付け替わり（`CREATE INDEX tasks_assignee ON tasks(assignee_id)`、確認済み）、動作に問題はありません。ただし、名前だけが古いままです。\n- 判断の根拠: 改名の目的（名前から意味が分かること）に対して、中途半端です。\n- 提案: 直すなら、マイグレーション 4 で `DROP INDEX tasks_assignee; CREATE INDEX tasks_assignee_id ON tasks(assignee_id);` を追加します。この PR で直す必要はありません。その場合は PR の説明に残すと書いてください。\n\n## 総合\n\n指摘 1 と 2 は、マージ前に直す必要があります。指摘 1 は一覧画面の表示を壊しており、指摘 2 は PR の説明と実際の振る舞いが食い違っています。指摘 3 を一緒に直せば、同じ種類の不具合が再び隠れることを防げます。指摘 4 は任意です。\n",
+  "review_chars": 3753,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0254,
+    "tokens": {
+      "input": 32,
+      "output": 11859,
+      "cache_read": 860271,
+      "cache_creation": 54376
+    },
+    "turns": 17,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run typecheck 2>&1 | tail -5); echo \\\"=== TEST\\\"; (npm test 2>&1 | tail -12); echo \\\"=== LIST\\\"; SCR=/tmp/claude-0/-tmp-poc-trials-W22-hk-principles-c5-1-app/3284892f-64c4-4d21-994a-"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 12,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 69,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "追加でのコミットは不要でした。直前のレビューで書いた `REVIEW.md` が、依頼された形式をすでに満たしていて、コミット `4fb43ca` に入っています。作業ツリーにも `REVIEW.md` の未コミットの変更はありません。\n\n`REVIEW.md` には次の 4 件があります。どれも削っていません。\n\n1. `[必須]` `listTasks` が担当者 ID を返さない（`src/lib/tasks.ts:37`）\n2. `[必須]` API の入出力が変わっている（`src/app/api/tasks/route.ts:16`、`src/app/api/tasks/[id]/route.ts:21`、`src/lib/tasks.ts:87-92`）\n3. `[推奨]` テストが 1・2 を検出できない（`tests/tasks.test.ts:14-17`）\n4. `[細かい点]` インデックス名が `tasks_assignee` のまま（`src/lib/db/migrations.ts:42-47`）\n\n各指摘には場所、何が起きるか、直し方を書いています。重要度は見出しに付けています。コードは変更していません。"
+  },
+  "interventions": 0
+}

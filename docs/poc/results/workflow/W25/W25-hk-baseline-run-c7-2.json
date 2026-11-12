@@ -1,0 +1,48 @@
+{
+  "trial": "W25-hk-baseline-run-c7-2",
+  "scenario": "W25",
+  "config": "hk-baseline-run",
+  "case": "c7",
+  "rep": 2,
+  "review_md": "# コードレビュー: 担当者変更の監査ログ（未コミット差分）\n\n対象: `git diff HEAD`（`src/lib/notify/{events,index,notifier}.ts` の新規、`src/lib/tasks.ts` の変更、`tests/notify.test.ts` の新規）\n\n確認の方法: `npm run typecheck` と `npm test` は通過（21 件成功）。疑わしい箇所は `node --experimental-strip-types` で関数を直接呼ぶ再現スクリプトで確かめた（スクリプトは作業用コピーの外に置いた）。\n\n---\n\n## 1. 担当者変更で通知の送り先が例外を投げると、PATCH が 500 になり、DB は更新済みで監査ログが欠ける\n\n- **重要度: 高**\n- **場所**: `src/lib/tasks.ts` `updateTask()` の 121〜123 行目（`eventBus.emit(...)`）。購読者は `src/lib/notify/index.ts` 10 行目（`notifier.send(...)`）。送り先は `src/lib/notify/notifier.ts` の `SlackNotifier.send()`（24〜26 行目）と `EmailNotifier.send()`（31〜33 行目）。`src/lib/notify/events.ts` `EventBus.emit()`（21 行目付近）は例外を捕まえない。\n- **何が問題か**: `updateTask` は UPDATE を実行した後で `emit` する。`NOTIFIER_KIND=slack`（または `email`）のとき、購読者が `send()` を呼ぶと未実装の例外が投げられ、それが `updateTask` の外へ伝わる。\n  - 再現（確認済み）: `NOTIFIER_KIND=slack` で担当者を `sato` から `suzuki` に変える `updateTask(1, { assignee: \"suzuki\" }, db)` を呼ぶと、`Slack への通知は未実装です（URL 未設定）` が投げられる。しかし呼び出しの前に DB の担当者は `suzuki` に更新されている。\n  - 結果: `PATCH /api/tasks/:id` は 500 を返すが、データは変わっている。クライアントが再送すると、担当者はすでに `suzuki` なので `next.assignee !== current.assignee` が偽になり、ログは一切出ない（確認済み: 2 回目の呼び出しは例外なしで戻り、`[audit]` 行は出ない）。監査で必要な「いつ誰から誰に変わったか」の記録が、再送でも残らない。\n- **直し方**:\n  - `EventBus.emit` で購読者ごとに `try/catch` して、失敗はエラーログに出す（業務の更新は失敗させない）。\n  - 未実装の送り先は `NotifierFactory` の登録から外すか、起動時に明示的に失敗させる。少なくとも `NOTIFIER_KIND=slack` を設定しただけで本番の PATCH が落ちない形にする。\n  - 監査の記録を確実に残す必要があるなら、ログ行ではなく DB の更新と同じトランザクション内の記録（例: 監査テーブル）にする。ログだけで良いという合意なら、上の 2 点で足りる。\n\n## 2. 監査ログを出す購読者が、単体テストで一度も動かされていない\n\n- **重要度: 中**\n- **場所**: `tests/notify.test.ts`（1〜4 行目で `events.ts` と `notifier.ts` だけを import）。購読者の登録は `src/lib/notify/index.ts` 9〜11 行目。\n- **何が問題か**: テストは `index.ts` を読み込まないため、「担当者が変わったら `[audit] task <ID>: assignee <前> -> <後> at <日時>` を 1 行出す」という PR の中心の振る舞いも、「担当者が変わらない更新では出ない」という振る舞いも、テストでは確かめられていない。手動の再現では両方とも正しく動いた（担当者変更で 1 行、担当者が同じ更新・ステータスだけの更新では 0 行）が、回帰を防ぐ仕組みになっていない。`events.ts` だけを import した場合は購読者が無いので、テストが誤って通る形になっている。\n- **直し方**: `tasks.ts` の `updateTask` を経由するテストを追加する。担当者変更で行が 1 つ、同じ担当者・ステータスのみの変更で 0 行になることを、`console.log` を差し替えて確かめる。`NotifierFactory.create(\"slack\")` のテストは、指摘 1 の修正に合わせて書き換える。\n\n## 3. 同じ関数を 2 回登録して片方を解除すると、両方が外れる\n\n- **重要度: 低**\n- **場所**: `src/lib/notify/events.ts` `EventBus.subscribe()` の戻り値（18 行目の `filter((h) => h !== (handler as unknown))`）\n- **何が問題か**: 解除処理は同じ参照をすべて取り除く。同じハンドラを 2 回 `subscribe` し、片方の解除関数を呼ぶと、残りのもう 1 件も消えて、`emit` しても呼ばれない（再現で `[]` になることを確認）。\n- **直し方**: 登録ごとに一意な ID（または登録オブジェクト）を持ち、解除はその 1 件だけを削除する。現在の本番コードは解除を呼んでいないため、影響は小さい。\n\n## 4. 使われていないイベント型が定義されている\n\n- **重要度: 低**\n- **場所**: `src/lib/notify/events.ts` 4〜5 行目の `task.status_changed` と `task.created`\n- **何が問題か**: どこからも emit されず、購読もされていない。PR の範囲（担当者の監査ログ）を超えた先取りで、読む人に「ステータスや作成も記録されている」と誤解させる。\n- **直し方**: 今回の範囲では削除する。必要になった時点で追加する。\n\n## 5. 「誰が」変えたかは記録されない（要確認）\n\n- **重要度: 低（要確認）**\n- **場所**: `src/lib/tasks.ts` 121〜123 行目の emit 内容、`src/lib/notify/index.ts` 10 行目のログ行\n- **何が問題か**: ログは「担当者が `sato` から `suzuki` に変わった」は残すが、どのユーザーが PATCH を送ったかは残さない。依頼文の「いつ誰から誰に」を担当者の変更と読めば今回の範囲で足りるが、監査としては実行者の記録が普通は必要になる。\n- **直し方**: 監査の担当に、実行者（セッションのユーザー）を記録すべきか確認する。必要なら `updateTask` に実行者を渡し、イベントとログに含める。\n\n---\n\n## 問題なしと判断した点（参考）\n\n- 担当者が変わらない更新で、イベントが出ないこと（`next.assignee !== current.assignee`）。\n- ログの日時は `toISOString()` の UTC 表記で、順序の比較には使える。\n- `updateTask` は存在しない ID では早く `undefined` を返し、イベントは出ない。\n- `NOTIFIER_KIND` が未知の値のときは `console` になる（コメントどおり）。\n",
+  "review_chars": 3380,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0246,
+    "tokens": {
+      "input": 32,
+      "output": 16582,
+      "cache_read": 837902,
+      "cache_creation": 39860
+    },
+    "turns": 21,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run typecheck 2>&1 | tail -15); echo \\\"exit=$?\\\"; (npm test 2>&1 | tail -25)\", \"description\": \"Run typecheck and unit tests\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c7-2-app/4dae249e-ed9e-437d-99dc-f07485dc91bb/scratchpad/repro && cat > /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c7-2-a"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c7-2-app/4dae249e-ed9e-437d-99dc-f07485dc91bb/scratchpad/repro && node --experimental-strip-types --no-warnings audit.ts noop-assignee"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 13,
+      "Write": 4,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 88,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を依頼の形式（場所・何が問題か・直し方・重要度）に書き直し、`REVIEW.md` だけをコミットしました（コミット `de323d0`）。コードには触れていません。未コミットの差分はそのまま残っています。\n\n- 指摘は前回と同じ 5 件です。新しい指摘は足していません。削った指摘もありません。\n- 場所には行番号を入れました。重要度は、1 が高、2 が中、3〜5 が低（5 は要確認）です。\n- 「問題なしと判断した点」の節は残しました。"
+  },
+  "interventions": 0
+}

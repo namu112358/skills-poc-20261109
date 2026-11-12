@@ -1,0 +1,64 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "NOTIFIER_KIND=slack/email では未実装の send が例外を投げ、emit が捕まえないため、DB の UPDATE 後に updateTask が失敗し、API は 500 を返すが変更は保存済みになる。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "「ログに1行」の依頼に対し、イベントバス、使われないイベント種別、未実装の Slack・メール Notifier、Factory、環境変数を追加しており作りすぎなので、console.log の小さな関数に置き換えるべき。",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "NotifierFactory.create の registry が通常のオブジェクトのため、toString・constructor・__proto__ などプロトタイプ上のキーで誤動作し、読み込み時に落ちる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "notify/index.ts が import 時に購読を登録し、eventBus がモジュール単位の共有状態のため、tasks.ts を import するだけで通知が動き、テスト間の干渉や開発モードでの二重登録が起こりうる。",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "tests/notify.test.ts はバスと Factory の動作だけを確かめており、「担当者が変わったときだけ1行出る」という要件を検証するテストが無い。",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "監査ログに変更操作をしたログインユーザーが残らないので、必要かを確認すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "ログの日時が UTC の ISO 文字列で、JST の方が読みやすい場合がある。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "ログが UPDATE の直後、getTask の前に出るため、後続の処理が失敗するとログと結果がずれうる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0657798
+ }
+}

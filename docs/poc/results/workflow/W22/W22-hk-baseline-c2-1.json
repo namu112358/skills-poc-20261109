@@ -1,0 +1,41 @@
+{
+  "trial": "W22-hk-baseline-c2-1",
+  "scenario": "W22",
+  "config": "hk-baseline",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の「期限の近い順」並べ替え\n\n対象: `git diff HEAD`（`src/lib/tasks.ts`、`src/app/api/tasks/route.ts`、`src/app/tasks/page.tsx`、`tests/tasks.test.ts`）\n\n確認結果: `npm run typecheck` は通過。`npm test` は 23 件すべて通過。\n\n## 指摘\n\n### 1. `listTasks` の SQL を文字列テンプレートで組み立てている（CLAUDE.md 規約 8 違反）\n\n- 重要度: 中\n- 場所: `src/lib/tasks.ts` の `listTasks`（`ORDER BY ${SORT_COLUMNS[filter.sort ?? \"id\"]}, id`）\n- 何が問題か: CLAUDE.md の規約 8 は「SQL に値を埋め込むときは必ずプレースホルダを使い、文字列連結で組み立てない」と定めている。今回は値ではなく列名を埋め込んでいるため、直ちに注入できる経路はない（列名は `SORT_COLUMNS` の固定値で、利用者の入力は `isTaskSort` を通ってからしか入らない）。ただし規約の文言には該当し、後から別の列名を足したときに同じ書き方が広がりやすい。コメントの「この表を引いた結果だけを SQL に入れる」も、`listTasks` 自身は `filter.sort` を検証しないため、型だけに頼った保証になっている。\n- 直し方: 並べ替えごとに SQL 全文を固定で持つ。例:\n\n  ```ts\n  const LIST_SQL: Record<TaskSort, string> = {\n    id: \"SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY id\",\n    due: \"SELECT id, title, status, assignee, due_date FROM tasks WHERE (:status IS NULL OR status = :status) ORDER BY due_date, id\",\n  };\n  ```\n\n  `db.prepare(LIST_SQL[filter.sort ?? \"id\"])` とすれば、文字列の組み立てがなくなる。\n\n### 2. `listTasks` は不正な `sort` 値を防げない（型しか守りがない）\n\n- 重要度: 中\n- 場所: `src/lib/tasks.ts` の `listTasks`、`SORT_COLUMNS[filter.sort ?? \"id\"]`\n- 何が問題か: 型注釈は実行時には効かない。`listTasks({ sort: \"title\" as TaskSort })` のように呼ぶと `SORT_COLUMNS[\"title\"]` は `undefined` になり、SQL が `ORDER BY undefined, id` となって例外になる。`sort: \"constructor\"` や `\"__proto__\"` のような値では `Object.prototype` 由来の値が文字列化されて入り、同じく SQL エラーになる。現状の API・画面は `isTaskSort` で検証してから渡しているので、実際の HTTP 経路では起きない。将来、別の呼び出し元が検証を飛ばすと 500 になる。\n- 直し方: `listTasks` の内側でも `isTaskSort` を通し、通らなければ `\"id\"` として扱う（規約 2 の「不正な値は指定なし」と同じ扱い）。`Object.hasOwn` 相当の判定にすると、プロトタイプ由来の値も弾ける。\n\n### 3. 「期限の近い順」に完了済みのタスクも混ざる\n\n- 重要度: 低\n- 場所: `src/lib/tasks.ts` の `listTasks`、`src/app/tasks/page.tsx`\n- 何が問題か: 「締め切りの近いタスクから片付けたい」という目的に対して、並べ替えは全ステータスを対象にする。完了済み（`done`）の古い期限のタスクが一覧の先頭に並ぶ。これは仕様の解釈の問題で、バグとまでは言えない。\n- 直し方: PR の意図どおりであれば変更不要。「未完了のみ」を既定にするか、画面の絞り込みで「完了を除く」を選べるようにするかを決めて、PR の説明に明記する。\n\n### 4. API と画面の `sort` の振る舞いはテストされていない\n\n- 重要度: 低\n- 場所: `src/app/api/tasks/route.ts` の `GET`、`src/app/tasks/page.tsx`\n- 何が問題か: 単体テストは `listTasks` と `isTaskSort` だけを対象にしている。`?sort=due` の受け取り、`?sort=bogus` が登録順になること、画面の `<select name=\"sort\">` の既定値などは確認されていない。PR の「検証結果」にも API・画面の確認は書かれていない。\n- 直し方: 既存の方針（ルートは単体テストの対象外）に合わせるなら、少なくとも手動で `GET /api/tasks?sort=due`・`?sort=bogus`・`?status=todo&sort=due` を叩いた結果を PR に書く。API の振る舞いを固定したいなら、`validateTaskInput` と同様に値の解釈を小さな関数に切り出してテストする。\n\n## 問題なしと判断した点（参考）\n\n- `due_date` は `NOT NULL` のため、期限が空のタスクによる並びの乱れはない。\n- `ORDER BY due_date, id` で同じ期限は登録順になっており、テストでも確認されている。\n- `status` の絞り込みと並べ替えの組み合わせ（`:status IS NULL OR ...` の部分）は変わっておらず、組み合わせのテストもある。\n- 画面の文言は日本語で、規約 3 を満たす。新しい依存は追加していない（規約 4）。\n- 不正な `sort` は API・画面とも登録順として扱われており、規約 2 を満たす。\n",
+  "review_chars": 2767,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0183,
+    "tokens": {
+      "input": 22,
+      "output": 9153,
+      "cache_read": 522756,
+      "cache_creation": 42313
+    },
+    "turns": 17,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run typecheck 2>&1 | tail -5); (npm test 2>&1 | tail -15); ls tests; grep -rn \\\"sort\\\" src tests --include=*.ts --include=*.tsx | grep -v node_modules | head -30; node -e 'console.lo"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 8,
+      "Write": 1,
+      "Read": 1,
+      "Edit": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 55,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "REVIEW.md を書き直し、REVIEW.md だけを `77a607f` としてコミットしました。コードは変更していません。\n\n直前の 4 件の指摘は、すべて残しています。新しい指摘は足していません。各指摘は「場所・何が問題か・直し方」に加えて、見出しの下に「重要度」の行を置く形にしました。前版では重要度が見出しの中にだけ書かれていたため、それを分けました。\n\n- 1: `listTasks` の SQL を文字列テンプレートで組み立てている（規約 8 違反）— 重要度 中\n- 2: `listTasks` は不正な `sort` 値を防げない — 重要度 中\n- 3: 「期限の近い順」に完了済みのタスクも混ざる — 重要度 低\n- 4: API と画面の `sort` の振る舞いはテストされていない — 重要度 低\n\nコミットされていない変更（`route.ts`、`page.tsx`、`tasks.ts`、`tasks.test.ts`）は、これまでどおり作業ツリーに残っています。"
+  },
+  "interventions": 0
+}

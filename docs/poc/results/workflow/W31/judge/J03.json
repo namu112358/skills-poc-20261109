@@ -1,0 +1,99 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "計測器の一覧（listInstruments・instruments/page.tsx）に担当者での絞り込み・並べ替えが無く、要件を満たさない。",
+   "severity": "高",
+   "match": "G1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "担当者ごとの点検が遅れている台数を毎朝知る集計・通知・画面がどこにも無い。",
+   "severity": "高",
+   "match": "G2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "POST/PATCH /api/instruments が extra.inspector / last_inspected をまだ受け付けるが、移行対象外で画面からも隠されるため、保存したのにどこにも反映されない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "recordInspection で要修理を記録すると、貸出中・校正中の計測器の状態が suspended に上書きされ、未返却の貸出と台帳の状態が食い違う。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "planChoices（退職・休職中の既存担当を含む）を点検記録フォームにも渡しているため、「点検した人」に在籍していない人を選べてしまう。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "最後の点検日を MAX(inspected_on) で決めるため、誤って遅い日付で登録した記録は訂正の記録を足しても直らない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "結果の誤り（要修理）を訂正しても使用停止が戻らず、訂正の記録であることを示す仕組みも無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "listInspectionPlans が全計測器の点検状況を毎回計算して Map に載せ、相関サブクエリが 5 万回実行されるなど、5 万件で一覧が重い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "validateInspectionInput が点検日の下限を確かめず、0001-01-01 のような極端に古い日付が通る。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "日付が読めなかった旧記録のある計測器が、記録があるのに一覧で「未点検」と表示される。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 11,
+   "summary": "parseLegacyDate が「2026年9月1日」のような西暦の漢字区切りを読めない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 12,
+   "summary": "importLegacyInspections の名前照合で DB 側の名前を正規化しないため、空白を含む利用者名に一致せず引き継ぎが漏れる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 13,
+   "summary": "前の版へ戻すとき、新しい版の担当者・点検記録が見えなくなることや、使用停止が自動で戻らないことが運用手順に書かれていない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.1034998
+ }
+}

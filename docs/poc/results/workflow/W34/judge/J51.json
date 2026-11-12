@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "updateTask の UPDATE 文に priority が無く、PATCH で優先度を変えても保存されず応答も元の値のまま。更新のテストも無い",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "優先度の値・表示名がルートの PRIORITIES、ページの PRIORITY_LABELS、定義の三か所に重複し、定義の型ガードを使っていない",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "ページの in 演算子はプロトタイプ上のキー（constructor など）も真にするため、不正値が「指定なし」にならずセレクトの defaultValue に入る",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "TaskFilter.priority が string 型のため、型で不正値を防げない",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 5,
+   "summary": "優先度の検証が src/lib/ に無く、ページ・ルートに書かれている（規約 1）",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 6,
+   "summary": "registry.ts の whereClause が列名・プレースホルダ名を文字列連結で組み立て、listTasks がそれを SQL に連結している（値は束縛済みで現状インジェクションは無い）",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "優先度 1 項目のために汎用の AttributeRegistry まで入れて依頼範囲を超えており、status と同じ固定の SQL に戻してレジストリを外すべき",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "テストで updateTask による優先度の更新が未検証",
+   "severity": "中",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "listTasks({ priority: \"unknown\" }) の期待値 8 がシード件数の直書きで壊れやすい",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "ルート（GET の絞り込み、不正値の POST で 400）と、status と priority を同時に指定した絞り込みのテストが無い",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 11,
+   "summary": "マイグレーション 3（既存行が medium になること、CHECK 制約）のテストが無い",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "validateTaskInput の priority の扱い（省略可・既定 medium、null は 400）が API コメントやドキュメントに明記されていない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0691438
+ }
+}

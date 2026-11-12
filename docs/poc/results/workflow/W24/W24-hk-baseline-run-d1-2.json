@@ -1,0 +1,44 @@
+{
+  "trial": "W24-hk-baseline-run-d1-2",
+  "scenario": "W24",
+  "config": "hk-baseline-run",
+  "case": "d1",
+  "rep": 2,
+  "review_md": "# コードレビュー: ダッシュボードの追加\n\n対象: 未コミットの差分（`src/lib/dashboard.ts`・`src/lib/week.ts`・`src/lib/cache.ts`・`src/app/api/dashboard/route.ts`・`src/app/dashboard/page.tsx`・`tests/dashboard.test.ts`）。\n\n再現方法: 作業用コピーの外に置いた node スクリプト（`node --experimental-strip-types` で実行）で、各関数を直接呼んで確かめた。コードは変更していない。\n\n---\n\n## 指摘 1: キャッシュのキーが利用者を区別せず、別の利用者にダッシュボードが漏れる\n\n- **場所**: `src/lib/dashboard.ts` `buildDashboard()`（64 行目 `cached(\"dashboard\", ...)`）、`src/lib/cache.ts` `cached()`（7〜11 行目）\n- **何が問題か**: キャッシュのキーが `\"dashboard\"` で固定されているため、30 秒以内に別の利用者が開くと、直前の利用者の結果がそのまま返る。`userId` も `db` もキーに入らない。\n  - 再現（確認済み）: `buildDashboard(\"sato\", db, now)` の直後に `buildDashboard(\"suzuki\", db, now)` を呼ぶと、戻り値は `userId: \"sato\"` で、2 回の戻り値は同一オブジェクトだった。ログイン中の鈴木さんの画面に佐藤さんの担当タスク一覧と件数が表示される。\n- **直し方**: キーに利用者 ID を含める（例: `` cached(`dashboard:${userId}`, ...) ``）。あわせて、利用者を替えると別の結果になることを確かめるテストを足す。テストでは `beforeEach` で `clearCache()` を呼んでいる現状を維持する。\n- **重要度**: 高\n\n## 指摘 2: SQL を文字列連結で組み立てている（CLAUDE.md の規約 8 違反）\n\n- **場所**: `src/lib/dashboard.ts` `listAssignedTasks()`（29 行目）\n- **何が問題か**: `` WHERE assignee = '${userId}' `` と値を埋め込んでいる。現在は `userId` がログインユーザーの ID（DB 由来）なので直ちには悪用できないが、引数に任意の文字列が渡れば SQL が壊れる、または条件を書き換えられる。\n  - 再現（確認済み）: `listAssignedTasks(\"x' OR '1'='1\", db)` は全 7 件を返した（本来は 0 件であるべき）。`listAssignedTasks(\"x'\", db)` は `unrecognized token` の例外になった。\n- **直し方**: プレースホルダを使う（`WHERE assignee = ?` と `.all(userId)`）。`src/lib/tasks.ts` の `listTasks()` と同じ書き方に合わせる。\n- **重要度**: 高\n\n## 指摘 3: `countByStatus()` が共有の定数 `TASK_STATUSES` を並べ替えてしまう\n\n- **場所**: `src/lib/dashboard.ts` `countByStatus()`（37 行目 `order.reverse()`）\n- **何が問題か**: `reverse()` は配列を破壊的に並べ替える。`order` は `src/lib/tasks.ts` の `TASK_STATUSES` そのものなので、呼ぶたびに順序が反転し、アプリ全体の `TASK_STATUSES` も書き換わる。\n  - 再現（確認済み）: 同じ入力で 1 回目は `['todo', 'in_progress', 'done']`、2 回目は `['done', 'in_progress', 'todo']`。その後 `TASK_STATUSES` も `['done', 'in_progress', 'todo']` になっていた。\n  - 既存テストが通る理由: `tests/dashboard.test.ts` の `counts[0].status === \"done\"` の確認（47〜51 行目）は 1 回だけなので、初回呼び出しでしか検査されていない。\n- **直し方**: `const order = [...TASK_STATUSES].reverse();` とコピーしてから反転する。あわせて、2 回呼んでも結果が同じになることをテストで確かめる。\n- **重要度**: 高\n\n## 指摘 4: タスクが 0 件のとき完了率が `NaN` になる\n\n- **場所**: `src/lib/dashboard.ts` `completionRate()`（47 行目）\n- **何が問題か**: `done / tasks.length` が `0 / 0` になり、`Math.round(NaN)` は `NaN`。担当タスクが 1 件も無い利用者の画面に「完了率 NaN%」と表示される。\n  - 再現（確認済み）: `completionRate([])` は `NaN`。担当タスクが無い利用者（`\"nobody\"`）の `buildDashboard` も `completionRate: NaN` を返した。\n- **直し方**: `tasks.length === 0` のとき 0 を返す。テストに空配列の場合を追加する。\n- **重要度**: 中\n\n## 指摘 5: キャッシュ期間中は日付の境界をまたいでも古い「期限切れ」判定が出る\n\n- **場所**: `src/lib/dashboard.ts` `buildDashboard()`（63〜75 行目）、`src/lib/cache.ts` `cached()`（7〜11 行目）。判定は `overdueTasks()`（51〜53 行目）と `dueThisWeek()`（57〜60 行目）。\n- **何が問題か**: 期限切れ・今週の判定は計算時点の日付で行われるが、その結果を 30 秒キャッシュする。日本時間の 0 時をまたぐと、最大 30 秒は前日の判定が表示される（期限が今日のタスクが「期限切れ」として出ない、など）。\n  - 再現（確認済み）: 期限 `2026-11-10` の未完了タスクを追加し、JST 11-10 23:59:50 に呼んだ後、20 秒後（JST 11-11 00:00:10）に呼ぶと、2 回目も期限切れ `[]` のまま（同一オブジェクトが返る）。\n- **直し方**: 影響は小さいので、キャッシュするのは DB から読んだ一覧だけにし、判定は要求ごとに行う。もしくはキーに `todayJst(now)` を含める。\n- **重要度**: 低\n\n## 指摘 6: テストの不足\n\n- **場所**: `tests/dashboard.test.ts` 全体（特に 26 行目の `beforeEach` と 40〜68 行目の `describe(\"dashboard\")`）\n- **何が問題か**: 次の場合のテストが無い。空の担当タスクの場合、2 回目の `countByStatus` 呼び出し、利用者ごとのキャッシュ分離、SQL に引用符を含む ID を渡した場合。これらが無いため、指摘 1〜4 は既存テストをすり抜けている。\n- **直し方**: 指摘 1〜4 の修正と合わせて、上の各場合のテストを足す。\n- **重要度**: 低\n\n---\n\n## 修正の優先順\n\n1 → 3 → 2 → 4 の順で直す（1 と 3 は表示や他の利用者のデータに直接影響する。2 は規約違反で、入力経路が増えると即座に危険になる）。5 と 6 は余裕があるときでよい。\n",
+  "review_chars": 3467,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0284,
+    "tokens": {
+      "input": 34,
+      "output": 17943,
+      "cache_read": 888063,
+      "cache_creation": 52895
+    },
+    "turns": 25,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for f in src/lib/dashboard.ts src/lib/week.ts src/lib/cache.ts src/app/api/dashboard/route.ts src/app/dashboard/page.tsx tests/dashboard.test.ts; do echo \\\"=== $f\\\"; cat -n \\\"$f\\\"; done\","
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/poc-trials/W24-hk-baseline-run-d1-2/scratch-repro 2>/dev/null; SCR=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-run-d1-2-app/5f06d468-fc3a-469e-b56b-a381b71f0bf5/scratchpad"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 10,
+      "Read": 7,
+      "Write": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 94,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を依頼の形式（場所・何が問題か・直し方・重要度）に書き直し、`REVIEW.md` だけを `4c1ba68` としてコミットしました。コードは変更していません。\n\n- 指摘は 6 件で、直前のレビューと同じ内容です。新しい指摘は足していません。\n- 各指摘に行番号を付けました（例: SQL は `dashboard.ts` 29 行目、`reverse()` は 37 行目、`cached` は `cache.ts` 7〜11 行目）。\n- 重要度は、利用者の混在・SQL・並べ替えが「高」、`NaN` が「中」、日付境界とテスト不足が「低」です。\n- 直前のファイルにあった「`page.tsx` は問題なし」の一文は指摘ではないので、書き写しに含めていません。"
+  },
+  "interventions": 0
+}

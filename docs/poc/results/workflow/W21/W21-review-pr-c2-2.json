@@ -1,0 +1,33 @@
+{
+  "trial": "W21-review-pr-c2-2",
+  "scenario": "W21",
+  "config": "review-pr",
+  "case": "c2",
+  "rep": 2,
+  "review_md": "# レビュー結果: タスク一覧の「期限の近い順」並べ替え\n\n対象: 未コミットの差分（`src/lib/tasks.ts`、`src/app/api/tasks/route.ts`、`src/app/tasks/page.tsx`、`tests/tasks.test.ts`）。\n`npm test` は 23 件すべて通過。マージを止めるほどの重大な欠陥（高）は見つからなかった。以下は修正を推奨する点。\n\n## 指摘\n\n### 1. [中] 「期限の近い順」が完了済み・期限切れのタスクを先頭に並べる\n- 場所: `src/lib/tasks.ts` の `listTasks`（`ORDER BY due_date, id`）、`SORT_COLUMNS.due`\n- 問題: 単純に `due_date` の昇順なので、すでに完了したタスクや過去の期限のタスクが一覧の先頭に来る。シードデータでは「並べ替え: 期限の近い順」を選ぶと、完了済みの 2026-11-02（要件定義書のレビュー）と 2026-11-05（リリースノート作成）が最上部になり、PR の目的である「締め切りの近いタスクから片付けたい」を満たさない。ステータスを絞り込まない場合に顕著。\n- 直し方: 仕様として「昇順で良い（期限切れを先頭に出したい）」なら PR 説明とラベルにその旨を明記する。そうでなければ `ORDER BY (status = 'done'), due_date, id` のように未完了を先にする、または今日以降を先にする等を決めて、テストに追加する。いずれにせよ仕様の確認が必要。\n\n### 2. [低] ORDER BY への文字列埋め込みは規約 8 の文面と合わない（現状は安全）\n- 場所: `src/lib/tasks.ts` の `listTasks`（`${SORT_COLUMNS[filter.sort ?? \"id\"]}`）\n- 問題: 規約 8 は「文字列連結で組み立てない」としている。ORDER BY の列名はプレースホルダにできないため、許可リスト（`SORT_COLUMNS`）経由で埋め込む設計自体は妥当で、現時点で SQL インジェクションは成立しない（呼び出し側は `isTaskSort` で検証済み）。ただし型を迂回した呼び出し（JS から未検証の値、`as` キャスト等）では `undefined` が SQL に入り構文エラー（500）になる。\n- 直し方: `listTasks` 内で `SORT_COLUMNS[...] ?? \"id\"` とフォールバックするか、実行時に `isTaskSort` で検証する。規約側に「列名は許可リスト経由なら可」と追記するとよい。\n\n### 3. [低] API の `sort` について単体テストがない\n- 場所: `src/app/api/tasks/route.ts` の `GET`、`tests/tasks.test.ts`\n- 問題: PR は「`GET /api/tasks` に `sort` を追加」としているが、テストは `listTasks` と `isTaskSort` のみ。ルートでの `sort` の受け渡し（不正値は登録順、`status` との併用）は未検証で、配線ミスがあっても検出できない。同様にページ（`page.tsx`）の `sort` も未検証。ステータスの絞り込みと同じパターンなので実害は小さい。\n- 直し方: クエリの解釈を `src/lib/` の関数（例: `parseTaskFilter(params)`）に切り出し、規約 1・2 に沿って page と route の両方から使い、その関数をテストする。\n\n### 4. [低] 同期間の並べ替えテストが「同じ期限」ケースの 1 件のみ\n- 場所: `tests/tasks.test.ts` の「sorts by due date, then by id」\n- 問題: 期限順の期待値が `keys` を並べ直した値との比較（自己参照的）で、実装の ORDER BY と同じ前提に依存する。ハードコードした期待 id 列もあると意図が明確になる。\n- 直し方: シードデータに対する期待 id 列（例: `[1, 7, 2, 3, 4, 5, 6]`）を直接 `deepEqual` で検証する。\n\n## 問題なしと判断した点\n- `due_date` は `YYYY-MM-DD`（検証済み・NOT NULL）なので文字列比較で日付順になる。\n- `sort` の不正値は `isTaskSort` で「指定なし」になり、規約 2 に沿っている。\n- 画面の文言は日本語、外部ライブラリの追加なし、スキーマ変更なし。\n",
+  "review_chars": 2017,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.22,
+    "tokens": {
+      "input": 18,
+      "output": 4066,
+      "cache_read": 303854,
+      "cache_creation": 37221
+    },
+    "turns": 7,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 45,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘 4 件は、前のターンで `REVIEW.md` に書いてコミット済みです（コミット 6b3f99f）。場所・問題・直し方・重要度の形式で、指摘の欠落も追加もありません。そのため今回は書き写し直しもコミットもしていません。`REVIEW.md` に未コミットの変更は無く、未コミットなのは元のコード差分 4 ファイルだけで、これは触っていません。\n\n| 重要度 | 指摘 | 場所 |\n|---|---|---|\n| 中 | 期限順が完了済み・期限切れのタスクを先頭に並べる | `src/lib/tasks.ts` の `listTasks` |\n| 低 | ORDER BY への列名の埋め込みが規約 8 の文面と合わない（現状は安全） | `src/lib/tasks.ts` の `listTasks` |\n| 低 | API とページの `sort` の配線にテストがない | `src/app/api/tasks/route.ts` の `GET`、`tests/tasks.test.ts` |\n| 低 | 期限順テストの期待値が自己参照的 | `tests/tasks.test.ts` の「sorts by due date, then by id」 |\n\n4 件目の見出しに「同期間の並べ替えテストが…」という誤記が残っています。本文は正しく、「期限順テストの期待値が自己参照的」の意味です。直す場合は言ってください。"
+  },
+  "interventions": 0
+}

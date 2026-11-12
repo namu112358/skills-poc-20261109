@@ -1,0 +1,85 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュキーが固定の \"dashboard\" で userId を含まないため、30 秒以内に別の利用者が開くと他人の担当タスクや件数が返る。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり（規約 8 違反）、引用符を含むと SQL が壊れるので、プレースホルダにすべき。",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "countByStatus が型キャストで readonly を外した TASK_STATUSES を reverse() でその場で反転するため、共有定数の並びが呼ぶたびに入れ替わり、他の画面の並びも壊れる。",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "renderBody が [文字](URL) の URL スキームを検証せずに href にするため、javascript: リンクによる格納型 XSS が dangerouslySetInnerHTML 経由で起きる。",
+   "severity": "高",
+   "match": "B6",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "コメントの PATCH には DELETE にある投稿者チェックが無く、ログインした誰でも他人のコメントを編集できる。",
+   "severity": "中",
+   "match": "B7",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "タスクのコメント POST がタスクの存在を確かめないため、存在しない ID では外部キー違反で 500 になる（GET は 404 で揃っていない）。",
+   "severity": "中",
+   "match": "B8",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "completionRate は担当タスクが 0 件のとき 0/0 で NaN になり、画面に「完了率 NaN%」、API では null が出る。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "formatCreatedAt がゼロ埋めの無いロケール文字列で日時を保存し、listComments がそれを ORDER BY created_at で文字列順に並べるため、コメントの順序が狂う。",
+   "severity": "中",
+   "match": "B9",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "PR の説明では詳細画面でコメントを読み書きできるとあるが、画面には投稿・編集・削除の UI が無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "dueThisWeek が期限切れのタスクも含むため、「期限切れ」と「今週が期限」の両方に重複して出る。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 11,
+   "summary": "新しい API Route の認可・404・400 のテストが無く、上記の不具合を検出できるテストを追加すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0765318
+ }
+}

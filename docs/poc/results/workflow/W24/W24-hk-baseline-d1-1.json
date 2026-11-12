@@ -1,0 +1,48 @@
+{
+  "trial": "W24-hk-baseline-d1-1",
+  "scenario": "W24",
+  "config": "hk-baseline",
+  "case": "d1",
+  "rep": 1,
+  "review_md": "# レビュー: ダッシュボードを追加する\n\n対象: 未コミットの差分（`git diff HEAD`）。`/dashboard` と `GET /api/dashboard`、`src/lib/dashboard.ts`・`week.ts`・`cache.ts`、テスト `tests/dashboard.test.ts`。\n\n確認方法: `npm test` は 27 件すべて通過（ただし下の指摘 1・2・3 を検出できるテストはありません）。以下は実際に `node --experimental-strip-types` で関数を呼んで再現したものです。\n\n---\n\n## 高\n\n### 1. ダッシュボードのキャッシュキーが利用者ごとに分かれていない（別の利用者の内容が見える）\n- 場所: `src/lib/dashboard.ts` の `buildDashboard`（`cached(\"dashboard\", …)`）、`src/lib/cache.ts` の `cached`\n- 問題: キーが `\"dashboard\"` の固定値なので、30 秒以内に最初に計算された結果が、別のユーザーの要求にもそのまま返ります。`userId` も含まれていないため、呼び出し側は気づけません。\n  - 再現: `buildDashboard(\"sato\", db, t)` の直後に `buildDashboard(\"suzuki\", db, t)` を呼ぶと、戻り値の `userId` は `\"sato\"` のままです（実際にそうなりました）。本番では、鈴木さんがログインして `/dashboard` を開くと、30 秒以内なら佐藤さんのタスク件数・期限切れ・今週が期限の一覧が表示されます。空のユーザーで呼んでも、佐藤さんの完了率 33% が返りました。\n  - 「自分の担当タスクだけを見せる」という PR の目的に反します。\n- 直し方: キーに `userId` を含める（例: `` cached(`dashboard:${userId}`, …) ``）。さらに、キャッシュは DB の変更（タスクの作成・更新）を反映しないため、30 秒の間は更新が見えません。タスク更新 API からキャッシュを消すか、キャッシュをやめるかを決めてください。キャッシュを残す場合は、`db` 引数を使うテストで `clearCache` をキーごとに消せるようにし、利用者ごとのテスト（別ユーザーの結果が混ざらないこと）を追加してください。\n\n### 2. `countByStatus` が共有の定数 `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` の `countByStatus`（`order.reverse()`）\n- 問題: `TASK_STATUSES` は `src/lib/tasks.ts` のモジュール全体で使われる配列です。`reverse()` は配列をその場で逆順にするため、呼ぶたびに並びが入れ替わります。\n  - 再現: 1 回目の呼び出し後は `['done','in_progress','todo']`、2 回目の呼び出し後は元に戻って `['todo','in_progress','done']` になりました。\n  - その結果、同じダッシュボードを開くたびに表示順が変わります。`TASK_STATUSES` を使う他の画面（ステータスの選択肢など）の並びも、呼び出し回数によって変わります。\n  - テスト「done first」は、たまたま 1 回目の呼び出しだから通っています。\n- 直し方: コピーしてから並べ替える（例: `[...TASK_STATUSES].reverse()`）。または「完了を先頭」を明示的な配列（`[\"done\",\"in_progress\",\"todo\"]`）で書く。テストには、呼び出しを 2 回しても結果と `TASK_STATUSES` が変わらないことを確認する項目を追加してください。\n\n## 中\n\n### 3. 完了率がタスク 0 件のとき `NaN%` になる\n- 場所: `src/lib/dashboard.ts` の `completionRate`、表示は `src/app/dashboard/page.tsx` の `completion-rate`\n- 問題: `tasks.length === 0` のとき `done / 0` は `NaN` で、`Math.round(NaN)` も `NaN` です。担当タスクがまだ無い利用者の画面に「完了率 NaN%」と表示されます。（この関数は、ユーザーのタスクが無いケースをテストしていません。）\n- 直し方: 件数が 0 のときは 0 を返す（または表示を「—」にする）。空の配列に対するテストを追加する。\n\n### 4. 日曜日に「今週」の範囲が翌週になる\n- 場所: `src/lib/week.ts` の `weekRange`\n- 問題: 日曜（`getUTCDay() === 0`）のとき `start = today + 1` になり、翌週の月曜〜日曜を返します。\n  - 再現: `weekRange(2026-11-15 10:00 JST)` → `{ start: '2026-11-16', end: '2026-11-22' }`。PR は「今週（月〜日）」なので、期待値は `2026-11-09`〜`2026-11-15` です。\n  - 日曜に「今週が期限」の一覧が翌週のタスクを表示し、今週の残りのタスクが消えます。\n- 直し方: 日曜を 7 として計算する（`const dow = (getUTCDay() + 6) % 7;` で月曜=0 にし、`start = addDays(today, -dow)`）。日曜を含むテストを追加する（既存のテストは水曜だけです）。\n\n### 5. `listAssignedTasks` が SQL に値を埋め込んでいる\n- 場所: `src/lib/dashboard.ts` の `listAssignedTasks`（`WHERE assignee = '${userId}'`）\n- 問題: CLAUDE.md の規約 8（SQL に値を埋め込むときはプレースホルダを使う）に違反しています。現状の `userId` はセッションから来る DB の値なので、すぐに悪用できるわけではありません。しかし `userId` に `'` が含まれると SQL が壊れ、将来ユーザー ID の形式が緩くなると注入の入口になります。\n- 直し方: `db.prepare(\"... WHERE assignee = ? ORDER BY due_date, id\").all(userId)` に変える。`listTasks` と同じ書き方です。\n\n## 低\n\n### 6. キャッシュが `db` 引数と `now` を無視して、最初の値を使い回す\n- 場所: `src/lib/dashboard.ts` の `buildDashboard`、`src/lib/cache.ts` の `cached`\n- 問題: `db` と `now` を渡しても、キャッシュにヒットすると使われません。テストや別の DB を渡す呼び出しで、前の結果が返ります。また、キャッシュの `store` は期限切れのエントリを削除しないため、キーが増えると（例えば 1 の直し方でユーザーごとにキーを分けると）メモリが増え続けます。\n- 直し方: 1 の直し方と合わせて、期限切れのエントリを削除する。テストでは `beforeEach` で必ず `clearCache` を呼ぶ（現在は呼んでいますが、キーの分離が必要です）。\n\n---\n\n## 良かった点（参考）\n- API Route は最初にログインを確認し、未ログインは 401 を返す（`src/app/api/dashboard/route.ts`）。\n- ページは `requireUser()` を使い、データの取得は `src/lib/` に置いている。\n- 新しいライブラリは追加していない。\n- 日本語の文言になっている。\n\n## テストの不足\n- 利用者ごとの分離（指摘 1）、`TASK_STATUSES` の不変性（指摘 2）、タスク 0 件（指摘 3）、日曜（指摘 4）、SQL のプレースホルダ化（指摘 5）を確認するテストがありません。\n- `buildDashboard` のテストは、キャッシュの状態に依存しないように書き直してください。\n",
+  "review_chars": 3669,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0242,
+    "tokens": {
+      "input": 30,
+      "output": 12965,
+      "cache_read": 790108,
+      "cache_creation": 48959
+    },
+    "turns": 18,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/poc-trials/W24-hk-baseline-d1-1/scratch_check.test.ts 2>/dev/null; S=/tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-d1-1-app/202d9b3f-8d01-47c8-8f7a-363399d26f3e/scratchpad; mkd"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"rm -f /tmp/poc-trials/W24-hk-baseline-d1-1/scratch_check.test.ts; mkdir -p /tmp/claude-0/-tmp-poc-trials-W24-hk-baseline-d1-1-app/202d9b3f-8d01-47c8-8f7a-363399d26f3e/scratchpad && cat > "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'docs: ダッシュボードのコードレビュー結果を追加する\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.ai/code/session_"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Write": 3,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 72,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は前回のコミット（`7ea1d25`）の時点で、指摘を依頼どおりの形式で書いてあります。作業ツリーに変更がないため、今回は新しいコミットを作っていません。\n\n確認した内容:\n- 「高」に指摘 1（キャッシュが利用者ごとに分かれていない）と指摘 2（`TASK_STATUSES` の破壊的な並べ替え）。\n- 「中」に指摘 3（0 件のとき `NaN%`）、指摘 4（日曜日の「今週」）、指摘 5（SQL へのユーザー ID の埋め込み）。\n- 「低」に指摘 6（キャッシュが `db` と `now` を無視する）。\n- 各指摘に場所（ファイルと関数）、問題（再現条件と結果）、直し方がある。\n\n指摘は直前の回答の 6 件と一致しています。途中で書いた「指摘 7」は、コミット前に削除しています。ファイルにはほかに「良かった点」と「テストの不足」の節がありますが、これは指摘ではなく参考情報です。\n\n文言を変えたい場合や、テストの不足の節を指摘の形式に直したい場合は言ってください。その場合は REVIEW.md だけを更新してコミットします。"
+  },
+  "interventions": 0
+}

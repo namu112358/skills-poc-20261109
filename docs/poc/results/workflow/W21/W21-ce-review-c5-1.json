@@ -1,0 +1,44 @@
+{
+  "trial": "W21-ce-review-c5-1",
+  "scenario": "W21",
+  "config": "ce-review",
+  "case": "c5",
+  "rep": 1,
+  "review_md": "# レビュー結果\n\n対象: 未コミット差分（`git diff HEAD`）「担当者の項目名を `assigneeId` / `assignee_id` にする」\n結論: **Not ready（マージ前に高 2 件を直すこと）**\n\n`npm run typecheck` と `npm test` は通りますが、下の高 2 件はどちらもテストでは検出されません。再現は `openDb()` で作ったインメモリ DB に対して `src/lib/tasks.ts` の関数を直接呼んで確認しました。\n\n## 指摘\n\n### 1. [高] タスク一覧の担当者が空になる（`listTasks` の SQL）\n\n- 場所: `src/lib/tasks.ts` の `listTasks`（`SELECT ... assignee_id AS assignee ...`、37 行目付近）\n- 問題: SELECT で列を `assignee` という別名にしたままなのに、`toTask` は `row.assignee_id` を読みます。そのため `listTasks` が返す `Task` の `assigneeId` は常に `undefined` になります。再現結果は `{\"id\":1,\"title\":\"要件定義書のレビュー\",\"status\":\"done\",\"dueDate\":\"2026-11-02\"}` で、`assigneeId` が欠けています。\n  - `/tasks`（`src/app/tasks/page.tsx` の `{task.assigneeId}`）では担当者の列が全行空欄になります。\n  - `GET /api/tasks` のレスポンスでも、担当者の項目が JSON から消えます。\n  - 詳細画面は `getTask` が正しい SELECT なので影響を受けず、一覧だけ壊れます。\n- 直し方: `assignee_id AS assignee` を `assignee_id` に直します（`getTask` と同じ）。\n- 再発防止: `listTasks` が `assigneeId` を返すことを確認するテストがありません。テストを追加してください（`tests/tasks.test.ts`）。`getTask` のテストだけが更新されていて、`listTasks` のテストは担当者を見ていません。\n\n### 2. [高] API の入出力が変わっている（PR の「画面・API は変えない」に反する）\n\n- 場所: `src/lib/tasks.ts` の `validateTaskInput`（`need(\"assigneeId\")`・`b.assigneeId`・`value.assigneeId`）と型 `Task` / `TaskInput`。これらは `src/app/api/tasks/route.ts` と `src/app/api/tasks/[id]/route.ts` から使われます。\n- 問題: API の JSON のキーは `Task` 型のキーをそのまま使っているので、項目名の変更がそのまま API の変更になっています。\n  - リクエスト: 既存クライアントが `{\"assignee\":\"sato\"}` を送ると、`POST /api/tasks` は 400「担当者が存在しません」を返します。\n  - `PATCH /api/tasks/:id`（partial 更新）は、`assignee` だけを送っても「`assigneeId` が無い」と見なされ、検証を通って何も更新せずに成功します。担当者を変えたつもりで変わりません。これは黙って失敗するので特に危険です。\n  - レスポンス: `GET`・`POST`・`PATCH` の `task(s)` のキーが `assignee` から `assigneeId` に変わります。\n- 直し方（どちらか）:\n  - (a) PR の方針どおり API を変えないなら、API の境界（`validateTaskInput` の入力側と、API Route が返す JSON）で `assignee` ⇄ `assigneeId` を対応させます。内部の型は `assigneeId` のままにできます。\n  - (b) 公開 API の名前も変えるなら、PR の説明を直し、`CLAUDE.md` の API 説明と利用者への周知を行い、旧キー `assignee` を一定期間は受け付けます。\n- 再発防止: `assignee` を送ると 400 になることを確認する、または `assignee` を送ると更新されることを確認するテストを追加してください。API のレスポンスのキーを確認するテストも必要です。\n\n### 3. [中] マイグレーション 3 のテストが無い\n\n- 場所: `src/lib/db/migrations.ts` の version 3、`tests/db.test.ts`\n- 問題: 既存のテストは新規の空 DB（バージョン 1〜3 を順に適用）しか見ていません。実運用の `DATABASE_PATH` が指すファイル DB は、バージョン 2 でデータが入った状態からマイグレーション 3 だけが走ります。`RENAME COLUMN` の後も、既存データが残ること・`tasks_assignee` インデックス・外部キーが効くことを確認していません。`CLAUDE.md` の規約 5（ロジックを変えたらテストを追加する）にも当てはまります。\n- 直し方: version 2 まで適用してデータを入れた DB に `migrate()` を実行するテストを追加します。そこで `assignee_id` の値が変わらないこと、不正な担当者の INSERT が引き続き失敗することを確認します。\n\n### 4. [低] 画面の取り違えの元は残っている\n\n- 場所: `src/app/tasks/page.tsx`（`<td>{task.assigneeId}</td>`）、`src/app/tasks/[id]/page.tsx`\n- 問題: PR の動機は「画面で名前を出すところで取り違えが起きかけた」ことですが、一覧は ID をそのまま表示し、詳細だけが名前を引いています。`\"担当者\"` の列に `sato` のような ID が出る点は変更前と同じで、PR の「表示は変えない」と矛盾はしません。ただ、改名の目的が果たされるのは詳細画面だけです。\n- 直し方: 今回の範囲外（規約 6）なので、別の変更として扱ってかまいません。\n\n## カバレッジ\n\n- 読んだ範囲: 差分の全 8 ファイル、API Route（`src/app/api/tasks/route.ts`）、`validateTaskInput` の全体、マイグレーション全体、`npm test`（19 件成功）。\n- 複数観点の並列レビュー（reviewer の振り分け）は実施していません。差分が小さく、主要な欠陥は直接読んで確認できたため、1 つの文脈でレビューしました。\n- `src/app/api/tasks/[id]/route.ts` は、`tasks.ts` の関数を通すだけの構造と見て、中身は精読していません。\n- `npm run build` は実行していません。\n",
+  "review_chars": 3149,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.382,
+    "tokens": {
+      "input": 26,
+      "output": 6613,
+      "cache_read": 664701,
+      "cache_creation": 62337
+    },
+    "turns": 16,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp/poc-trials/W21-ce-review-c5-1/plugins/compound-engineering/skills/ce-code-review && SKILL_DIR=$PWD; cd /tmp/poc-trials/W21-ce-review-c5-1/app && python3 \\\"$SKILL_DIR/scripts/revie"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > /tmp/claude-0/-tmp-poc-trials-W21-ce-review-c5-1-app/318cfa52-6032-4788-86d9-13544c829340/scratchpad/v.test.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W21-ce-review-c5-1/a"
+      }
+    ],
+    "tool_calls": {
+      "Read": 2,
+      "Bash": 9,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 66,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの指摘 4 件がすでに書かれていて、コミット済み（e938d98）です。追加の書き写しは要らないので、ファイルは変えていません。新しいコミットも作っていません。\n\nどの指摘にも、場所、何が問題か、直し方、重要度（高・中・低）を書いてあります。\n\n- **[高]** `listTasks` の SQL の別名のせいで、一覧の担当者が空になる。\n- **[高]** API のキーが `assignee` から `assigneeId` に変わり、PR の「API は変えない」に反している。\n- **[中]** マイグレーション 3 のテストが無い。\n- **[低]** 一覧が担当者 ID をそのまま表示している。\n\nコードは直していません。PR の差分（8 ファイル）は未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

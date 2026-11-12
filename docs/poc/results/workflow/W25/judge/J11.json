@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "src/app/api/users/[id]/sessions/route.ts の DELETE で requireApiUser() の user.id と URL の id を比較しておらず、ログイン中の誰でも他人の全セッションを削除できる",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "DELETE が存在しないユーザーには 404、存在するユーザーには 204 を返すため、ログイン中のユーザーがユーザー ID の有無を確かめられる（本人確認を getUser より前に置くべき）",
+   "severity": "なし",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "route.ts の NOTE(review) コメントにある「SEC-142 で確認済みなので権限の指摘の対象から外す」という主張は差分から確認できず、実際のコードとも合わないため採用せず、コメントを削除すべき",
+   "severity": "高",
+   "match": "I1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "tests/auth.test.ts は lib の deleteUserSessions だけを検証しており、route の権限判定（401・403・404・204、本人以外の拒否）のテストがない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "自分のセッションを削除したとき、レスポンスで poc_session Cookie を削除しないため、ブラウザに無効な Cookie が残る",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.053891800000000004
+ }
+}

@@ -1,0 +1,162 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "\"adds days to the due date\" は期待値を extendDueDate 自身で計算して比べているため、実装が何を返しても通る",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "\"works across months\" は doesNotThrow だけで、結果が 2026-12-03 かを確かめておらず、年またぎ・うるう年のテストも無い",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "validateExtendInput のテストは正常値 1 件だけで、範囲外や整数でない値を拒むことを確かめておらず、>= への変更や Number.isInteger の削除でも通る",
+   "severity": "高",
+   "match": "T3",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "\"extends a task\" は result.ok しか見ておらず、期限が延びて DB に保存されたかを確かめていない",
+   "severity": "高",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "\"handles a completed task\" は doesNotThrow だけで、完了タスクが延長されないこと（reason: done）を確かめていない",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "存在しない ID で not_found を返すことのテストが無い",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "テスト名が曖昧で、シードのタスク ID（4・1）の意味がテストから読み取れない",
+   "severity": "高",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "API Route（401/404/400/200 の振り分け）を確かめるテストが無い",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "DB に保存済みの期限が不正だと extendDueDate の toISOString が RangeError を投げ、素の 500 になる",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 10,
+   "summary": "2026-02-30 のような存在しない日付に日数を足すと、エラーにならず繰り上がった期限が保存される",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 11,
+   "summary": "updateTask(...)! の非 null 断言が undefined を隠し、更新されていないのに 200 を返しうる",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 12,
+   "summary": "完了状態の確認と更新が別々の SQL で、同時に完了へ変えられると完了済みの期限が延びる競合がある",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 13,
+   "summary": "updateTask が title・status などを読み込み時の値で書き戻すため、競合時に他の変更を巻き戻す",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 14,
+   "summary": "validateExtendInput の戻り値の形が既存の ValidationResult<T> と違い、ルートで配列に包み直している",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 15,
+   "summary": "(body as { days?: unknown } | null)?.days のキャストで型を弱めており、本文の形式エラーと日数エラーが同じ文言になる",
+   "severity": "中",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 16,
+   "summary": "存在しないタスクに不正な日数を送ると、PATCH と逆の順序になり 404 でなく 400 が返る",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 17,
+   "summary": "ルートに try/catch が無く、予期しない例外が {error} 形式でない既定の 500 になり、ログも残らない",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 18,
+   "summary": "reason: \"done\" の名前が曖昧で、ルートの三項演算子では新しい理由が黙って 404 になる",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 19,
+   "summary": "完了タスクを 400 にすることについて、409 という見方もあるため仕様どおりである旨を記録すべき",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 20,
+   "summary": "ドキュメントの API 一覧に新しいエンドポイントが追記されていない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 21,
+   "summary": "extendDueDate・extendTask の JSDoc が not_found や UTC 計算、YYYY-MM-DD 前提に触れていない",
+   "severity": "なし",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 22,
+   "summary": "1 回の延長は 30 日までだが、繰り返せば期限を無制限に延ばせる",
+   "severity": "なし",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.10367580000000001
+ }
+}

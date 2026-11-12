@@ -1,0 +1,43 @@
+{
+  "trial": "W27-baseline-c4-1",
+  "scenario": "W27",
+  "config": "baseline",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー: 西日本校正センターの CSV 取込\n\n## 指摘\n\n### 1. [高] BOM 付きの西日本の CSV が取り込めない（要件 3 に反する）\n- 場所: `src/lib/calib-import-nishinihon.ts` の `isNishinihonCsv`（先頭の BOM 判定で `return false`）。`src/app/api/calibrations/import/route.ts` の分岐。\n- 問題: BOM 付き UTF-8 は「別の形式（A 社）」として判定を外している。B 社のファイルを Excel などで保存し直して BOM が付くと、東日本用の `importCalibrationCsv` に回る。そこでは見出しに「管理番号」が無いため、400「CSV の形式が違います」になる。要件 3 は「BOM の有無・改行コードの違いで取り込めなくならない」。改行（CRLF/CR）は対応済みだが、BOM は未対応。\n- 直し方: 判定は BOM を取り除いたテキストの見出しで行い、見出しが「機器番号」なら B 社、「管理番号」なら A 社に回す。`importNishinihonCsv` も BOM を取り除いて読む（先頭の `﻿` が 1 列目に残ると、必須列「機器番号」が見つからない）。A 社の BOM 付き UTF-8 は今までどおり A 社側へ。BOM 付き B 社・CRLF 付き B 社・BOM 付き A 社の組み合わせのテストを足す（現状 BOM のテストは無い）。\n\n### 2. [中] ファイル内の重複の判定が A 社の決まりと違う（要件 7 に反する）\n- 場所: `calib-import-nishinihon.ts` の `const key = ` で作っている重複キー（機器番号・校正日・成績書番号）。\n- 問題: 要件は「同じファイルの中の重複も、A 社と同じ決まりで後の行を読み飛ばす」。A 社（`legacy/calib-import.ts`）のキーは「機器番号＋校正日」で、証明書番号は見ない。B 社側は成績書番号まで含めているため、同じ機器・同じ日で成績書番号違いの 2 行は、A 社なら 2 行目を読み飛ばすのに B 社では両方取り込まれる（COND なら備考も二重に増える）。PR の docs も「同じ機器・校正日・成績書番号」と書いており、要件と食い違う。取込済み（DB 側）の判定が 3 項目なのは A 社と同じなので、そこは変えなくてよい。\n- 直し方: ファイル内の重複キーを「機器番号＋校正日」に揃える（意図して変えるなら依頼者に確認し、docs も合わせる）。成績書番号違いの同日 2 行のテストを足す。\n\n### 3. [低] 処理の複製（開発標準 3）\n- 場所: `normalizeManagementNo`（`legacy/calib-import.ts` の管理番号の正規化と同一処理）、`src/lib/csv.ts` の `parseCsvLine`（legacy のカンマ区切りと同一処理）。\n- 問題: 同じ処理が 2 か所にあり、片方だけ直すと A 社・B 社で管理番号の扱いが食い違う（要件 5「A 社と同じく」）。\n- 直し方: 複製した理由を PR に書く。または legacy からも共通部品を使う小さな別変更にする（A 社の挙動は変えず、要件 10 のため回帰テストを付ける）。\n\n### 4. [低] 依頼にない行の誤り判定が増えている（規約 6）\n- 場所: `importNishinihonCsv` の「校正実施日が未来」「成績書番号が空・51 文字以上」の誤り。\n- 問題: 要件 8 の誤り行は「台帳に無い機器番号・読めない判定」。追加の判定は docs には書かれているが、依頼者との合意事項にはなく、月初の取込で行が取り込まれない理由になる。\n- 直し方: 残すなら PR に仮定として明記し、依頼者の承認を得る。\n\n### 5. [低] 拒否したファイルのログが無い（開発標準 15）\n- 場所: `importNishinihonCsv` で `ok: false` を返す箇所。\n- 問題: END の件数不一致など「1 件も取り込まない」ケースがログに残らず、運用で何が起きたか追えない。\n- 直し方: 理由と、END の宣言件数・実際の行数を `logger.warn` で出す。\n\n## 確認して問題なしとした点\n- CRLF/CR/LF の分割、END の件数確認、END 後のデータ・数字でない件数の拒否、ハイフン無し・全角の管理番号、COND の備考追記と上限（切り捨てず、記録ごと取り消し）、取込済みの読み飛ばし（再取込で結果が同じ）、応答の形（imported・skipped・errors の line）は、コードを読んだ限り要件どおり。A 社の経路（`legacy/calib-import.ts`）は変更なし。\n",
+  "review_chars": 2105,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3545,
+    "tokens": {
+      "input": 28,
+      "output": 8624,
+      "cache_read": 651225,
+      "cache_creation": 50778
+    },
+    "turns": 13,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -n 98,135p src/lib/calibrations.ts; grep -n \\\"BOM\\\\|bom\\\\|CRLF\\\\|\\\\\\\\\\\\\\\\r\\\\\\\\\\\\\\\\n\\\\|test(\\\" tests/calib-import-nishinihon.test.ts; cat > /tmp/claude-0/probe.test.ts <<'EOF'\\nimport "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > REVIEW.md <<'EOF'\\n# レビュー: 西日本校正センターの CSV 取込\\n\\n## 指摘\\n\\n### 1. [高] BOM 付きの西日本の CSV が取り込めない（要件 3 に反する）\\n- 場所: `src/lib/calib-import-nishinihon.ts` の `isNishinihonCsv`（先頭の BOM 判定で `r"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 9,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 76,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "直前のレビューの指摘は、すでに `REVIEW.md` に書いてあり、コミット済みです（`a1da05c`、`REVIEW.md` のみ）。そのため、書き直しもコミットのやり直しもしていません。\n\n- **形式:** 5 件とも、見出しに重要度（高・中・低）があります。本文は「場所」「問題」「直し方」の順です。\n- **内容:** 新しい指摘は足していません。出た指摘も削っていません。\n- **コード:** 直していません。"
+  },
+  "interventions": 0
+}

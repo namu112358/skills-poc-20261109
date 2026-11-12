@@ -1,0 +1,38 @@
+{
+  "trial": "W24-baseline-d3-2",
+  "scenario": "W24",
+  "config": "baseline",
+  "case": "d3",
+  "rep": 2,
+  "review_md": "# コードレビュー: ダッシュボードとタスクのコメント\n\nマージ前に直すべき点（重要度順）。\n\n## 高\n\n### 1. `src/lib/cache.ts` / `src/lib/dashboard.ts` `buildDashboard` — キャッシュキーが固定で、他人のダッシュボードが返る\n- 問題: キーが固定文字列 `\"dashboard\"` で、`userId` を含まない。sato が開いた後 30 秒以内に suzuki が `/dashboard` や `GET /api/dashboard` を開くと、sato の担当タスク（タイトル・件数）が suzuki に表示される（情報漏えい）。`db` や `now` もキーに入らないため、テストの結果も実行順に依存する。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。キャッシュが本当に必要か（SQLite のインメモリ読みは十分速い）も再検討し、不要なら `cache.ts` ごと削除する。タスク・コメント更新時に古い値が残る点も同時に解消される。ユーザー違いで値が混ざらないことのテストを追加する。\n\n### 2. `src/lib/dashboard.ts` `listAssignedTasks` — SQL を文字列連結で組み立てている（SQL インジェクション）\n- 問題: `` WHERE assignee = '${userId}' `` と値を直接埋め込んでいる（規約 8 違反）。`userId` は現状セッション由来だが、`'` を含む値が入ると SQL が壊れる／改変される。\n- 直し方: `WHERE assignee = ?` とし `.all(userId)` に渡す。\n\n### 3. `src/lib/dashboard.ts` `countByStatus` — 共有定数 `TASK_STATUSES` を破壊的に反転している\n- 問題: `TASK_STATUSES as TaskStatus[]` は型キャストだけでコピーにならず、`.reverse()` が `tasks.ts` の定数配列そのものをその場で反転する。ダッシュボードを 1 回表示するたびに `TASK_STATUSES` の並びが入れ替わり（`[\"done\",\"in_progress\",\"todo\"]` ⇄ 元）、一覧画面の絞り込み表示など定数を使う他の箇所の並びが壊れる。2 回目の呼び出しでは「完了が先頭」にもならない（テストは 1 回目だけなので通ってしまう）。なお `readonly` 配列のため、実行時に凍結されていればここで例外にもなる。\n- 直し方: `[...TASK_STATUSES].reverse()`（または `toReversed()`）にする。`countByStatus` を 2 回呼んでも結果が同じことを確認するテストを追加する。\n\n### 4. `src/lib/comments.ts` `renderBody` + `src/app/tasks/[id]/page.tsx` — `javascript:` リンクによる格納型 XSS\n- 問題: `escapeHtml` 後に `[文字](URL)` を `<a href=\"$2\">` へ置換しており、URL のスキームを検証していない。コメントに `[クリック](javascript:alert(document.cookie))` と書くと、`dangerouslySetInnerHTML` で出力されたリンクがクリックされた時にスクリプトが実行され、閲覧した全員が対象になる（Cookie `poc_session` が HttpOnly でも、ログイン中の操作を代行できる）。\n- 直し方: URL が `https?://` で始まるものだけリンクにし、それ以外はテキストのまま出す。望ましくは `dangerouslySetInnerHTML` をやめ、React 要素（`<a>` と `<br />`）として組み立てる。`javascript:` / `data:` のテストを追加する。\n\n## 中\n\n### 5. `src/app/api/comments/[commentId]/route.ts` PATCH — 他人のコメントを編集できる\n- 問題: DELETE には作成者チェックがあるが PATCH にはなく、ログインさえしていれば誰でも他人のコメント本文を書き換えられる。\n- 直し方: DELETE と同様に `comment.authorId !== user.id` なら 403 を返す。\n\n### 6. `src/app/api/tasks/[id]/comments/route.ts` POST — タスクの存在確認がない\n- 問題: GET は `getTask(id)` で 404 を返すが、POST は確認せずに INSERT する。存在しないタスク ID（例: `/api/tasks/9999/comments`）では外部キー違反で 500 になる（外部キーが無効な接続なら孤立したコメントが入る）。規約 9「対象が無いときは 404」にも反する。\n- 直し方: POST でも `getTask(id)` を確認して 404 を返す。\n\n### 7. `src/lib/dashboard.ts` `completionRate` — 担当タスクが 0 件のとき `NaN`\n- 問題: `done / tasks.length` が 0/0 になり `NaN`。画面に「完了率 NaN%」と出て、`GET /api/dashboard` の JSON では `null` になる。担当が無い新規ユーザーで発生する。\n- 直し方: `tasks.length === 0` のとき 0 を返す。0 件のテストを追加する。\n\n### 8. `src/lib/comments.ts` `formatCreatedAt` / `listComments` — 日時を表示用ロケール文字列で保存し、それで並べ替えている\n- 問題: `toLocaleString(\"ja-JP\")` は `2026/11/9 9:00:00` のようにゼロ埋めされず、`ORDER BY created_at` は文字列順なので `2026/11/10 …` が `2026/11/9 …` より前に並ぶなど、コメントの順序が狂う。月をまたぐ・午前午後の桁数の違いでも発生する。\n- 直し方: DB には ISO 8601（`now.toISOString()`）で保存し、表示時に日本時間へ整形する。\n\n## 低\n\n### 9. `src/app/tasks/[id]/page.tsx` — コメントを「書く」画面がない\n- PR の説明は「詳細画面でコメントを読み書きできる」だが、画面は一覧表示のみで投稿・編集・削除の UI がない（API のみ）。説明に合わせて UI を追加するか、説明を直す。\n\n### 10. `src/lib/dashboard.ts` `dueThisWeek` — 期限切れも「今週が期限」に重複して出る\n- 今週の月曜〜今日までで期限切れのタスクは、「期限切れ」と「今週が期限」の両方に出る（テストもこれを前提にしている）。意図的でなければ `dueDate >= today` から数えるか、仕様を明記する。\n\n### 11. テスト・API の不足\n- 新しい API Route（認可・404・400）のテストが無い。上記 1, 3, 5, 6, 7 はいずれも既存のテストでは検出できないため、再発防止のテストを追加すること。\n",
+  "review_chars": 3279,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2355,
+    "tokens": {
+      "input": 22,
+      "output": 4835,
+      "cache_read": 399144,
+      "cache_creation": 36792
+    },
+    "turns": 9,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat \\\"$f\\\"; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 49,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しく書き写す作業はありませんでした。直前のレビューの指摘 11 件は、すでに指定の形式で `REVIEW.md` に入っていて、コミット済み（`515a188`）です。`REVIEW.md` に未コミットの変更はなく、指摘は 11 件のままです。各指摘に、場所・何が問題か・直し方・重要度（高・中・低）が付いています。\n\n指摘の追加も削除もしていません。コードも直していません。"
+  },
+  "interventions": 0
+}

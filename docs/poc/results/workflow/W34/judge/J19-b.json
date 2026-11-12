@@ -1,0 +1,64 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "\"summarizes the seed data\" calls summarizeTasks without passing now, so it uses the real clock against hard-coded expected counts and fails from tomorrow onward.",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "\"counts a new task that is due today\" builds today's date in UTC with toISOString, while the summary counts in JST, so the test fails between 0:00 and 9:00 JST.",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "No test covers overdue counting or excluding done tasks from the due counts, so a regression such as removing status != 'done' would go undetected.",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "The dueSoon range boundaries (today excluded, the soonDays-th day included, the day after excluded, soonDays 1 and 90, month crossover) are not tested.",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "The JST date boundary (UTC 14:59:59 vs 15:00:00) is not tested.",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "\"is fast enough for the dashboard\" decides pass or fail on a 300 ms wall-clock limit that includes DB setup, so it is flaky under load and should be removed.",
+   "severity": "中",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "The parseSoonDays tests do not check the accept and reject boundaries such as \"1\", \"90\", \"91\", \"1.5\", \"-1\", \"\" and \"07\".",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "There are no tests for the API route's 401, 400 and 200 responses.",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0268118
+ }
+}

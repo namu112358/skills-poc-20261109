@@ -1,0 +1,38 @@
+{
+  "trial": "W23-baseline-d1-1",
+  "scenario": "W23",
+  "config": "baseline",
+  "case": "d1",
+  "rep": 1,
+  "review_md": "# レビュー: ダッシュボードの追加\n\nマージ前に直すべき問題。重要度順。\n\n## 1. 【高】キャッシュキーがユーザーごとに分かれておらず、他人のダッシュボードが見える\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）\n- 問題: キーが固定文字列 `\"dashboard\"` のため、sato が開いてから 30 秒以内に suzuki が開くと、sato のタスク・件数がそのまま返る（`userId` も sato）。`/dashboard` と `GET /api/dashboard` の両方で起きる情報漏えい。また `db` を引数で渡すテストでも別 DB の結果が混ざる。\n- 直し方: キーに `userId` を含める（例: `` `dashboard:${userId}` ``）。`db` ごとの違いが問題になるなら、キャッシュ自体をやめる方が安全。あわせて「別ユーザーで呼ぶと別の結果になる」テストを追加する。\n\n## 2. 【高】`countByStatus` が共有定数 `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` `countByStatus`（`TASK_STATUSES as TaskStatus[]` → `.reverse()`）\n- 問題: `as` は型の見せ方を変えるだけでコピーにならず、`reverse()` は元の配列を書き換える。呼ぶたびに `TASK_STATUSES` の順序が反転する（2 回目は「完了」が先頭にならない）。`src/app/tasks/page.tsx` の絞り込みの並びなど他の利用箇所の順序も、ダッシュボードを開くたびに変わる。`readonly` 配列を型アサーションで外している点も問題。現状のテストは 1 回しか呼ばないので通ってしまう。\n- 直し方: `[...TASK_STATUSES].reverse()`（または `toReversed()`）にして元を変更しない。2 回続けて呼んでも結果が同じで、`TASK_STATUSES` が変わらないテストを追加する。\n\n## 3. 【高】SQL に `userId` を文字列連結で埋め込んでいる\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`\n- 問題: ``WHERE assignee = '${userId}'`` は CLAUDE.md 規約 8（必ずプレースホルダ）に違反。現在の `userId` はセッション由来だが、`'` を含む値で SQL が壊れる／注入できる。関数が `src/lib/` の公開関数で、別の呼び出し元から任意の値が渡り得る。\n- 直し方: `WHERE assignee = ?` とし `.all(userId)`。\n\n## 4. 【中】タスクが 0 件のとき完了率が `NaN` になる\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 問題: `0 / 0` が `NaN`。担当タスクが無い人は画面に「完了率 NaN%」と出て、`GET /api/dashboard` の JSON では `null` になる。新規ユーザーで必ず発生。\n- 直し方: `tasks.length === 0` のとき 0 を返す。0 件のテストを追加する。\n\n## 5. 【中】キャッシュがタスクの更新に追随しない／無期限に増える\n- 場所: `src/lib/cache.ts`、`buildDashboard`\n- 問題: `PATCH /api/tasks/:id` で状態を変えても、30 秒間はダッシュボードに反映されない（完了にしたのに件数が変わらない）。キャッシュは期限切れでも削除されず、キー数ぶん増え続ける。この規模ではそもそも SQLite への単純な集計であり、キャッシュの利点が薄い。PR の説明にもキャッシュの記載が無く、依頼範囲（規約 6）を超えている。\n- 直し方: キャッシュを外すのが最も簡単。残すなら更新系でキーを無効化し、期限切れの削除を入れる。\n\n## 6. 【中】「今週が期限」の仕様が曖昧で、期限切れと重複表示される\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`、`tests/dashboard.test.ts`\n- 問題: 今週の月曜〜今日までに期限が来た未完了タスクが「期限切れ」と「今週が期限」の両方に出る（テストも `[1, 2]` でこれを前提にしている）。意図通りか不明。意図でなければ、同じタスクが 2 回並び、利用者が件数を数え間違える。\n- 直し方: 仕様を決める。重複させないなら今日以降（`dueDate >= today`）に限定し、テストを更新。重複させるなら関数コメントと画面の見出しにそう明記する。\n\n## 7. 【低】テストの不足\n- 場所: `tests/dashboard.test.ts`\n- 問題: 上記 1・2・4 のバグを検出できるテストが無い（ユーザー別キャッシュ、2 回呼び出し、0 件）。API Route（未ログイン 401、`GET /api/dashboard` の形）のテストも無い。`buildDashboard` のテストは件数合計しか見ていない。\n- 直し方: 各バグの再現テストを先に追加してから直す。\n\n## 8. 【低】`/dashboard` への導線が無い\n- 場所: `src/app/dashboard/page.tsx` 周辺（`src/app/page.tsx`・`src/app/tasks/page.tsx` に変更なし）\n- 問題: ダッシュボードから「タスク一覧へ」は張られているが、逆向きのリンクが無く、URL を直接入力しないと到達できない。\n- 直し方: 一覧やトップにリンクを追加する（意図して未公開なら PR に記載）。\n",
+  "review_chars": 2575,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2002,
+    "tokens": {
+      "input": 20,
+      "output": 4195,
+      "cache_read": 325410,
+      "cache_creation": 31416
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && git ls-files --others --exclude-standard | while read f; do echo \\\"=== $f\\\"; cat \\\"$f\\\"; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 43,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` は、前回のレビューで出た指摘をすべて、指定の形式で書いた状態でコミット済みです（コミット `b8b1c08`）。形式は、場所・何が問題か・直し方・重要度（高・中・低）です。\n\n指摘は 8 件で、前回の返答の一覧と同じです。新しい指摘は足しておらず、削ってもいません。重複していた指摘もありませんでした。コミットには `REVIEW.md` だけを含めており、コードは変更していません。そのため追加の変更はしていません。\n\n作業ツリーには、レビュー対象の未コミットの変更（ダッシュボード関連のファイル）が残ったままです。"
+  },
+  "interventions": 0
+}

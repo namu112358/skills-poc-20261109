@@ -1,0 +1,44 @@
+{
+  "trial": "W23-cr-high-d1-2",
+  "scenario": "W23",
+  "config": "cr-high",
+  "case": "d1",
+  "rep": 2,
+  "review_md": "# コードレビュー: ダッシュボードを追加する\n\n指摘は 9 件（高 3 / 中 3 / 低 3）です。重要度は、データ漏えい・セキュリティ・誤表示を高、周辺の不具合を中、保守性やテストの不足を低としました。\n\n## 高\n\n### 1. キャッシュキーが全ユーザー共通で、他人のダッシュボードが見える\n\n- 場所: `src/lib/dashboard.ts:64`（`buildDashboard` のキャッシュキー）\n- 問題: キャッシュキーが固定文字列 `\"dashboard\"` で、ユーザーごとに分かれていません。sato が `/dashboard` を開くと 30 秒間 sato の結果がキャッシュされます。その間に suzuki が `buildDashboard` または `GET /api/dashboard` を呼ぶと、sato のタスクのタイトル、件数、userId が返ります。他のユーザーの情報が漏れ、本人の数字も誤ります。\n- 直し方: キーに userId を含めます（例: `` `dashboard:${userId}` ``）。#6 のとおり `db` も含めると安全です。\n\n### 2. SQL に userId を直接埋め込んでいる（SQL インジェクション）\n\n- 場所: `src/lib/dashboard.ts:29`（`listAssignedTasks` の SQL）\n- 問題: `WHERE assignee = '${userId}'` と文字列連結でクエリを組み立てています。CLAUDE.md の規約 8（プレースホルダ必須）に違反します。userId が `x' OR '1'='1` なら全ユーザーのタスクが返ります。引用符を含む userId ではクエリがエラーになります。\n- 直し方: `WHERE assignee = ?` とし、`.all(userId)` で値を渡します。\n\n### 3. `order.reverse()` が共有配列 `TASK_STATUSES` を直接書き換える\n\n- 場所: `src/lib/dashboard.ts:37`（`countByStatus`）\n- 問題: `TASK_STATUSES as TaskStatus[]` は、アプリの他の箇所も import している同じ配列です。`reverse()` は元の配列を書き換えるため、呼ぶたびに順序が反転します。1 回目は done が先頭、2 回目は todo が先頭になり、リクエストごとに表示順が入れ替わります。以降、他の箇所（絞り込みのドロップダウンなど）で `TASK_STATUSES` を使うと、逆順になっています。テストは 1 回しか呼ばないため検出できません。\n- 直し方: `[...TASK_STATUSES].reverse()` または `toReversed()` を使い、元の配列を変更しません。\n\n## 中\n\n### 4. タスクが 0 件のとき完了率が NaN になる\n\n- 場所: `src/lib/dashboard.ts:47`（`completionRate`）\n- 問題: 担当タスクが 0 件のユーザーでは `Math.round(0/0*100)` が NaN になります。画面は「完了率 NaN%」と表示し、API では `JSON.stringify` により `null` で返ります。\n- 直し方: `tasks.length === 0` のときは 0 を返します。\n\n### 5. 「今週が期限」に、今週前半の期限切れタスクが重複して入る\n\n- 場所: `src/lib/dashboard.ts:59`（`dueThisWeek` の判定）。関連するテストは `tests/dashboard.test.ts:60`\n- 問題: 水曜（11-11）に、火曜（11-10）が期限の未完了タスクがあるとします。このタスクは `dueDate >= start（月曜）` を満たすため、「期限切れ」と「今週が期限」の両方に表示されます。テストはこの重複（`[1, 2]`）をそのまま期待値にしていて、不具合を見逃します。\n- 直し方: 2 つの一覧を重ならない仕様にするなら、範囲の開始を `max(start, 今日)` にします。仕様を決め、テストもそれに合わせて直します。\n\n### 6. キャッシュが更新で無効化されず、`db` 引数も無視している\n\n- 場所: `src/lib/dashboard.ts:74`（キャッシュの読み書き）\n- 問題: タスクを更新（`PATCH /api/tasks/:id`）または作成しても、最大 30 秒間は古い件数と一覧が表示されます。キーが `db` を考慮しないため、別の DB を使うテストや呼び出し元が、他の DB のキャッシュ結果を読むこともあります。現状のテストは、`beforeEach` で `clearCache()` を呼ぶことでこの問題を避けているだけです。\n- 直し方: キーに `db` とユーザーを含めます。タスクの作成・更新の書き込み経路でキャッシュを無効化します。鮮度が重要なら、キャッシュ自体をやめることも検討してください。\n\n## 低\n\n### 7. `tasks.ts` の処理をコピーして重複している\n\n- 場所: `src/lib/dashboard.ts:20`（`Row`、`toTask`、`listAssignedTasks`）\n- 問題: `src/lib/tasks.ts` には、同じ列を取得する `TaskRow`、`toTask`、`listTasks` の SELECT がすでにあります。列やマッピングが変わるとき（新しいマイグレーションなど）、2 か所を直す必要があり、片方の直し忘れで不整合が起きます。\n- 直し方: `listTasks` に `assignee` の絞り込みを足すか、`toTask` を export して再利用します。\n\n### 8. テストが実際の不具合をカバーしていない\n\n- 場所: `tests/dashboard.test.ts:63`（全体）\n- 問題: CLAUDE.md の規約 5 はロジックへのテスト追加を求めています。すべてのテストが冒頭で `clearCache()` を呼び、ユーザーも 1 人だけなので、ユーザー間のキャッシュ漏えいは検出されません。次のケースもありません。\n  - タスク 0 件（NaN）\n  - `countByStatus` の 2 回目の呼び出し（順序の反転）\n  - 悪意のある userId の入力\n  - `/api/dashboard` の未ログイン時 401\n  - API Route 全般\n  \n  このため上記の不具合がテストを通過します。\n- 直し方: 上の各ケースを追加します。ユーザー別のキャッシュ、0 件、`countByStatus` の複数回呼び出し、引用符を含む userId、API の 401 を最低限入れます。\n\n### 9. キャッシュに期限切れエントリの削除がなく、可変オブジェクトを共有している\n\n- 場所: `src/lib/cache.ts:4`（モジュールレベルの `Map`）\n- 問題: 期限切れのエントリは、同じキーが再度要求されたときにしか上書きされません。ユーザー別や DB 別のキーにすると、`Map` が際限なく増えます。また、同じキャッシュ済みの `Dashboard` オブジェクトが全呼び出し元に返ります。1 つの呼び出し元が `overdue` に `.sort()` などの変更を加えると、後続の呼び出し元に見える内容も変わります。\n- 直し方: 取得時や書き込み時に期限切れエントリを削除するか、上限を設けます。返す値はコピーするか、`Object.freeze` などで変更不可にします。\n",
+  "review_chars": 3350,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2627,
+    "tokens": {
+      "input": 20,
+      "output": 6979,
+      "cache_read": 308954,
+      "cache_creation": 48586
+    },
+    "turns": 5,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git log --oneline | head -5 && (git diff @{upstream}...HEAD 2>/dev/null || git diff main...HEAD 2>/dev/null | head -0); echo ---; git diff HEAD\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"for f in src/app/api/dashboard/route.ts src/app/dashboard/page.tsx src/lib/cache.ts src/lib/dashboard.ts src/lib/week.ts tests/dashboard.test.ts; do echo \\\"=== $f\\\"; cat -n $f; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Read": 6,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 65,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "レビューの 9 件を `REVIEW.md` に書き写し、`REVIEW.md` だけをコミットしました。コードは変更していません。\n\n- **重要度の付け方:** 重要度は私が付けました。高は、キャッシュの共有によるデータ漏えい（1 番）、SQL インジェクション（2 番）、共有配列を書き換える `reverse()`（3 番）です。中は完了率の NaN（4 番）、今週の期限と期限切れの重複（5 番）、キャッシュの無効化漏れ（6 番）です。低は `tasks.ts` との重複（7 番）、テスト不足（8 番）、キャッシュの掃除漏れ（9 番）です。\n- **各指摘の内容:** 各指摘に、場所、問題、直し方を書きました。\n- **未コミットの変更:** ダッシュボードの PR の差分は、これまでどおり未コミットで残しています。"
+  },
+  "interventions": 0
+}

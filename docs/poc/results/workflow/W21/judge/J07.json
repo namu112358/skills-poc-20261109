@@ -1,0 +1,50 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "NOTIFIER_KIND を slack または email にすると、未実装の send が例外を投げる。updateTask は DB を更新した後に emit するので、更新済みなのに API が 500 を返す。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "NotifierFactory は知らない NOTIFIER_KIND を黙って console に落とすため、設定の誤りに気づけない。切り替えを残すなら、起動時にエラーにすべき。",
+   "severity": "高",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "記録先はログだけという要件なのに、Notifier 抽象・Factory・Slack/Email の未実装クラス・使われないイベントの種類まで作っている（YAGNI/KISS）。notify/ を削除し、updateTask で console.log を 1 行出すだけにすべき。",
+   "severity": "高",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "tests/notify.test.ts は EventBus と Factory の内部しか確かめておらず、担当者が変わったときだけログが出るという受入条件を確かめていない。updateTask のテストを足すべき。",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "グローバルなシングルトンのバスと、import 時の購読の登録という副作用のため、updateTask を読んでも何が起きるか追えず、差し替えもできない。",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "events.ts の subscribe と emit で as unknown as Handler や as never のキャストを使い、型検査を回避している。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0619358
+ }
+}

@@ -1,0 +1,57 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "src/lib/export.ts の field() は値をダブルクォートで囲むだけで、中の \" を \"\" に置き換えていないため、引用符を含むタイトルで列がずれる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "route.ts の GET で status を as TaskStatus | null と断定するだけで isTaskStatus で検証しておらず、?status=foo で全件ではなく見出しだけの空の CSV が返る（規約 2・PR の説明に反する）。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "export.ts で = + - @ などで始まるタイトルをそのまま出力しており、Excel で開くと数式として評価される（CSV インジェクション）。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "tests/export.test.ts の \"escapes quotes and commas in titles\" は入力タイトルにカンマも引用符も無く、名前どおりの検証をしておらず指摘 1 を見逃している。",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "1 件目のテストが lines.length を 9 と固定しておりシード件数に依存しているので、listTasks の件数から期待値を導くべき。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 6,
+   "summary": "ルートのテストが無く、?status= の検証や未ログイン時 401 を確かめていないので、判定を src/lib の関数に移してテストすべき。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "route.ts のレスポンスに Cache-Control: no-store を付けて、認証付きのデータがキャッシュに残らないようにすることを勧める。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0565198
+ }
+}

@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "buildDashboard のキャッシュのキーが固定の \"dashboard\" で userId を含まないため、30 秒以内に別のユーザーがアクセスすると他人のダッシュボードが返る",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "listAssignedTasks が userId をテンプレート文字列で SQL に埋め込んでおり（規約 8 違反）、SQL インジェクションの危険がある",
+   "severity": "高",
+   "match": "B5",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "countByStatus が共有定数 TASK_STATUSES を reverse() でその場で書き換えるため、呼ぶたびに並びが反転し、他の画面の並びにも影響する",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "weekRange で日曜は getUTCDay() が 0 になるため、翌週の月〜日が「今週」として返る",
+   "severity": "中",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "completionRate が担当タスク 0 件のとき 0/0 で NaN になり、画面に「完了率 NaN%」と出る（API では null になる）",
+   "severity": "中",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "buildDashboard のキャッシュのため、タスクを更新しても最大 30 秒は件数・完了率が古いまま返る",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "cache.ts の store が無制限に増える Map で、期限切れのエントリを消さない",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "dueThisWeek が期限切れのタスクも含むため、overdueTasks と重複して表示される",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "tests/dashboard.test.ts が複数ユーザー・2 回呼び出し・日曜・0 件などを試しておらず、上記の不具合を検出できない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "overdueTasks のコメント「期限の古い順」に対し、関数自体は並べ替えず SQL の順に依存している",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0657358
+ }
+}

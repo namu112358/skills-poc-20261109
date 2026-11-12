@@ -1,0 +1,33 @@
+{
+  "trial": "W21-baseline-c2-1",
+  "scenario": "W21",
+  "config": "baseline",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: タスクの一覧を期限の近い順に並べ替える\n\n結論: 重大な不具合は見つかりませんでした。SQL は `isTaskSort` で検証した値を固定表 `SORT_COLUMNS` で引いてから埋め込んでおり、インジェクションの懸念はありません（規約 8 の趣旨にも沿っています）。規約 2・3・5 も満たしています。以下は直したほうがよい点です。\n\n## 1. 「期限の近い順」が昇順の単純ソートで、完了済み・期限切れが先頭に来る【中】\n\n- 場所: `src/lib/tasks.ts` `listTasks`（`SORT_COLUMNS.due = \"due_date\"` による `ORDER BY due_date, id`）、`SORT_LABELS.due`\n- 問題: 日付の昇順に並べるだけなので、期限が過ぎたタスクや完了（`done`）のタスクが常に先頭に並びます。シードデータでも、完了済みの 11/02 と 11/05 のタスクが先頭になり、「締め切りの近いタスクから片付けたい」という PR の目的に合いません。ステータスを絞り込まずに並べ替えると、片付けるべきタスクが下に埋もれます。\n- 直し方: 仕様を決めてください。\n  - 案 A: 「期限の昇順」であると割り切り、ラベルを「期限の早い順」にする。\n  - 案 B: 未完了を先にする（例: `ORDER BY (status = 'done'), due_date, id`）。\n  - どちらの場合も、完了済みや期限切れが混ざったときの順序をテストで固定してください。現在のテストは「todo に絞り込んだ場合」だけで、この点を確認できていません。\n\n## 2. 画面のフォームのボタン文言が「絞り込む」のまま【低】\n\n- 場所: `src/app/tasks/page.tsx` の `<form aria-label=\"絞り込み\">` と `<button>絞り込む</button>`\n- 問題: 並べ替えのセレクトを同じフォームに入れたため、ボタンの文言とフォームの `aria-label` が実際の動作（絞り込み＋並べ替え）と合っていません。\n- 直し方: 「絞り込む・並べ替える」などの文言に変えるか、aria-label を「絞り込みと並べ替え」にしてください。\n\n## 3. API の `sort` を確認するテストがない【低】\n\n- 場所: `tests/tasks.test.ts`\n- 問題: `GET /api/tasks?sort=…` のルート側（`isTaskSort(sort) ? sort : undefined` の分岐）を通すテストがありません。ルートでの配線ミスがあってもテストでは気づけません。ただし、既存の `status` も同様にルート単位のテストがなく、既存の方針どおりではあります。\n- 直し方: 余力があれば、不正な `sort` の値（例: `sort=due_date`）で登録順に戻ることを確認するテストを足してください。\n",
+  "review_chars": 1295,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.1774,
+    "tokens": {
+      "input": 18,
+      "output": 2921,
+      "cache_read": 281240,
+      "cache_creation": 30015
+    },
+    "turns": 7,
+    "permission_denials": [],
+    "tool_calls": {
+      "Bash": 4
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 40,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、前回のレビューの指摘 3 件がすでに指定の形式（場所・問題・直し方・重要度）で入っていて、コミットも済んでいます。内容の過不足はないので、新しいコミットは作りませんでした。\n\n- コミット `7865c77` に `REVIEW.md` だけが含まれています。\n- 作業ツリーに残っている変更は、PR の 4 ファイルだけです。コードは直していません。\n\n指摘の内容は次のとおりです。\n\n1. **【中】** 「期限の近い順」が昇順の単純ソートで、完了済み・期限切れのタスクが先頭に来る。場所は `src/lib/tasks.ts` の `listTasks`。\n2. **【低】** フォームのボタン文言が「絞り込む」のままで、並べ替えの動作と合っていない。場所は `src/app/tasks/page.tsx`。\n3. **【低】** `GET /api/tasks` の `sort` を確認するテストがない。場所は `tests/tasks.test.ts`。"
+  },
+  "interventions": 0
+}

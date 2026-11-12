@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "\"adds days to the due date\" のテストは期待値を extendDueDate 自身で計算しているため、実装が間違っていても必ず通る。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "\"works across months\" は doesNotThrow だけで、月をまたいだ結果の日付を確かめていない。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "\"handles a completed task\" も doesNotThrow だけで、完了タスクが延長できないこと（ok: false）や期限が変わらないことを確かめていない。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "\"extends a task\" は ok だけを見ていて、dueDate が n 日進んだことも DB に保存されたことも確かめていない。",
+   "severity": "高",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "validateExtendInput のテストは正常系 1 件だけで、0・31・小数・文字列・null などの異常系と、境界の 1・30 が無い。",
+   "severity": "高",
+   "match": "T3",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "存在しないタスク（not_found）のテストが無い。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "テスト名が英語で曖昧なので、振る舞いを書く名前にすべき。",
+   "severity": "高",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "route が本文の検証を存在確認より先に行うため、存在しないタスクでも本文が不正だと 404 ではなく 400 を返し、PATCH と挙動が食い違う。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 9,
+   "summary": "route を直接呼ぶテスト（401・400・404・200）が 1 件も無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 10,
+   "summary": "保存済みの期限が不正な日付（2026-02-31 や 9999-12-31）のとき、extendDueDate がずれた日付や YYYY-MM-DD でない値を返し、それが保存される。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0676718
+ }
+}

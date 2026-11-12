@@ -1,0 +1,39 @@
+{
+  "trial": "W26-baseline-std-c4-1",
+  "scenario": "W26",
+  "config": "baseline-std",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# レビュー: 期限が近いタスクを一覧で目立たせる\n\n`src/lib/due.ts` の日数計算が仕様（日本時間の日付で数える・今日〜3 日後）を満たしていません。1 と 2 は再現スクリプト（作業用コピーの外）を node で実行して確認しました。\n\n## 1. 日本時間の「日付」で数えていない\n\n- **重要度:** 高\n- **場所:** `src/lib/due.ts` の `daysUntilDue`\n- **問題:** `Date.parse(\"YYYY-MM-DD\")` は UTC の 0:00（日本時間の 9:00）として解釈されます。それを現在時刻とのミリ秒差で 24 時間単位に数えているため、暦日の差になっていません。日本時間 2026-11-12 の 23:59 に実行すると、今日が期限（11-12）のタスクの残り日数が -1 になります。「期限間近」が付かず、期限切れ扱いになります。日本時間の 9:00 以降は、期限当日のタスクにも付きません。現在時刻も UTC 基準のままで、サーバーのタイムゾーンにも依存します。テストは `now` を日本時間 0:00 ちょうどにしているので、このずれを通り抜けています。\n- **直し方:** 今日の日付を日本時間の `YYYY-MM-DD` にします（例: `Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" }).format(now)`）。期限と今日の両方を `Date.UTC(y, m - 1, d)` に変換して差を取り、`86400000` で割った整数を残り日数にします。\n\n## 2. 「3 日後」が対象に入っていない\n\n- **重要度:** 高\n- **場所:** `src/lib/due.ts` の `isDueSoon`（`days < DUE_SOON_DAYS`）\n- **問題:** PR の説明は「今日・明日・明後日・3 日後」を対象にしていますが、`< 3` なので今日〜2 日後だけになります。日本時間 0:00 に実行すると、3 日後の 11-15 は残り日数 3 で false でした。\n- **直し方:** `days <= DUE_SOON_DAYS` にします。3 日後が含まれ、4 日後が含まれないことをテストで固定します。\n\n## 3. テストが上記の不具合を検出できない\n\n- **重要度:** 中\n- **場所:** `tests/due.test.ts`\n- **問題:** `now` が日本時間 0:00 ちょうどの 1 点だけで、時刻による日付のずれを見ていません。3 日後の境界を検証しておらず（2 日後までしか確認していない）、`< 3` のままでも通ります。期限切れの確認も前日だけです。\n- **直し方:** 日本時間の 0:00、8:59、9:00、23:59 に実行した場合を追加し、当日の午後に今日が期限のタスクが true になることを確認します。3 日後は true、4 日後は false の境界も追加します。\n\n## 4. 判定の二重呼び出しと未使用のクラス\n\n- **重要度:** 低\n- **場所:** `src/app/tasks/page.tsx` のタスク行（`<tr>` の `className` と期限の列）\n- **問題:** 行ごとに `isDueSoon(task, now)` を 2 回呼んでいます。`due-soon` クラスを付けていますが、効く CSS が追跡中のファイルでは `src` 内に見つかりません。\n- **直し方:** `const soon = isDueSoon(task, now)` にまとめます。クラスを使わないなら削除します（変更範囲の規約）。\n",
+  "review_chars": 1615,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.222,
+    "tokens": {
+      "input": 22,
+      "output": 6190,
+      "cache_read": 364359,
+      "cache_creation": 30895
+    },
+    "turns": 10,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W26-baseline-std-c4-1-app/99b618e6-38a6-4ddc-a60e-0c7ef4c7b8b9/scratchpad && cat > $S/r.ts <<'EOF'\\nimport { daysUntilDue, isDueSoon } from \\\"/tmp/poc-tria"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 61,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を、指摘ごとに重要度・場所・問題・直し方の見出しを立てる形式に書き直し、`REVIEW.md` だけをコミットしました（a69b7c3）。指摘は前回の 4 件のままで、増減はありません。コードには手を付けていません。PR の変更は未コミットのままです。\n\n1. **日本時間の日付で数えていない（高）:** `src/lib/due.ts` の `daysUntilDue`。\n2. **「3 日後」が対象外（高）:** `src/lib/due.ts` の `isDueSoon`。\n3. **テストが不具合を検出できない（中）:** `tests/due.test.ts`。\n4. **判定の二重呼び出しと未使用の `due-soon` クラス（低）:** `src/app/tasks/page.tsx`。"
+  },
+  "interventions": 0
+}

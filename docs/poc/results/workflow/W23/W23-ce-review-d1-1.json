@@ -1,0 +1,44 @@
+{
+  "trial": "W23-ce-review-d1-1",
+  "scenario": "W23",
+  "config": "ce-review",
+  "case": "d1",
+  "rep": 1,
+  "review_md": "# レビュー結果: ダッシュボードの追加（`/dashboard`・`GET /api/dashboard`）\n\n判定: **マージ不可（高 3 件を直してから）**\n\n対象は `git diff HEAD` の差分（新規 6 ファイル）です。コードは読んで確認しました。アプリは起動しておらず、`npm test` も再実行していません。\n\n## 指摘一覧\n\n| # | 重要度 | 場所 | 概要 |\n|---|--------|------|------|\n| 1 | 高 | `src/lib/dashboard.ts` `buildDashboard` | キャッシュのキーが全員共通で、他人のタスクが見える |\n| 2 | 高 | `src/lib/dashboard.ts` `countByStatus` | `reverse()` が共有の `TASK_STATUSES` を書き換える |\n| 3 | 高 | `src/lib/dashboard.ts` `listAssignedTasks` | SQL に値を文字列で埋め込んでいる |\n| 4 | 中 | `src/lib/dashboard.ts` `completionRate` | タスクが 0 件だと `NaN` になる |\n| 5 | 中 | `src/lib/dashboard.ts` `buildDashboard` / `src/lib/cache.ts` | タスク更新後も最長 30 秒、古い内容を返す。キャッシュが無制限に増える |\n| 6 | 低 | `src/lib/dashboard.ts` `dueThisWeek` / `overdueTasks` | 今週内の期限切れが「期限切れ」と「今週が期限」の両方に出る |\n| 7 | 中 | `tests/dashboard.test.ts` | 上の不具合をどれも検出できないテストになっている |\n\n## 1. 【高】キャッシュのキーが全員共通で、他のユーザーのダッシュボードが返る\n\n- 場所: `src/lib/dashboard.ts:64`（`cached(\"dashboard\", ...)`）、`src/lib/cache.ts`\n- 問題: キー `\"dashboard\"` に `userId` が入っていません。たとえば `sato` が `/dashboard` か `GET /api/dashboard` を開くと、30 秒間は `sato` の結果が保存されます。その間に `suzuki` がログインして同じ画面を開くと、`suzuki` の担当ではなく `sato` の件数とタスクのタイトルが返ります。`userId` も `sato` のままです。認可の漏れ（他人のタスクの閲覧）であり、ページと API の両方で起きます。\n- 直し方: キーにユーザーを含めます（例: `` `dashboard:${userId}` ``）。上限が無いと別の問題（#5）になるので、あわせて直します。ユーザー別の結果をキャッシュする必要が本当にあるかも検討してください。PoC の規模なら、キャッシュをやめるのが最も安全です。\n- 確認: `buildDashboard(\"sato\")` の直後に `buildDashboard(\"suzuki\")` を呼び、`userId` と件数が `suzuki` のものになることをテストにします（#7）。\n\n## 2. 【高】`countByStatus` が `TASK_STATUSES` を破壊的に並べ替える\n\n- 場所: `src/lib/dashboard.ts:36-37`\n- 問題: `TASK_STATUSES as TaskStatus[]` は型を変えているだけで、配列は複製されません。`order.reverse()` は `src/lib/tasks.ts` の共有の定数を直接書き換えます。\n  - ダッシュボードを表示するたびに並びが反転します。1 回目は完了が先頭、2 回目は未着手が先頭、3 回目は完了が先頭、と交互になります。画面の表示順が安定しません。\n  - `src/app/tasks/page.tsx:22` の絞り込みメニュー（`TASK_STATUSES.map`）の並びも、ダッシュボードを開いたかどうかで変わります。ダッシュボードと関係のない画面まで影響を受けます。\n  - 既存のテストは 1 回しか呼ばないので、気づけません。\n- 直し方: `[...TASK_STATUSES].reverse()` か `TASK_STATUSES.toReversed()` を使います。表示順を変えたいだけなら、並び順を決める専用の定数を別に用意するほうが安全です。\n\n## 3. 【高】`listAssignedTasks` が SQL に値を文字列連結で埋め込んでいる\n\n- 場所: `src/lib/dashboard.ts:29`（`WHERE assignee = '${userId}'`）\n- 問題: `CLAUDE.md` の規約 8（SQL の値には必ずプレースホルダを使う）に違反しています。今は `userId` がセッションから来る ID なので、すぐに悪用はできません。ただし関数は `userId: string` を受け取って export されています。別の呼び出し元が外部の値を渡すと、SQL インジェクションになります。ユーザー ID に `'` を含む値が入っただけでもクエリが壊れます。\n- 直し方: 同じファイルの他のクエリと同じく、`.prepare(\"... WHERE assignee = ? ORDER BY due_date, id\").all(userId)` にします。\n\n## 4. 【中】タスクが 0 件のとき完了率が `NaN` になる\n\n- 場所: `src/lib/dashboard.ts:45-48`（`completionRate`）\n- 問題: 担当タスクが 0 件のユーザー（新しいユーザーなど）では `0 / 0` が `NaN` になります。画面には「完了率 NaN%」と出ます。`GET /api/dashboard` の JSON では `NaN` が `null` に変わるので、型 `number` と食い違います。\n- 直し方: `tasks.length === 0` のときは `0` を返します。画面で「担当タスクなし」と出すかどうかも決めてください。\n\n## 5. 【中】更新が反映されない・キャッシュが増え続ける\n\n- 場所: `src/lib/dashboard.ts:62-75`、`src/lib/cache.ts`\n- 問題:\n  - タスクの作成・更新（`POST /api/tasks`、`PATCH /api/tasks/:id`）でキャッシュを消していません。ステータスを完了にしてダッシュボードに戻っても、最長 30 秒は古い件数が出ます。\n  - `store` は期限切れの項目を削除しません。#1 をユーザー別のキーで直すと、ユーザー数の分だけ増え続けます。\n  - 別の呼び出し時刻（`now`）を渡しても、キャッシュが残っていれば古い `generatedAt` と日付判定の結果が返ります。\n  - サーバーのインスタンスや開発時の再読み込みごとに別のキャッシュになるので、効き方が一定ではありません。\n- 直し方: キャッシュをやめるのが最も簡単です（件数の集計だけなので DB の負荷は小さいです）。残すなら、更新系の API でそのユーザーの項目を消し、期限切れの項目も掃除してください。\n\n## 6. 【低】今週内の期限切れが 2 つの欄に重複して出る\n\n- 場所: `src/lib/dashboard.ts:57-60`（`dueThisWeek`）。テスト（`tests/dashboard.test.ts:60`）がこの挙動を前提にしています。\n- 問題: `dueThisWeek` は「今週の月曜以降」で絞るので、今日より前で今週内の未完了タスク（水曜に見た月・火曜の期限）は、「期限切れ」にも「今週が期限」にも出ます。仕様として意図したものか、PR の説明からは分かりません。\n- 直し方: 重複させない意図なら、「今日以降」かつ「日曜まで」で絞ります。重複を許すなら、そのことをコメントとテストに明記してください。\n\n## 7. 【中】テストが不具合を検出できない\n\n- 場所: `tests/dashboard.test.ts`\n- 問題: 「`buildDashboard` をユーザー別に呼ぶ」「`countByStatus` を 2 回呼ぶ」「タスクが 0 件」のテストがありません。そのため #1・#2・#4 はテストが通ったままです。`cached` と `/api/dashboard` のテスト（未ログインで 401 になること）もありません。「自分のタスクだけ」のテストも `sato` 1 人しか見ていないので、別ユーザーが混ざる不具合は検出できません（規約 5）。\n- 直し方:\n  - `buildDashboard(\"sato\")` の後に `buildDashboard(\"suzuki\")` を呼び、結果が別になることを確認する。\n  - `countByStatus` を 2 回呼んで同じ並びになることを確認する。\n  - `completionRate([])` が `0` になることを確認する。\n  - `cached` の有効期限（TTL）の動作を確認する（キャッシュを残す場合）。\n  - `GET /api/dashboard` の 401 の確認（既存の API テストの形式に合わせる）。\n\n## 確認済みで問題が無かった点\n\n- `GET /api/dashboard` は最初に `requireApiUser()` を呼び、ページは `requireUser()` を呼んでいます。ログインの確認は規約どおりです。\n- 日本時間の日付と週の範囲（`week.ts`）は、月跨ぎ・日曜・UTC との境界を読んで確認しました。問題は見つかりませんでした。\n\n## カバレッジの注意\n\n調査と判定は、差分と関連ファイル（`tasks.ts`、`tasks/page.tsx`）を直接読んで行いました。複数のレビュアーによる並行レビューや、別モデルによる独立した確認は実施していません。アプリの起動と実行による再現も行っていません。#1・#2・#4 はコードの読解から導いた結論です（実行で確認していません）。\n",
+  "review_chars": 4500,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3934,
+    "tokens": {
+      "input": 26,
+      "output": 7514,
+      "cache_read": 646450,
+      "cache_creation": 63395
+    },
+    "turns": 17,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"BASE=$(git merge-base HEAD HEAD) && echo BASE:$BASE && git diff -U10 --irreversible-delete $BASE && echo UNTRACKED: && git ls-files --others --exclude-standard; git ls-files | grep -iE 'R"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 /tmp/poc-trials/W23-ce-review-d1-1/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base \\\"$(git rev-parse HEAD)\\\" --docs-root docs\"}"
+      }
+    ],
+    "tool_calls": {
+      "Read": 6,
+      "Bash": 7,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 86,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回のレビューで出た 7 件の指摘は、すでに `REVIEW.md` に書いてコミット済みです（コミット `186c1f0`、`REVIEW.md` のみ）。そのため今回は、ファイルの変更も新しいコミットもしていません。\n\n`REVIEW.md` の指摘は、次の形式で書いてあります。\n- 重要度（高・中・低）\n- 場所（ファイルと関数・行）\n- 何が問題か（どういう入力・状況で何が起きるか）\n- 直し方\n\n出た指摘は削っていません。新しい指摘も足していません。作業ツリーのコードは変更しておらず、新規 6 ファイルは未コミットのままです。"
+  },
+  "interventions": 0
+}

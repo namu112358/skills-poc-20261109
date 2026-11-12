@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "validateTaskInput の assignee 検証で、担当者が users に存在するかの DB 確認が消えている（_db は未使用）。そのため存在しない担当者が通り、外部キー違反で 500 になる。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "validateTaskInput の title 検証から 200 文字上限（b.title.length > 200）が消え、201 文字以上も通る。エラー文言とも食い違っている。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "旧 tests/tasks.test.ts の \"reports every invalid field\"（4 件のエラーを確認するテスト）が新テストに移されずに消えており、担当者検証の退行を検出できない。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "index.ts の「振る舞いは変えていない」というコメントと、validation.ts の JSDoc（担当者確認の一文が消えた）が事実と合わない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 5,
+   "summary": "validation.ts:1 の「API に送られた値の検証」というコメントが、parseTaskId や DB 参照を含むことを表していない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 6,
+   "summary": "未使用の引数 _db: Db = getDb() が呼び出しのたびに評価され、渡された db が無視されるので紛らわしい。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "index.ts の export * では公開範囲を制御できず、名前の衝突にも気づけない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "呼び出し側の import を @/lib/tasks/index に書き換えたのは不要な差分なので、@/lib/tasks に戻すべき。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "表示だけのページもバレル経由で repository.ts と node:sqlite まで取り込んでしまう。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "tests/task-model.test.ts で openDb を import しているが使っていない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0681438
+ }
+}

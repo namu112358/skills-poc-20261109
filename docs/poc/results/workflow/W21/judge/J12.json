@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "EventBus.emit がハンドラーを try/catch なしで呼ぶため、通知の例外が DB 更新の後に呼び出し元へ伝わり、API が 500 を返す（更新は保存済み）",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 2,
+   "summary": "データ層の updateTask がグローバルなバスに emit し、テストを含むすべての呼び出し元で通知が副作用として動く",
+   "severity": "高",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "NotifierFactory.create が素のオブジェクトの添字で検索するため、constructor や toString などの継承キーが解決され、send is not a function になる",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "notify/index.ts の購読がインポート時の副作用で登録され、環境変数も読み込み時に 1 回だけ読まれるため、二重登録やテストでのリセット不能が起きる",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "tests/notify.test.ts が、担当者が変わったときだけログに出るという updateTask の振る舞いを確かめていない",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "send() が常に例外を投げる SlackNotifier と EmailNotifier が NOTIFIER_KIND で選べ、選ぶと担当者変更のたびに例外になる",
+   "severity": "中",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "ログ 1 行の要件に対し、ファクトリー・レジストリー・バス・未使用のイベント型を足しており、作りすぎで依頼の範囲を超えている",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "on が返す購読解除が、同じハンドラー関数の登録をすべて取り除いてしまう",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "as unknown / as never のキャストで、イベント型とハンドラー型の不整合が見逃される",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "監査ログに操作者が含まれず、日時もデータ層の中で生成される",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0763198
+ }
+}

@@ -1,0 +1,280 @@
+diff --git a/src/app/api/dashboard/route.ts b/src/app/api/dashboard/route.ts
+new file mode 100644
+index 0000000..51c4605
+--- /dev/null
++++ b/src/app/api/dashboard/route.ts
+@@ -0,0 +1,10 @@
++// GET /api/dashboard — ログインした人のダッシュボード。ログインが必要。
++import { NextResponse } from "next/server";
++import { requireApiUser } from "@/lib/api";
++import { buildDashboard } from "@/lib/dashboard";
++
++export async function GET() {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  return NextResponse.json({ dashboard: buildDashboard(user.id) });
++}
+diff --git a/src/app/dashboard/page.tsx b/src/app/dashboard/page.tsx
+new file mode 100644
+index 0000000..9726142
+--- /dev/null
++++ b/src/app/dashboard/page.tsx
+@@ -0,0 +1,51 @@
++import { buildDashboard } from "@/lib/dashboard";
++import { requireUser } from "@/lib/session";
++import type { Task } from "@/lib/tasks";
++
++function TaskList({ title, tasks, empty }: { title: string; tasks: Task[]; empty: string }) {
++  return (
++    <section>
++      <h2>{title}</h2>
++      {tasks.length === 0 ? (
++        <p>{empty}</p>
++      ) : (
++        <ul>
++          {tasks.map((t) => (
++            <li key={t.id}>
++              <a href={`/tasks/${t.id}`}>{t.title}</a>（期限 {t.dueDate}）
++            </li>
++          ))}
++        </ul>
++      )}
++    </section>
++  );
++}
++
++export default async function DashboardPage() {
++  const user = await requireUser();
++  const d = buildDashboard(user.id);
++  return (
++    <main>
++      <h1>{user.name} さんのダッシュボード</h1>
++      <section aria-label="ステータス別の件数">
++        <h2>ステータス別</h2>
++        <table>
++          <tbody>
++            {d.counts.map((c) => (
++              <tr key={c.status}>
++                <th>{c.label}</th>
++                <td data-testid={`count-${c.status}`}>{c.count} 件</td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++        <p data-testid="completion-rate">完了率 {d.completionRate}%</p>
++      </section>
++      <TaskList title="期限切れ" tasks={d.overdue} empty="期限切れのタスクはありません。" />
++      <TaskList title="今週が期限" tasks={d.dueThisWeek} empty="今週が期限のタスクはありません。" />
++      <p>
++        <a href="/tasks">タスク一覧へ</a>
++      </p>
++    </main>
++  );
++}
+diff --git a/src/lib/cache.ts b/src/lib/cache.ts
+new file mode 100644
+index 0000000..735d121
+--- /dev/null
++++ b/src/lib/cache.ts
+@@ -0,0 +1,18 @@
++// 計算結果の短時間のキャッシュ（同じ画面の再読み込みで DB を何度も読まないようにする）。
++type Entry<T> = { value: T; expiresAt: number };
++
++const store = new Map<string, Entry<unknown>>();
++
++/** key の値が ttlMs 以内に計算済みならそれを返し、無ければ compute を呼んで保存する。 */
++export function cached<T>(key: string, ttlMs: number, compute: () => T, now: number = Date.now()): T {
++  const hit = store.get(key) as Entry<T> | undefined;
++  if (hit && hit.expiresAt > now) return hit.value;
++  const value = compute();
++  store.set(key, { value, expiresAt: now + ttlMs });
++  return value;
++}
++
++/** すべてのキャッシュを消す（テスト用）。 */
++export function clearCache(): void {
++  store.clear();
++}
+diff --git a/src/lib/dashboard.ts b/src/lib/dashboard.ts
+new file mode 100644
+index 0000000..1a5e0b3
+--- /dev/null
++++ b/src/lib/dashboard.ts
+@@ -0,0 +1,75 @@
++// ダッシュボード: ログインした人の担当タスクの状況をまとめる。
++import { getDb, type Db } from "./db/index.ts";
++import { cached } from "./cache.ts";
++import { STATUS_LABELS, TASK_STATUSES, type Task, type TaskStatus } from "./tasks.ts";
++import { todayJst, weekRange } from "./week.ts";
++
++export type StatusCount = { status: TaskStatus; label: string; count: number };
++
++export type Dashboard = {
++  userId: string;
++  counts: StatusCount[];
++  overdue: Task[];
++  dueThisWeek: Task[];
++  completionRate: number; // 0〜100（%）
++  generatedAt: string;
++};
++
++const CACHE_TTL_MS = 30_000;
++
++type Row = { id: number; title: string; status: TaskStatus; assignee: string; due_date: string };
++
++function toTask(r: Row): Task {
++  return { id: r.id, title: r.title, status: r.status, assignee: r.assignee, dueDate: r.due_date };
++}
++
++/** 担当者のタスクをすべて読む。 */
++export function listAssignedTasks(userId: string, db: Db = getDb()): Task[] {
++  const rows = db
++    .prepare(`SELECT id, title, status, assignee, due_date FROM tasks WHERE assignee = '${userId}' ORDER BY due_date, id`)
++    .all() as Row[];
++  return rows.map(toTask);
++}
++
++/** ステータスごとの件数。表示は「完了」が先頭になるよう、ステータスの並びを逆にする。 */
++export function countByStatus(tasks: readonly Task[]): StatusCount[] {
++  const order = TASK_STATUSES as TaskStatus[];
++  return order.reverse().map((status) => ({
++    status,
++    label: STATUS_LABELS[status],
++    count: tasks.filter((t) => t.status === status).length,
++  }));
++}
++
++/** 完了率（%。小数点以下を四捨五入）。 */
++export function completionRate(tasks: readonly Task[]): number {
++  const done = tasks.filter((t) => t.status === "done").length;
++  return Math.round((done / tasks.length) * 100);
++}
++
++/** 期限切れ（期限が今日より前で、未完了）のタスク。期限の古い順。 */
++export function overdueTasks(tasks: readonly Task[], now: Date = new Date()): Task[] {
++  const today = todayJst(now);
++  return tasks.filter((t) => t.status !== "done" && t.dueDate < today);
++}
++
++/** 今週（月〜日）が期限の未完了のタスク。 */
++export function dueThisWeek(tasks: readonly Task[], now: Date = new Date()): Task[] {
++  const { start, end } = weekRange(now);
++  return tasks.filter((t) => t.status !== "done" && t.dueDate >= start && t.dueDate <= end);
++}
++
++/** ダッシュボードの内容を作る（30 秒キャッシュする）。 */
++export function buildDashboard(userId: string, db: Db = getDb(), now: Date = new Date()): Dashboard {
++  return cached("dashboard", CACHE_TTL_MS, () => {
++    const tasks = listAssignedTasks(userId, db);
++    return {
++      userId,
++      counts: countByStatus(tasks),
++      overdue: overdueTasks(tasks, now),
++      dueThisWeek: dueThisWeek(tasks, now),
++      completionRate: completionRate(tasks),
++      generatedAt: now.toISOString(),
++    };
++  }, now.getTime());
++}
+diff --git a/src/lib/week.ts b/src/lib/week.ts
+new file mode 100644
+index 0000000..8d70f2e
+--- /dev/null
++++ b/src/lib/week.ts
+@@ -0,0 +1,22 @@
++// 週の範囲（月曜〜日曜）を、日本時間の日付（YYYY-MM-DD）で求める。
++const JST_DATE = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" });
++
++/** 日本時間の今日の日付（YYYY-MM-DD）。 */
++export function todayJst(now: Date = new Date()): string {
++  return JST_DATE.format(now);
++}
++
++/** 日付（YYYY-MM-DD）に日数を足す。 */
++export function addDays(date: string, days: number): string {
++  const d = new Date(`${date}T00:00:00Z`);
++  d.setUTCDate(d.getUTCDate() + days);
++  return d.toISOString().slice(0, 10);
++}
++
++/** 今週（月曜はじまり）の月曜と日曜の日付。 */
++export function weekRange(now: Date = new Date()): { start: string; end: string } {
++  const today = todayJst(now);
++  const dow = new Date(`${today}T00:00:00Z`).getUTCDay(); // 0 = 日曜
++  const start = addDays(today, 1 - dow);
++  return { start, end: addDays(start, 6) };
++}
+diff --git a/tests/dashboard.test.ts b/tests/dashboard.test.ts
+new file mode 100644
+index 0000000..4e12661
+--- /dev/null
++++ b/tests/dashboard.test.ts
+@@ -0,0 +1,68 @@
++import { beforeEach, describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { clearCache } from "../src/lib/cache.ts";
++import {
++  buildDashboard,
++  completionRate,
++  countByStatus,
++  dueThisWeek,
++  listAssignedTasks,
++  overdueTasks,
++} from "../src/lib/dashboard.ts";
++import { openDb } from "../src/lib/db/index.ts";
++import type { Task } from "../src/lib/tasks.ts";
++import { addDays, todayJst, weekRange } from "../src/lib/week.ts";
++
++// 日本時間 2026-11-11（水）10:00
++const now = new Date("2026-11-11T10:00:00+09:00");
++const task = (id: number, status: Task["status"], dueDate: string): Task => ({
++  id,
++  title: `t${id}`,
++  status,
++  assignee: "sato",
++  dueDate,
++});
++
++beforeEach(() => clearCache());
++
++describe("week", () => {
++  it("uses the Japanese date", () => {
++    assert.equal(todayJst(new Date("2026-11-10T16:00:00Z")), "2026-11-11");
++  });
++  it("adds days across months", () => {
++    assert.equal(addDays("2026-11-30", 1), "2026-12-01");
++  });
++  it("returns Monday to Sunday of this week", () => {
++    assert.deepEqual(weekRange(now), { start: "2026-11-09", end: "2026-11-15" });
++  });
++});
++
++describe("dashboard", () => {
++  it("lists only the user's tasks", () => {
++    const tasks = listAssignedTasks("sato", openDb());
++    assert.equal(tasks.length, 3);
++    assert.ok(tasks.every((t) => t.assignee === "sato"));
++  });
++
++  it("counts tasks by status with done first", () => {
++    const counts = countByStatus([task(1, "done", "2026-11-01"), task(2, "todo", "2026-11-20")]);
++    assert.equal(counts[0].status, "done");
++    assert.equal(counts.find((c) => c.status === "todo")?.count, 1);
++  });
++
++  it("computes the completion rate", () => {
++    assert.equal(completionRate([task(1, "done", "2026-11-01"), task(2, "todo", "2026-11-20")]), 50);
++  });
++
++  it("finds overdue and this week's tasks", () => {
++    const tasks = [task(1, "todo", "2026-11-10"), task(2, "todo", "2026-11-13"), task(3, "done", "2026-11-09")];
++    assert.deepEqual(overdueTasks(tasks, now).map((t) => t.id), [1]);
++    assert.deepEqual(dueThisWeek(tasks, now).map((t) => t.id), [1, 2]);
++  });
++
++  it("builds the dashboard for a user", () => {
++    const d = buildDashboard("sato", openDb(), now);
++    assert.equal(d.userId, "sato");
++    assert.equal(d.counts.reduce((n, c) => n + c.count, 0), 3);
++  });
++});

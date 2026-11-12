@@ -1,0 +1,50 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "「summarizes the seed data」テストが本物の現在時刻で集計し、seed の固定日付を前提にした件数を決め打ちしているため、日付が変わると落ちる。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "「counts a new task that is due today」テストが new Date().toISOString().slice(0, 10) で UTC の日付を使い、集計は日本時間なので JST 0〜9 時に落ちる。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "完了タスクの除外、期限切れや dueSoon の境界、soonDays の変更、parseSoonDays の境界値など、受入条件を確かめるテストが無い。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "「is fast enough for the dashboard」の 300 ms 以内という判定は実行環境に依存して偶発的に落ちるうえ確かめる価値も低いので、削除すべき。",
+   "severity": "高",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "summarizeTasks の total が完了タスクを含むことが PR 説明から読み取れず、仕様が曖昧である。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 6,
+   "summary": "Route が summarizeTasks(undefined, new Date(), soon.days) と undefined を渡していて読みにくい。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.058859800000000004
+ }
+}

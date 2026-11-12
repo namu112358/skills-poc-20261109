@@ -1,0 +1,52 @@
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+index b533ce9..f713e90 100644
+--- a/src/lib/tasks.ts
++++ b/src/lib/tasks.ts
+@@ -1,6 +1,6 @@
+ import { getDb, type Db } from "./db/index.ts";
+ 
+-export type TaskStatus = "todo" | "in_progress" | "done";
++export type TaskStatus = "todo" | "in_progress" | "on_hold" | "done";
+ 
+ export type Task = {
+   id: number;
+@@ -10,11 +10,12 @@ export type Task = {
+   dueDate: string; // YYYY-MM-DD
+ };
+ 
+-export const TASK_STATUSES: readonly TaskStatus[] = ["todo", "in_progress", "done"];
++export const TASK_STATUSES: readonly TaskStatus[] = ["todo", "in_progress", "on_hold", "done"];
+ 
+ export const STATUS_LABELS: Record<TaskStatus, string> = {
+   todo: "未着手",
+   in_progress: "進行中",
++  on_hold: "保留",
+   done: "完了",
+ };
+ 
+diff --git a/tests/tasks.test.ts b/tests/tasks.test.ts
+index 66029e6..be59dc1 100644
+--- a/tests/tasks.test.ts
++++ b/tests/tasks.test.ts
+@@ -69,6 +69,13 @@ describe("validateTaskInput", () => {
+     });
+     assert.equal(validateTaskInput({ status: "x" }, { partial: true }, openDb()).ok, false);
+   });
++
++  it("accepts the on_hold status", () => {
++    assert.deepEqual(validateTaskInput({ status: "on_hold" }, { partial: true }, openDb()), {
++      ok: true,
++      value: { status: "on_hold" },
++    });
++  });
+ });
+ 
+ describe("createTask / updateTask", () => {
+@@ -86,6 +93,7 @@ describe("createTask / updateTask", () => {
+ describe("isTaskStatus", () => {
+   it("accepts known statuses only", () => {
+     assert.equal(isTaskStatus("done"), true);
++    assert.equal(isTaskStatus("on_hold"), true);
+     assert.equal(isTaskStatus("unknown"), false);
+     assert.equal(isTaskStatus(undefined), false);
+   });

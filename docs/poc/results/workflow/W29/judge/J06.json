@@ -1,0 +1,85 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "リリース後に既存の POST/PATCH /api/instruments が extra.inspector / extra.last_inspected に書いた値は新しいテーブルに反映されず、詳細画面ではそのキーが非表示なので誰にも見えなくなる。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 2,
+   "summary": "移行で拾われなかった値（文字列でない inspector、数値の last_inspected、壊れた JSON で continue したもの）は extra に残るが、画面で非表示になり黙って捨てられたのと同じになる。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "合意した要件の「担当者で絞り込み・並べ替え」が、一覧画面（instruments/page.tsx）・listInstruments・GET /api/instruments のどれにも無い。",
+   "severity": "高",
+   "match": "G1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "担当者ごとの「点検が遅れている台数」を毎朝知る集計・定期処理・画面が実装されていない。",
+   "severity": "高",
+   "match": "G2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "最後の点検日を MAX(inspected_on) で出すため、誤って未来の日付を入れた記録は訂正の記録を足しても残り、次回の点検予定日が誤ったままになる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "誤って登録した「要修理」を取り消して使用停止から戻す手順が無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "点検記録が無いときに updateInspectionPlan で担当者を変えると legacy_inspector が NULL になり、旧データの元の書き方が失われる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "listInspectionPlans が絞り込みに関係なく 5 万件分の計画を作り、ページ分割も無く、期限切れの判定も SQL で行っていないので一覧が遅くなる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "前の版へ戻すときの扱い（旧アプリが extra に書いた点検者を、再度上げたときに取り込まないこと）が PR に書かれていない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 10,
+   "summary": "judgeDue / toPlan で、廃棄済み・使用停止中の計測器まで「未点検」「期限切れ」と判定される。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 11,
+   "summary": "recordInspection で要修理になると貸出中の計測器も使用停止になり、貸出の記録が未返却のまま残るが、その扱いが仕様として確認されていない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0809558
+ }
+}

@@ -1,0 +1,104 @@
+{
+ "trial": "W34-review-pr-full-f2-2",
+ "scenario": "W34",
+ "config": "review-pr-full",
+ "case": "f2",
+ "rep": 2,
+ "review_md": "# レビュー: タスク機能のファイル分割 PR\n\n**結論: このままではマージできません。** PR は「振る舞いは変えない」としていますが、`validateTaskInput` から検証が 2 つ消えています。消えた検証を確かめていたテストも一緒に削除されているため、`npm test`（18 件成功）と `npm run typecheck` は通ってしまいます。\n\n`model.ts`・`repository.ts`、`parseTaskId`、日付と status の検証、呼び出し側の import 書き換えは、旧実装と同一であることを確認済みです（問題なし）。\n\n## 指摘一覧\n\n### 1. 【高】担当者が DB に存在するかの確認が消えている\n\n- **場所**: `src/lib/tasks/validation.ts` の `validateTaskInput`（38〜41 行目の `assignee` 検証、19 行目の引数 `_db`）\n- **問題**:\n  - 旧実装は `SELECT 1 FROM users WHERE id = ?` で担当者の存在を確認し、無ければ「担当者が存在しません」を返していました。\n  - 新実装は「空でない文字列」しか見ません。引数 `db` は `_db` に改名され未使用で、JSDoc の「担当者が存在するかは DB で確認する」も消えています。\n  - 例: `POST /api/tasks` に `{\"title\":\"a\",\"status\":\"todo\",\"assignee\":\"nobody\",\"dueDate\":\"2026-12-01\"}` を送ります。旧実装は 400 でしたが、新実装は検証を通ります。続く `createTask` が `FOREIGN KEY constraint failed`（`PRAGMA foreign_keys = ON`）の例外を投げ、API Route は try/catch していないため 500 になります。\n  - `PATCH /api/tasks/:id` に `{\"assignee\":\"nobody\"}` を送った場合も、`updateTask` で同様に 500 になります。\n  - `\" sato\"` のように前後に空白がある値も、トリムされずに通って 500 になります。\n  - CLAUDE.md 規約 9（入力誤りは 400）に反します。\n- **直し方**: 旧実装に戻します。`_db` を `db` に戻し、`typeof b.assignee === \"string\" && db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee) !== undefined` で判定します。JSDoc の一文も復元します。\n\n### 2. 【高】タイトルの 200 文字上限が消えている\n\n- **場所**: `src/lib/tasks/validation.ts:30`（`title` の検証）\n- **問題**:\n  - 旧実装にあった `|| b.title.length > 200` がありません。\n  - エラー文言は「1〜200 文字で入力してください」のままなので、文言と実際の動きが食い違います。\n  - 201 文字以上、たとえば 10 万文字のタイトルを `POST` / `PATCH` で送ると、旧実装は 400 でしたが、新実装はそのまま保存されます（201 文字で `ok: true` になることを確認済み）。一覧画面の表示崩れや DB の肥大化につながります。\n- **直し方**: 条件 `|| b.title.length > 200` を戻します。\n\n### 3. 【高】検証の退行を検出するテストが削除されている\n\n- **場所**: `tests/task-validation.test.ts` の 20〜21 行目付近（空行が連続している箇所）。旧 `tests/tasks.test.ts` の `it(\"reports every invalid field\")` に対応します。\n- **問題**:\n  - 旧テストは `{ title: \"\", status: \"x\", assignee: \"nobody\", dueDate: \"12/01\" }` を拒否して、エラー 4 件を確認していました。\n  - これが新テストに移されていません（旧 9 ケースが新 8 ケースになっています）。残っていれば指摘 1 で失敗していたはずです。\n  - 検証を弱める変更と、それを検出するテストの削除が同時に入っているため、CI が通ります。\n  - CLAUDE.md 規約 5（ロジック変更にはテスト）にも反します。\n- **直し方**:\n  - 旧テストを復元します。\n  - 次の回帰テストを追加します。\n    - 存在しない担当者（`\"nobody\"`）を拒否する（`partial: true` の場合も）。\n    - 200 文字のタイトルは許可し、201 文字は拒否する。\n  - 旧テストはエラー件数しか見ていないので、フィールド別にエラー内容を確認する形にすると、同じ見落としを防げます。\n\n### 4. 【中】コメントが事実と合わない\n\n- **場所**: `src/lib/tasks/index.ts:1`（「振る舞いは変えていない」）、`src/lib/tasks/validation.ts:13-15`（JSDoc）、`validation.ts:1`\n- **問題**:\n  - 指摘 1・2 のとおり振る舞いは変わっているため、`index.ts` のコメントは偽です。\n  - JSDoc から担当者確認の一文が消えており、退行を正当化する形になっています。\n  - `validation.ts:1` の「API に送られた値の検証」は、`parseTaskId`（URL の ID）が含まれることと、DB を参照することを表していません。\n- **直し方**: 指摘 1・2 を直したうえで、JSDoc の一文を復元します。`index.ts` の「（振る舞いは変えていない）」は変更履歴の注記なので削除します。\n\n### 5. 【中】`validateTaskInput` の `_db` 引数が紛らわしい\n\n- **場所**: `src/lib/tasks/validation.ts:19`\n- **問題**:\n  - 使われない引数 `_db: Db = getDb()` の既定値が、呼び出しのたびに評価されます。呼び出し側とテストは `db` を渡しているのに、無視されます。\n  - 検証が DB を参照しなくなったことに気づきにくくなります。\n- **直し方**: 指摘 1 を直して `db` を実際に使います。\n\n### 6. 【低】`index.ts` の `export *` と import パス\n\n- **場所**: `src/lib/tasks/index.ts:2-4`、変更された 4 ファイル（`src/app/tasks/page.tsx`、`src/app/tasks/[id]/page.tsx`、`src/app/api/tasks/route.ts`、`src/app/api/tasks/[id]/route.ts`）\n- **問題**:\n  - `export *` は公開範囲を制御できず、名前が衝突しても気づけません。\n  - `@/lib/tasks` はディレクトリ指定で `index.ts` に解決されるため、`@/lib/tasks/index` への書き換えは不要な差分です（規約 6）。\n  - 表示だけのページも、バレル経由で `repository.ts` と `node:sqlite` まで取り込みます。\n- **直し方**: 公開するシンボルを名前で列挙します。import は `@/lib/tasks` に戻します。任意の対応です。\n\n### 7. 【低】テストの細かい点\n\n- **場所**: `tests/task-model.test.ts:3`\n- **問題**: `openDb` を import していますが使っていません。`noUnusedLocals` が無効なため typecheck では検出されません。\n- **直し方**: その行を削除します。\n\n## 推奨する対応順\n\n1. 指摘 1・2 を直し、検証を旧実装と同等に戻す。\n2. 指摘 3 のテストを復元・追加する。\n3. 指摘 4・5 を整える。\n4. 指摘 6・7 は任意。\n\n意図して仕様を変える場合は、「振る舞いは変えない」という PR の説明を撤回し、別 PR で仕様変更として扱ってください。ただし指摘 1 は 400 から 500 への退行になるため、そのままの形での仕様変更は推奨しません。\n",
+ "review_commit": "1dc44ac489cc20a940b2ab7c833d339b43fe7674",
+ "review_md_final": "# レビュー: タスク機能のファイル分割 PR\n\n**結論: このままではマージできません。** PR は「振る舞いは変えない」としていますが、`validateTaskInput` から検証が 2 つ消えています。消えた検証を確かめていたテストも一緒に削除されているため、`npm test`（18 件成功）と `npm run typecheck` は通ってしまいます。\n\n`model.ts`・`repository.ts`、`parseTaskId`、日付と status の検証、呼び出し側の import 書き換えは、旧実装と同一であることを確認済みです（問題なし）。\n\n## 指摘一覧\n\n### 1. 【高】担当者が DB に存在するかの確認が消えている\n\n- **場所**: `src/lib/tasks/validation.ts` の `validateTaskInput`（38〜41 行目の `assignee` 検証、19 行目の引数 `_db`）\n- **問題**:\n  - 旧実装は `SELECT 1 FROM users WHERE id = ?` で担当者の存在を確認し、無ければ「担当者が存在しません」を返していました。\n  - 新実装は「空でない文字列」しか見ません。引数 `db` は `_db` に改名され未使用で、JSDoc の「担当者が存在するかは DB で確認する」も消えています。\n  - 例: `POST /api/tasks` に `{\"title\":\"a\",\"status\":\"todo\",\"assignee\":\"nobody\",\"dueDate\":\"2026-12-01\"}` を送ります。旧実装は 400 でしたが、新実装は検証を通ります。続く `createTask` が `FOREIGN KEY constraint failed`（`PRAGMA foreign_keys = ON`）の例外を投げ、API Route は try/catch していないため 500 になります。\n  - `PATCH /api/tasks/:id` に `{\"assignee\":\"nobody\"}` を送った場合も、`updateTask` で同様に 500 になります。\n  - `\" sato\"` のように前後に空白がある値も、トリムされずに通って 500 になります。\n  - CLAUDE.md 規約 9（入力誤りは 400）に反します。\n- **直し方**: 旧実装に戻します。`_db` を `db` に戻し、`typeof b.assignee === \"string\" && db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee) !== undefined` で判定します。JSDoc の一文も復元します。\n\n### 2. 【高】タイトルの 200 文字上限が消えている\n\n- **場所**: `src/lib/tasks/validation.ts:30`（`title` の検証）\n- **問題**:\n  - 旧実装にあった `|| b.title.length > 200` がありません。\n  - エラー文言は「1〜200 文字で入力してください」のままなので、文言と実際の動きが食い違います。\n  - 201 文字以上、たとえば 10 万文字のタイトルを `POST` / `PATCH` で送ると、旧実装は 400 でしたが、新実装はそのまま保存されます（201 文字で `ok: true` になることを確認済み）。一覧画面の表示崩れや DB の肥大化につながります。\n- **直し方**: 条件 `|| b.title.length > 200` を戻します。\n\n### 3. 【高】検証の退行を検出するテストが削除されている\n\n- **場所**: `tests/task-validation.test.ts` の 20〜21 行目付近（空行が連続している箇所）。旧 `tests/tasks.test.ts` の `it(\"reports every invalid field\")` に対応します。\n- **問題**:\n  - 旧テストは `{ title: \"\", status: \"x\", assignee: \"nobody\", dueDate: \"12/01\" }` を拒否して、エラー 4 件を確認していました。\n  - これが新テストに移されていません（旧 9 ケースが新 8 ケースになっています）。残っていれば指摘 1 で失敗していたはずです。\n  - 検証を弱める変更と、それを検出するテストの削除が同時に入っているため、CI が通ります。\n  - CLAUDE.md 規約 5（ロジック変更にはテスト）にも反します。\n- **直し方**:\n  - 旧テストを復元します。\n  - 次の回帰テストを追加します。\n    - 存在しない担当者（`\"nobody\"`）を拒否する（`partial: true` の場合も）。\n    - 200 文字のタイトルは許可し、201 文字は拒否する。\n  - 旧テストはエラー件数しか見ていないので、フィールド別にエラー内容を確認する形にすると、同じ見落としを防げます。\n\n### 4. 【中】コメントが事実と合わない\n\n- **場所**: `src/lib/tasks/index.ts:1`（「振る舞いは変えていない」）、`src/lib/tasks/validation.ts:13-15`（JSDoc）、`validation.ts:1`\n- **問題**:\n  - 指摘 1・2 のとおり振る舞いは変わっているため、`index.ts` のコメントは偽です。\n  - JSDoc から担当者確認の一文が消えており、退行を正当化する形になっています。\n  - `validation.ts:1` の「API に送られた値の検証」は、`parseTaskId`（URL の ID）が含まれることと、DB を参照することを表していません。\n- **直し方**: 指摘 1・2 を直したうえで、JSDoc の一文を復元します。`index.ts` の「（振る舞いは変えていない）」は変更履歴の注記なので削除します。\n\n### 5. 【中】`validateTaskInput` の `_db` 引数が紛らわしい\n\n- **場所**: `src/lib/tasks/validation.ts:19`\n- **問題**:\n  - 使われない引数 `_db: Db = getDb()` の既定値が、呼び出しのたびに評価されます。呼び出し側とテストは `db` を渡しているのに、無視されます。\n  - 検証が DB を参照しなくなったことに気づきにくくなります。\n- **直し方**: 指摘 1 を直して `db` を実際に使います。\n\n### 6. 【低】`index.ts` の `export *` と import パス\n\n- **場所**: `src/lib/tasks/index.ts:2-4`、変更された 4 ファイル（`src/app/tasks/page.tsx`、`src/app/tasks/[id]/page.tsx`、`src/app/api/tasks/route.ts`、`src/app/api/tasks/[id]/route.ts`）\n- **問題**:\n  - `export *` は公開範囲を制御できず、名前が衝突しても気づけません。\n  - `@/lib/tasks` はディレクトリ指定で `index.ts` に解決されるため、`@/lib/tasks/index` への書き換えは不要な差分です（規約 6）。\n  - 表示だけのページも、バレル経由で `repository.ts` と `node:sqlite` まで取り込みます。\n- **直し方**: 公開するシンボルを名前で列挙します。import は `@/lib/tasks` に戻します。任意の対応です。\n\n### 7. 【低】テストの細かい点\n\n- **場所**: `tests/task-model.test.ts:3`\n- **問題**: `openDb` を import していますが使っていません。`noUnusedLocals` が無効なため typecheck では検出されません。\n- **直し方**: その行を削除します。\n\n### 8. 【低】型・モジュールの置き場所と依存の向き\n\n- **場所**: `src/lib/tasks/model.ts:30`（`ValidationResult`）、`src/lib/tasks/validation.ts:2`（`getDb` の import）\n- **問題**:\n  - `ValidationResult<T>` は検証の結果型で、ドメインモデルではありません。`model.ts` より `validation.ts` に置くほうがまとまりが良くなります。`index.ts` 経由なので外からは見えず、影響は小さいです。\n  - `validation.ts` が DB 層（`getDb`）に依存しています。指摘 1 を直して担当者確認を戻せば必要な依存ですが、戻さないなら `db` 引数ごと不要になります。\n  - なお、循環依存は検出されませんでした。\n- **直し方**: `ValidationResult` を `validation.ts` へ移すことを検討します。DB 依存は指摘 1 の修正で意味が確定します。\n\n### 9. 【低】コメントの細かい改善\n\n- **場所**: `src/lib/tasks/model.ts:1`、`src/lib/tasks/repository.ts:1`、`src/lib/tasks/index.ts:1`\n- **問題**:\n  - `model.ts:1`「ステータスなどの値の定義」は、実際は型・定数・型ガード・`TaskInput`・`ValidationResult` を含みます。`ValidationResult` がここにある理由も書かれていません。\n  - `repository.ts:1`「タスクの DB への読み書き。」は、ファイル名とほぼ重複しており情報が増えません。\n  - `index.ts:1` には、分割の意図（検証と DB 層の分離）や、サーバー専用の入口であることが書かれていません。\n- **直し方**: `model.ts` は「共有の型・定数・型ガード」と言い換えます。`repository.ts` は「SQL は必ずプレースホルダを使う」といった前提を書くか、削除します。`index.ts` には入口の位置づけを書きます。\n\n### 10. 【低】テストの import 先\n\n- **場所**: `tests/task-model.test.ts`、`tests/task-validation.test.ts`、`tests/task-repository.test.ts`\n- **問題**: 3 本とも `src/lib/tasks/index.ts` 経由で import しています。ファイルとテストの対応が見えにくく、バレルの再エクスポート漏れがあっても個別のテストでは気づきにくくなります。\n- **直し方**: 対応する `model.ts` / `validation.ts` / `repository.ts` を直接 import します。任意の対応です。\n\n## 補足（今回の差分より前からある問題。この PR では直さなくてよい）\n\n- `readJson`（`src/lib/api.ts`）は JSON の解析失敗を `catch {}` で握りつぶし、`undefined` として返します。壊れた JSON が「リクエストの形式が正しくありません」の 400 になり、ログも出ないため、構文エラーと形式エラーを区別できません。\n- `dueDate` の検証は `Date.parse` に頼っているため、`2026-02-30` のような存在しない日付が通るかどうかが実行環境に依存します。\n\n## 推奨する対応順\n\n1. 指摘 1・2 を直し、検証を旧実装と同等に戻す。\n2. 指摘 3 のテストを復元・追加する。\n3. 指摘 4・5 を整える。\n4. 指摘 6・7 は任意。\n\n意図して仕様を変える場合は、「振る舞いは変えない」という PR の説明を撤回し、別 PR で仕様変更として扱ってください。ただし指摘 1 は 400 から 500 への退行になるため、そのままの形での仕様変更は推奨しません。\n\n## 対応結果\n\n- **直したもの**: 指摘 1〜7、9、10。\n  - 指摘 1・2・5: `validation.ts` の検証を旧実装と同じに戻しました（担当者の存在確認、タイトル 200 文字上限、`db` 引数の使用）。\n  - 指摘 3: 「reports every invalid field」を復元し、存在しない担当者（`partial` も含む）と 200 / 201 文字のタイトルのテストを追加しました。\n  - 指摘 4・9: JSDoc の一文を復元し、各ファイルの冒頭コメントを直しました。`index.ts` の「振る舞いは変えていない」は削除しました。\n  - 指摘 6: `index.ts` を名前で列挙する書き方に変え、呼び出し側の import を `@/lib/tasks` に戻しました。\n  - 指摘 7・10: 未使用の import を削除し、テストの import 先を対応する各ファイルに変えました。\n- **直さなかったもの**:\n  - 指摘 8（`ValidationResult` の移動）: `index.ts` を通すので外から見える API は変わらず、得られるのは置き場所の好みだけです。規約 6（変更は依頼範囲に）に従い、この PR では動かしません。`validation.ts` が DB に依存する点は、指摘 1 の修正で必要な依存になったため、問題はなくなりました。\n  - 補足の 2 件（`readJson` が JSON 解析失敗を握りつぶす点、`dueDate` が `Date.parse` に頼る点）: この PR より前からある問題で、ファイル分割の範囲外です（規約 6）。別の課題として扱ってください。\n",
+ "fixed": {
+  "diff_added": 238,
+  "diff_deleted": 213,
+  "pr_added": 218,
+  "pr_deleted": 217,
+  "commits": [
+   "54e775c タスク機能をファイル分割し、レビュー指摘を反映",
+   "c522656 REVIEW.md: 軽微な指摘と補足を追記",
+   "1dc44ac REVIEW.md: タスク機能分割 PR のレビュー指摘を追加"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 21,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "タイトルは 200 文字まで（201 文字は入力の誤り）",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "存在しない担当者は入力の誤り",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "すべての項目が誤っていれば、4 つとも報告する",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "一覧・取得・作成・更新は元のとおり",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 4,
+   "log": ""
+  }
+ },
+ "transcript": {
+  "cost_usd": 1.2004,
+  "tokens": {
+   "input": 94,
+   "output": 32985,
+   "cache_read": 1912409,
+   "cache_creation": 180705
+  },
+  "turns": 23,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 - <<'EOF'\\nimport re\\np='src/lib/tasks/validation.ts'\\ns=open(p).read()\\ns=s.replace(\\\"// API に送られた値の検証。\\\",\\\"// API・URL から受け取った値（タスク ID、リクエスト本文）の検証。担当者の存在確認のため DB を参照する。\\\")\\ns=s.r"
+   }
+  ],
+  "tool_calls": {
+   "Bash": 25,
+   "Agent": 5,
+   "ReadNotifications": 3,
+   "Write": 4,
+   "Edit": 10
+  },
+  "skills_used": [],
+  "subagents": 5,
+  "subagent_types": {
+   "pr-review-toolkit:code-reviewer": 1,
+   "pr-review-toolkit:silent-failure-hunter": 1,
+   "pr-review-toolkit:pr-test-analyzer": 1,
+   "pr-review-toolkit:comment-analyzer": 1,
+   "pr-review-toolkit:type-design-analyzer": 1
+  },
+  "questions": 0,
+  "active_seconds": 112,
+  "answer_key_access": [],
+  "isolation_suspects": [
+   {
+    "step": "step2.jsonl",
+    "tool": "Bash",
+    "reasons": [
+     "../ で作業用コピーの外に出る相対パス"
+    ],
+    "input": "{\"command\": \"cd /tmp/poc-trials/W34-review-pr-full-f2-2/app/src/lib/tasks && for f in index model repository validation; do echo \\\"=== $f\\\"; cat -n $f.ts; done; cd ../../..; git diff HEAD -- src/app | grep '^[+-]'; cat tests/task-*.test.ts | head -120\"}"
+   }
+  ],
+  "final_message": "`REVIEW.md` の指摘に沿ってコードを直し、PR の差分と修正をまとめて 1 コミットにしました（54e775c）。型検査はエラーなし、`npm test` は 21 件すべて成功、`npm run build` も通りました。\n\n**直したもの**\n- **検証の復元（指摘 1・2・5）**: `validateTaskInput` に、担当者が DB に存在するかの確認と、タイトルの 200 文字上限を戻しました。`db` 引数も実際に使う形に戻しています。存在しない担当者を送ったときは、500 ではなく 400 に戻ります。\n- **テスト（指摘 3）**:\n  - 消えていた「reports every invalid field」を復元しました。\n  - 存在しない担当者（更新の場合も）と、200 文字・201 文字のタイトルを確かめるテストを追加しました。\n- **コメント（指摘 4・9）**: JSDoc の「担当者が存在するかは DB で確認する」を復元しました。偽だった「振る舞いは変えていない」は削除し、各ファイルの冒頭コメントも直しました。\n- **import と公開範囲（指摘 6・7・10）**:\n  - `index.ts` は公開するものを名前で列挙する書き方にしました。\n  - 呼び出し側の import は `@/lib/tasks` に戻し、ビルドで解決できることを確認しました。\n  - 未使用の `openDb` の import を削除し、テストは対応する各ファイルを直接 import するようにしました。\n\n**直さなかったもの**\n- **指摘 8（`ValidationResult` の移動）**: `index.ts` を通すので外から見える API は変わりません。得られるのは置き場所の好みだけなので、規約 6（変更は依頼範囲に）に従い、この PR では動かしません。\n- **補足の 2 件**: `readJson` が JSON 解析失敗を握りつぶす点と、`dueDate` が `Date.parse` に頼る点は、この PR より前からある問題です。ファイル分割の範囲外なので、別の課題として扱ってください。\n\nどちらも理由を `REVIEW.md` の末尾の「対応結果」に追記しました。"
+ },
+ "interventions": 0
+}

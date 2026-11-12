@@ -1,0 +1,28 @@
+{
+  "_note": "W34 のテストの強さを測る変異。採点（grade_w34.py）が作業用コピーの写しに 1 つずつ当て、参加者のテスト（npm test）が落ちれば『落とせた』とする。find が見つからない変異（直した後にコードが書き換わったもの）は数えない。",
+  "f3": [
+    {"id": "M1", "file": "src/lib/extend.ts", "find": "days > MAX_EXTEND_DAYS", "replace": "days > MAX_EXTEND_DAYS + 1"},
+    {"id": "M2", "file": "src/lib/extend.ts", "find": "days < 1", "replace": "days < 0"},
+    {"id": "M3", "file": "src/lib/extend.ts", "find": "!Number.isInteger(days) || ", "replace": ""},
+    {"id": "M4", "file": "src/lib/extend.ts", "find": "d.getUTCDate() + days", "replace": "d.getUTCDate() + days - 1"},
+    {"id": "M5", "file": "src/lib/extend.ts", "find": "task.status === \"done\"", "replace": "false"},
+    {"id": "M6", "file": "src/lib/extend.ts", "find": "extendDueDate(task.dueDate, days)", "replace": "task.dueDate"},
+    {"id": "M7", "file": "src/lib/extend.ts", "find": "reason: \"not_found\"", "replace": "reason: \"done\""},
+    {"id": "M8", "file": "src/lib/extend.ts", "find": "MAX_EXTEND_DAYS = 30", "replace": "MAX_EXTEND_DAYS = 60"}
+  ],
+  "f4": [
+    {"id": "M1", "file": "src/lib/summary.ts", "find": "due_date < :today", "replace": "due_date <= :today"},
+    {"id": "M2", "file": "src/lib/summary.ts", "find": "due_date <= :soon", "replace": "due_date < :soon"},
+    {"id": "M3", "file": "src/lib/summary.ts", "find": "WHEN status != 'done' AND due_date < :today", "replace": "WHEN due_date < :today"},
+    {"id": "M4", "file": "src/lib/summary.ts", "find": "DEFAULT_SOON_DAYS = 7", "replace": "DEFAULT_SOON_DAYS = 8"},
+    {"id": "M5", "file": "src/lib/summary.ts", "find": "Number(value) > 90", "replace": "Number(value) > 99"},
+    {"id": "M6", "file": "src/lib/summary.ts", "find": "timeZone: \"Asia/Tokyo\"", "replace": "timeZone: \"UTC\""}
+  ],
+  "f4_perturbations": [
+    {"id": "P1", "kind": "clock", "now": "2026-12-20T12:00:00+09:00", "desc": "時計を 1 か月以上先に進める"},
+    {"id": "P2", "kind": "clock", "now": "2026-11-20T08:00:00+09:00", "desc": "日本時間の朝（UTC では前日）"},
+    {"id": "P3", "kind": "seed", "desc": "初期データに未完了のタスクを 1 件足す（期限は遠い先）"},
+    {"id": "P4", "kind": "wording", "file": "src/lib/summary.ts", "find": "日数は 1〜90 の整数で指定してください", "replace": "日数は 1 から 90 までの整数で指定してください", "desc": "エラーの文言を少し変える"},
+    {"id": "P5", "kind": "load", "parallel": 12, "desc": "テストを 12 本同時に流す（負荷）"}
+  ]
+}

@@ -1,0 +1,71 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "daysUntilDue は暦日ではなく現在時刻との差で日数を数えている。Date.parse の UTC 0:00（日本時間 9:00）が基準になるため、日本時間 9:00 以降は今日が期限のタスクが -1（期限切れ）になり、ラベルが付かない。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "isDueSoon が days < DUE_SOON_DAYS なので 3 日後が対象に入らない。境界の off-by-one で、<= にすべき。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "テストの now が日本時間 0:00 の 1 点だけなので、時刻によって判定がずれる不具合を検出できない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "テストに +3 日と +4 日の境界のケースが無いので、off-by-one を検出できない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "done の除外を期限が今日のケースでしか確かめておらず、in_progress などが対象になることも確かめていない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 6,
+   "summary": "dueDate が不正だと Date.parse が NaN を返し、エラーも出さずに「期限間近ではない」扱いになる。形式を確かめて null を返すか、例外にすべき。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "一覧ページで isDueSoon を行ごとに 2 回呼んでいるので、1 回の計算にまとめるべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "PR の説明に無い due-soon クラスが tr に追加されている。対応するスタイルが無いなら削除すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "期限切れのタスクに何も付けないのは意図どおりなので、そのことをコメントで明記すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.028117600000000003
+ }
+}

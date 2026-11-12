@@ -1,0 +1,47 @@
+{
+  "trial": "W25-baseline-run-c3-2",
+  "scenario": "W25",
+  "config": "baseline-run",
+  "case": "c3",
+  "rep": 2,
+  "review_md": "# レビュー: タスク一覧の CSV 出力（`GET /api/tasks/export`）\n\nnode で `toCsv` / `listTasks` を実際に呼んで確認した結果に基づく。\n\n## 1. ダブルクォートをエスケープしていない（CSV が壊れる）\n- **重要度**: 高\n- **場所**: `src/lib/export.ts` の `field()`\n- **問題**: 値を `\"${value}\"` で囲むだけで、値の中の `\"` を `\"\"` にしていない。再現: タイトル `彼は\"はい\"と言った, 改行\\nあり` は `\"彼は\"はい\"と言った, 改行\\nあり\"` と出力され、引用符で項目が途中で閉じて列がずれる。PR の「引用符・改行でも列がずれない」が満たされていない。\n- **直し方**: `\"` + String(value).replace(/\"/g, '\"\"') + `\"` にする。\n\n## 2. 不正な `?status=` を「指定なし」にせず、空の CSV を返す\n- **重要度**: 高\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`\n- **問題**: `as TaskStatus | null` で型を偽装するだけで検証していない。`?status=bogus` だと `listTasks` が 0 件を返す（確認済み: bogus → 0 件、指定なし → 7 件）。PR は「一覧と同じく指定なし」としており、規約 2（`isTaskStatus` で検証）にも反する。\n- **直し方**: `const raw = ...get(\"status\"); const status = isTaskStatus(raw) ? raw : undefined;`\n\n## 3. CSV インジェクション（数式の実行）\n- **重要度**: 中\n- **場所**: `src/lib/export.ts` の `field()`\n- **問題**: タイトルは任意の文字列を登録でき、`=HYPERLINK(...)` や `=1+1` がそのまま出力される（確認済み）。Excel で開くと数式として評価される。週次報告で Excel に貼る用途なので現実的。\n- **直し方**: 文字列項目が `= + - @` やタブ・CR で始まる場合は先頭に `'` を付ける（または空白を付ける）。ID と期限の数値・日付は対象外にする。\n\n## 4. テストが PR の主張を検証していない\n- **重要度**: 中\n- **場所**: `tests/export.test.ts` の「escapes quotes and commas in titles」（補足: 最初のテスト「writes a header and one line per task」）\n- **問題**: 題名に反して、タイトルは「週次 定例の準備」で、引用符もカンマも改行も含まない。このため指摘 1 を検出できず、「通ることを確認した」が根拠にならない。（低）最初のテストは seed が 7 件・先頭が決まった内容であることに依存しており、seed の変更で壊れる。\n- **直し方**: `a,b` / `\"x\"` / 改行を含むタイトルで期待値を検証し、数式で始まるタイトルと不正な `status` の動作も追加する。最初のテストは seed に依存しない形にする。\n\n## 5. route のテストがない・補足\n- **重要度**: 低\n- **場所**: `src/app/api/tasks/export/route.ts` の `GET`、`src/lib/export.ts` の `field()`\n- **問題**: 未ログイン時の 401、BOM の付与、Content-Type のテストがない（規約 5）。また `field()` の引数が `string | number` のため、`null` の担当者などが来ると `\"null\"` と出る（現状のスキーマでは問題なし）。\n- **直し方**: 絞り込みの処理を `src/lib/` の関数に置いて（規約 1）テストしやすくし、route の 401・BOM・Content-Type を確認するテストを足す。\n",
+  "review_chars": 1854,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2401,
+    "tokens": {
+      "input": 26,
+      "output": 6130,
+      "cache_read": 463132,
+      "cache_creation": 33117
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -c $'\\\\xef\\\\xbb\\\\xbf' src/lib/export.ts; cat > $TMPDIR/r.ts 2>/dev/null || true; D=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c3-2-app/931f5e31-8223-4bd5-b189-467251cb18f1/scratc"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"D=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c3-2-app/931f5e31-8223-4bd5-b189-467251cb18f1/scratchpad; cat > $D/r.mts <<'EOF'\\nimport { toCsv } from \\\"/tmp/poc-trials/W25-baseline-run"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 8,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 54,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回の 5 件の指摘を、重要度・場所・問題・直し方の項目に分けて `REVIEW.md` に書き直し、`REVIEW.md` だけをコミットしました。新しい指摘は足しておらず、削った指摘もありません。コードは直していません。\n\n重要度の内訳は次のとおりです。\n- **高**: ダブルクォートのエスケープ漏れ、不正な `?status=` の扱い\n- **中**: CSV インジェクション、テストが PR の主張を検証していない\n- **低**: route のテスト不足\n\n前回は 4 番目の指摘の中に「seed に依存する最初のテスト」を低の補足として入れていました。今回も同じ項目の中に残しています。"
+  },
+  "interventions": 0
+}

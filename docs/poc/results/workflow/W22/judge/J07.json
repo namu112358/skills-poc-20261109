@@ -1,0 +1,71 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "updateTask が DB 更新を確定した後に同期でイベントを発行するため、購読者の例外（slack 選択時など）で API が 500 を返し、再試行でも監査ログが残らない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 2,
+   "summary": "NotifierFactory.create がレジストリを素のオブジェクトで引くため、toString や __proto__ などプロトタイプ由来のキーで Notifier でない値が返るか、例外になる。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "EventBus.emit にハンドラごとの例外の隔離がなく、1 つの例外で残りのハンドラが呼ばれず、例外が updateTask へ伝播する。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 4,
+   "summary": "notify/index.ts で購読の登録と通知先の選択が import 時の副作用になっており、tasks.ts を import するだけでグローバルなバスに購読が登録され、テストでも通知が動く。",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "担当者が変わったときだけ発行される・変わらないときは発行されないという要件を確かめる単体テストがない。",
+   "severity": "中",
+   "match": "P4",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "発行されないイベント種別（task.status_changed・task.created）と、使われない clear() が宣言されている。",
+   "severity": "低",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "未実装の Slack・メール通知を NOTIFIER_KIND で選べてしまい、担当者が変わるたびに DB 書き込み後の実行時エラーになる。",
+   "severity": "中",
+   "match": "P3",
+   "kind": ""
+  },
+  {
+   "n": 8,
+   "summary": "依頼はサーバーログだけなのに、Slack・メールのチャネル、インターフェース、レジストリを作っており、依頼の範囲を超えている。",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 9,
+   "summary": "EventBus 内部の二重キャスト（as unknown as / as never）で、型の不一致を検出できない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0801878
+ }
+}

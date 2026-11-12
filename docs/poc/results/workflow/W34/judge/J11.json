@@ -1,0 +1,85 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "\"adds days to the due date\" は期待値を同じ関数 extendDueDate で計算しており、実装が壊れていても必ず通る自己比較になっている。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "\"works across months\" は doesNotThrow だけで、2026-11-30 + 3 日が 2026-12-03 になることを確かめていない。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "\"extends a task\" は result.ok しか見ておらず、dueDate が延びて DB に保存されたことを確かめていない。",
+   "severity": "高",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "\"handles a completed task\" は doesNotThrow だけで、{ ok: false, reason: \"done\" } が返ることを確かめていない。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "validateExtendInput のテストは正常系 1 件だけで、0・31・小数・文字列などの異常系や境界値を確かめていない。",
+   "severity": "高",
+   "match": "T3",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "存在しない ID（not_found）のテストが無い。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "DB に 2026-02-31 のような実在しない日付が入りうるため、extendDueDate で日付が丸められ、延長日数が意図とずれる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 8,
+   "summary": "期限が 9999-12-31 のタスクを延長すると toISOString が 6 桁の年を返し、不正な文字列が保存される。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "DB の期限が YYYY-MM-DD 形式でないと Invalid Date になり、toISOString が RangeError を投げて API が 500 になる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "extendTask は getTask と updateTask が別の文に分かれているため、同時リクエストで更新が失われたり、完了直後のタスクが延長されたりしうる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "ルートハンドラ POST の 401・404・400 の振り分けにテストが無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0712798
+ }
+}

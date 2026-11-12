@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "location-master.ts の updateLocation が場所の名前を変えても locations.name しか更新せず、計測器の古い列 location が古い名前のまま残る。",
+   "severity": "高",
+   "match": "B4",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "instruments.ts の updateInstrument（validateLocation の locationId 経路）で場所を変えても、location 列に移動前の locationOriginal が書き戻され、経理や前の版が古い場所を見る。",
+   "severity": "高",
+   "match": "B3",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "マイグレーション 5 が location_id を付けるだけで、location 列を正式名に直さず元の表記ゆれのまま残す。",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 4,
+   "summary": "前の版で編集しても location_id が更新されないため、新しい版に戻すと location_id が優先され、前の版での編集が無視される。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "recordInventory で、場所が確定済みの計測器に一致しない文字が来ると、確認中にせず何も変えずに 200 を返し、棚卸しの結果が失われる。",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 6,
+   "summary": "ハンディ端末で一致した場合も locationOriginal に端末の文字をそのまま入れるため、location 列が場所の名前にならない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 7,
+   "summary": "linkInstrumentsToLocations が使用中（active = 1）の場所だけで照合するため、移行をやり直すと使用終了の場所に一致する計測器が確認中のまま残る。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 8,
+   "summary": "validateLocation の location 文字列の経路で使用終了の場所の正式名を送ると、400 にならず確認中として受け付ける。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "ALIASES の「大阪営」「名古屋営」などの寄せは推測にすぎず、要件 2 の「表記ゆれだけ寄せる」を超えている可能性がある。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "validateLocation と POST/PATCH /api/instruments が自由入力の location 文字列を確認中として受け付け続け、「一覧から選ぶ」という要件 3 に反する。",
+   "severity": "低",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 11,
+   "summary": "locations-real-data.test.ts は照合率しか見ておらず、件数の内訳を CSV の期待値で固定していない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "改名後の location 列、前の版との往復、ハンディ端末の要件どおりの動きを確かめるテストが無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0841598
+ }
+}

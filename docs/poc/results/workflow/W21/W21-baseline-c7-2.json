@@ -1,0 +1,38 @@
+{
+  "trial": "W21-baseline-c7-2",
+  "scenario": "W21",
+  "config": "baseline",
+  "case": "c7",
+  "rep": 2,
+  "review_md": "# コードレビュー: 担当者変更の監査ログ\n\nPR の目的は「担当者が変わったときにサーバーのログへ 1 行出す」こと。記録先は当面ログだけ、という合意。\n実装の目的部分（`updateTask` で担当者が変わったときだけ出力）自体は正しいが、以下をマージ前に直したい。\n\n## 指摘一覧\n\n### 1. [高] 監査ログ用の通知が失敗すると、更新が API の 500 になる（`src/lib/tasks.ts` `updateTask` 末尾 / `src/lib/notify/events.ts` `emit`）\n- 問題: `UPDATE` 実行後に `eventBus.emit` を同期呼び出しし、購読者の例外を捕捉していない。`NOTIFIER_KIND=slack` または `email` を設定すると（`NotifierFactory` が受け付ける）、`SlackNotifier.send` / `EmailNotifier.send` は常に `throw` する。担当者を変える `PATCH /api/tasks/:id` は、DB は更新済みなのに 500 を返し、利用者は失敗と誤解して再試行する。購読者が複数になると、先の購読者の例外で後続も呼ばれない。\n- 直し方: 下記 2 のとおり仕組みごと削って `console.log` 1 行にするのが最善。残すなら `emit` で購読者ごとに try/catch し、失敗は `console.error` に出すだけで呼び出し元へ伝えない。\n\n### 2. [中] 依頼範囲を超えた過剰な仕組み（`src/lib/notify/` 全体、CLAUDE.md 規約 6）\n- 問題: 要件は「ログに 1 行」だけで、他の記録先の予定は無いと PR 自身が書いている。それなのにイベントバス、`NotifierFactory`、環境変数 `NOTIFIER_KIND` / `SLACK_WEBHOOK_URL`、常に例外を投げる Slack/メールのスタブ、使われないイベント型（`task.status_changed` / `task.created`）、使われない `clear()`、使われない `send` の第 2 引数 `event` が入っている。未使用・未実装のコードは保守負担になり、上記 1 の障害の原因にもなっている。\n- 直し方: `src/lib/notify/` を削除し、`updateTask` の中で担当者が変わったときに `console.log(`[audit] task ${id}: assignee ${from} -> ${to} at ${new Date().toISOString()}`)` を出す（必要なら `src/lib/audit.ts` に小さな関数 1 つ）。記録先が増える段階で抽象化する。\n\n### 3. [中] 肝心の挙動のテストが無い（`tests/notify.test.ts`、規約 5）\n- 問題: 追加テストはイベントバスの購読・解除と Factory の型判定だけで、PR の主張する挙動を検証していない。「担当者が変わると出力される」「変わらない更新（タイトルのみ変更、同じ担当者への更新）では出ない」「出力の書式」「存在しないタスクでは出ない」はどれも未テスト。`updateTask` から emit する行を消してもテストは通る。\n- 直し方: `tests/tasks.test.ts` に、`openDb()` の DB と `console.log`（`mock.method`）を使い、上記 4 ケースを追加する。\n\n### 4. [低] モジュール読み込み時の副作用で、既存テスト・他の呼び出しにも影響（`src/lib/notify/index.ts`）\n- 問題: `tasks.ts` が `notify/index.ts` を import するだけで、グローバルのバスに購読が登録され、`NotifierFactory.create()` が環境変数を読み込み時に 1 回だけ評価する。`tasks.test.ts` のように担当者を変えるテストでは `[audit]` 行が標準出力に混ざる。環境変数の変更は再起動まで反映されず、テストで差し替えにくい。\n- 直し方: 上記 2 の形にすれば解消する。残す場合は購読の登録を明示的な初期化関数にする。\n\n### 5. [低] 記録に「誰が変更したか」が無い（`[audit]` 行の書式）\n- 問題: 現在の行は前後の担当者と時刻のみで、操作したログインユーザーが分からない。監査の趣旨（誰が変えたか）には操作者が要る可能性がある。PR の書式は要件どおりなので、必須ではなく確認事項。\n- 直し方: 要件を依頼元に確認する。必要なら `updateTask` に操作者 ID を渡し、行に `by <ユーザー>` を足す。\n\n## 問題なしと判断した点（参考）\n- 担当者の値は `validateTaskInput` が `users` テーブルで検証済みなので、ログへの注入の心配は無い。\n- 「変わらない更新では出さない」の比較（`next.assignee !== current.assignee`）は正しい。出力は UPDATE の後なので、更新失敗時に記録だけ残ることも無い。\n",
+  "review_chars": 2277,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.1977,
+    "tokens": {
+      "input": 20,
+      "output": 4181,
+      "cache_read": 322838,
+      "cache_creation": 30896
+    },
+    "turns": 8,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 53,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しく書き写す作業はありませんでした。直前のレビューの 5 件はすべて `REVIEW.md` に書いてあり、コミット済み（`c2d9b8f`）です。`REVIEW.md` に未コミットの変更は無く、コードも直していません。\n\n指摘は 5 件で、重要度は高 1・中 2・低 2 です。どれも見出しに重要度と場所（ファイルと関数）を書き、本文に「問題」と「直し方」を付けています。指摘を足したり削ったりもしていません。"
+  },
+  "interventions": 0
+}

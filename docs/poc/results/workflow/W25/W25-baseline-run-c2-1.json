@@ -1,0 +1,43 @@
+{
+  "trial": "W25-baseline-run-c2-1",
+  "scenario": "W25",
+  "config": "baseline-run",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: タスクの一覧を期限の近い順に並べ替える\n\nSQL インジェクション対策（`isTaskSort` で検証し、`SORT_COLUMNS` の表を引いた結果だけを SQL に入れる）、期限が同じ場合の `id` による並び、`due_date` が `YYYY-MM-DD` 固定のため文字列順＝日付順になる点は問題ありませんでした。`npm test` は 23 件すべて通ります。\n\n## 指摘\n\n### 1. [中] 「期限の近い順」で完了済みタスクが先頭に来る\n- 場所: `src/lib/tasks.ts` の `listTasks`（`ORDER BY ${SORT_COLUMNS[...]}, id`）、`SORT_COLUMNS.due`\n- 問題: `due_date` の昇順だけで並べているため、期限が過ぎた・完了済みのタスクが最上位に出ます。再現（シードデータ、今日 = 2026-11-11）:\n  ```\n  1 done        2026-11-02   ← 先頭\n  7 done        2026-11-05\n  2 in_progress 2026-11-12\n  3 in_progress 2026-11-14\n  4 todo        2026-11-18 ...\n  ```\n  PR の目的は「締め切りの近いタスクから片付けたい」ですが、片付け済みの 2 件が一番上に並び、本当に次にやるべきタスクが 3 行目になります。完了タスクが増えるほど悪化します。\n- 直し方: `sort=due` のときは未完了を先にする（例: `ORDER BY (status = 'done'), due_date, id`）。完了済みを含めたまま期限順にする仕様なら、その旨を PR・画面の文言に明記し、テストでも完了済みの位置を固定してください。現在のテストは期限の昇順しか確認しておらず、この点を検出できません。\n\n### 2. [低] `listTasks` 自体は `sort` の実行時検証をしていない\n- 場所: `src/lib/tasks.ts` の `listTasks`（`SORT_COLUMNS[filter.sort ?? \"id\"]` を SQL に連結）\n- 問題: 検証は呼び出し側（ページ・API Route）の `isTaskSort` に依存しています。型を無視した呼び出しで未知の値が渡ると `SORT_COLUMNS` の引きが `undefined`（または `\"toString\"` のようなプロトタイプ上の値）になり、`ORDER BY function toString() {…}, id` が SQL に埋め込まれて `SQL logic error` で落ちます（`sort: \"toString\"` で再現）。現状の呼び出し元は検証済みなので悪用はできませんが、規約 8 の趣旨（SQL に未検証の文字列を入れない）に対して防御が一段しかありません。\n- 直し方: `listTasks` 内で `const sort = isTaskSort(filter.sort) ? filter.sort : \"id\";` としてから表を引く。`SORT_COLUMNS` は `Object.hasOwn` で引くか `Map` にするとなお安全です。\n\n### 3. [低] API 経由の `sort` の挙動に対するテストが無い\n- 場所: `tests/tasks.test.ts`\n- 問題: PR は「不正な `sort` は登録順として扱う」としていますが、テストは `isTaskSort` の真偽だけです。`GET /api/tasks?sort=bogus` や `listTasks({ sort: undefined })` が登録順になること、`sort=due` と `status` の組み合わせが画面・API で渡されていることは検証されていません（規約 5）。\n- 直し方: 指摘 2 の対応と合わせて、不正値・未指定が登録順になる `listTasks` のテストを追加する。\n",
+  "review_chars": 1769,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2254,
+    "tokens": {
+      "input": 24,
+      "output": 4894,
+      "cache_read": 430589,
+      "cache_creation": 33342
+    },
+    "turns": 11,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cat > $TMPDIR/r.ts 2>/dev/null || true; S=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c2-1-app/3f6933ee-de83-4007-89ad-2cd519154a87/scratchpad; cat > $S/r.ts <<EOF\\nimport { openDb } f"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W25-baseline-run-c2-1-app/3f6933ee-de83-4007-89ad-2cd519154a87/scratchpad; cat > $S/r.ts <<'EOF'\\nimport { openDb } from \\\"/tmp/poc-trials/W25-baseline-run"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 50,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回のコミットで、`REVIEW.md` にはもう 3 件の指摘が入っています。各指摘に重要度・場所・何が問題か・直し方があり、内容は前回のレビューと同じです。今回は書き足すものも削るものもなく、新しいコミットも作っていません。\n\n`REVIEW.md` はコミット `ee415a3` に入っていて、変更は残っていません。コードも直していません。\n\n| 重要度 | 指摘 |\n|---|---|\n| 中 | 期限順で完了済みタスクが先頭に来る |\n| 低 | `listTasks` が `sort` の値を実行時に検証していない |\n| 低 | 不正な `sort` が登録順になる挙動のテストが無い |"
+  },
+  "interventions": 0
+}

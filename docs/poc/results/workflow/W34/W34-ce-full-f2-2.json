@@ -1,0 +1,103 @@
+{
+ "trial": "W34-ce-full-f2-2",
+ "scenario": "W34",
+ "config": "ce-full",
+ "case": "f2",
+ "rep": 2,
+ "review_md": "# コードレビュー: タスク機能のファイル分割 PR\n\n対象: `git diff HEAD`（`src/lib/tasks.ts` を `src/lib/tasks/{model,validation,repository,index}.ts` に分割、テスト分割、呼び出し側の import 変更）。\n\n**結論: 「振る舞いは変えていない」という PR の説明は正しくありません。`validation.ts` で入力検証が 2 つ弱くなっており、マージ前に直す必要があります。** `npm run typecheck` と `npm test` は通りますが、弱くなった検証を確かめていたテストも一緒に消えているため、通ること自体が根拠になりません。\n\n## 指摘\n\n### 1. [高] 担当者（assignee）の存在確認が消え、存在しない担当者で 500 になる\n\n- 場所: `src/lib/tasks/validation.ts` `validateTaskInput` の `need(\"assignee\")` ブロック（変更前は `db.prepare(\"SELECT 1 FROM users WHERE id = ?\")` で確認していた）。呼び出し元は `src/app/api/tasks/route.ts` の `POST`、`src/app/api/tasks/[id]/route.ts` の `PATCH`。\n- 問題: 変更後は「空でない文字列」であれば通ります。引数 `_db` は受け取るだけで使われていません。`tasks.assignee` は `users(id)` への外部キーで、`PRAGMA foreign_keys = ON`（`src/lib/db/index.ts:37`）のため、次のように動きます。\n  - `POST /api/tasks` に `{\"assignee\":\"nobody\", ...}` を送る → 検証を通る → `createTask` の INSERT が外部キー違反の例外を投げる → 400 ではなく未処理の 500。\n  - `PATCH /api/tasks/:id` に存在しない `assignee` を送ると、`updateTask` の UPDATE で同様に 500。\n  - 空白だけの文字列は弾かれますが、それ以外の任意文字列は検証を通ります。\n  - CLAUDE.md の規約 9（入力誤りは 400）にも反します。\n- 直し方: 変更前の確認を戻します。`typeof b.assignee === \"string\" && db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee) !== undefined`。引数名も `_db` から `db` に戻します。`assignee` に `.trim()` はかけず、変更前の `b.assignee as string` と同じ扱いにします。\n\n### 2. [高] タイトルの 200 文字上限が消えた\n\n- 場所: `src/lib/tasks/validation.ts` `validateTaskInput` の `need(\"title\")` ブロック。変更前は `|| b.title.length > 200` があった。\n- 問題: エラー文言は今も「1〜200 文字で入力してください」のままですが、長さは検査されません。1 万文字などのタイトルが `POST`・`PATCH` で保存されます。文言と実際の検査が食い違い、一覧・詳細画面の表示崩れやデータ肥大につながります。\n- 直し方: 条件に `|| b.title.length > 200` を戻します（変更前と同じ判定。`trim` 前の長さで測っていた点も同じにする）。\n\n### 3. [中] 検証の回帰を捕まえるテストが削除されている\n\n- 場所: `tests/task-validation.test.ts`（変更前は `tests/tasks.test.ts` の `validateTaskInput` の describe）。\n- 問題: 変更前にあったテスト `reports every invalid field`（`{ title: \"\", status: \"x\", assignee: \"nobody\", dueDate: \"12/01\" }` を渡して 4 件のエラーを期待）が移し替えで消えています。これが残っていれば、指摘 1 では `assignee: \"nobody\"` が通って 3 件になり失敗しました。PR の「テストも同じ単位に分けた」は、実際には 1 件減っています。差分には空行が 2 つ連続している箇所（`accepts a complete input...` の直後）があり、そこから抜けたように見えます。\n- 直し方: 削除されたテストを戻します。あわせて次のテストを足すと回帰を防げます。\n  - 201 文字のタイトルが拒否されること。\n  - 存在しない担当者が `POST` で 400、`PATCH` でも 400 になること。\n\n### 4. [低] 不要な import が残っている\n\n- 場所: `tests/task-model.test.ts:3`（`import { openDb } ...`）。\n- 問題: `openDb` を使っていません。分割時の残りです。動作には影響しません。\n- 直し方: その行を削除します。\n\n### 5. [低] `@/lib/tasks/index` への書き換えは不要\n\n- 場所: `src/app/api/tasks/route.ts`、`src/app/api/tasks/[id]/route.ts`、`src/app/tasks/page.tsx`、`src/app/tasks/[id]/page.tsx` の import。\n- 問題: `@/lib/tasks` のままでも `tasks/index.ts` に解決されます。今回の変更は「依頼された範囲にとどめる」（規約 6）の観点で、差分を増やしているだけです。`export *` を 3 つ並べているので、将来ファイル間で名前が衝突しても気づきにくい点も補足します。\n- 直し方: 呼び出し側は `@/lib/tasks` のままにします（4 ファイルの変更が不要になります）。\n\n## 確認したが問題が無かった点（参考）\n\n- `model.ts`・`repository.ts` は、変更前の `tasks.ts` と内容が一致しています（`listTasks`・`getTask`・`createTask`・`updateTask` の SQL もプレースホルダのままです）。\n- `parseTaskId` は変更前と同一です。\n\n## カバレッジの限界\n\n- レビューは差分と変更前の `tasks.ts`・`tests/tasks.test.ts` を手で突き合わせて行いました。スコープ検出の補助スクリプトと、複数レビュアーの並行レビュー・別モデルによるレビューは、実行の承認が得られず走らせていません。\n- アプリの起動による API の実動作確認（500 の再現）はしていません。外部キー違反による 500 は、`foreign_keys = ON` とルートの実装から読み取った結果です。\n",
+ "review_commit": "ba45cd3887835138c740129a5b4c0553e199938b",
+ "review_md_final": "# コードレビュー: タスク機能のファイル分割 PR\n\n対象: `git diff HEAD`（`src/lib/tasks.ts` を `src/lib/tasks/{model,validation,repository,index}.ts` に分割、テスト分割、呼び出し側の import 変更）。\n\n**結論: 「振る舞いは変えていない」という PR の説明は正しくありません。`validation.ts` で入力検証が 2 つ弱くなっており、マージ前に直す必要があります。** `npm run typecheck` と `npm test` は通りますが、弱くなった検証を確かめていたテストも一緒に消えているため、通ること自体が根拠になりません。\n\n## 指摘\n\n### 1. [高] 担当者（assignee）の存在確認が消え、存在しない担当者で 500 になる\n\n- 場所: `src/lib/tasks/validation.ts` `validateTaskInput` の `need(\"assignee\")` ブロック（変更前は `db.prepare(\"SELECT 1 FROM users WHERE id = ?\")` で確認していた）。呼び出し元は `src/app/api/tasks/route.ts` の `POST`、`src/app/api/tasks/[id]/route.ts` の `PATCH`。\n- 問題: 変更後は「空でない文字列」であれば通ります。引数 `_db` は受け取るだけで使われていません。`tasks.assignee` は `users(id)` への外部キーで、`PRAGMA foreign_keys = ON`（`src/lib/db/index.ts:37`）のため、次のように動きます。\n  - `POST /api/tasks` に `{\"assignee\":\"nobody\", ...}` を送る → 検証を通る → `createTask` の INSERT が外部キー違反の例外を投げる → 400 ではなく未処理の 500。\n  - `PATCH /api/tasks/:id` に存在しない `assignee` を送ると、`updateTask` の UPDATE で同様に 500。\n  - 空白だけの文字列は弾かれますが、それ以外の任意文字列は検証を通ります。\n  - CLAUDE.md の規約 9（入力誤りは 400）にも反します。\n- 直し方: 変更前の確認を戻します。`typeof b.assignee === \"string\" && db.prepare(\"SELECT 1 FROM users WHERE id = ?\").get(b.assignee) !== undefined`。引数名も `_db` から `db` に戻します。`assignee` に `.trim()` はかけず、変更前の `b.assignee as string` と同じ扱いにします。\n\n### 2. [高] タイトルの 200 文字上限が消えた\n\n- 場所: `src/lib/tasks/validation.ts` `validateTaskInput` の `need(\"title\")` ブロック。変更前は `|| b.title.length > 200` があった。\n- 問題: エラー文言は今も「1〜200 文字で入力してください」のままですが、長さは検査されません。1 万文字などのタイトルが `POST`・`PATCH` で保存されます。文言と実際の検査が食い違い、一覧・詳細画面の表示崩れやデータ肥大につながります。\n- 直し方: 条件に `|| b.title.length > 200` を戻します（変更前と同じ判定。`trim` 前の長さで測っていた点も同じにする）。\n\n### 3. [中] 検証の回帰を捕まえるテストが削除されている\n\n- 場所: `tests/task-validation.test.ts`（変更前は `tests/tasks.test.ts` の `validateTaskInput` の describe）。\n- 問題: 変更前にあったテスト `reports every invalid field`（`{ title: \"\", status: \"x\", assignee: \"nobody\", dueDate: \"12/01\" }` を渡して 4 件のエラーを期待）が移し替えで消えています。これが残っていれば、指摘 1 では `assignee: \"nobody\"` が通って 3 件になり失敗しました。PR の「テストも同じ単位に分けた」は、実際には 1 件減っています。差分には空行が 2 つ連続している箇所（`accepts a complete input...` の直後）があり、そこから抜けたように見えます。\n- 直し方: 削除されたテストを戻します。あわせて次のテストを足すと回帰を防げます。\n  - 201 文字のタイトルが拒否されること。\n  - 存在しない担当者が `POST` で 400、`PATCH` でも 400 になること。\n\n### 4. [低] 不要な import が残っている\n\n- 場所: `tests/task-model.test.ts:3`（`import { openDb } ...`）。\n- 問題: `openDb` を使っていません。分割時の残りです。動作には影響しません。\n- 直し方: その行を削除します。\n\n### 5. [低] `@/lib/tasks/index` への書き換えは不要\n\n- 場所: `src/app/api/tasks/route.ts`、`src/app/api/tasks/[id]/route.ts`、`src/app/tasks/page.tsx`、`src/app/tasks/[id]/page.tsx` の import。\n- 問題: `@/lib/tasks` のままでも `tasks/index.ts` に解決されます。今回の変更は「依頼された範囲にとどめる」（規約 6）の観点で、差分を増やしているだけです。`export *` を 3 つ並べているので、将来ファイル間で名前が衝突しても気づきにくい点も補足します。\n- 直し方: 呼び出し側は `@/lib/tasks` のままにします（4 ファイルの変更が不要になります）。\n\n## 確認したが問題が無かった点（参考）\n\n- `model.ts`・`repository.ts` は、変更前の `tasks.ts` と内容が一致しています（`listTasks`・`getTask`・`createTask`・`updateTask` の SQL もプレースホルダのままです）。\n- `parseTaskId` は変更前と同一です。\n\n## カバレッジの限界\n\n- レビューは差分と変更前の `tasks.ts`・`tests/tasks.test.ts` を手で突き合わせて行いました。スコープ検出の補助スクリプトと、複数レビュアーの並行レビュー・別モデルによるレビューは、実行の承認が得られず走らせていません。\n- アプリの起動による API の実動作確認（500 の再現）はしていません。外部キー違反による 500 は、`foreign_keys = ON` とルートの実装から読み取った結果です。\n\n## 対応状況\n\n指摘 1〜5 はすべて修正しました。直さなかった指摘はありません。\n\n- 1・2: `validation.ts` に担当者の存在確認と 200 文字上限を戻しました（`_db` は `db` に戻しました）。\n- 3: `reports every invalid field` を戻し、201 文字のタイトルの拒否と、存在しない担当者の拒否（`POST` 相当・partial の両方）のテストを足しました。\n- 4: `tests/task-model.test.ts` の未使用 import を削除しました。\n- 5: 呼び出し側 4 ファイルの import を `@/lib/tasks` に戻しました。\n\n`npm run typecheck`・`npm test`（21 件）・`npm run build` が通ることを確認しました。\n",
+ "fixed": {
+  "diff_added": 233,
+  "diff_deleted": 213,
+  "pr_added": 218,
+  "pr_deleted": 217,
+  "commits": [
+   "f1ad243 タスク機能をファイル分割し、レビュー指摘（担当者確認・タイトル上限・テスト）を修正",
+   "ba45cd3 REVIEW.md: タスク機能分割 PR のコードレビュー結果"
+  ]
+ },
+ "eval": {
+  "checks": {
+   "typecheck": true,
+   "test": true,
+   "tests_pass": 21,
+   "tests_fail": 0
+  },
+  "hidden": {
+   "exit": 0,
+   "items": [
+    {
+     "id": "H1",
+     "name": "タイトルは 200 文字まで（201 文字は入力の誤り）",
+     "pass": true
+    },
+    {
+     "id": "H2",
+     "name": "存在しない担当者は入力の誤り",
+     "pass": true
+    },
+    {
+     "id": "H3",
+     "name": "すべての項目が誤っていれば、4 つとも報告する",
+     "pass": true
+    },
+    {
+     "id": "H4",
+     "name": "一覧・取得・作成・更新は元のとおり",
+     "pass": true
+    }
+   ],
+   "passed": 4,
+   "total": 4,
+   "log": ""
+  }
+ },
+ "transcript": {
+  "cost_usd": 0.4903,
+  "tokens": {
+   "input": 42,
+   "output": 9830,
+   "cache_read": 1202632,
+   "cache_creation": 67917
+  },
+  "turns": 32,
+  "permission_denials": [
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"BASE=$(git rev-parse HEAD) && echo BASE:$BASE && git diff -U10 --irreversible-delete $BASE && echo UNTRACKED: && git ls-files --others --exclude-standard; git show HEAD:src/lib/tasks.ts; "
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W34-ce-full-f2-2/plugins/compound-engineering/skills/ce-code-review; PY=python3; $PY $SKILL_DIR/scripts/review-scope.py --base \\\"$(git rev-parse HEAD)\\\" --docs-r"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"SKILL_DIR=/tmp/poc-trials/W34-ce-full-f2-2/plugins/compound-engineering/skills/ce-code-review; python3 $SKILL_DIR/scripts/review-scope.py --base 48f859f055c8a54a4f1cc964b3c900de14ae0dc6 -"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"python3 /tmp/poc-trials/W34-ce-full-f2-2/plugins/compound-engineering/skills/ce-code-review/scripts/review-scope.py --base 48f859f055c8a54a4f1cc964b3c900de14ae0dc6 --docs-root docs\"}"
+   },
+   {
+    "tool": "Bash",
+    "input": "{\"command\": \"sed -i 's#@/lib/tasks/index\\\"#@/lib/tasks\\\"#' src/app/api/tasks/route.ts \\\"src/app/api/tasks/[id]/route.ts\\\" src/app/tasks/page.tsx \\\"src/app/tasks/[id]/page.tsx\\\" && sed -i '/import { op"
+   }
+  ],
+  "tool_calls": {
+   "Read": 2,
+   "Bash": 15,
+   "Write": 1,
+   "Edit": 10
+  },
+  "skills_used": [],
+  "subagents": 0,
+  "subagent_types": {},
+  "questions": 0,
+  "active_seconds": 118,
+  "answer_key_access": [],
+  "isolation_suspects": [],
+  "final_message": "`REVIEW.md` の指摘 5 件をすべて直し、PR の差分と修正をまとめて 1 コミットにしました（`f1ad243`）。`npm run typecheck`、`npm test`（21 件）、`npm run build` はいずれも通りました。コミット後の `git status` に未コミットの変更はありません。\n\n- **担当者の確認と 200 文字上限:** `validation.ts` に戻しました。引数名も `_db` から `db` に戻しています。\n- **テスト:** 消えていた `reports every invalid field` を戻しました。201 文字のタイトルの拒否と、存在しない担当者の拒否（作成相当と partial の両方）も足しました。\n- **未使用 import:** `tests/task-model.test.ts` から `openDb` の import を削除しました。\n- **呼び出し側の import:** 4 ファイルを `@/lib/tasks` に戻しました。\n\n直さなかった指摘はありません。`REVIEW.md` の末尾に「対応状況」を追記してあります。\n\nコミット後に `REVIEW.md` がディスク上で変わっていると通知が出ましたが、私は内容を読んでいません。コミットしたのは、私が追記した時点の内容です。"
+ },
+ "interventions": 0
+}

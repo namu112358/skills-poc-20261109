@@ -1,0 +1,45 @@
+{
+  "trial": "W25-hk-baseline-run-c2-2",
+  "scenario": "W25",
+  "config": "hk-baseline-run",
+  "case": "c2",
+  "rep": 2,
+  "review_md": "# コードレビュー: タスク一覧の「期限の近い順」並べ替え\n\n対象: 未コミットの差分（`src/app/api/tasks/route.ts`、`src/app/tasks/page.tsx`、`src/lib/tasks.ts`、`tests/tasks.test.ts`）\n\n確認方法: `npm run typecheck` は成功。`npm test` は 23 件すべて成功。並べ替えの挙動は node で `listTasks` / `validateTaskInput` を直接呼ぶ再現スクリプトで確かめた。\n\n## 指摘\n\n### 1. 存在しない日付が検証を通り、期限順の並びが暦と合わない（重要度: 中）\n\n- 場所: `src/lib/tasks.ts` の `validateTaskInput`（87 行目。`dueDate` の検証は 116 行目）。並べ替えは `listTasks`（55 行目）の `ORDER BY due_date`（58 行目）。\n- 何が問題か: 検証は正規表現 `^\\d{4}-\\d{2}-\\d{2}$` と `Date.parse` が NaN でないことだけを見ている。V8 の `Date.parse` は `2026-02-30` を 3月2日として解釈するので、`2026-02-30`、`2026-02-31`、`2026-04-31`、`2026-11-31` がすべて受け付けられる（再現で確認済み）。文字列として並べると `2026-02-30` は `2026-03-01` より前に来るが、暦上の 2026-02-30 は 3月2日なので後ろに来るべきである。\n  - 再現: 「2月30日」（`dueDate: \"2026-02-30\"`）と「3月1日」を登録して `listTasks({ sort: \"due\" })` を呼ぶと、「2月30日」→「3月1日」の順になった。\n  - 存在しない日付は今回の差分より前から受け付けられていた。ただし期限順の並べ替えは、この不正な値をそのまま順序の根拠にするので、今回の変更で結果が目に見えて誤るようになる。\n- 直し方: `validateTaskInput` で、正規表現の通過後に暦上の日付として実在するかを確かめる。例えば `const [y, m, d] = b.dueDate.split(\"-\").map(Number)` して `new Date(Date.UTC(y, m - 1, d))` の年・月・日が一致するかを比べ、一致しなければ「期限は YYYY-MM-DD 形式で入力してください」を返す（`Number.isNaN(Date.parse(...))` の判定はこれで置き換えてよい）。あわせて `tests/tasks.test.ts` に、`2026-02-30` などが拒否されるテストを追加する。並べ替えの側は変えなくてよい。`YYYY-MM-DD` が実在する日付なら、文字列の順と暦の順は一致する。\n- 注: この修正は `validateTaskInput` を通る作成（POST）と更新（PATCH）の両方に効く。既に DB に入っている不正な日付は、この修正では消えない。\n\n### 2. API・画面の `sort` の配線に対するテストが無い（重要度: 低）\n\n- 場所: `src/app/api/tasks/route.ts` の `GET`（6 行目。`sort` の受け渡しは 13 行目）、`src/app/tasks/page.tsx` の `TasksPage`（8 行目。`listTasks` の呼び出しは 13 行目）。\n- 何が問題か: 並べ替えの本体（`listTasks`）と `isTaskSort` は単体テストされているが、`GET /api/tasks?sort=due` や `?sort=bad` が実際に `listTasks` に正しく渡ることは、どのテストでも確かめられていない。PR の説明にある「`sort` の値の検証」は関数の単体テストにとどまる。route のテストは現状の `tests/` の方針に無いので、少なくとも手動で `sort=due` と `sort=bad`（登録順になる）を確かめておくとよい。\n- 直し方: 余裕があれば route の `GET` を直接呼ぶテストを足すか、マージ前に開発サーバーで `?sort=due&status=todo` と `?sort=bad` を確かめる。\n\n## 問題が無いと判断した点\n\n- SQL の組み立て: `ORDER BY` に入るのは `SORT_COLUMNS` の固定値（`id` / `due_date`）だけで、利用者の値は直接入らない。`isTaskSort` は配列の `includes` で判定するので `__proto__` などのキーも拒否される（テストで確認）。\n- 同じ期限の並び: 第 2 キーに `id` を使っており、同じ期限は登録順になる。テストで確認済み。\n- ステータス絞り込みとの組み合わせ: `WHERE` と `ORDER BY` の順に問題は無く、テストで確認済み。\n- 不正な `sort` の扱い: コーディング規約 2 のとおり「指定なし」（登録順）になる。ページの `defaultValue` も `sort ?? \"id\"` で一致している。\n- `due_date` は `NOT NULL` なので、NULL の並び順の問題は起きない。\n",
+  "review_chars": 2356,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0236,
+    "tokens": {
+      "input": 30,
+      "output": 12890,
+      "cache_read": 784329,
+      "cache_creation": 46411
+    },
+    "turns": 19,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(npm run typecheck 2>&1 | tail -5); echo \\\"---TEST\\\"; (npm test 2>&1 | tail -25); echo \\\"---PAGE\\\"; cat src/app/tasks/page.tsx; echo \\\"---API lib\\\"; cat src/lib/api.ts | head -40; ls test"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c2-2-app/7bcb5169-556b-4087-a554-e90dbfac67b1/scratchpad/repro && cat > /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c2-2-a"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 11,
+      "Read": 1,
+      "Write": 2,
+      "Edit": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 72,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "REVIEW.md の指摘は、元の形式（場所・何が問題か・直し方・重要度）にすでに沿って書かれていました。足りなかった「行」だけを補い、REVIEW.md だけをコミットしました（コミット `7e0b5cc`）。\n\n- **指摘 1（中）**: 存在しない日付（例: `2026-02-30`）が検証を通り、期限順で誤った位置に並ぶ問題。場所に `validateTaskInput`（87 行目、`dueDate` の検証は 116 行目）と `listTasks`（55 行目、`ORDER BY` は 58 行目）の行番号を追加しました。\n- **指摘 2（低）**: API と画面の `sort` の配線にテストが無い問題。場所に `route.ts` の `GET`（6 行目、受け渡しは 13 行目）と `page.tsx` の `TasksPage`（8 行目、`listTasks` 呼び出しは 13 行目）の行番号を追加しました。\n\n指摘の内容は変えず、新しい指摘も足していません。コードは直していません。他の 4 ファイルは未コミットのまま残っています。"
+  },
+  "interventions": 0
+}

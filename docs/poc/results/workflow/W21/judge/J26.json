@@ -1,0 +1,50 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "listTasks の SQL が `assignee_id AS assignee` と別名を付けているため、toTask が row.assignee_id を読めず、一覧と GET /api/tasks で担当者が undefined になる。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "validateTaskInput が assigneeId しか読まないため、既存クライアントが assignee を送ると POST は 400 になり、PATCH は担当者を変えないまま成功する。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "Task をそのまま JSON で返すため、API 応答の task.assignee が task.assigneeId に変わり、既存クライアントが壊れる。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "テストは項目名を置換しただけで、一覧の担当者・API のキー・既存 DB へのマイグレーション 3 の適用を検証していない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 5,
+   "summary": "マイグレーション 1 のインデックス名 tasks_assignee が旧名のまま残り、命名が不揃いになる。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "一覧ページが担当者を名前ではなく ID で表示している（今回の差分とは無関係なので別件として検討）。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0514158
+ }
+}

@@ -1,0 +1,45 @@
+{
+  "trial": "W24-baseline-d1-3",
+  "scenario": "W24",
+  "config": "baseline",
+  "case": "d1",
+  "rep": 3,
+  "review_md": "# レビュー: ダッシュボードの追加\n\n## 1. 【高】キャッシュキーにユーザーが含まれず、他人のダッシュボードが返る\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）、`src/lib/cache.ts`\n- 問題: キーが固定文字列 `\"dashboard\"` で、プロセス内で全ユーザー共有。sato が開いた後 30 秒以内に suzuki が `/dashboard` や `GET /api/dashboard` を開くと、sato のタスク（件数・タイトル・期限）が返る。情報漏えい。テストは `userId` 1 人分しか見ておらず検出できない。\n- 直し方: キーを `` `dashboard:${userId}` `` にする。タスク更新（`PATCH /api/tasks/:id`）後に古い値が出る問題もあるので、キャッシュが不要なら外す（SQLite 読み込みは軽い）。残す場合は更新時の無効化を入れる。ユーザー別にキーを分けるテストを追加する。\n\n## 2. 【高】SQL インジェクション\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`\n- 問題: `assignee = '${userId}'` と文字列連結。規約 8 違反。`userId` は現状セッション由来だが、`src/lib/` の関数が他から呼ばれると任意の SQL が実行できる。\n- 直し方: `WHERE assignee = ?` とし、`.all(userId)` を渡す。\n\n## 3. 【高】`countByStatus` が共有定数 `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` `countByStatus`\n- 問題: `TASK_STATUSES as TaskStatus[]` はコピーではなく同じ配列で、`reverse()` は in-place。呼ぶたびに `TASK_STATUSES` が反転し、`tasks.ts` を使う他の箇所（絞り込み・検証・画面の並び）の順序が変わる。ダッシュボードの表示順も呼び出しごとに「完了先頭」と「未着手先頭」で入れ替わる（キャッシュにより 30 秒は固定）。\n- 直し方: `[...TASK_STATUSES].reverse()`（または `toReversed()`）。2 回呼んで順序が同じになるテストを追加する。\n\n## 4. 【高】担当タスクが 0 件のとき完了率が `NaN`\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 問題: `0 / 0` で `NaN`。画面は「完了率 NaN%」、API の JSON では `null` になる。タスクを持たない人はふつうにいる。\n- 直し方: `tasks.length === 0` なら 0 を返す。0 件のテストを追加する。\n\n## 5. 【中】テスト不足と、日付の変わり目でのキャッシュ\n- 場所: `src/lib/dashboard.ts` `buildDashboard`、`tests/dashboard.test.ts`\n- 問題: キャッシュのキーに `now` の日付が含まれないため、日付の変わり目では最長 30 秒、古い「今日」で期限切れ判定が出る（軽微）。また `buildDashboard` のテストは件数の合計だけで、期限切れ・今週・完了率・キャッシュ・他ユーザー・0 件を確認していない。\n- 直し方: #1 でキャッシュを外せばこの点は解消する。テストを上記ケースぶん追加する。\n\n## 6. 【中】`dueThisWeek` に期限切れが混ざり、画面で二重表示になる\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`\n- 問題: `dueThisWeek` は今週の月曜以降なら、今日より前（すでに期限切れ）のタスクも含む。テストも `[1, 2]` と、期限切れの 1 を含めて期待している。画面では「期限切れ」と「今週が期限」の両方に同じタスクが出て二重表示になる。「今週が期限」の意図が「今日以降〜日曜」なのか「今週全体」なのかが不明確。\n- 直し方: 仕様を決める。二重表示を避けるなら下限を `max(start, today)` にする。決めた仕様をテストと docstring に反映する。\n\n## 7. 【低】API ルートのテストが無い\n- 場所: `src/app/api/dashboard/route.ts`\n- 問題: 未ログイン時 401 は `requireApiUser` に任せていて実装は妥当だが、ルートのテストが無く、#1 のようなユーザー間の取り違えを守るテストも無い。\n- 直し方: ユーザー別の結果を確認するテストを `tests/` に追加する。\n",
+  "review_chars": 2135,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2474,
+    "tokens": {
+      "input": 30,
+      "output": 5490,
+      "cache_read": 572187,
+      "cache_creation": 33810
+    },
+    "turns": 15,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && git ls-files --others --exclude-standard | grep -v node_modules | xargs -I{} sh -c 'echo \\\"=== {}\\\"; cat {}'\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"python3 - <<'E'\\nimport re\\ns=open('REVIEW.md').read()\\na=s.index('## 7.'); b=s.index('## 8.')\\ns=s[:a]+s[b:]\\ns=s.replace('## 8. 【低】API','## 7. 【低】API')\\ns=s.replace('## 5. 【中】`/dashboar"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 1,
+      "Read": 1,
+      "Edit": 3
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 67,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "新しく書き写す作業は要りませんでした。直前のレビューの指摘 7 件は、前のターンで `REVIEW.md` にすでに書いてあり、コミットも済んでいたからです。\n\n- **確認した内容:** `REVIEW.md` の見出しは 7 件で、直前に報告した高 4・中 2・低 1 と一致しています。各指摘には、場所・問題・直し方・重要度がそろっています。\n- **コミット:** 17ade47 の1件で、`REVIEW.md` だけが入っています。今回は新しいコミットを作っていません。`REVIEW.md` に未コミットの変更はありません。\n- **指摘の増減:** 新しい指摘は足していません。削った指摘もありません。\n- **コード:** 修正していません。"
+  },
+  "interventions": 0
+}

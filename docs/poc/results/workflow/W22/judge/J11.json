@@ -1,0 +1,43 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "migrations.ts の tasks.status の CHECK 制約が on_hold を許さないため、検証は通るのに createTask・updateTask が CHECK constraint failed で失敗し、on_hold を保存できない。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "PATCH・POST の API Route が updateTask・createTask の DB 例外を処理しないため、未処理の 500 になり、規約の { error } JSON 形式で返らない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 3,
+   "summary": "TASK_STATUSES に on_hold を加えたのにマイグレーションが追加されておらず、DB は古い CHECK 制約のままで、規約 7 にも反する。",
+   "severity": "中",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "追加したテストは validateTaskInput・isTaskStatus だけを呼び、on_hold を DB に書き込んで確かめるテストが無いため、保存の失敗に気づけない。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "ステータスの一覧が型・配列・ラベル・SQL の 4 か所に重複しているので、配列から型を導出して一元化すべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.05658780000000001
+ }
+}

@@ -1,0 +1,39 @@
+{
+  "trial": "W26-baseline-std-c4-3",
+  "scenario": "W26",
+  "config": "baseline-std",
+  "case": "c4",
+  "rep": 3,
+  "review_md": "# レビュー結果: 期限が近いタスクを一覧で目立たせる\n\nマージ前に直すべき問題が 3 件あります（高 2、中 1）。1・2 は `src/lib/due.ts` の小さな再現スクリプトで実際に動かして確認しました。\n\n## 1. 【高】日本時間の「日付」で数えておらず、日本時間 9:00 以降は「今日」が期限のタスクが期限切れ扱いになる\n\n- 場所: `src/lib/due.ts` の `daysUntilDue`（`Math.floor((Date.parse(dueDate) - now.getTime()) / DAY_MS)`）\n- 問題: `Date.parse(\"2026-11-12\")` は UTC の 0:00（= 日本時間 9:00）になります。そのため現在時刻との差を 24 時間単位で割ると、日本時間の「日付」ではなく「9:00 を境にした経過時間」で数えることになります。PR の「日本時間の日付で数える」に反します。\n  - 再現結果（now = 日本時間 2026-11-12。期限 2026-11-12 のタスク）\n    - 00:00 → 残り 0 日（目印あり）\n    - 09:00 → 残り 0 日（目印あり）\n    - 23:59 → 残り -1 日（**目印なし**。「期限を過ぎた」扱い）\n  - 実際には日本時間 9:00 より後は日中ずっと、当日期限のタスクの「期限間近」が消えます。同じ理由で、期限が過ぎた判定も 9:00 前後でずれます。\n- 直し方: 現在時刻を日本時間の日付（`YYYY-MM-DD`）に変換し、日付同士の差を日数にします。たとえば `Intl.DateTimeFormat(\"sv-SE\", { timeZone: \"Asia/Tokyo\" }).format(now)` で今日の日付文字列を得て、双方を `Date.UTC(y, m - 1, d)` に直して引き、`DAY_MS` で割ります（日付同士なので割り切れます）。時刻・サーバーのタイムゾーンに依存しなくなります。\n\n## 2. 【高】「3 日後」が対象に入っていない（境界値のずれ）\n\n- 場所: `src/lib/due.ts` の `isDueSoon`（`days >= 0 && days < DUE_SOON_DAYS`）\n- 問題: PR の仕様は「今日・明日・明後日・3 日後」（残り 0〜3 日）ですが、`days < 3` なので残り 3 日は対象外です。再現結果は、日本時間 2026-11-12 0:00 の時点で、期限 2026-11-15（3 日後）が `false` でした。\n- 直し方: `days <= DUE_SOON_DAYS` にします。`DUE_SOON_DAYS` のコメントも「今日を含めて 4 日分」ではなく「残り日数が 3 以下」という意味に合わせます。\n\n## 3. 【中】テストが上の 2 件を検出できない\n\n- 場所: `tests/due.test.ts`\n- 問題: `now` が日本時間 0:00 の 1 点だけで、この時刻だけは問題 1 の影響が出ません。また境界は 2026-11-14（残り 2 日）までしか確認しておらず、仕様上の上限（残り 3 日）と、その次の日（残り 4 日、対象外）がありません。そのため「テストが通る」ことが検証になっていません。\n- 直し方: 次を追加します。\n  - 同じ期限日について、日本時間の 0:00・12:00・23:59 で結果が変わらないこと（問題 1 の回帰テスト）。\n  - 残り 3 日が `true`、残り 4 日が `false`（問題 2）。\n  - 期限が昨日で `false`（時刻によらず）。\n  - 修正後は `TZ=UTC` と `TZ=Asia/Tokyo` の両方でテストを実行し、サーバーのタイムゾーンに依存しないことを確認します。\n",
+  "review_chars": 1668,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2051,
+    "tokens": {
+      "input": 22,
+      "output": 4993,
+      "cache_read": 365154,
+      "cache_creation": 29664
+    },
+    "turns": 11,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W26-baseline-std-c4-3-app/770453a0-1b66-4e80-bcc8-8436e295abb6/scratchpad && cat > $S/r.ts <<'E'\\nimport { daysUntilDue, isDueSoon } from \\\"/tmp/poc-trials"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 47,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回のレビューで、`REVIEW.md` にはすでに全指摘を書いてコミットしています（2cbd332）。指定された形式（場所・何が問題か・直し方・重要度）で書いてあり、`git status` でも `REVIEW.md` に未コミットの変更はありません。そのため、新たに書き写したりコミットしたりする作業はありません。\n\n`REVIEW.md` の指摘は次の 3 件で、足したものも削ったものもありません。\n\n1. **【高】** `src/lib/due.ts` の `daysUntilDue` が日本時間の日付で数えていません。`Date.parse` が UTC の 0:00（日本時間 9:00）として扱うため、日本時間 9:00 より後は、当日期限のタスクが期限切れ扱いになります。\n2. **【高】** `isDueSoon` の `days < DUE_SOON_DAYS` では、仕様にある「3 日後」が対象外になります。`<=` にします。\n3. **【中】** `tests/due.test.ts` は `now` が日本時間 0:00 の 1 点だけで、上の 2 件を検出できません。時刻違いのケースと境界値（残り 3 日と 4 日）のテストを足します。\n\nコードは変更していません。PR の差分は未コミットのままです。"
+  },
+  "interventions": 0
+}

@@ -1,0 +1,43 @@
+{
+  "trial": "W22-hk-cr-high-c4-1",
+  "scenario": "W22",
+  "config": "hk-cr-high",
+  "case": "c4",
+  "rep": 1,
+  "review_md": "# コードレビュー指摘: 期限が近いタスクを一覧で目立たせる\n\nマージ前に直すべき指摘です。重要度は高・中・低の三段階で、レビュー結果に基づき付けています。\n\n---\n\n## 1. 今日が期限のタスクが「期限間近」にならない（重要度: 高）\n\n- **場所**: `src/lib/due.ts` の `daysUntilDue`（11 行目付近）、`isDueSoon`\n- **問題**: `daysUntilDue` は「現在時刻」から「期限日の UTC 0 時」までの差を `floor` で 24 時間単位に切り捨てて求めています。そのため、期限が今日のタスクでも、日本時間の 0 時から 9 時までの間（UTC の前日 15 時から 24 時）は残り日数が -1 と計算され、期限切れ扱いになります。\n  - 例: 現在時刻が 2026-11-12T10:00+09:00（01:00Z）、期限が `2026-11-12` の場合、`daysUntilDue` は `floor(-1時間 / 24時間) = -1` になり、`isDueSoon` は `false` を返します。今日が期限のタスクに「（期限間近）」が付きません。\n  - 時刻によって判定がずれます。2026-11-09T10:00+09:00 では同じ期限のタスクの残り日数が 2 となって表示されますが、2026-11-09T00:00+09:00 では 3 となり、表示されません。\n- **直し方**: 時刻ではなく暦日で比較してください。今日の日付を期限日と同じタイムゾーン（日本時間）の `YYYY-MM-DD` として求め、両方を UTC 0 時のタイムスタンプに直した差を `Math.round` で日数にします。`floor` で瞬間の差を切り捨てる方式はやめてください。\n\n## 2. テストが時刻のずれと上限の境界を検証していない（重要度: 中）\n\n- **場所**: `tests/due.test.ts`（7 行目付近ほか）\n- **問題**: テストの「現在時刻」はすべて日本時間の 0 時ちょうどです。このため、指摘 1 の時刻依存の不具合が隠れ、テストは 22 件すべて通ってしまいます。また、期限が「今日から 3 日後」ちょうどのケース（例: 期限 `2026-11-15` で `isDueSoon` が `true`、4 日後の `2026-11-16` で `false`）がなく、上限の境界が検証されていません。\n  - 例: 現在時刻 2026-11-12T10:00+09:00、期限 `2026-11-12` の場合は `daysUntilDue` が -1、`isDueSoon` が `false` になりますが、テストはこの組み合わせを見ていないため失敗しません。3 日後の判定を 2 日や 4 日に変えるような回帰も検出できません。\n- **直し方**: 直し方 1 の修正に合わせて、日中の時刻（例: 10:00+09:00 と 23:59+09:00）を現在時刻に使うケースを追加してください。あわせて、期限が今日・1 日後・3 日後（`true`）と 4 日後（`false`）、過去日（`false`）、完了済み（`false`）の境界を網羅してください。\n\n## 3. `due-soon` クラスに対応するスタイルがない（重要度: 低）\n\n- **場所**: `src/app/tasks/page.tsx`（44 行目付近）\n- **問題**: 行の `className` に `due-soon` を付けていますが、リポジトリ内でこのクラスを定義している CSS がありません（`src/` 内に `.css` ファイルも見当たりません）。`src/` と `tests/` を `due-soon` で検索しても、このページの 2 箇所しか出てきません。結果として、このクラスは視覚的な効果がなく、実際に表示されるのは「（期限間近）」の文字だけです。\n- **直し方**: 見た目の強調が必要なら、このクラスに対応するスタイルを既存のスタイル方式で追加してください。不要なら `className` の指定を削除してください。どちらにするかは、今回の PR の意図に合わせて決めてください。\n\n## 4. `isDueSoon` の呼び出しが行ごとに 2 回ある（重要度: 低）\n\n- **場所**: `src/app/tasks/page.tsx`（44 行目と 52 行目付近）\n- **問題**: `isDueSoon(task, now)` を、行の `className` の計算と「（期限間近）」ラベルの表示で別々に呼んでいます。そのため、タスクごとに日付計算と状態判定が 2 回実行されます。また、片方だけを後から編集すると、表示とクラスの判定がずれる恐れがあります。\n- **直し方**: `map` の中で `const dueSoon = isDueSoon(task, now);` と一度だけ計算し、`className` と「（期限間近）」の表示の両方でその値を使ってください。\n",
+  "review_chars": 2183,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0237,
+    "tokens": {
+      "input": 24,
+      "output": 15458,
+      "cache_read": 432770,
+      "cache_creation": 77106
+    },
+    "turns": 5,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && echo \\\"---\\\" && git log --oneline -5 && echo \\\"---\\\" && (git rev-parse --abbrev-ref --symbolic-full-name @{upstream} 2>&1 || true) && echo \\\"---\\\" && git branch --sh"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(git diff main...HEAD 2>/dev/null || git diff HEAD~1) | head -c 200000 && echo \\\"=== WORKING TREE ===\\\" && git diff HEAD | head -c 100000\", \"description\": \"Show diff of branch and working"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 18,
+      "Write": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 81,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` を書き、そのファイルだけをコミットしました（コミット `2de9462`）。コードは変更していません。\n\n直前のレビューの 4 件をそのまま書き写し、新しい指摘は足していません。重要度は、レビュー結果に付いていなかったので私が付けました。\n\n- **高**: 今日が期限のタスクが「期限間近」にならない（`src/lib/due.ts` の `daysUntilDue`）。日本時間の 0 時から 9 時の間は残り日数が -1 になります。\n- **中**: テストが時刻のずれと 3 日後の上限を見ていない（`tests/due.test.ts`）。\n- **低**: `due-soon` クラスに対応する CSS がない（`src/app/tasks/page.tsx`）。\n- **低**: `isDueSoon` の呼び出しが行ごとに 2 回ある（`src/app/tasks/page.tsx`）。\n\n作業ツリーには、今回のレビュー対象の変更（`src/app/tasks/page.tsx`、`src/lib/due.ts`、`tests/due.test.ts`）が未コミットのまま残っています。PR の変更そのものはコミットしていません。"
+  },
+  "interventions": 0
+}

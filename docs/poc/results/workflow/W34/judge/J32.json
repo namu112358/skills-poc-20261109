@@ -1,0 +1,71 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "updateTask の UPDATE 文に priority 列が無く、PATCH で優先度を送っても保存されず応答も元の値のままで、更新のテストも無い",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "優先度の許容値・表示名が route.ts の PRIORITIES、page.tsx の PRIORITY_LABELS、priority.ts の定義の 3 か所に重複しており、正本の定義や型ガードを使っていない",
+   "severity": "中",
+   "match": "P2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "TaskFilter.priority が TaskPriority ではなく string 型なので、型で不正値を防げていない",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 4,
+   "summary": "page.tsx の `params.priority in PRIORITY_LABELS` は constructor や __proto__ などの継承プロパティも有効と判定してしまう",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 5,
+   "summary": "registry.ts の汎用 AttributeRegistry は項目 1 つのための作りすぎで、実際には定義を足すだけでは項目を増やせず、import 時の副作用による登録も脆いため、status と同じ素朴な実装にして registry を外すべき",
+   "severity": "中",
+   "match": "P1",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "whereClause が列名を文字列連結で SQL に入れており、規約 8 の趣旨から外れ、将来インジェクションの口になり得る",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 7,
+   "summary": "テストが作成・絞り込み・検証に限られ、更新、priority 省略時の既定値、status との組み合わせ絞り込み、非 partial の検証が確かめられていない",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "listTasks({ priority: \"unknown\" }).length === 8 はシード件数に依存する脆いテストである",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 9,
+   "summary": "validateTaskInput で priority: null を明示すると 400 になるので、仕様を決めてテストで固定すべき",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0748238
+ }
+}

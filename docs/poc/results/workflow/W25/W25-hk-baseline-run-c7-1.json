@@ -1,0 +1,55 @@
+{
+  "trial": "W25-hk-baseline-run-c7-1",
+  "scenario": "W25",
+  "config": "hk-baseline-run",
+  "case": "c7",
+  "rep": 1,
+  "review_md": "# コードレビュー: 担当者変更のサーバーログ記録\n\n対象: 未コミットの差分（`git diff HEAD`、新規ファイルを含む）。\n確認: `npm test` 21 件すべて成功、`npm run typecheck` 成功。\n再現: `node --experimental-strip-types` で関数を直接呼ぶ再現スクリプトを作業用コピーの外（scratchpad）に置いて実行した。\n\n## 指摘\n\n### 1. 中: Slack 送り先を選ぶと、DB を更新した後に例外で落ちる\n\n- 場所: `src/lib/tasks.ts` `updateTask`（121〜123 行目）、`src/lib/notify/index.ts`（9〜11 行目）、`src/lib/notify/notifier.ts` `SlackNotifier.send`\n- 問題: `NOTIFIER_KIND=slack` のとき、担当者が変わると `UPDATE` は実行済みなのに、購読者の `SlackNotifier.send` が「未実装です」の例外を投げる。その例外は `updateTask` を抜けて呼び出し元に届く。API の `PATCH /api/tasks/:id`（`src/app/api/tasks/[id]/route.ts`）は例外を捕まえていないので、DB は変わったのに 500 が返る。\n- 確認: `NOTIFIER_KIND=slack` を設定して `updateTask(1, { assignee: \"suzuki\" })` を呼ぶと、`THREW: Slack への通知は未実装です（URL 未設定）` が出た。その後 `getTask(1)` の担当者は `suzuki` に変わっていた。\n- 直し方: 通知の失敗を `updateTask` に伝えないようにする（購読側で `try/catch` して `console.error` に記録する、または `emit` で各ハンドラの例外を分けて扱う）。加えて、Slack/Email の未実装スタブは、設定されたときに起動時の明確なエラーにするか、未実装の間は選べないようにする。\n\n### 2. 中: 同じ `notify/index.ts` が読み直されると、購読者が二重に登録されてログが重複する\n\n- 場所: `src/lib/notify/index.ts`（読み込み時に `eventBus.subscribe` を呼ぶ）、`src/lib/notify/events.ts` `EventBus.subscribe`\n- 問題: 購読の登録がモジュールの読み込みごとに行われ、重複を防いでいない。`eventBus` は `events.ts` の一つのインスタンスだが、`index.ts` が再評価されると（開発サーバーの再読み込みなど）同じ購読者がもう一度登録される。すると 1 回の担当者変更で `[audit]` 行が 2 行出る。\n- 確認: `index.ts` を `?reload=1` 付きで読み直してから `updateTask` を呼ぶと、同じ `[audit] task 1: assignee sato -> suzuki` の行が 2 回出た。\n- 直し方: 購読の登録を冪等にする（`globalThis` に登録済みの印を置く、または `subscribe` が同じハンドラを二重に入れないようにする）。あるいは購読の登録を `getDb()` と同じく `globalThis` 経由で一度だけにする。\n\n### 3. 中: 監査ログに「誰が変えたか」が残らない\n\n- 場所: `src/lib/tasks.ts` `updateTask`（イベントの型 `src/lib/notify/events.ts` の `task.assignee_changed`）\n- 問題: ログは `task <ID>: assignee <前> -> <後> at <日時>` だけで、変更を行ったユーザーが入らない。依頼文の「いつ誰から誰に」を文字どおり読めば満たしているが、監査の目的では変更者が追えないと記録として不十分になる。`updateTask` は呼び出し元のユーザーを受け取らないので、今の形では記録できない。\n- 直し方: `PATCH` の処理で `requireApiUser()` が返すユーザー ID を `updateTask` に渡し、イベントの `by` に入れてログに出す。ログ形式を変えるなら、依頼者と合意する。（依頼文の解釈が合っているかは依頼者に確認が必要。）\n\n### 4. 中: 監査の動作を確かめるテストが無い\n\n- 場所: `tests/notify.test.ts`、`tests/tasks.test.ts`\n- 問題: 追加されたテストは `eventBus` の購読・解除と `NotifierFactory` だけを確かめている。担当者が変わったときに `updateTask` がイベントを出すこと、担当者が変わらないときは出さないこと、存在しないタスクでは出さないことは確かめていない。`CLAUDE.md` の規約 5（ロジックを追加・変更したら `tests/` にテストを追加する）に届いていない。\n- 補足: 手で確かめた範囲では、担当者が変わったときだけ 1 行出て、状態だけの更新や同じ担当者への更新では出なかった（`[audit]` の出力と最終的な DB の値を確認）。この動作を自動テストで守ること。\n- 直し方: `openDb()` を使い、(a) 担当者変更でログ 1 行、(b) 状態だけの変更で出ない、(c) 同じ担当者で出ない、を確かめるテストを `tests/notify.test.ts` か `tests/tasks.test.ts` に足す。ログは `console.log` を差し替えて確かめる。\n\n### 5. 低: 依頼の範囲を超えた部分がある\n\n- 場所: `src/lib/notify/notifier.ts`（`SlackNotifier`、`EmailNotifier`、`NotifierFactory`）、`src/lib/notify/events.ts`（`task.status_changed`、`task.created`）\n- 問題: 依頼は「サーバーのログに 1 行残す」だけで、記録先は当面ログだけでよいという合意もある。そのため Slack・メールのスタブ、環境変数による送り先の切り替え、どこからも出されない 2 つのイベント種別は、今の変更では使われていない。`CLAUDE.md` の規約 6（変更は依頼された範囲にとどめる）に照らすと、今回の PR から外すか、別の PR に分けることを勧める。また、この抽象化があるため指摘 1 の問題が生まれている。\n- 直し方: `ConsoleNotifier` と、担当者変更を出す 1 つの関数だけにする。未使用のイベント種別とスタブは削除する。\n\n### 6. 低: イベントはどの DB に対する更新でも全体のバスに出る\n\n- 場所: `src/lib/tasks.ts` `updateTask`（`db` の引数を受けるが、イベントは共有の `eventBus` に出る）\n- 問題: テストで `openDb()` の独立した DB に対して `updateTask` を呼んでも、共有の購読者が動いて `[audit]` 行が出る。テストの出力が汚れ、テストが本番の購読に依存する。\n- 直し方: 購読者を DB や引数で分けるか、テストでは購読を外してから実行する。指摘 4 のテストを書くときに合わせて直すとよい。\n",
+  "review_chars": 3289,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0283,
+    "tokens": {
+      "input": 34,
+      "output": 16500,
+      "cache_read": 935333,
+      "cache_creation": 53627
+    },
+    "turns": 24,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p \\\"$SCRATCH/repro\\\" 2>/dev/null; D=/tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c7-1-app/ac4f1420-4662-4d37-8e2f-f05328df67b2/scratchpad/repro; mkdir -p \\\"$D\\\"; APP=/tmp/poc-"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"D=/tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c7-1-app/ac4f1420-4662-4d37-8e2f-f05328df67b2/scratchpad/repro\\nmkdir -p $D\\ncat > $D/r1_emit.ts <<'EOF'\\nimport { openDb } from \\\"/tmp"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"D=/tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c7-1-app/ac4f1420-4662-4d37-8e2f-f05328df67b2/scratchpad/repro\\ncd /tmp/poc-trials/W25-hk-baseline-run-c7-1/app\\necho \\\"== r1\\\"; node -"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"NOTIFIER_KIND=slack node --experimental-strip-types --no-warnings /tmp/claude-0/-tmp-poc-trials-W25-hk-baseline-run-c7-1-app/ac4f1420-4662-4d37-8e2f-f05328df67b2/scratchpad/repro/r2_slack"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'Add review notes for assignee audit log change\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claud"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 15,
+      "Write": 6
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 93,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` はすでに直前のレビューの指摘をすべて、依頼された形式（場所・問題・直し方・重要度）で含んでいるため、書き直しもコミットもしていません。`git status` も `git diff HEAD` も REVIEW.md に差分がないことを示しています。\n\n中身は次の 6 件で、前回のコミット `f71904a` に入っています。\n\n1. 中: Slack 送り先を選ぶと、DB 更新後に例外で落ちる（`src/lib/tasks.ts` `updateTask`、`src/lib/notify/index.ts`、`SlackNotifier.send`）\n2. 中: 購読者が二重に登録され、`[audit]` 行が重複する（`src/lib/notify/index.ts`、`EventBus.subscribe`）\n3. 中: 監査ログに変更者が残らない（`updateTask`、`task.assignee_changed`）\n4. 中: 担当者変更の動作を確かめるテストが無い（`tests/notify.test.ts`、`tests/tasks.test.ts`）\n5. 低: 依頼の範囲を超えた抽象化（Slack・メールのスタブ、未使用のイベント種別）\n6. 低: テストでも共有の購読者が動いてログが出る（`updateTask`）\n\n新しい指摘は足していません。指摘 3 は依頼文の解釈を依頼者に確認する必要があります。\n\n作業ツリーの未コミット差分（`src/lib/notify/*`、`src/lib/tasks.ts`、`tests/notify.test.ts`）はそのままです。"
+  },
+  "interventions": 0
+}

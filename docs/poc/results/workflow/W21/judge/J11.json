@@ -1,0 +1,64 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "listTasks の SQL が assignee_id AS assignee と別名を付けているのに toTask は row.assignee_id を読むため、一覧の担当者が undefined になり、テストでも型検査でも気づけない。",
+   "severity": "高",
+   "match": "B2",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "Task 型と validateTaskInput の項目名の変更で API の入出力が assignee から assigneeId に変わる。POST に assignee を送ると 400、PATCH では黙って無視され、GET の応答から assignee が消える。",
+   "severity": "高",
+   "match": "B1",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "listTasks の結果の assigneeId を確かめるテストが無く、指摘 1 のバグがテストを通り抜ける。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 4,
+   "summary": "データ入りのバージョン 2 の DB にマイグレーション 3 を適用し、データ・インデックス・外部キーが保たれるかを確かめるテストが無い。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 5,
+   "summary": "マイグレーション 3 の後もインデックス名が tasks_assignee のまま残り、列名と食い違うので、DROP して作り直すべき。",
+   "severity": "低",
+   "match": "D2",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "マイグレーション 3 のコメントは SQLite がインデックス名まで変えるように読め、実際の動作を大げさに書いている。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 7,
+   "summary": "列名を変えると、tasks.assignee を直接参照する手書きの SQL や DB ファイルを読む外部のレポートが動かなくなるので、PR の説明に書くべき。",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 8,
+   "summary": "一覧ページは担当者の ID をそのまま、詳細ページは名前を表示していて不整合がある。名前の解決をページに書くのも規約 1 に反する。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0655838
+ }
+}

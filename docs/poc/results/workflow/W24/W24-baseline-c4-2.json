@@ -1,0 +1,44 @@
+{
+  "trial": "W24-baseline-c4-2",
+  "scenario": "W24",
+  "config": "baseline",
+  "case": "c4",
+  "rep": 2,
+  "review_md": "# コードレビュー: 期限が近いタスクを一覧で目立たせる\n\n## 指摘 1（重要度: 高）日付の数え方が日本時間になっていない\n\n- 場所: `src/lib/due.ts` の `daysUntilDue`\n- 問題: `Date.parse(\"YYYY-MM-DD\")` は **UTC の 0:00** として解釈される（日本時間では 9:00）。これを現在時刻の瞬間（`now.getTime()`）と引いて `Math.floor` しているため、「日本時間の日付で数える」という PR の仕様を満たさない。実際の時刻に依存して日数がずれる。\n  - 例: 日本時間 2026-11-12 15:00（= 06:00Z）に、期限が `2026-11-12`（今日）のタスクを見ると、差は -6 時間 → `floor` で `-1` となり、「期限間近」が付かない（期限超過扱い）。日本時間の 9:00 以降は、期限が当日のタスクがすべて外れる。\n  - 逆に、日本時間 0:00〜9:00 だけは正しく見える。追加されたテストは `now` を日本時間 0:00 に固定しているため、この偶然に当たっていて不具合を検出できていない。\n  - サーバーのタイムゾーンにも依存し得る（UTC のサーバーでは日本時間の日付とずれる）。\n- 直し方: 現在時刻を 日本時間（`Asia/Tokyo`）の日付に変換してから、日付どうし（日単位）で差を取る。例: `new Intl.DateTimeFormat(\"en-CA\", { timeZone: \"Asia/Tokyo\" }).format(now)` で `YYYY-MM-DD` を得て、両方を `Date.UTC(y, m-1, d)` に直し、差を `DAY_MS` で割る（日付どうしなので割り切れる）。サーバーのローカルタイムゾーンに依存させない。\n\n## 指摘 2（重要度: 高）「3 日後」が対象から外れている（境界の off-by-one）\n\n- 場所: `src/lib/due.ts` の `isDueSoon`（`days < DUE_SOON_DAYS`）\n- 問題: PR の仕様は「今日・明日・明後日・3 日後」（残り日数 0〜3）。しかし `days < 3` なので残り 3 日（3 日後）は対象外になり、0〜2 の 3 日分しか付かない。例: 今日が 11-12 のとき、期限 `2026-11-15` のタスクに「（期限間近）」が付かない。\n- テストも境界を見ていない: `tests/due.test.ts` は残り 2 日（11-14）と 18 日先しか確認しておらず、残り 3 日・4 日のケースがない。\n- 直し方: `days <= DUE_SOON_DAYS` にする。あわせて、残り 3 日で true、残り 4 日で false のテストを追加する。\n\n## 指摘 3（重要度: 中）テストが仕様の境界・時刻を検証していない\n\n- 場所: `tests/due.test.ts`\n- 問題: 指摘 1・2 のとおり、テストが通っても不具合が残る。`now` が日本時間 0:00 の 1 点だけで、日中・深夜（日本時間 23:59 など）や UTC 日付と日本の日付がずれる時間帯がない。\n- 直し方: 日本時間 0:00 / 12:00 / 23:59 の `now` それぞれで、当日期限（true）・前日期限（false）・残り 3 日（true）・残り 4 日（false）・完了済み（false）を確認する。\n\n## 指摘 4（重要度: 低）PR の説明にない変更が入っている\n\n- 場所: `src/app/tasks/page.tsx` の `<tr className=\"due-soon\">`\n- 問題: PR の変更内容は「（期限間近）」の表示だけだが、行に `due-soon` クラスが付いている。このクラスを参照するスタイルはどこにもなく、無意味（CLAUDE.md の「変更は依頼された範囲にとどめる」に反する）。\n- 直し方: クラス指定を削除する（見た目を変えたいなら別途 PR で CSS とあわせて追加する）。\n\n## 指摘 5（重要度: 低）同じ判定を 2 回計算している\n\n- 場所: `src/app/tasks/page.tsx` の `tasks.map` 内（`isDueSoon(task, now)` が 2 回）\n- 指摘 4 のクラスを消せば 1 回になる。残すなら変数に受ける。\n",
+  "review_chars": 1927,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2029,
+    "tokens": {
+      "input": 26,
+      "output": 4156,
+      "cache_read": 453399,
+      "cache_creation": 28977
+    },
+    "turns": 11,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && git ls-files --others --exclude-standard | xargs -I{} sh -c 'echo \\\"=== {}\\\"; cat {}'\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i 's#`Asia/Japan` の日付#日本時間（`Asia/Tokyo`）の日付#' REVIEW.md && git add REVIEW.md && git commit -q -m \\\"REVIEW.md: 期限間近表示の変更に対するレビュー指摘を追加\\n\\nCo-Authored-By: Claude Sonnet 5.5 <noreply@ant"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 6,
+      "Write": 1,
+      "Edit": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 45,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "指摘 5 件はすでに、ご指定の形式（重要度・場所・問題・直し方）で `REVIEW.md` に書いてあり、コミット済みです（`bd30f4e`）。このため、書き写しや再コミットはしていません。ファイルにもコードにも変更は加えていません。\n\n`REVIEW.md` に新しい指摘は足しておらず、直前に出した指摘も削っていません。内容は次のとおりです。\n\n- **高 1:** 日付の数え方が日本時間になっていません（`due.ts` の `daysUntilDue`）。\n- **高 2:** 「3 日後」が対象から外れています（`isDueSoon` の `days < 3`）。\n- **中 3:** テストが仕様の境界と時刻を検証していません。\n- **低 4:** 説明にない `due-soon` クラスが行に付いています。\n- **低 5:** `isDueSoon` を 2 回計算しています。\n\n作業ツリーに残っているのは、レビュー対象の差分（`page.tsx`、`due.ts`、`due.test.ts`）だけで、これは未コミットのままです。"
+  },
+  "interventions": 0
+}

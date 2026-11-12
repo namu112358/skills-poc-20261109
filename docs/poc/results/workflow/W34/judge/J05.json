@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "\"adds days to the due date\" のテストは期待値を extendDueDate 自身で計算しており恒真で、計算が壊れても通る",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "\"works across months\" は doesNotThrow だけで、2026-11-30+3 が 2026-12-03 になる結果を確かめていない",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "\"handles a completed task\" は doesNotThrow だけで、完了タスクが { ok: false, reason: \"done\" } になり期限が変わらないことを確かめていない",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "\"extends a task\" は result.ok しか見ておらず、期限が延びて DB に保存されたことを確認していない",
+   "severity": "高",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "validateExtendInput のテストは正常系 1 件のみで、0・31・小数・文字列・null などを拒むことを確かめていない",
+   "severity": "高",
+   "match": "T3",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "存在しないタスク（not_found）に対する extendTask のテストが無い",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "API Route の 401・400・404 の振り分けのテストが無い",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "DB に入り得る不正な日付（2026-02-30 など）を extendDueDate が黙って繰り越してしまう（既存の validateTaskInput の甘さが原因）",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "dueDate が壊れた形式だと toISOString() が RangeError を投げ API が 500 になる",
+   "severity": "低",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "route の POST で本文の検証（400）がタスクの存在確認（404）より先に行われ、既存の PATCH と順序が揃っていない",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.057043800000000006
+ }
+}

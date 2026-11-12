@@ -1,0 +1,64 @@
+{
+  "trial": "W22-hk-principles-c3-1",
+  "scenario": "W22",
+  "config": "hk-principles",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# コードレビュー: タスク一覧の CSV ダウンロード（`GET /api/tasks/export`）\n\n## レビューの要約\n\nタスクの一覧を CSV で出力する API を追加する変更です。CSV の組み立てを `src/lib/export.ts` に分け、route は認証と応答だけを担う構成は良いです。一方で、PR の説明にある「タイトルの引用符で列がずれない」と「不正な `status` は指定なし」が実際には満たされていません。どちらも確認済みで、マージ前に直す必要があります。**修正を求める。**\n\n## 良い点\n\n- CSV の組み立て（`toCsv`）を純粋な関数として `src/lib/export.ts` に分けてある。route は「認証 → 絞り込み → 応答」だけになっており、テストしやすい形です。\n- 認証を最初に確認し（`requireApiUser`）、未ログインなら 401 を返す既存のパターンに合わせている。\n- BOM は UTF-8 の正しい `EF BB BF`（`src/lib/export.ts` の `CSV_BOM`）で、改行も CRLF にそろえている。\n\n## 指摘\n\n### 1. タイトル中の引用符がエスケープされず、CSV の列がずれる\n\n- 場所: `src/lib/export.ts` の `field()`（10〜12 行目）、`toCsv()`（15〜18 行目）\n- 何が問題か: `field()` は値を `\"${value}\"` で囲むだけで、値の中の `\"` を `\"\"` にしていない。タイトルに `\"` を含むタスク（例: `He said \"hi\", ok`）を出力すると、次の行になる。\n  ```\n  \"8\",\"He said \"hi\", ok\",\"未着手\",\"sato\",\"2026-12-01\"\n  ```\n  RFC 4180 の読み方では引用符が閉じて列が分かれ、Excel に貼ると担当者と期限の列がずれる。PR の「タイトルにカンマ・引用符・改行が含まれていても列がずれないようにする」を満たさない。実行して確認済み（上の行を出力）。テストもこの穴を隠している（補足を参照）。\n- 直し方: 値の中の `\"` を二重にしてから囲む。\n  ```ts\n  function field(value: string | number): string {\n    return `\"${String(value).replace(/\"/g, '\"\"')}\"`;\n  }\n  ```\n  テストに引用符を含むケースを足す（例: `'He said \"hi\", ok'` → `\"He said \"\"hi\"\", ok\"`）。\n  補足: `tests/export.test.ts` の `escapes quotes and commas in titles` は、タイトルに**引用符を含めていない**（`週次 定例の準備` はカンマも引用符も無い）。名前と中身が食い違っていて、上の不具合を見逃している。テストの名前と入力を合わせること。\n- 重要度: 高\n\n### 2. 不正な `status` が「指定なし」にならず、0 件になる\n\n- 場所: `src/app/api/tasks/export/route.ts` の `GET`（9 行目付近）: `searchParams.get(\"status\") as TaskStatus | null`\n- 何が問題か: `?status=bogus` を送ると、`isTaskStatus` で確かめずに `TaskStatus` へ型を付け替えて `listTasks` に渡している。DB の検索は `status = 'bogus'` になり、結果は 0 件。一覧 API（`GET /api/tasks`）は同じ入力を「指定なし」として全件を返すので、2 つの API で結果が食い違う。実行して確認済み（全 8 件のところ、`bogus` では 0 件）。PR の「不正な値は、一覧と同じく『指定なし』」と、CLAUDE.md の規約 2（不正な値は「指定なし」）に反する。`as` による型の付け替えは検証を飛ばしており、「早く失敗する」の逆を行っている。\n- 直し方: 一覧と同じく型ガードを通す。\n  ```ts\n  const param = new URL(request.url).searchParams.get(\"status\");\n  const csv = toCsv(listTasks({ status: isTaskStatus(param) ? param : undefined }));\n  ```\n  さらに、「不正な値は指定なし」という決まりは一覧と export の 2 か所に書かれている。知識が 2 か所にあると、片方だけが直されて食い違う（今回がまさにそれ）。`src/lib/tasks.ts` に `parseStatusFilter(searchParams: URLSearchParams): TaskStatus | undefined` のような関数を作り、両方の route から呼ぶと、決まりが 1 か所になる。\n- 重要度: 高\n\n### 3. 絞り込みの振る舞いがテストされていない\n\n- 場所: `tests/export.test.ts`（全体）\n- 何が問題か: 絞り込みは route にあり、テストが無い。そのため指摘 2 の不具合がテストで検出されなかった。CLAUDE.md の規約 5（ロジックを変えたら `tests/` に単体テストを足す）にも届いていない。受入条件（`status` の絞り込み、不正な値の扱い）ごとにテストが無いと、変更が仕様どおりか確かめられない。\n- 直し方: 指摘 2 の `parseStatusFilter` を作るなら、その単体テストで「有効な値」「不正な値は undefined」「未指定は undefined」を確かめる。指摘 1 の引用符のテストと合わせて、テストの名前は確かめている振る舞いを書く。\n- 重要度: 中\n\n### 4. タイトルが `=` `+` `-` `@` で始まると、Excel で数式として実行されうる\n\n- 場所: `src/lib/export.ts` の `toCsv()`（15〜18 行目）\n- 何が問題か: タイトルは一般のユーザーが `POST /api/tasks` で入力できる。`=HYPERLINK(...)` のような値を含むタスクを CSV にすると、Excel が数式として評価しうる（CSV インジェクション）。引用符で囲んでも、Excel はこの扱いを防がない場合がある。Excel での動作は確認していない。この PR の目的は Excel への貼り付けなので、出力する側で扱いを決めておく必要がある。\n- 直し方: 先頭が `= + - @`（必要なら タブ・改行も）の項目は、先頭に `'` を付けて文字列として扱わせる。そのまま出す場合は、その理由を PR か `export.ts` のコメントに書く。直す場合は、`field()` の前で値を加工し、テストを 1 件足す。\n- 重要度: 中\n\n## 指摘の対象外として判断したこと\n\n- `toCsv` が「列の並び」と「値の書式」を 1 つの関数で扱っている点は、この規模では問題にならない。列が増えたら分けてよい。\n- `Content-Disposition` の固定のファイル名 `tasks.csv` は問題ない。\n- 件数の上限（ページング）が無い点は、PoC の規模では妥当。件数が増えたら検討する。\n",
+  "review_chars": 3274,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.0279,
+    "tokens": {
+      "input": 38,
+      "output": 15614,
+      "cache_read": 983559,
+      "cache_creation": 51129
+    },
+    "turns": 22,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p /tmp/poc-trials/scratch-check 2>/dev/null; cat > /tmp/poc-trials/scratch-check/probe.test.ts <<'EOF'\\nimport { it } from \\\"node:test\\\";\\nimport { openDb } from \\\"/tmp/poc-trials/"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"ls -la REVIEW.md 2>&1; grep -c $'\\\\xEF\\\\xBB\\\\xBF' src/lib/export.ts; git config user.name; git config user.email; git branch --show-current\", \"description\": \"Check BOM bytes, existing REV"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"ls -la REVIEW.md; od -c src/lib/export.ts | sed -n '1,2p'; git config user.name; git config user.email; git branch --show-current\", \"description\": \"Check BOM bytes, existing REVIEW.md, an"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git config user.name; git config user.email; git branch --show-current\", \"description\": \"Show git identity and current branch\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git add REVIEW.md && git commit -m \\\"$(printf 'レビュー: タスク CSV ダウンロードの指摘を REVIEW.md に記録\\\\n\\\\nCo-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>\\\\nClaude-Session: https://claude.ai/cod"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 14,
+      "Write": 5
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 88,
+    "answer_key_access": [],
+    "isolation_suspects": [
+      {
+        "step": "step2.jsonl",
+        "tool": "Bash",
+        "reasons": [
+          "他の試行の作業用コピー"
+        ],
+        "input": "{\"command\": \"mkdir -p /tmp/poc-trials/scratch-check 2>/dev/null; cat > /tmp/poc-trials/scratch-check/probe.test.ts <<'EOF'\\nimport { it } from \\\"node:test\\\";\\nimport { openDb } from \\\"/tmp/poc-trials/W22-hk-principles-c3-1/app/src/lib/db/index.ts\\\";\\nimport { toCsv } from \\\"/tmp/poc-trials/W22-hk-pr"
+      }
+    ],
+    "final_message": "`REVIEW.md` を依頼の形式に書き直し、そのファイルだけを `47ee5f5` としてコミットしました。コードは直していません。\n\n- 指摘は 4 件のままで、新しい指摘は足していません。削ってもいません。\n- 重要度は既存の「必須 / 推奨」を「高 / 中」に対応させました。必須だった指摘 1（引用符のエスケープ）と指摘 2（不正な `status`）は「高」、推奨だった指摘 3（絞り込みのテスト）と指摘 4（CSV インジェクション）は「中」です。\n- 各指摘は「場所」「何が問題か」「直し方」「重要度」の順に並べました。\n- 末尾の「指摘の対象外として判断したこと」の節は指摘ではないので残しています。不要なら削れます。\n\n指摘 1 と指摘 2 の確認は前回と同じです。指摘 1 はタイトルに引用符を含むときに列がずれること、指摘 2 は `?status=bogus` で 0 件になることを、それぞれ実行して確かめています。\n\nステージされたままの 3 ファイル（`route.ts`・`export.ts`・`export.test.ts`）は、今回もコミットしていません。"
+  },
+  "interventions": 0
+}

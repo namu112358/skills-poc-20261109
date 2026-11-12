@@ -1,0 +1,82 @@
+{
+  "trial": "W32-baseline-e2e-report-c2-1",
+  "scenario": "W32",
+  "config": "baseline-e2e-report",
+  "case": "c2",
+  "rep": 1,
+  "review_md": "# レビュー: 計測器ごとの定期点検の追加\n\n結論: **マージ不可**。計測器の詳細画面が全件 500 になる（高 1）。要件の一部（絞り込み・並べ替え・遅延台数）も未実装。\n\n## 動作確認の結果（`npm run build` → `PORT=3917 npm run start`、sato でログイン）\n\n| 対象 | 結果 |\n|---|---|\n| `npm run build` | 成功 |\n| `POST /api/login` | 200 |\n| `GET /instruments`（一覧画面） | 200 |\n| `GET /instruments/1`、`/instruments/6`（詳細画面） | **500**（サーバーログに `Only plain objects... can be passed to Client Components`）。指摘 1 |\n| `GET /instruments/999` | 404（想定どおり） |\n| `GET /api/instruments/1/inspection` | 200（移行された担当者 sato・次回 2026-12-01）。未ログインは 401 |\n| `GET /api/instruments/6/inspections` | 200（`R8.9.10` が 2026-09-10 として移行されていた） |\n| `POST /api/instruments/3/inspections`（repair） | 201。計測器が `suspended` になった |\n| `PATCH /api/instruments/1/inspection`（退職・休職中の kondo） | 400（想定どおり） |\n| `PATCH /api/instruments/1/inspection`（tanaka・6 か月） | 200 |\n\nPlaywright でのブラウザ操作はしていない。画面は curl で状態コードとサーバーログだけを確認した。詳細画面が 500 のため、フォーム操作の確認はできていない。確認後にサーバーは停止した。\n\n## 指摘\n\n### 1. 【高】詳細画面が全計測器で 500 になる\n- 場所: `src/app/instruments/[id]/page.tsx`（`listActiveUsers()` の結果を `planChoices` として `<InspectionForms users=...>` に渡している箇所）、`src/lib/users.ts` の `listActiveUsers`\n- 問題: `node:sqlite` の行はプロトタイプが null のオブジェクト。これをそのままクライアントコンポーネントに渡すと、本番で `Only plain objects ... can be passed to Client Components` になり、`/instruments/1`、`/instruments/6` は 500 を返した。全計測器の詳細画面が開けず、点検の担当者・記録・フォームも使えない。`npm run build`・`npm test`・型チェックでは検出されない。\n- 直し方: クライアントに渡す前に `users.map((u) => ({ id: u.id, name: u.name }))` のようにプレーンなオブジェクトへ詰め替える。ページを実際に開いて確認する検証（E2E など）を足す。\n\n### 2. 【高】要件の未実装: 担当者での絞り込み・並べ替えと、担当者ごとの遅延台数\n- 場所: `src/app/instruments/page.tsx`、`src/lib/instruments.ts`（`listInstruments`）、`src/lib/inspections.ts`\n- 問題: 担当者列を足しただけで、担当者の絞り込み・並べ替えが無い。「担当者ごとに点検が遅れている台数を毎朝知りたい」に対応する集計（関数・画面・API）も無い。\n- 直し方: `src/lib/` に担当者の絞り込み・並べ替えと、担当者別の遅延件数の集計を足す。クエリパラメータは型ガードで検証する。DB 側で絞り込み・集計をする。テストも追加する。\n\n### 3. 【高】5 万件で一覧が重くなる\n- 場所: `src/lib/inspections.ts` の `listInspectionPlans` / `PLAN_SELECT`、`src/app/instruments/page.tsx`\n- 問題: 表示の絞り込み（状態・部署）に関係なく、全計測器の点検状況を毎回計算している（計測器ごとの相関サブクエリ約 5 万回と、Map への展開）。既存の `listInstruments` も全件を読んで部署で絞り込む作りで、そこへさらに全件分が加わる。ページングも無く、毎朝開く画面なので遅さが目立つ。\n- 直し方: 表示対象の計測器だけを対象にする（絞り込みを SQL に移す）。最終点検日を `instrument_id` ごとに 1 回の GROUP BY で集計するか、計測器側に最終点検日を持たせる。ページングを入れる。本番規模（5 万件）のデータで計測する。\n\n### 4. 【中】要修理で「貸出中」の計測器まで使用停止にする\n- 場所: `src/lib/inspections.ts` の `recordInspection`（`UPDATE instruments SET status = 'suspended' WHERE id = ? AND status <> 'disposed'`）\n- 問題: CLAUDE.md には「貸出中は貸出・返却の操作でだけ変わる」とある。要修理を記録すると、貸出中（`on_loan`）の計測器の状態が書き換わり、未返却の貸出記録と状態が食い違う。校正中の計測器も同様に上書きされる。\n- 直し方: 貸出中の扱いを決める（例: 貸出中は状態を変えず、警告を返して返却後に停止する）。決めた内容をテストに入れる。\n\n### 5. 【中】訂正の記録で最後の点検日を直せない\n- 場所: `src/lib/inspections.ts`（`PLAN_SELECT` の `MAX(r.inspected_on)`）\n- 問題: 最後の点検日を「点検日の最大値」で決めている。点検日を未来寄りに誤入力して、訂正の記録を正しい（より前の）日付で足しても、最後の点検日・次の予定日は誤った日付のままになる。「消さず、訂正の記録を足す」運用と合わない。\n- 直し方: 記録に「訂正元」を持たせて有効な記録だけを集計するか、登録の新しい順（`recorded_at`）で最新の記録を採用する。仕様を決めてテストを書く。\n\n### 6. 【中】`extra` の `inspector` / `last_inspected` を API で更新でき、画面や集計に反映されない\n- 場所: `src/app/instruments/[id]/page.tsx`（`extra` から該当キーを表示から除外）、`PATCH /api/instruments/:id`（`extra` を重ねて更新する既存処理）\n- 問題: 画面は `extra` のこの 2 項目を隠すが、API では更新できる。更新しても点検には反映されず、値が二重管理になる。ロールバック後に旧アプリで書かれた値は、再度 6 に上げても取り込まれない（移行は 1 度だけ）。\n- 直し方: PATCH でこの 2 キーを受けたときの扱いを決める（拒否するか、点検側へ書く）。ロールバック時の運用を `docs/operations.md` に書く。\n\n### 7. 【中】移行で JSON を読めない行や型の違う値を、何も記録せずに飛ばす\n- 場所: `src/lib/inspections-legacy.ts` の `importLegacyInspections`（`catch { continue; }`、`typeof ... === \"string\"` の判定）\n- 問題: `extra` の JSON が壊れている行、または `inspector` / `last_inspected` が文字列以外（数値など）の行は、ログも残さず黙って読み飛ばす。要件の「黙って捨てない」に反する。元の `extra` は残るが、画面の点検欄には出ず、移行できなかった件数も分からない。\n- 直し方: 読めない行・型の違う値は `legacy_inspector` / `legacy_date` に元の書き方を残す。移行した件数・残した件数・読めなかった件数を `logger` で出す。\n\n### 8. 【低】移行の一部の取りこぼし\n- 場所: `src/lib/inspections-legacy.ts`（`parseLegacyDate`、`normalizeInspectorName`）\n- 問題: 日付が読めない記録は `inspected_on = NULL` で入るため、最後の点検日に使われず「未点検」と表示される（元の日付は点検記録の表に出る）。同姓の利用者が複数いる場合や、「〜さん」以外の呼び方は担当者にできず `legacy_inspector` に残る。この動きはよいが、画面から一目で分からない。\n- 直し方: 日付が読めない旧データがある計測器には、一覧にも「旧データの記載あり」を出す。\n\n### 9. 【低】テストの不足\n- 場所: `tests/inspections.test.ts`\n- 問題: ページを描画する確認が無く、指摘 1 を検出できなかった。要修理で貸出中の場合・5 万件規模・移行の失敗ケース（壊れた JSON・型の違い）が無い。\n- 直し方: 上記のケースを足す。\n",
+  "review_chars": 4178,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.5601,
+    "tokens": {
+      "input": 66,
+      "output": 11669,
+      "cache_read": 1930616,
+      "cache_creation": 62543
+    },
+    "turns": 41,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -n 1,80p src/lib/calibrations.ts | grep -n -i \\\"suspend\\\\|status\\\\|loan\\\" ; (npm run build 2>&1 | tail -25); sed -n 1,60p src/lib/db/seed.ts | head -80\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"(PORT=3917 nohup npm run start > /tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c2-1-app/bdfcc70f-9d5c-4cc9-96b2-fdcfa60c69cd/scratchpad/srv.log 2>&1 &) ; sleep 4; cat /tmp/claude-"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sleep 4; S=/tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c2-1-app/bdfcc70f-9d5c-4cc9-96b2-fdcfa60c69cd/scratchpad; cat $S/srv.log; grep -n \\\"email\\\\|id\\\\|userId\\\\|body\\\" src/lib/a"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"cd /tmp && J=/tmp/cj.txt; B=http://localhost:3917\\nc(){ echo \\\"== $*\\\"; curl -s -o /tmp/o.txt -w \\\"%{http_code}\\\\n\\\" -b $J \\\"$@\\\"; head -c 600 /tmp/o.txt; echo; }\\ncurl -s -c $J -o /dev/n"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"curl -s -c /tmp/cj.txt -o /dev/null -w \\\"login %{http_code}\\\\n\\\" -H 'content-type: application/json' -d '{\\\"userId\\\":\\\"sato\\\",\\\"password\\\":\\\"password\\\"}' http://localhost:3917/api/login\\n"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c2-1-app/bdfcc70f-9d5c-4cc9-96b2-fdcfa60c69cd/scratchpad/t1.sh\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"bash /tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c2-1-app/bdfcc70f-9d5c-4cc9-96b2-fdcfa60c69cd/scratchpad/t1.sh\", \"dangerouslyDisableSandbox\": true}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"grep -o \\\"Application error[^<]*\\\\|Internal Server Error\\\" /tmp/d1.html | head -3; tail -30 /tmp/claude-0/-tmp-poc-trials-W32-baseline-e2e-report-c2-1-app/bdfcc70f-9d5c-4cc9-96b2-fdcfa60c"
+      },
+      {
+        "tool": "Read",
+        "input": "{\"file_path\": \"/tmp/d1.html\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f \\\"next start\\\"; pkill -f next-server; echo done\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"pkill -f next-server\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 31,
+      "Write": 2,
+      "Read": 3,
+      "ToolSearch": 1,
+      "TaskStop": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 123,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、直前のレビューの指摘が既に全件、場所・何が問題か・直し方・重要度の形式で書かれています。内容にも抜けがありません。そのため書き写す作業はありません。`REVIEW.md` は未コミットの変更も無く、コミット `b498be3` に含まれています。\n\n指摘は 9 件で、高が 3 件、中が 4 件、低が 2 件です。新しい指摘は足していません。コードも直していません。\n\n- **高**\n  1. 詳細画面が全計測器で 500 になる。\n  2. 担当者での絞り込み・並べ替えと、担当者ごとの遅延台数が未実装。\n  3. 5 万件で一覧が重くなる。\n- **中**\n  4. 要修理で貸出中の計測器まで使用停止にする。\n  5. 訂正の記録で最後の点検日を直せない。\n  6. `extra` の `inspector` / `last_inspected` を API で更新でき、点検側に反映されない。\n  7. 移行で壊れた JSON や型の違う値を、記録せずに飛ばす。\n- **低**\n  8. 移行の取りこぼしが画面から分からない。\n  9. テストの不足。"
+  },
+  "interventions": 0
+}

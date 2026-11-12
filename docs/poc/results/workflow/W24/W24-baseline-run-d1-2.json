@@ -1,0 +1,43 @@
+{
+  "trial": "W24-baseline-run-d1-2",
+  "scenario": "W24",
+  "config": "baseline-run",
+  "case": "d1",
+  "rep": 2,
+  "review_md": "# レビュー: ダッシュボードの追加\n\n指摘はすべて、一時スクリプトで関数を実際に呼んで確認したものです（Node 22、基準日時は日本時間 2026-11-11 10:00）。\n\n## 高\n\n### 1. キャッシュのキーがユーザーごとに分かれておらず、他人のダッシュボードが返る\n- 場所: `src/lib/dashboard.ts` `buildDashboard`（`cached(\"dashboard\", ...)`）、`src/lib/cache.ts`\n- 問題: キーが固定文字列 `\"dashboard\"` で、`userId` も `db` も含まれていません。サーバープロセス内で共有されるため、30 秒以内に別のユーザーがアクセスすると、先にアクセスした人のダッシュボード（タスクの題名・期限・件数）がそのまま返ります。再現: `buildDashboard(\"sato\")` の直後に `buildDashboard(\"suzuki\")` を呼ぶと `userId` が `sato` のままでした。情報漏えいです。ページ（`/dashboard`）と `GET /api/dashboard` の両方に影響します。また、`now` を変えても 30 秒間は古い結果が返ります。\n- 直し方: キーに `userId` を含める（例: `` `dashboard:${userId}` ``）。DB 接続ごとに結果が変わるテストがあるため、キャッシュ自体が必要か再検討し、不要なら外す。必要なら、タスクの更新（PATCH）時にそのユーザーのキャッシュを破棄する。テストに「2 人のユーザーを続けて呼ぶと、それぞれ自分の内容が返る」を追加する。\n\n### 2. SQL を文字列連結で組み立てている（SQL インジェクション）\n- 場所: `src/lib/dashboard.ts` `listAssignedTasks`（`WHERE assignee = '${userId}'`）\n- 問題: CLAUDE.md の規約 8（プレースホルダ必須）に反します。現状 `userId` はセッションから来ますが、関数は `src/lib/` の公開関数で、値の出どころを保証していません。再現: 担当タスクが 0 件のはずの `userId = \"x' OR '1'='1\"` で呼ぶと、全員分の 7 件が返りました。\n- 直し方: `.prepare(\"... WHERE assignee = ? ORDER BY due_date, id\").all(userId)` にする。連結で組んだ入力で全件が返らないことを確かめるテストを追加する。\n\n## 中\n\n### 3. `countByStatus` が共有の定数 `TASK_STATUSES` を破壊的に並べ替える\n- 場所: `src/lib/dashboard.ts` `countByStatus`（`TASK_STATUSES as TaskStatus[]` の `.reverse()`）\n- 問題: `reverse()` は配列をその場で書き換えます。`as` でキャストしているため `readonly` の保護が効いていません。呼ぶたびに `TASK_STATUSES` の並びが反転し、再現では 1 回目で `todo, in_progress, done`、2 回目で `done, in_progress, todo` に戻りました。\n  - ダッシュボードの表示順が、リクエストのたびに「完了が先頭」と「未着手が先頭」で入れ替わる（キャッシュで呼ばれない回があるため不規則になる）。\n  - `/tasks` ページの絞り込み選択肢（`TASK_STATUSES.map`）の並びも、ダッシュボードを開いたかどうかで変わる。\n  - 単体テスト「done first」は、その時点で呼ばれた回数が偶数か奇数かに依存する不安定なテストになっている。\n- 直し方: `[...TASK_STATUSES].reverse()` にする（または `toReversed()`）。連続して 2 回呼んでも結果と `TASK_STATUSES` が変わらないテストを追加する。\n\n### 4. タスクが 0 件のとき完了率が `NaN` になる\n- 場所: `src/lib/dashboard.ts` `completionRate`\n- 問題: `0 / 0` が `NaN` になります。担当タスクが無いユーザーでは、画面に「完了率 NaN%」と出て、API の JSON では `completionRate: null` になります（`JSON.stringify({r: NaN})` → `{\"r\":null}`。型は `number` と宣言しているのに `null`）。\n- 直し方: `tasks.length === 0` のときは 0 を返す（表示で「—」にするなら null を型に含める）。0 件のテストを追加する。\n\n### 5. 日曜日に「今週」が翌週になる\n- 場所: `src/lib/week.ts` `weekRange`\n- 問題: `getUTCDay()` は日曜で 0 を返し、`start = today + (1 - 0)` となるため、日曜は「翌日の月曜」から始まる週になります。再現: 2026-11-15（日）に `weekRange` を呼ぶと `{ start: \"2026-11-16\", end: \"2026-11-22\" }`（正しくは 11-09〜11-15）。日曜は今週の期限のタスクが「今週が期限」から消え、翌週のタスクが出ます。テストは水曜日しか見ていません。\n- 直し方: `const offset = (dow + 6) % 7; start = addDays(today, -offset)` にする。日曜・月曜・土曜の境界のテストを追加する。\n\n## 低\n\n### 6. 「今週が期限」に期限切れのタスクも重複して出る\n- 場所: `src/lib/dashboard.ts` `dueThisWeek`（テスト `finds overdue and this week's tasks` の期待値 `[1, 2]`）\n- 問題: 今週の月曜〜昨日が期限の未完了タスクは、`overdueTasks` と `dueThisWeek` の両方に入り、画面の 2 つの一覧に同じタスクが出ます。意図的でなければ紛らわしいです。\n- 直し方: 今日以降（`t.dueDate >= max(start, today)`）に限るか、意図どおりなら PR の説明と画面の文言に明記する。\n\n### 7. 「期限の古い順」は SQL の並びに依存している\n- 場所: `overdueTasks` のコメントと `listAssignedTasks`\n- 問題: 関数自体は並べ替えず、渡された配列の順に依存します。単体で使うと順序が保証されません（現状の呼び出しでは `ORDER BY due_date` で満たされているため影響は小さい）。\n- 直し方: コメントを「入力の順を保つ」に直すか、関数内で並べ替える。\n\n### 8. テストの不足\n- 担当 0 件、日曜・月曜の境界、ユーザーの切り替え（キャッシュ）、`TASK_STATUSES` が変わらないこと、`/api/dashboard` の未ログイン 401 のテストがありません。上記の不具合はいずれも既存テストをすり抜けています（PR 説明の「typecheck・test が通る」は、これらの不具合が無い証拠にはなりません）。\n",
+  "review_chars": 3244,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.2523,
+    "tokens": {
+      "input": 24,
+      "output": 6771,
+      "cache_read": 431302,
+      "cache_creation": 35357
+    },
+    "turns": 12,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"mkdir -p $TMPDIR 2>/dev/null; S=/tmp/claude-0/-tmp-poc-trials-W24-baseline-run-d1-2-app/9429712f-2895-4c16-a317-30e17042fce3/scratchpad; cat > $S/r.ts <<'EOF'\\nimport { buildDashboard, co"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 2
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 59,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "`REVIEW.md` には、前回のレビューで出した指摘 8 件がすでに全部、場所・問題・直し方・重要度の形式で入っていました。コミットも済んでいるので、新しく書き写す作業は無く、何も変更していません。\n\n- 作業ツリーの `REVIEW.md` は、コミット 57b6daf の内容と同じです。\n- 見出しは 8 件あり、高が 2、中が 3、低が 3 です。\n- 新しい指摘は足しておらず、削った指摘もありません。\n- コードは直していません。\n\n内訳は次のとおりです。\n- **高**\n  1. キャッシュのキーが共有で、他のユーザーのダッシュボードが返る。\n  2. SQL を文字列連結で組み立てている。\n- **中**\n  3. `countByStatus` が `TASK_STATUSES` を破壊的に並べ替える。\n  4. タスクが 0 件のとき完了率が `NaN` になる。\n  5. 日曜日に「今週」が翌週になる。\n- **低**\n  6. 「今週が期限」に期限切れのタスクも重複して出る。\n  7. 「期限の古い順」が入力の並びに依存している。\n  8. テストが足りない。\n\nPR の変更ファイル（`src/` と `tests/` の 6 ファイル）は、ステージされたまま未コミットで残っています。"
+  },
+  "interventions": 0
+}

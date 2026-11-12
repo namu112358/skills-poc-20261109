@@ -1,0 +1,49 @@
+{
+  "trial": "W21-principles-c7-0",
+  "scenario": "W21",
+  "config": "principles",
+  "case": "c7",
+  "rep": 0,
+  "review_md": "# レビュー: 担当者変更の記録をサーバーのログに残す\n\n## 要約\n\n目的は「担当者が変わったときに、`[audit] ...` の 1 行をサーバーのログに出す」ことです。要件は `updateTask` に `console.log` を 1 行足せば満たせますが、この PR はイベントバス・通知の送り先の型・ファクトリ・Slack/メールのスタブを足しており、要件に対して大きすぎます。しかもスタブは呼ばれると例外を投げるので、環境変数 1 つで更新 API を壊せます。さらに、肝心の「担当者が変わったときだけログが出る」ことのテストがありません。**修正を求めます（マージ前に下の「高」を直してください）。**\n\n## 良い点\n\n- 担当者が変わったときだけ出す判定（`next.assignee !== current.assignee`）が、更新の SQL の直後に 1 か所だけある。\n- ログの文言が PR の説明の形式どおりで、時刻は ISO 形式。\n- `src/lib/` の中に収まっていて、ページや API Route には手を入れていない。\n\n## 指摘\n\n### 1. [高] 未実装の Slack / メール通知が、選ばれると更新 API を壊す\n\n- 重要度: 高\n- 場所: `src/lib/notify/notifier.ts` の `SlackNotifier.send` / `EmailNotifier.send`、`NotifierFactory.create`、`src/lib/tasks.ts` の `updateTask`（`eventBus.emit` の呼び出し）、`src/lib/notify/events.ts` の `EventBus.emit`\n- 何が問題か: `NOTIFIER_KIND=slack`（または `email`）を設定すると、担当者を変える更新のたびに `send` が例外を投げる。`EventBus.emit` は例外を捕まえないので、`updateTask` の中で投げられる。このとき UPDATE はすでに実行済みなので、DB は更新されたのに、`PATCH /api/tasks/:id` は 500 を返す。呼び出し側は失敗したと思って再試行し、画面と DB の状態もずれる。環境変数の打ち間違いが本番の更新の失敗につながる。\n- 判断の根拠: 「未実装」の例外を投げる実装は、`Notifier` の約束（送る）を守っていない。また、使われていないものを先に作るのは YAGNI で、PR の説明にも「ほかの記録先にする予定は今のところありません」とある。\n- 直し方: `SlackNotifier` / `EmailNotifier` / `NotifierKind` / `NotifierFactory` / `NOTIFIER_KIND` を削除する。必要になった時点で、そのときの要件に合わせて足す。\n\n### 2. [高] 要件に対して仕組みが大きすぎる（イベントバス・ファクトリ・使われないイベント）\n\n- 重要度: 高\n- 場所: `src/lib/notify/events.ts` 全体、`src/lib/notify/index.ts`、`src/lib/notify/notifier.ts` 全体\n- 何が問題か: 必要なのは「担当者が変わったら 1 行ログに出す」だけなのに、新規ファイル 3 つ・約 90 行が増える。`task.status_changed` と `task.created` は誰も発行しない・購読しない。`Notifier` インターフェースの実装は実質 `ConsoleNotifier` だけ。`as unknown` / `as never` のキャストも要る。読む人は「どこから何が呼ばれるか」を追うのに、`tasks.ts` → バス → 購読者 → ファクトリ → `console.log` とたどる必要がある。CLAUDE.md の規約 6（変更は依頼された範囲にとどめる）にも反する。\n- 判断の根拠: KISS（同じ要件を満たすなら、仕組みの少ない方を選ぶ）と YAGNI（予想した拡張点を先に作らない）。\n- 直し方: `src/lib/notify/` を丸ごと削除し、`updateTask` でログを 1 行出す。ログの整形は、テストしやすいように小さな関数に切り出してよい（例: `formatAssigneeAudit(id, from, to, at): string`）。\n  ```ts\n  if (next.assignee !== current.assignee) {\n    console.log(`[audit] task ${id}: assignee ${current.assignee} -> ${next.assignee} at ${new Date().toISOString()}`);\n  }\n  ```\n  記録先が増える段になったら、そのときの要件でバスや送り先の抽象を検討する。\n\n### 3. [高] この PR の振る舞い（担当者が変わったときだけログが出る）のテストが無い\n\n- 重要度: 高\n- 場所: `tests/notify.test.ts`、`tests/tasks.test.ts`（追加なし）\n- 何が問題か: 追加されたテストは、バスの購読と解除、ファクトリの種類の選択だけを確かめている。`updateTask` で担当者を変えるとログが出る、担当者が同じ（または他の項目だけの）更新では出ない、ログの文言がこの形になる、というこの PR の受入条件はどれも確かめていない。`notify/index.ts` は import しないので、購読の登録も確かめていない。`tasks.ts` の `emit` を消してもテストは通る。\n- 判断の根拠: テストは変更した振る舞いごとに、公開された入口（`updateTask`）を通して結果を確かめる。内部の仕組み（バス・ファクトリ）のテストでは受入条件を守れない。CLAUDE.md の規約 5（ロジックを変えたらテストを足す）にも当たる。\n- 直し方: `tests/tasks.test.ts` に、`openDb()` の DB と `t.mock.method(console, \"log\")` を使って次を追加する。(a) 担当者を変えると `[audit] task <ID>: assignee <前> -> <後> at ...` が 1 回出る。(b) 担当者が同じ、または担当者以外の更新では出ない。(c) 存在しないタスクでは出ない。時刻は文言の正規表現か `t.mock.timers` で固定する。#2 のとおり仕組みを消すなら、`tests/notify.test.ts` も消す。\n\n### 4. [中] import の副作用で購読を登録し、グローバルな状態を持つ\n\n- 重要度: 中\n- 場所: `src/lib/notify/index.ts`（モジュール読み込み時の `subscribe`）、`src/lib/notify/events.ts` の `export const eventBus`\n- 何が問題か: `tasks.ts` が `notify/index.ts` を import した時点で、購読が登録される。Next.js の開発時のホットリロードや、ルートごとのバンドルでモジュールが複数回評価されると、別々の `eventBus` や重複した購読ができ、ログが 2 重に出る、または出なくなる可能性がある。監査の記録が重複・欠落するのは、目的に反する。テストでも、`index.ts` を import したかどうかで挙動が変わる（`notify.test.ts` は `events.ts` だけを import しているので購読は無い）。\n- 判断の根拠: 驚き最小（import しただけで外に影響する）と、グローバルな可変の状態への依存。\n- 直し方: #2 で仕組みを消せば解消する。残す場合は、登録を明示的な関数にし、1 回だけ呼ぶ場所を決める。\n\n### 5. [低] ログの失敗が更新の結果に影響する\n\n- 重要度: 低\n- 場所: `src/lib/tasks.ts` の `updateTask`（`UPDATE` の後の `emit`）\n- 何が問題か: UPDATE の後に処理を足しているので、ログ出力側で例外が起きると、更新済みなのにエラーを返す形になる（#1 はその一例）。`console.log` だけにすれば現実にはほぼ起きないので、#2 の修正で足りる。\n- 直し方: ログ出力は、例外を投げない単純な呼び出しにとどめる。\n\n## 確認したこと\n\n- 担当者が変わらない更新（`next.assignee === current.assignee`）では出ない条件は、実装としては正しい。ただし #3 のとおりテストが無い。\n",
+  "review_chars": 3820,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.3204,
+    "tokens": {
+      "input": 28,
+      "output": 8384,
+      "cache_read": 589596,
+      "cache_creation": 44392
+    },
+    "turns": 24,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"git status --short && git diff HEAD && for f in $(git ls-files --others --exclude-standard); do echo \\\"=== $f\\\"; cat $f; done\"}"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"awk '\\n/^### [0-9]+\\\\. \\\\[/ {print; match($0,/\\\\[[^]]+\\\\]/); s=substr($0,RSTART+1,RLENGTH-2); print \\\"\\\"; print \\\"- 重要度: \\\" s; next}\\n{print}' REVIEW.md | sed -e 's/^- 何が起きるか:/- 何が問題か:/' "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i -e 's/^- 何が起きるか:/- 何が問題か:/' -e 's/^- 提案:/- 直し方:/' -e 's/^- 判断の根拠:/- 根拠:/' REVIEW.md && grep -cE '^- (重要度|場所|何が問題か|直し方|根拠):' REVIEW.md\"}"
+      }
+    ],
+    "tool_calls": {
+      "Bash": 7,
+      "Write": 1,
+      "Edit": 12,
+      "Read": 1
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 71,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "指摘はすでに `REVIEW.md` に入っていたので、内容は変えず、各指摘の項目名を依頼の形式にそろえてコミットしました（36924d0、`REVIEW.md` のみ）。コードは変更していません。\n\n- 各指摘に「重要度」の行を足し、高・高・高・中・低にしました。\n- 「何が起きるか」を「何が問題か」に、「提案」を「直し方」に直しました。\n- 指摘は 5 件のままで、足した指摘も削った指摘もありません。\n\n「判断の根拠」の項目は、最初の依頼の形式にない補足として残しています。"
+  },
+  "interventions": 0
+}

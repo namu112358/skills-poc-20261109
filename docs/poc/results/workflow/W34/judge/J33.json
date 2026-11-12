@@ -1,0 +1,92 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "extendDueDate の最初のテストが期待値を extendDueDate 自身で計算しており、計算が間違っていても必ず通る。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "月をまたぐテストが例外が出ないことしか確かめておらず、月の繰り上がりの誤りを検出できない。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "完了したタスクのテストが doesNotThrow だけで、done のガードを消しても通る（reason: 'done' を確かめていない）。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "extendTask の正常系テストが result.ok だけを見て、延長後の dueDate や保存された値を確かめていない。",
+   "severity": "高",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "存在しない ID に対する not_found の分岐がテストされていない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "validateExtendInput のテストが正常値 7 だけで、0・31・小数・文字列などの拒否や境界を確かめていない。",
+   "severity": "中",
+   "match": "T3",
+   "kind": ""
+  },
+  {
+   "n": 7,
+   "summary": "extendDueDate が toISOString を使うため、9999 年を超える結果で YYYY-MM-DD でない文字列を保存する。",
+   "severity": "中",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 8,
+   "summary": "保存済みの dueDate が不正な日付だと toISOString が RangeError を投げ、ルートで処理されない 500 になる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 9,
+   "summary": "POST ハンドラが本文の検証をタスクの存在確認より先に行うため、存在しないタスクに不正な本文を送ると 404 でなく 400 が返る。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 10,
+   "summary": "期限切れのタスクを延長しても元の期限に足すだけなので期限切れのままになりうる。仕様が文書化されていない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 11,
+   "summary": "extendTask と updateTask が同じ行を二重に読み、無駄なクエリが増える。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  },
+  {
+   "n": 12,
+   "summary": "結果に付けた非 null アサーション（!）が undefined を隠し、行が消えた場合に 200 で { task: undefined } を返しうる。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0718758
+ }
+}

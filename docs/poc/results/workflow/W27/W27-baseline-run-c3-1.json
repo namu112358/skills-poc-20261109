@@ -1,0 +1,53 @@
+{
+  "trial": "W27-baseline-run-c3-1",
+  "scenario": "W27",
+  "config": "baseline-run",
+  "case": "c3",
+  "rep": 1,
+  "review_md": "# レビュー: 設置場所を場所マスタから選べるようにする\n\n結論: **マージ前に直すべき問題が 3 件（高 2・中 1）あります。** 以下の挙動は、一時スクリプトで関数を実際に呼んで確かめました。\nスクリプトは作業コピーの外に置いています。本番の値は `docs/data/location-values.csv` の件数どおりに約 4.9 万件の旧形式 DB（マイグレーション 4）を作り、そこからマイグレーション 5 を適用しました。\n\n## 高\n\n### 1. 経理が読む `instruments.location` 列に「場所の名前」が入らない（要件 7 違反）\n- 重要度: 高\n- 場所: `src/lib/db/migrations.ts` version 5 の `after`／`src/lib/locations.ts` `linkInstrumentsToLocations`、`src/lib/location-master.ts` `updateLocation`、`src/lib/instruments.ts` `validateLocation`・`updateInstrument`・`recordInventory`\n- 問題: 要件 7 は「来期まで今の列を残し、場所の名前が入った状態を保つ」です。しかし `location_id` を設定するだけで、`location` 列は書き換わりません。実測した結果は次のとおりです。\n  - 移行後、`製造第1ライン` の行は `location='製造第1ライン'`、`location_id=7` のままです。正式名の `製造部 第 1 ライン` にはなりません。移行で 43,846 件が確定しますが、そのうち表記ゆれだった分は旧表記のままです。\n  - 場所の名称を変えても、その場所の計測器の `location` 列は旧表記のままです（画面だけが `location_id` の JOIN で新名称になる）。\n  - 登録・編集 API に `locationId` を送って保存しても、`location` 列は更新されません（旧値のまま）。\n  - ハンディ端末で正式な場所に一致した場合も、`location` 列には端末が送った生の文字（例: `製造部第２ライン`）が入ります。\n  - `locationId: null` では空にしています。これは正しい挙動です。\n- 直し方: 確定している行では、`location` 列に常にマスタの正式名を書き込みます。確認中の行は、これまでどおり元の文字列のままにします。\n  - 移行の `after` で、`UPDATE instruments SET location = (SELECT name FROM locations WHERE id = location_id) WHERE location_id IS NOT NULL` を行います。この更新は、移行の戻り値の集計に影響しません。\n  - `updateLocation` で名称を変えるときに、同じトランザクションで `UPDATE instruments SET location = ? WHERE location_id = ?` も実行します。\n  - `validateLocation`（`locationId` を選んだとき）と `recordInventory`（一致したとき）では、`locationOriginal` に選んだ場所のマスタ名を入れます。\n  - 上の経路すべてについて、`location` 列の値を直接確かめるテストを足します。現在のテストは、画面側の `location_name` の表示だけを見ています。\n\n### 2. `locationId` で登録すると 500 になる（新規登録が壊れている）\n- 重要度: 高\n- 場所: `src/lib/instruments.ts` `validateLocation`（`locationId` の分岐）→ `createInstrument`（`input.locationOriginal` を bind）、`src/app/api/instruments/route.ts` POST\n- 問題: `locationId` が数値のとき、`validateLocation` は `value.locationId` だけを設定し、`locationOriginal` は設定しません。`createInstrument` は `input.locationOriginal`（undefined）を SQL に bind するため、`TypeError: Provided value cannot be bound to SQLite parameter 4.` で落ちます。実際に再現しました（`MI-9001`、`locationId: <有効な ID>`）。\n  PR が正式な入力として案内している「`locationId`（場所マスタの ID）で指定する」登録がそのまま 500 になり、API の規約（入力誤りは 400、未ログインは 401）の外で失敗します。\n  単体テストは `location` 文字列か、更新の経路しか通っていません。\n- 直し方: 指摘 1 と同じ修正で、`locationId` を選んだときに `locationOriginal` に正式名を設定します。加えて、`createInstrument` でも `locationOriginal ?? \"\"` のように、未指定を空文字にします。`locationId` を指定した `POST /api/instruments` の API テストを足します。\n\n## 中\n\n### 3. 前の版のアプリに戻すと、場所の編集が食い違う（要件 8 の確認不足）\n- 重要度: 中\n- 場所: `src/lib/instruments.ts` `COLUMNS`・`toInstrument`（`row.location_name ?? row.location`）、`src/lib/db/migrations.ts` version 5\n- 問題: 指摘 1 が直らないうちに前の版へ戻すと、旧アプリは `location` 列だけを読み書きします。その結果、画面や経理に旧表記や空が見えます。\n  逆に、旧アプリで編集した後に新しい版へ戻すと、`location_id` が残っているので、旧アプリが書いた `location` の値は無視されます。実測では、旧アプリが `location='工事部 倉庫'` に書き換えても、新アプリは `工事部 車両 1 号` と表示しました。\n  列の追加だけで前の版が動くところは良い設計です。ただし「旧アプリで編集した場所が新しい版で消える」ことは、運用メモに書かれていません。\n- 直し方: 指摘 1 の修正で、旧アプリが読む `location` 列が常に正しい値になるようにします。そのうえで、`docs/operations.md` に「前の版へ戻している間の場所の編集は、戻したあとに反映されない（`location_id` を優先する）」と書きます。または、新しい版が起動するたびに `location` と `location_id` の不一致を検出して、ログに出すようにします。\n- 補足: 追加の問題ではなく、指摘 1 の副作用に近いものです。\n\n## 低\n\n### 4. ハンディ端末: 確定済みの計測器に分からない文字が来ると、黙って捨てる（要件 6 との差）\n- 重要度: 低\n- 場所: `src/lib/instruments.ts` `recordInventory`（`unmatched_kept`）、`docs/handheld-api.md`\n- 問題: 要件 6 は「分からなければ確認中として送られた文字を残す」です。実装は、すでに確定している計測器では端末の文字を保存せず、`handheld.inventory.unmatched` のログだけを出します。\n  コメントは「品質保証部の修正を戻さないため」と説明しており、意図は理解できます。\n  ただし、実際に移動した計測器の新しい場所が台帳に残りません。ログだけが手掛かりになり、探すのは難しいです。\n- 直し方: 要件どおり確認中に戻すか、依頼者に「確定済みは変えない」でよいか確認します。確認が取れないなら、仮定を PR に明記します。確定済みを保つ場合は、送られた文字を保存する場所（例: 別の列や「棚卸し差異」の一覧）を用意し、ログだけに頼らないようにします。\n\n### 5. 末尾が切れた表記の別名（`大阪営` → 大阪営業所、`名古屋営` → 名古屋営業所）は推測による寄せ\n- 重要度: 低\n- 場所: `src/lib/locations.ts` `ALIASES`\n- 問題: 要件 2 は「表記ゆれで同じ場所と分かるものだけ」です。`大阪営`（580 件）と `名古屋営`（245 件）を寄せるのは、合計 825 件の推測です。「`大阪営業所` の略」であって「`大阪営業部` の略」ではない、という根拠が資料にありません。\n  CSV 上では他に候補がありませんが、これは「同じ場所と分かる」ではなく「他に候補が無い」という判断です。\n  実測では、`工事倉庫`→`工事部 倉庫` や `品証`・`品保` 系の寄せは、表記ゆれの範囲で妥当でした（未一致 33 値は、空欄・`倉庫` 単独・貸出先名など。意図どおり確認中）。\n- 直し方: 依頼者に確認します。確認できない場合は、別名の寄せをやめて確認中にするか、PR に仮定として明記します。移行ログ（`locations.migrated`）に、別名で寄せた件数も出すと、後から確認できます。\n\n## 確認して問題なかった点（参考）\n- 移行時間: 約 4.9 万件で 550 ms。1 回の再起動で足りる範囲です。件数の内訳（total／linked／unset／unconfirmed = 48,882／43,846／1,491／3,545）はログ `locations.migrated` に残ります。\n- 移行は `after` と `user_version` の更新が同じトランザクションです。何度実行しても結果が同じです。\n- 使用終了の場所の計測器を、`location` を送り直しても確認中に戻さないことを確認しました。\n- 重複する場所名（全角・空白違い）が 409 になることを確認しました。\n",
+  "review_chars": 4482,
+  "review_committed": true,
+  "transcript": {
+    "cost_usd": 0.5627,
+    "tokens": {
+      "input": 46,
+      "output": 15281,
+      "cache_read": 1310821,
+      "cache_creation": 69677
+    },
+    "turns": 33,
+    "permission_denials": [
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c3-1-app/be4f22c9-1447-4049-a325-116c0c84e1f5/scratchpad && cat > $S/m.ts <<'EOF'\\nimport { readFileSync } from \\\"node:fs\\\";\\nimport { ope"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c3-1-app/be4f22c9-1447-4049-a325-116c0c84e1f5/scratchpad; ls $S; node --experimental-strip-types --no-warnings $S/m.ts > $S/out.txt 2>&1; "
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"S=/tmp/claude-0/-tmp-poc-trials-W27-baseline-run-c3-1-app/be4f22c9-1447-4049-a325-116c0c84e1f5/scratchpad; sed -i 's/NEW-1/MI-9001/g' $S/r.ts && node --experimental-strip-types --no-warni"
+      },
+      {
+        "tool": "Bash",
+        "input": "{\"command\": \"sed -i -e '/^### 1\\\\. /a - 重要度: 高' -e '/^### 2\\\\. /a - 重要度: 高' -e '/^### 3\\\\. /a - 重要度: 中' -e '/^### 4\\\\. /a - 重要度: 低' -e '/^### 5\\\\. /a - 重要度: 低' REVIEW.md && grep -n -A1 '^### ' REVIEW."
+      }
+    ],
+    "tool_calls": {
+      "Bash": 17,
+      "Write": 4,
+      "Read": 1,
+      "Edit": 8
+    },
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 150,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": "前回のレビューの5件は、すでに `REVIEW.md` に「場所・何が問題か・直し方・重要度」の形で入っていました。指摘の追加や削除はしていません。\n\n今回は、各指摘に「重要度: 高／中／低」の行を足しただけで、コミットは `REVIEW.md` のみ（`d686c44`）です。コードは直していません。\n\n| 番号 | 重要度 | 内容 |\n|---|---|---|\n| 1 | 高 | 経理が読む `location` 列に正式名が入らない |\n| 2 | 高 | `locationId` での登録が 500 になる |\n| 3 | 中 | 前の版へ戻すと場所の編集が食い違う |\n| 4 | 低 | ハンディ端末で、確定済みの計測器に分からない文字が来ると保存されない |\n| 5 | 低 | `大阪営`・`名古屋営` を営業所に寄せるのは推測 |"
+  },
+  "interventions": 0
+}
