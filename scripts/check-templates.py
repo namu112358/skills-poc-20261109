@@ -23,6 +23,8 @@ PAIRS = [
     ("templates/agents/AGENTS.md", "AGENTS.md", "共通規約のブロック"),
     ("templates/github/docs/github-writing.md", "docs/github-writing.md", "全体"),
     ("templates/agents/scripts/check-skills.py", "scripts/check-skills.py", "全体"),
+    # 雛形にジョブ名（Ruleset の必須チェック名）が抜け、配った先でマージできなくなったことがある（PoC SF1）
+    ("templates/github/.github/workflows/pr-body-check.yml", ".github/workflows/pr-body-check.yml", "全体"),
 ]
 # このリポジトリで作った Skill。雛形（templates/agents/.claude/skills/）が正本で、ルートの .claude/skills/ に同じものを置く
 for _d in sorted((ROOT / "templates/agents/.claude/skills").glob("*/")):

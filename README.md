@@ -275,7 +275,7 @@ scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...
 このリポジトリも、標準を使う側の 1 つです。
 
 - **適用している設定**: `typescript` と `react-nextjs` を適用済みです（PoC 用アプリが TypeScript + Next.js のため）。Issue・PR のテンプレートも `--with-check` 付きで適用済みです（`.github/`、`docs/github-writing.md`）。
-- **雛形との一致**: ルートの `AGENTS.md` の規約の節、`docs/github-writing.md`、`scripts/check-skills.py` は、雛形と同じ内容に保ちます。ルートの `.claude/settings.json`・`.mcp.json` は、雛形にこのリポジトリだけの設定を足したものにします。この 2 つは、`typescript`・`react-nextjs` の分、`poc-app` 用のフック、PoC と npm のコマンドの許可を足しています。一致しているかは `python3 scripts/check-templates.py` で確かめます。
+- **雛形との一致**: ルートの `AGENTS.md` の規約の節、`docs/github-writing.md`、`scripts/check-skills.py`、`.github/workflows/pr-body-check.yml` は、雛形と同じ内容に保ちます。ルートの `.claude/settings.json`・`.mcp.json` は、雛形にこのリポジトリだけの設定を足したものにします。この 2 つは、`typescript`・`react-nextjs` の分、`poc-app` 用のフック、PoC と npm のコマンドの許可を足しています。一致しているかは `python3 scripts/check-templates.py` で確かめます。
 - **クラウドのセッション**: Claude Code on the web では、開始時に `poc-app` の依存関係が自動で入ります（`.claude/hooks/session-start.sh`）。
 
 ### 初回セットアップ
