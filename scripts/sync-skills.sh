@@ -34,10 +34,13 @@ fetch vercel-labs/agent-skills "$VERCEL_REF" "$WORK/vercel"
 fetch github/gh-stack "$GH_STACK_REF" "$WORK/gh-stack"
 fetch cli/cli "$GH_CLI_REF" "$WORK/gh-cli"
 
-for s in frontend-design webapp-testing skill-creator; do
+for s in webapp-testing skill-creator; do
   rm -rf "${DEST:?}/$s"
   cp -R "$WORK/anthropic/skills/$s" "$DEST/$s"
 done
+# Frontend Design は 2026-11-12 に標準から外した（作る担当は Impeccable。docs/poc/results/workflow/U1/human-pairs.md）。
+# 以前に同期した先に残っていれば消す
+rm -rf "${DEST:?}/frontend-design"
 rm -rf "${DEST:?}/web-design-guidelines"
 cp -R "$WORK/vercel/skills/web-design-guidelines" "$DEST/web-design-guidelines"
 

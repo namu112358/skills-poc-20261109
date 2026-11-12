@@ -1,0 +1,283 @@
+<title>U1 画面の二択比較</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<style>
+/* 構成: 上に依頼文と進み具合、中央に左右の画面（同じ高さの枠で、片方を動かすともう片方も同じ割合で動く）、下に 3 つの選択ボタン */
+:root {
+  --bg: #f3f3f0;
+  --surface: #ffffff;
+  --fg: #1c2024;
+  --muted: #5c6268;
+  --line: #d8d8d2;
+  --accent: #1f5f8b;
+  --accent-ink: #ffffff;
+  --pick: #e6f0f7;
+  --font-display: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --font-body: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131518; --surface: #1c1f23; --fg: #e8e8e3; --muted: #a3a9af; --line: #33373c;
+    --accent: #7fb6dc; --accent-ink: #0f1a22; --pick: #1d3141; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131518; --surface: #1c1f23; --fg: #e8e8e3; --muted: #a3a9af; --line: #33373c;
+  --accent: #7fb6dc; --accent-ink: #0f1a22; --pick: #1d3141; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.6; margin: 0; }
+.app {
+  height: 100%; display: grid; grid-template-rows: auto 1fr auto; gap: 10px;
+  max-width: 1600px; margin: 0 auto;
+  padding-block: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.top { display: grid; gap: 8px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+h1 { font-family: var(--font-display); font-size: 18px; margin: 0; }
+.counter { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+.counter b { color: var(--fg); font-size: 16px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+select, .ghost { font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); min-height: 32px; }
+.ghost { cursor: pointer; }
+.brief { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+.brief b { font-family: var(--font-display); }
+.stage { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
+.side { display: grid; grid-template-rows: auto 1fr; gap: 4px; min-height: 0; min-width: 0; }
+.side .label { font-family: var(--font-display); font-weight: 700; font-size: 15px; display: flex; justify-content: space-between; }
+.side .label span { font-family: var(--font-body); font-weight: 400; font-size: 12px; color: var(--muted); }
+.frame { overflow: auto; border: 2px solid var(--line); border-radius: 6px; background: var(--surface); min-height: 0; }
+.frame.chosen { border-color: var(--accent); background: var(--pick); }
+.frame img { display: block; width: 100%; height: auto; }
+.actions { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; padding-bottom: env(safe-area-inset-bottom, 0px); }
+.actions button { font: inherit; font-family: var(--font-display); font-size: 16px; font-weight: 700; padding: 12px; border-radius: 8px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--fg); min-height: 48px; }
+.actions .pick { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.actions .same { min-width: 9em; }
+.actions kbd { font-family: inherit; font-size: 11px; font-weight: 400; opacity: .75; margin-left: 6px; }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .5; cursor: default; }
+.status { font-size: 12px; color: var(--muted); }
+.summary { position: fixed; inset: 0; z-index: 20; background: var(--bg); overflow: auto; padding-top: env(safe-area-inset-top, 0px); }
+.summary .inner { max-width: 960px; margin: 0 auto; padding-block: 20px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 18px; }
+.summary h2 { font-family: var(--font-display); font-size: 18px; margin: 0; }
+.summary h3 { font-family: var(--font-display); font-size: 15px; margin: 0 0 6px; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 13.5px; }
+th, td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.bar { height: 8px; background: var(--accent); border-radius: 4px; }
+@media (max-width: 760px) {
+  .app { height: auto; }
+  .stage { grid-template-columns: 1fr; }
+  .frame { max-height: 60vh; }
+  .actions { position: sticky; bottom: 0; background: var(--bg); padding-top: 8px; }
+}
+</style>
+
+<div class="app">
+  <div class="top">
+    <div class="row">
+      <h1>どちらの画面が良いですか？</h1>
+      <div class="controls">
+        <span class="counter">これまでの回答 <b id="count">0</b> 件</span>
+        <label for="taskSel" class="counter">題材</label>
+        <select id="taskSel"></select>
+        <button type="button" class="ghost" id="undo">1 つ戻す</button>
+        <button type="button" class="ghost" id="showSum">結果を見る</button>
+      </div>
+    </div>
+    <div class="brief" id="brief"></div>
+  </div>
+
+  <div class="stage">
+    <div class="side">
+      <div class="label">左 <span>枠の中をスクロールすると、両方が同じ位置まで動きます</span></div>
+      <div class="frame" id="fl"><img id="il" alt="左の画面（幅 1280px のページ全体）"></div>
+    </div>
+    <div class="side">
+      <div class="label">右 <span id="pairInfo"></span></div>
+      <div class="frame" id="fr"><img id="ir" alt="右の画面（幅 1280px のページ全体）"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="actions">
+      <button type="button" class="pick" id="bl">左が良い<kbd>←</kbd></button>
+      <button type="button" class="same" id="bs">同じくらい<kbd>↓</kbd></button>
+      <button type="button" class="pick" id="br">右が良い<kbd>→</kbd></button>
+    </div>
+    <p class="status" id="status" role="status">保存先に接続しています…</p>
+  </div>
+</div>
+
+<div class="summary" id="summary" hidden role="dialog" aria-modal="true" aria-labelledby="sumTitle">
+  <div class="inner">
+    <div class="row"><h2 id="sumTitle">ここまでの結果</h2><button type="button" class="ghost" id="closeSum">比較に戻る</button></div>
+    <p class="status">勝率は、勝ち 1・同じくらい 0.5・負け 0 として、その構成の画面が出た比較の平均です。構成の名前は、この画面でだけ表示します。</p>
+    <div id="sumBody"></div>
+  </div>
+</div>
+
+<script>
+const ITEMS = /*__DATA__*/[];
+const TASKS = /*__TASKS__*/{};
+const byId = Object.fromEntries(ITEMS.map((i) => [i.id, i]));
+let votes = [];          // {id, task, left, right, choice}
+let db = null, current = null, busy = false;
+const mine = [];         // このページで足した票の id（「1 つ戻す」用）
+
+const sel = document.getElementById("taskSel");
+sel.innerHTML = '<option value="">おまかせ（票の少ない題材から）</option>' +
+  Object.entries(TASKS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join("");
+try { sel.value = localStorage.getItem("w21-pair-task") || ""; } catch (e) {}
+sel.onchange = () => { try { localStorage.setItem("w21-pair-task", sel.value); } catch (e) {} next(); };
+
+function setStatus(s) { document.getElementById("status").textContent = s; }
+function pairKey(a, b) { return a < b ? a + "|" + b : b + "|" + a; }
+
+function next() {
+  const taskCounts = {};
+  for (const k of Object.keys(TASKS)) taskCounts[k] = 0;
+  for (const v of votes) taskCounts[v.task] = (taskCounts[v.task] || 0) + 1;
+  const task = sel.value || Object.keys(TASKS).sort((a, b) => taskCounts[a] - taskCounts[b] || Math.random() - 0.5)[0];
+  const items = ITEMS.filter((i) => i.task === task);
+  const configs = [...new Set(items.map((i) => i.config))];
+  // 構成の組ごとの票の数。少ない組から出す
+  const cnt = {}, seen = new Set();
+  for (const v of votes) {
+    if (v.task !== task || !byId[v.left] || !byId[v.right]) continue;
+    const k = pairKey(byId[v.left].config, byId[v.right].config);
+    cnt[k] = (cnt[k] || 0) + 1;
+    seen.add(pairKey(v.left, v.right));
+  }
+  const pairs = [];
+  for (let i = 0; i < configs.length; i++) for (let j = i + 1; j < configs.length; j++) pairs.push([configs[i], configs[j]]);
+  pairs.sort((p, q) => (cnt[pairKey(...p)] || 0) - (cnt[pairKey(...q)] || 0) || Math.random() - 0.5);
+  const [ca, cb] = pairs[0];
+  const pa = items.filter((i) => i.config === ca), pb = items.filter((i) => i.config === cb);
+  let a, b, tries = 0;
+  do {
+    a = pa[Math.floor(Math.random() * pa.length)];
+    b = pb[Math.floor(Math.random() * pb.length)];
+    tries++;
+  } while (seen.has(pairKey(a.id, b.id)) && tries < 20);
+  current = Math.random() < 0.5 ? { task, left: a, right: b } : { task, left: b, right: a };
+  document.getElementById("brief").innerHTML = TASKS[task].brief;
+  document.getElementById("il").src = "shots/" + current.left.code + "-desktop.jpg";
+  document.getElementById("ir").src = "shots/" + current.right.code + "-desktop.jpg";
+  document.getElementById("fl").scrollTop = 0;
+  document.getElementById("fr").scrollTop = 0;
+  document.getElementById("pairInfo").textContent = TASKS[task].label;
+  for (const f of ["fl", "fr"]) document.getElementById(f).classList.remove("chosen");
+}
+
+// 片方の枠をスクロールすると、もう片方も同じ割合の位置まで動かす
+let syncing = false;
+function sync(from, to) {
+  if (syncing) return;
+  syncing = true;
+  const f = document.getElementById(from), t = document.getElementById(to);
+  const r = f.scrollTop / Math.max(1, f.scrollHeight - f.clientHeight);
+  t.scrollTop = r * Math.max(0, t.scrollHeight - t.clientHeight);
+  requestAnimationFrame(() => { syncing = false; });
+}
+document.getElementById("fl").addEventListener("scroll", () => sync("fl", "fr"));
+document.getElementById("fr").addEventListener("scroll", () => sync("fr", "fl"));
+
+async function choose(choice) {
+  if (!current || busy) return;
+  if (choice !== "same") document.getElementById(choice === "left" ? "fl" : "fr").classList.add("chosen");
+  const rec = { task: current.task, left: current.left.id, right: current.right.id, choice, at: new Date().toISOString() };
+  busy = true;
+  for (const b of ["bl", "bs", "br"]) document.getElementById(b).disabled = true;
+  if (db) {
+    try {
+      const ref = await db.collection("votes").add(rec);
+      mine.push(ref.id);
+      setStatus("保存しました");
+    } catch (e) {
+      setStatus("保存できませんでした。この 1 件は記録されていません。");
+    }
+  } else {
+    votes.push({ id: "local-" + votes.length, ...rec });
+    setStatus("保存先に接続できないため、この回答は保存されません");
+    renderCount();
+  }
+  setTimeout(() => {
+    busy = false;
+    for (const b of ["bl", "bs", "br"]) document.getElementById(b).disabled = false;
+    next();
+  }, 250);
+}
+document.getElementById("bl").onclick = () => choose("left");
+document.getElementById("bs").onclick = () => choose("same");
+document.getElementById("br").onclick = () => choose("right");
+document.addEventListener("keydown", (e) => {
+  if (!document.getElementById("summary").hidden || e.target.tagName === "SELECT") return;
+  if (e.key === "ArrowLeft") { e.preventDefault(); choose("left"); }
+  if (e.key === "ArrowRight") { e.preventDefault(); choose("right"); }
+  if (e.key === "ArrowDown") { e.preventDefault(); choose("same"); }
+});
+document.getElementById("undo").onclick = async () => {
+  const id = mine.pop();
+  if (!id || !db) { setStatus("このページで付けた回答がありません"); return; }
+  try { await db.doc("votes/" + id).delete(); setStatus("直前の回答を取り消しました"); }
+  catch (e) { mine.push(id); setStatus("取り消せませんでした"); }
+};
+
+function renderCount() { document.getElementById("count").textContent = votes.length; }
+
+function summarize() {
+  const out = [];
+  const all = {};
+  for (const task of Object.keys(TASKS)) {
+    const s = {};
+    let n = 0;
+    for (const v of votes) {
+      if (v.task !== task || !byId[v.left] || !byId[v.right]) continue;
+      n++;
+      const L = byId[v.left].config, R = byId[v.right].config;
+      for (const [c, res] of [[L, v.choice === "left" ? 1 : v.choice === "same" ? 0.5 : 0], [R, v.choice === "right" ? 1 : v.choice === "same" ? 0.5 : 0]]) {
+        for (const tgt of [s, all]) {
+          tgt[c] = tgt[c] || { w: 0, n: 0 };
+          tgt[c].w += res; tgt[c].n += 1;
+        }
+      }
+    }
+    if (n) out.push(table(TASKS[task].label + `（${n} 件）`, s));
+  }
+  const total = votes.filter((v) => byId[v.left] && byId[v.right]).length;
+  return (total ? table(`全題材（${total} 件）`, all) : "<p>まだ回答がありません。</p>") + out.join("");
+}
+function table(title, s) {
+  const rows = Object.entries(s).map(([c, v]) => [c, v.w / v.n, v.n]).sort((a, b) => b[1] - a[1]);
+  const label = (c) => (ITEMS.find((i) => i.config === c) || {}).configLabel || c;
+  return `<section><h3>${title}</h3><div class="tbl"><table><thead><tr><th>構成</th><th>勝率</th><th></th><th>出た回数</th></tr></thead><tbody>${
+    rows.map(([c, r, n]) => `<tr><td>${label(c)}</td><td class="n">${(r * 100).toFixed(0)}%</td><td style="width:30%"><div class="bar" style="width:${(r * 100).toFixed(0)}%"></div></td><td class="n">${n}</td></tr>`).join("")
+  }</tbody></table></div></section>`;
+}
+document.getElementById("showSum").onclick = () => {
+  document.getElementById("sumBody").innerHTML = summarize();
+  document.getElementById("summary").hidden = false;
+  document.getElementById("closeSum").focus();
+};
+document.getElementById("closeSum").onclick = () => { document.getElementById("summary").hidden = true; };
+
+next();
+
+(async () => {
+  try { db = await window.claude?.use?.("db"); } catch (e) { db = null; }
+  if (!db) { setStatus("保存先に接続できません。選べますが、回答は保存されません。"); return; }
+  const timer = setTimeout(() => setStatus("これまでの回答をまだ読み込めていません"), 10000);
+  db.collection("votes").onSnapshot((snap) => {
+    if (!snap.metadata.fromCache) clearTimeout(timer);
+    votes = snap.docs.filter((d) => d.exists).map((d) => ({ id: d.id, ...d.data() }));
+    renderCount();
+    if (!snap.metadata.hasPendingWrites && document.getElementById("status").textContent.startsWith("保存先に接続")) setStatus("左右どちらかを選ぶと、次の組に進みます。");
+  }, () => { clearTimeout(timer); setStatus("保存先との接続が切れました。ページを開き直してください。"); });
+})();
+</script>
