@@ -1,0 +1,78 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "\"adds days to the due date\" は期待値を同じ関数 extendDueDate の呼び出しで計算しているため、計算が壊れても必ず通る。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "\"works across months\" は doesNotThrow だけで、2026-11-30 + 3 日が 2026-12-03 になる結果を確かめていない。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "\"extends a task\" は result.ok だけを見て、期限が実際に更新され DB に保存されたかを確かめていない。",
+   "severity": "高",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "\"handles a completed task\" は doesNotThrow だけで、完了タスクが { ok: false, reason: \"done\" } で拒否されることを確かめていない。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "validateExtendInput のテストは正常系 1 件だけで、0・31・1.5・\"7\"・null・days 欠落などを拒むことを確かめていない。",
+   "severity": "高",
+   "match": "T3",
+   "kind": ""
+  },
+  {
+   "n": 6,
+   "summary": "存在しないタスクで not_found が返ることのテストが無い。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "ルートの 401・404・400 の応答をテストで確かめていない。",
+   "severity": "高",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "route.ts の POST は入力検証を存在確認より先に行うため、存在しないタスクに不正な本文を送ると 404 ではなく 400 が返り、既存の PATCH と挙動が揃わない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 9,
+   "summary": "extendDueDate は 9999-12-31 を延長すると toISOString が +010000-01-01 を返し、YYYY-MM-DD ではない値が保存される。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 10,
+   "summary": "既存の validateTaskInput が 2026-02-30 のような実在しない日付を受け付けるため、延長時に日付が黙って補正される（今回の変更範囲外）。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0670238
+ }
+}

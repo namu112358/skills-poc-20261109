@@ -1,0 +1,64 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "\"adds days\" テストは期待値を extendDueDate 自身で計算して比べているため、計算が誤っていても必ず通る。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "\"works across months\" と \"handles a completed task\" は assert.doesNotThrow だけで、結果の日付や ok/reason（done）を確かめていない。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "\"extends a task\" は result.ok だけを見ており、延長後の期限や DB に保存された値を確かめていない。",
+   "severity": "高",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 4,
+   "summary": "validateExtendInput のテストは正常系 1 件だけで、0・31・小数・文字列などを拒むことを確かめていない。",
+   "severity": "高",
+   "match": "T3",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "extendTask の読み取り→計算→更新が原子的でないため、同時に延長すると片方の延長が失われる。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "updateTask が先に読んだ値で全列を上書きするため、読み取りと書き込みの間に他の人が行った変更（完了・担当者など）を戻してしまい、完了判定も古い情報に基づく。",
+   "severity": "中",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 7,
+   "summary": "保存済みの期限が不正な形式や 9999 年付近の値のとき、extendDueDate の toISOString が RangeError を投げ、API が 500 を返す。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 8,
+   "summary": "ルートで本文の検証を存在確認より先に行うため、存在しない ID に不正な days を送ると 404 ではなく 400 が返り、既存の PATCH と順序が揃っていない。",
+   "severity": "低",
+   "match": "none",
+   "kind": "nit"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.028400800000000004
+ }
+}

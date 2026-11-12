@@ -1,0 +1,50 @@
+{
+ "findings": [
+  {
+   "n": 1,
+   "summary": "\"summarizes the seed data\" は現在時刻で集計し、2026-11-12 のときだけ成り立つ件数を決め打ちしているため、翌日以降に落ちる。now を固定して渡すべき。",
+   "severity": "高",
+   "match": "T1",
+   "kind": ""
+  },
+  {
+   "n": 2,
+   "summary": "\"counts a new task that is due today\" は new Date().toISOString().slice(0,10) で UTC の日付を期限にしているが、集計は JST なので JST 0:00〜9:00 に落ちる。",
+   "severity": "高",
+   "match": "T2",
+   "kind": ""
+  },
+  {
+   "n": 3,
+   "summary": "summarizeTasks の total は完了済みも含む全件なのに、docコメントは未完了のみを数えると読めて定義があいまいである。",
+   "severity": "中",
+   "match": "none",
+   "kind": "unsure"
+  },
+  {
+   "n": 4,
+   "summary": "\"is fast enough for the dashboard\" は DB の準備も含めて 300 ms の壁時計しきい値で測っており、負荷が高いと不規則に落ちるうえ意味が薄いので削除すべき。",
+   "severity": "低",
+   "match": "T4",
+   "kind": ""
+  },
+  {
+   "n": 5,
+   "summary": "API Route（route.ts）の 401・400・既定値 7 といった契約を確かめるテストが無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  },
+  {
+   "n": 6,
+   "summary": "parseSoonDays のテストに 90・91・\"07\"・\"\" などの境界値が無い。",
+   "severity": "低",
+   "match": "none",
+   "kind": "real"
+  }
+ ],
+ "_judge": {
+  "model": "claude-opus-5-5",
+  "cost_usd": 0.0556798
+ }
+}
