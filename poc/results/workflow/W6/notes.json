@@ -1,0 +1,61 @@
+{
+  "date": "2026-11-09",
+  "model": "claude-sonnet-5-5",
+  "claude_code": "2.1.319",
+  "summary": [
+    "<strong>W6（UI 実装からブラウザ検証・PR 作成まで）では、画面の出来に差は出ませんでした。</strong>4 候補と baseline の全 9 試行が、UI チェックリスト 8 項目（空状態・入力エラー・通信エラー・二重送信の防止・ステータス変更の失敗時・幅 375px など）を隠しの E2E 16 件ですべて満たし、9 試行とも実際のブラウザで画面を操作して、幅 375px での確認とスクリーンショットのコミットまで行いました。型チェック・単体テスト・ビルドも全試行で通っています。",
+    "品質（UI・証跡・PR の完成度）の差は PR の説明の書き方だけ（12 点中 10〜12 点）で、最大でも 1.8 点です。2 本立ての判定規則では Superpowers・Feature Dev・gstack が「差あり」になりますが、内容は「注意点の書き漏れ」「変更内容がファイル単位」といった説明文の軽微な差です。<strong>同じ品質での効率は、Superpowers（baseline 比 費用 1.3 倍・時間 1.0 倍、効率 100 点）が最も良く</strong>、Feature Dev（2.2 倍・1.1 倍）と Compound Engineering（2.5 倍・1.3 倍）が 95 点、gstack は #2 が $7.34・23 分かかり 71.5 点でした。baseline（$0.88・7 分）は品質も効率も満点です。",
+    "候補ごとの手順では、gstack の <code>/qa</code> が事前インストール済みの Chromium（<code>GSTACK_CHROMIUM_PATH</code>）で動き、ブラウザでの QA まで進みました。Compound Engineering の <code>/ce-test-browser</code> は「Playwright MCP は使わない」という自身の規則で 2 回ともテストを始めず、<code>/ce-commit-push-pr</code>・gstack の <code>/ship</code>・Superpowers の <code>finishing-a-development-branch</code> は、リモートが無いため push と PR 作成の手前で止まりました（PR は全候補とも課題文の指示どおり <code>PR.md</code> に書いています）。"
+  ],
+  "task_html": "<p>「マイタスク」画面（<code>/my-tasks</code>）を追加させた。自分の担当タスクを期限順に並べ、空状態の文言、タスクの追加（入力エラー・通信エラー・サーバーエラーの表示、二重送信の防止）、その場でのステータス変更（失敗したら知らせて元に戻す）、幅 375px での表示を含む。実装後にブラウザで確認し（スマートフォンの幅を含む）、証跡をリポジトリに保存して PR から参照させた。リモートが無いため、PR はタイトルと本文を <code>PR.md</code> に書いてコミットする形にした（全候補に同じ文面）。課題文は <code>poc/tasks/wf-W6.md</code>。</p>",
+  "observations": [
+    "UI チェックリストの 8 項目は全 9 試行で不具合なし（隠しの E2E 16/16）。実装の形は試行ごとに違い（クライアント部品から既存 API を呼ぶもの、失敗時の処理を <code>src/lib/</code> に切り出してテストしたもの、CSS Modules を使うものなど）、どの形でも仕様を満たしました。課題文に表示要素・文言・失敗時の振る舞いまで書いたので、仕様の読み落としが起きにくい課題でした。",
+    "ブラウザでの確認は 9 試行とも Playwright MCP（gstack #1・#2 の <code>/qa</code> は gstack の browse も）で行い、幅 375px と 1280px のスクリーンショットを 6〜17 枚コミットしました。通信の失敗やサーバーエラーは、多くの試行がリクエストを差し替えて再現していました。担当タスクが 0 件の状態は初期データに無いため、ブラウザで確かめなかった試行が多く、その多くは PR.md に「未確認」と書いています。",
+    "PR の説明は 2 名のブラインドレビューで 10〜12 点（12 点満点）。減点は、Superpowers #1 が注意点・未確認事項を書いていない（d 1 点）、Feature Dev・gstack #1・Superpowers #2 が変更内容をファイル単位で書いている（b 2 点）、gstack #2 が工程の記録（カバレッジ表・レビューの経過）まで載せて長い（a）といった点でした。実施していない確認を確認済みと書いた試行はありません。",
+    "Superpowers は 2 回とも <code>brainstorming</code> が発火し、#1 は <code>requesting-code-review</code> でサブエージェントにレビューさせました。2 ステップ目の <code>finishing-a-development-branch</code> は、テストを確かめてから「ローカルでマージ / push して PR / 残す」の選択肢を示して止まりました（無人なので答えは来ない。PR.md は 1 ステップ目で作成済み）。",
+    "Feature Dev は 2 回とも code-explorer 2・code-architect 2・code-reviewer 3 のサブエージェントを使う 7 フェーズで進めました（#2 は「無人実行のため推奨案で確定」と明記）。#1 は最初のコミットにテストが入っておらず（追記のコマンドが拒否されていた）、2 ステップ目の「PR 作成の指示」で気づいて追加しました。",
+    "gstack は 1 ステップ目で実装とブラウザ確認・PR.md まで済ませ、<code>/qa</code> で追加の観点（長いタイトル、HTML 文字列、タッチ操作、セッション切れ）を確かめました。#2 は <code>/qa</code> でセッション切れ（401）の表示を ISSUE-001 として直し、<code>/ship</code> がリモート無しでも進められる工程（レビュー、テストの網羅率の確認、PR.md の最終版）を進めたため、費用 $7.34・所要時間 23 分と 9 試行で最も多くかかりました。#1 の <code>/ship</code> はプリフライトの <code>git fetch origin</code> の失敗で止まりました。<code>gstack-egress list</code> の外部送信の記録は 2 回とも無し。",
+    "Compound Engineering は <code>/ce-work</code> の中で実装・ブラウザ確認・レビュー（ce-code-review の簡易パス）・PR.md まで済ませました。<code>/ce-test-browser</code> は「ホスト組み込みのブラウザか agent-browser だけを使う」規則のため Playwright MCP を使わず、agent-browser の有無を確かめるコマンドも承認が要るため、2 回ともテストを始めずに止まりました（その前の工程の Playwright MCP での確認は、このスキルの結果としては数えないと明記）。補助スクリプト（review-scope など）も承認が要り、手作業で代えています。",
+    "介入（定型の「お任せします」）は、やり直した後の 9 試行ではどれも 0 回、質問ツールの呼び出しも 0 回でした。費用の上限（watch）で止めた試行もありません。"
+  ],
+  "trials": {
+    "W6-baseline-1": "候補なし。Playwright MCP で 375px・1280px を操作し、入力エラー・500 / 通信失敗・二重クリック・ステータス変更の失敗まで確かめ、スクリーンショット 6 枚を <code>docs/evidence/</code> にコミット。PR.md には 0 件表示を未確認と明記。最安・最短。",
+    "W6-superpowers-1": "brainstorming が発火。実装後にサブエージェントでレビュー（requesting-code-review）し、指摘（エラー表示のキー）を直して PR.md を追加。finishing-a-development-branch は選択肢を示して止まった。PR.md に注意点・未確認事項が無い点で減点。",
+    "W6-superpowers-2": "許可リストの漏れを直した後のやり直し（1 回目は <code>W6/excluded/</code>）。brainstorming が発火。<code>feat/my-tasks</code> ブランチを切って実装し、ブラウザ確認とスクリーンショット 6 枚まで 1 ステップ目で完了。finishing-a-development-branch は選択肢を示して止まった。",
+    "W6-feature-dev-1": "7 フェーズ（サブエージェント 7 体）。最初のコミットにテストが入っておらず、PR 作成の指示のステップで気づいて追加し、PR.md のテスト件数も直した。最後に残った変更は run-trial.sh が拾った。",
+    "W6-feature-dev-2": "7 フェーズ（サブエージェント 7 体）。確認中に一度だけステータス変更が再読み込み後に保持されない場面があり、再現しなかったことを PR.md に書いた。next dev が書き出した AGENTS.md が残り、run-trial.sh が拾った。",
+    "W6-gstack-1": "1 ステップ目で実装・Playwright MCP での確認・PR.md を済ませ、<code>/qa</code> は gstack の browse（事前インストール済みの Chromium）で追加の観点を確認（指摘 1 件・低、保留）。<code>/ship</code> は origin が無くプリフライトで停止。",
+    "W6-gstack-2": "<code>/qa</code> でセッション切れの表示を直し（ISSUE-001）、QA レポートとスクリーンショットをコミット。<code>/ship</code> はレビュー（gstack の <code>/review</code> が動かず code-review で代替）と網羅率の確認、失敗時の処理の <code>src/lib/</code> への切り出しとテスト追加まで進めた。$7.34・23 分で最多。",
+    "W6-compound-engineering-1": "<code>/ce-work</code> で 4 コミット（関数とテスト、画面、コメントの削除、証跡と PR.md）。ce-simplify-code・ce-code-review（簡易パス）を使用。<code>/ce-test-browser</code> は規則によりテストを始めず、<code>/ce-commit-push-pr</code> はリモート無しで停止。",
+    "W6-compound-engineering-2": "許可リストの漏れを直した後のやり直し（1 回目は <code>W6/excluded/</code>。中断を挟み、再開後に最初から実行）。<code>/ce-work</code> で実装・ブラウザ確認・PR.md まで完了。ce-code-review（lite）は指摘 0 件、補助スクリプトは承認が要り手作業で代替。<code>/ce-test-browser</code>・<code>/ce-commit-push-pr</code> は #1 と同じく停止。"
+  },
+  "scoring_html": "<p>配点は PLAN.md §5.1 の W6、手順は試行前に固定した <code>poc/answer-key/W6/grading.md</code> のとおり（<code>poc/scripts/grade_w6.py</code> → <code>blind_w6.py</code> → <code>score_w6.py</code>）。2 本立ての点数は PLAN.md §4.4（<code>poc/scripts/two_axis.py</code>）。</p><ul><li><strong>UI チェックリスト（40）</strong>: 8 項目それぞれ 5 点。隠しの E2E（<code>acceptance.cjs</code>、16 件）で、その項目のチェックがすべて通れば不具合なし。通信の失敗は、ページからの GET 以外のリクエストを止める・500 を返すことで再現（実装の方式に依存しない）。</li><li><strong>検証の証跡（15）</strong>: ブラウザで <code>/my-tasks</code> を開いて操作した 5、スクリーンショットをコミットした 5（撮影のみ 3）、幅 480px 以下で確認した 5。トランスクリプトのツール呼び出し（サブエージェントを含む）から自動で判定。</li><li><strong>PR の完成度（30）</strong>: PR.md の説明 12（2 名のブラインドレビュー、4 項目 × 0〜3 点の平均）、テスト 8（tests/ の追加・変更があり npm test が通る）、CI 10（型チェック・単体テスト・ビルド）。</li><li><strong>費用（15）</strong>: 15 ×（最安 / 自分）。</li><li><strong>2 本立て</strong>: 品質 = (UI + 証跡 + PR) / 85 × 100。効率 = 費用 50 + 時間 30 + 介入 20（baseline の実額 $0.8769・実時間 409 秒に対する倍率の段階）。</li></ul>",
+  "limitations": [
+    "課題文に表示要素・文言・失敗時の振る舞いまで細かく書いたため、UI チェックリストでは差が付きませんでした（全試行が満点）。仕様の書かれていない UI の気配り（仕様外の状態の扱い、見た目の質）での差は、この結果からは分かりません。",
+    "見た目の質（レイアウトの美しさ・一貫性）は採点に入れていません。E2E で測れるのは、幅に収まるか・要素が表示されるかまでです。",
+    "PR はリモートが無い環境でローカルの PR.md に書かせたため、<code>/ship</code>・<code>/ce-commit-push-pr</code>・<code>finishing-a-development-branch</code> の本来の工程（push、PR の作成、CI の監視）は評価できていません。リモートがある環境では結果が変わり得ます。",
+    "Compound Engineering の <code>/ce-test-browser</code> は、この環境では使える駆動手段（ホスト組み込みのブラウザか agent-browser）が無く、機能そのものは評価できていません。",
+    "検証の証跡は、ツールの呼び出しから自動で判定しています（スクリーンショットの中身の正しさまでは見ていません）。",
+    "所要時間は 2 本並列で実行したときの壁時計の時間（CE #2 は再開後に 1 本で実行）で、並列の相手によって揺れがあります。各候補 2 回（baseline は 1 回）だけで、ばらつきの評価には足りません。"
+  ],
+  "decisions": [
+    "<strong>課題の作り方</strong>: 「空状態・エラー表示・レスポンシブ」を含む新しい画面として、既存の API をそのまま使える「マイタスク」画面にした（スキーマ変更なし）。採点を自動で再現できるよう、要素の目印（<code>data-testid</code>、フォームの <code>aria-label</code>、<code>role=\"alert\"</code>）と文言を課題文に書いた。隠しの E2E は、参照実装で 16/16、変更なしの poc-app で 1/16、参照実装から 4 つの不具合を入れた版で該当の 4 件だけ落ちることを試行前に確かめた。",
+    "<strong>費用の上限</strong>: <code>POC_BUDGET_MODE=watch</code>（上限を子セッションに見せない）。規模係数 = W6 baseline の実額 $0.8769 ÷ W1 baseline $0.15 = 5.85。上限 = 5.85 × W1 の候補平均 × 5（最大 $10）で、Superpowers $4.96、Feature Dev $5.02、gstack $10（計算値 $13.4）、Compound Engineering $10（計算値 $52.2）。baseline は規模係数を決める前に暫定 $5 で実行した。上限で止まった試行は無い（最高は gstack #2 の $7.34）。",
+    "<strong>子セッションの許可リスト（W6 以降だけ追加。W1〜W5 は変えていない）</strong>: 開発サーバーの起動（<code>npm run dev</code> / <code>npm run start</code> / <code>npm start</code> / <code>npx next dev</code> / <code>npx next start</code>、<code>timeout</code> 付き、<code>PORT=…</code> 付き）、Playwright MCP と Next.js DevTools MCP のツール、gstack の browse。理由: W6 はブラウザでの確認が課題の一部で、サーバーを起動できないと確認ができないため（コーディネーターの判断・ユーザー委任済み）。試行後のサーバーとブラウザは reap_servers（結果の 30 秒後と試行の終了時）が止める。",
+    "<strong>許可リストの漏れとやり直し</strong>: 最初の許可リストに <code>npm start</code> と <code>PORT=3100 npm run start</code> などの形が無く（私の書き漏れ）、Superpowers #2 と Compound Engineering #2 はサーバーを起動できず、ブラウザ確認をしないまま終わった（証跡 0 点）。この形を足して 2 本をやり直し、元の結果は <code>W6/excluded/</code> に残して点数には使っていない。足す前に終わったほかの 7 本の <code>permission_denials</code> を調べ、足した形の拒否が 0 件だったので、やり直していない（全試行が実質的に同じ許可リストで動いた）。",
+    "<strong>ブラウザ</strong>: gstack の setup の Chrome 取得（cdn.playwright.dev）はネットワーク制限で使えないため <code>--no-browser</code> のまま、W6 以降だけ環境変数 <code>GSTACK_CHROMIUM_PATH=/opt/pw-browsers/chromium</code> で事前インストール済みの Chromium を使わせた。gstack の browse と <code>/qa</code> はこれで動いた。Playwright MCP は全候補で同じ設定で動いた。Compound Engineering の <code>/ce-test-browser</code> は規則で Playwright MCP を使わず、agent-browser も無いため動かなかった（挙動として記録）。ネットワーク許可は追加していない。",
+    "<strong>PR の作り方（候補間で公平にするため）</strong>: GitHub には出さず、課題文で全候補に「作成するはずだった PR のタイトルと本文を PR.md に書いてコミットする」と指示した。作業用コピーにはリモートが無く、<code>git push</code> と <code>gh</code> は許可リストに無い。Feature Dev の「PR 作成の指示」も同じ趣旨の定型文にした。PR の完成度は PR.md・テスト・チェック結果で判定した。push や gh を試みた試行は無かった（全試行が先にリモートの有無を確かめて止まった）。",
+    "<strong>候補ごとの手順</strong>: PLAN §5.1 の W6 の行のとおり（Superpowers: 課題 → <code>/superpowers:finishing-a-development-branch</code>、Feature Dev: <code>/feature-dev:feature-dev</code> → PR 作成の指示、gstack: 課題 → <code>/qa</code> → <code>/ship</code>、Compound Engineering: <code>/ce-work</code> → <code>/ce-test-browser</code> → <code>/ce-commit-push-pr</code>）。全候補とも作業ブランチの上で開始。末尾の定型文は新文言（全試行の <code>task-suffix</code> が <code>new</code>）。",
+    "<strong>PR の説明の採点</strong>: 人が読む文章の質なので、W2 と同じく 2 名のブラインドレビュー（候補名を伏せ、試行ごとの事実の要約を添え、順番を変えて渡す）にした。伏せ字の漏れ（「Compound Pack」）を見つけて伏せ字の規則を強め、資料を作り直してから渡した。2 名の差が 2 点以上の項目は無かった。",
+    "<strong>2 本立ての点数</strong>: コーディネーター経由のユーザー指示で、品質・効率の 2 本立てを主表示にし、従来の総合点も並記した。W6 には介入の仕組みがあるので効率は 費用 50 + 時間 30 + 介入 20。基準は W6 baseline の $0.8769・409 秒。",
+    "<strong>中断と再開</strong>: usage の上限が近いというユーザーの指示で、Compound Engineering #2 のやり直しを 1 ステップ目の途中で止めた（途中の記録は採点に使わない）。再開後に同じ方式（watch・上限 $10・同じ許可リスト）で最初から実行した。",
+    "<strong>並列度と順番</strong>: 2 本並列（W4・W7 の担当と並行するため 1〜2 本に抑えた）。baseline を先に 1 本で実行して規模係数を決め、レーン A が gstack #1 → Superpowers #1 → Compound Engineering #2 → Feature Dev #2、レーン B が Feature Dev #1 → Compound Engineering #1 → Superpowers #2 → gstack #2。やり直しの Superpowers #2 は 2 本並列、Compound Engineering #2 は再開後に 1 本で実行。",
+    "<strong>W1〜W5 との後方互換</strong>: <code>run-trial.sh</code> の変更は、W6 の手順・介入の文言・PR.md の完了条件・許可の追加・<code>GSTACK_CHROMIUM_PATH</code>・終了時のサーバー停止のすべてが W6 以降（<code>SCN_NUM >= 6</code> か <code>SCENARIO == W6</code>）のときだけ働く。共通部分の変更は、reap_servers が止める対象に browse・chrome を足したこと（W5 までは起動されない）と、未コミットの判定から <code>.playwright-mcp/</code> を除いたこと（W5 までは作られない）だけ。"
+  ],
+  "isolation": "<code>grade.py</code> の検出（自分の作業用コピーの外への参照）は全 9 試行で 0 件、正解データ（<code>answer-key</code>）を読んだ形跡も 0 件でした（検出であり、完全な防止ではありません）。",
+  "next": [
+    "UI の差を見たいなら、仕様を細かく書かない課題（画面の目的だけを渡し、空状態やエラーの扱いを候補に考えさせる）で、見た目の質も含めたブラインドレビューを検討する。",
+    "<code>/ship</code>・<code>/ce-commit-push-pr</code> の本来の工程（push・PR 作成・CI の監視）は、PoC 専用のリモート（使い捨てのリポジトリ）を用意できる場合だけ別に評価する（ネットワーク・権限の追加が要るので、要否をユーザーに確認する）。",
+    "Compound Engineering の <code>/ce-test-browser</code> を評価するには agent-browser の導入が要る（候補固有の追加依存として、導入するかを判断する）。"
+  ]
+}

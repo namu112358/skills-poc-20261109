@@ -2,7 +2,7 @@
 
 - 対象: [ai-software-factory-engineering-standard.md](ai-software-factory-engineering-standard.md)
 - レビュー日: 2026-11-09
-- レビュー方法: 本文の整合性確認、本リポジトリの現状（README・CLAUDE.md・`.claude/settings.json`・[PoC 計画書](../poc/PLAN.md)）との突き合わせ、第 7 章の参照 URL の到達確認
+- レビュー方法: 本文の整合性確認、本リポジトリの現状（README・CLAUDE.md・`.claude/settings.json`・[PoC 計画書](../../poc/PLAN.md)）との突き合わせ、第 7 章の参照 URL の到達確認
 
 ## 総評
 
@@ -104,7 +104,7 @@ pie showData title 指摘事項 14 件の反映状況
    改善案: 例外を認めるなら条件（読み取り専用、承認者、期限）を標準に書く。認めないなら README を標準に合わせる。
 
 8. **【反映済み】§2.4 の比較検討対象が PoC 計画書と一致していない**
-   [PoC 計画書](../poc/PLAN.md) には併用検証の対象として Ponytail も含まれ、Feature Dev の表記も異なります。
+   [PoC 計画書](../../poc/PLAN.md) には併用検証の対象として Ponytail も含まれ、Feature Dev の表記も異なります。
    改善案: 候補の一覧は PoC 計画書を正本にし、§2.4 からはリンクするだけにする（§4.1 の「正本を明確に」に合わせる）。
 
 9. **【反映済み】標準と作業依頼が同じ文書に入っている（§6）**

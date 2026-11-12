@@ -11,6 +11,17 @@ AI エージェント（主に Claude Code）を使って新規開発を進め�
 
 全体の設計原則は [開発標準](docs/standards/ai-software-factory-engineering-standard.md)（v1.1 Draft、レビュー記録は [docs/standards/REVIEW.md](docs/standards/REVIEW.md)）にまとめています。
 
+## リポジトリの構成
+
+| 場所 | 中身 |
+|---|---|
+| `README.md`（この文書） | 4 つの問いへの今の答え |
+| [templates/](templates/) | **各プロジェクトに配るもの**の正本。`agents/` は AI 向けの指示・設定・Skill・検査、`github/` は Issue・PR のテンプレートと記述ルール |
+| [scripts/](scripts/) | 配るスクリプト（`add-*.sh`）と、このリポジトリを保つスクリプト（`check-*.py`、`sync-skills.sh`） |
+| [docs/](docs/) | 標準の説明と調査。[standards/](docs/standards/)（開発標準・設計原則・テストの方針）、[github-setup/](docs/github-setup/README.md)（リポジトリの初期設定）、[github-templates/](docs/github-templates/README.md)（テンプレートで決めたことと調査）、[tool-candidates/](docs/tool-candidates/README.md)（追加候補） |
+| [poc/](poc/README.md) | **PoC の一式**。評価用のアプリ、課題文、採点用の正解、スクリプト、結果 |
+| `.claude/`・`.mcp.json`・`.github/`・`AGENTS.md`・`CLAUDE.md` | このリポジトリ自身に適用している標準（雛形と同じ内容に、このリポジトリだけの設定を足したもの） |
+
 ## 1. どの Skills・プラグイン・MCP を入れるか
 
 ### 全てのプロジェクトに共通するツール
@@ -107,7 +118,7 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 ### 追加の候補と、重なりの整理（調査のみ）
 
 - 共通ツールの候補は Context7 と Chrome DevTools MCP、採用技術別の候補は Supabase の Postgres の Skill と Python・Go などの LSP です。どれも実際には動かしていません（[docs/tool-candidates/README.md](docs/tool-candidates/README.md)）。
-- UI/UX のツールは、PoC（U1〜U4）の結果、Impeccable と Web Design Guidelines の 2 つにしました（2026-11-12）。Frontend Design と UI/UX Pro Max は標準から外しました。人が画面を二択で比べた評価で、Impeccable で作った画面が最もよく選ばれ（勝率 79%）、UI/UX Pro Max はツールなしより低かったためです（[docs/tool-candidates/ui-ux-overlap.md](docs/tool-candidates/ui-ux-overlap.md)、[U1 の人の評価](docs/poc/results/workflow/U1/human-pairs.md)）。
+- UI/UX のツールは、PoC（U1〜U4）の結果、Impeccable と Web Design Guidelines の 2 つにしました（2026-11-12）。Frontend Design と UI/UX Pro Max は標準から外しました。人が画面を二択で比べた評価で、Impeccable で作った画面が最もよく選ばれ（勝率 79%）、UI/UX Pro Max はツールなしより低かったためです（[docs/tool-candidates/ui-ux-overlap.md](docs/tool-candidates/ui-ux-overlap.md)、[U1 の人の評価](poc/results/workflow/U1/human-pairs.md)）。
 
 ### 更新
 
@@ -117,7 +128,7 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 
 ## 2. どのような開発ワークフローを組むか（実装・レビュー・自己改善）
 
-ワークフロー用のプラグインの候補を、評価用のアプリ（`poc-app/`）を題材にしたシナリオで比べています。結果の一覧は [docs/poc/results/workflow/summary.md](docs/poc/results/workflow/summary.md)、計画と評価基準は [docs/poc/PLAN.md](docs/poc/PLAN.md) にあります。**ここに書く答えは暫定です。** 試行は多くが候補ごとに 2 回で、差の多くは試行のばらつきと同じくらいの大きさです。
+ワークフロー用のプラグインの候補を、評価用のアプリ（`poc/app/`）を題材にしたシナリオで比べています。PoC の一式の案内は [poc/README.md](poc/README.md) にあります。結果の一覧は [poc/results/workflow/summary.md](poc/results/workflow/summary.md)、計画と評価基準は [poc/PLAN.md](poc/PLAN.md) にあります。**ここに書く答えは暫定です。** 試行は多くが候補ごとに 2 回で、差の多くは試行のばらつきと同じくらいの大きさです。
 
 ### 実装
 
@@ -130,11 +141,11 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 - **品質を上げる一番の手段は、Issue に運用の事情を書くこと。** プラグインを増やすことではない。
   - W12〜W14 で差が出た項目の多くは、聞けば分かる運用の事情（他システムが古い列を読む、など）だった。
   - 質問の数と品質は結びつかなかった。
-  - Issue 駆動の流れの案は [docs/poc/notes/issue-driven-flow.md](docs/poc/notes/issue-driven-flow.md)（未決定のメモ）にあります。
+  - Issue 駆動の流れの案は [poc/notes/issue-driven-flow.md](poc/notes/issue-driven-flow.md)（未決定のメモ）にあります。
 
 ### レビュー
 
-レビュー用の Skill を W9・W20〜W34 で比べました。まとめと根拠は [docs/poc/results/review-skills.md](docs/poc/results/review-skills.md) にあります。**ここに書く答えは暫定です。**
+レビュー用の Skill を W9・W20〜W34 で比べました。まとめと根拠は [poc/results/review-skills.md](poc/results/review-skills.md) にあります。**ここに書く答えは暫定です。**
 
 - **レビュー用の Skill は、既定では入れない。** Skill を足しても、見つかる不具合はほとんど増えませんでした。道具なし（Haiku でも）と同じ数を見つけ、変わったのは雑音・費用・指摘の書き方です。
 - **見落としを減らすのは、依頼の中で「何を確かめ、確かめた結果をどう書くか」を具体的に頼むこと。**
@@ -156,7 +167,7 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 - 設計を変える変更のレビューには、このリポジトリで作った `design-principles-review` を足します（標準の Skill として配っています。使い分けは上の表）。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
   - 6 つの評価ケース（差が出るはずの、間違った共通化・名前の変更に紛れた振る舞いの変更・原則を口実にした作りすぎを含む）で試しました。Skill がなくても、仕込んだ問題はすべて見つけられました。
   - Skill の効き目は、指摘の重さ（必須・推奨・細かい点）と書き方（害と根拠）がそろうことと、汎用化の案を出さないことでした。そのかわり、この 6 件では時間が約 1.3 倍かかりました。
-- セキュリティ監査のツールは、`poc-app` に脆弱性を仕込んで比べました（[docs/poc/results/security/README.md](docs/poc/results/security/README.md)）。
+- セキュリティ監査のツールは、`poc-app` に脆弱性を仕込んで比べました（[poc/results/security/README.md](poc/results/security/README.md)）。
   - 全体の監査では、Claude Security と Cloudflare Security Audit のどちらも、仕込んだ 12 件をすべて見つけました。Cloudflare は費用が約 4 倍かかり、クラウドのセッションでは指摘を確かめきれず、すべて「要確認」のままでした。
   - PR ごとの差分の監査では、組み込みの `/security-review` が 1 回 $1 前後で、差分の中で完結する脆弱性をすべて見つけました。既存のコードと合わせて初めて分かる脆弱性では、Claude Security だけがすべて見つけました。
 - セキュリティ監査を定期的に回す形の案は [docs/tool-candidates/security-audit-schedule.md](docs/tool-candidates/security-audit-schedule.md) にあります。PR ごとは `/security-review`（認証・権限に触れる PR は Claude Security の差分スキャン）、週 1 回の差分と月 1 回の全体は Claude Security（medium）、毎日は CodeQL などの検査です。まだ決定ではありません。
@@ -188,7 +199,7 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
 | PR レビュー | 第一候補（未比較） | Code Review | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-review) |
 | PR レビュー | 対抗候補（W20〜W34 で比較。任意） | PR Review Toolkit | Anthropic | [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit) |
 
-候補の切り替えは `scripts/poc-profile.sh <profile>` で行います。`.claude/settings.local.json` に書き込むため、チームで共有する設定は変わりません。
+候補の切り替えは `poc/scripts/poc-profile.sh <profile>` で行います。`.claude/settings.local.json` に書き込むため、チームで共有する設定は変わりません。
 
 ## 3. どのような GitHub の設定が必要か
 
