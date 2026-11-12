@@ -1,0 +1,160 @@
+diff --git a/.github/workflows/pr-label.yml b/.github/workflows/pr-label.yml
+new file mode 100644
+index 0000000..c2e1a68
+--- /dev/null
++++ b/.github/workflows/pr-label.yml
+@@ -0,0 +1,24 @@
++# PR のタイトルから種類のラベルを決めて付ける（タイトルが「feat:」で始まれば enhancement）。
++name: pr-label
++on:
++  pull_request:
++    types: [opened, edited]
++permissions:
++  pull-requests: write
++jobs:
++  label:
++    runs-on: ubuntu-latest
++    steps:
++      - name: ラベルを決める
++        env:
++          TITLE: ${{ github.event.pull_request.title }}
++        run: |
++          case "$TITLE" in
++            feat:*) echo "LABEL=enhancement" >> "$GITHUB_ENV" ;;
++            fix:*) echo "LABEL=bug" >> "$GITHUB_ENV" ;;
++          esac
++      - if: env.LABEL != ''
++        run: gh pr edit "${{ github.event.pull_request.number }}" --add-label "$LABEL"
++        env:
++          GH_TOKEN: ${{ github.token }}
++          GH_REPO: ${{ github.repository }}
+diff --git a/.github/workflows/pr-preview.yml b/.github/workflows/pr-preview.yml
+new file mode 100644
+index 0000000..cf5fecd
+--- /dev/null
++++ b/.github/workflows/pr-preview.yml
+@@ -0,0 +1,23 @@
++# PR ごとにプレビュー環境を作り、URL を PR にコメントする。フォークからの PR にも対応する。
++name: pr-preview
++on:
++  pull_request_target:
++    types: [opened, synchronize]
++permissions:
++  contents: read
++  pull-requests: write
++jobs:
++  preview:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++        with:
++          ref: ${{ github.event.pull_request.head.sha }}
++      - run: npm ci && npm run build
++        env:
++          PREVIEW_DEPLOY_TOKEN: ${{ secrets.PREVIEW_DEPLOY_TOKEN }}
++      - name: プレビューの名前を決める
++        run: echo "PREVIEW_NAME=pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.title }}" >> "$GITHUB_ENV"
++      - run: npx vercel deploy --token "$PREVIEW_DEPLOY_TOKEN" --name "$PREVIEW_NAME"
++        env:
++          PREVIEW_DEPLOY_TOKEN: ${{ secrets.PREVIEW_DEPLOY_TOKEN }}
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..80ff5ed
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,12 @@
++# 本番用のイメージ。社内の npm レジストリから依存を取るため、ビルド時にトークンを渡す:
++#   docker build --build-arg NPM_TOKEN=... .
++FROM node:24
++ARG NPM_TOKEN
++WORKDIR /app
++COPY package.json package-lock.json ./
++RUN echo "//npm.internal.example.com/:_authToken=${NPM_TOKEN}" > .npmrc && npm ci
++COPY . .
++RUN npm run build
++ENV NODE_ENV=production
++EXPOSE 3000
++CMD ["npm", "start"]
+diff --git a/src/app/api/assistant/route.ts b/src/app/api/assistant/route.ts
+new file mode 100644
+index 0000000..4db807b
+--- /dev/null
++++ b/src/app/api/assistant/route.ts
+@@ -0,0 +1,17 @@
++// POST /api/assistant — { request } の依頼をアシスタントに渡し、提案された操作を実行する。ログインが必要。
++import { NextResponse } from "next/server";
++import { jsonError, readJson, requireApiUser } from "@/lib/api";
++import { runAssistant } from "@/lib/assistant";
++import { callLlm } from "@/lib/llm";
++
++export async function POST(request: Request) {
++  const user = await requireApiUser();
++  if (user instanceof NextResponse) return user;
++  const body = (await readJson(request)) as { request?: unknown } | undefined;
++  if (typeof body?.request !== "string" || body.request.length > 500) return jsonError(400, "依頼を 500 文字以内で入力してください");
++  try {
++    return NextResponse.json({ actions: await runAssistant(`${user.name}さんの依頼: ${body.request}`, callLlm) });
++  } catch {
++    return jsonError(502, "アシスタントが応答しませんでした");
++  }
++}
+diff --git a/src/lib/assistant.ts b/src/lib/assistant.ts
+new file mode 100644
+index 0000000..38c2ca0
+--- /dev/null
++++ b/src/lib/assistant.ts
+@@ -0,0 +1,24 @@
++// タスクの整理を手伝うアシスタント。LLM にタスクの一覧を渡し、提案された操作（完了にする・削除する）を実行する。
++import { getDb, type Db } from "./db/index.ts";
++import { deleteTask, listTasks, updateTask } from "./tasks.ts";
++
++export type AssistantAction = { type: "complete" | "delete"; taskId: number };
++
++type LlmClient = (prompt: string) => Promise<string>;
++
++const SYSTEM = `あなたはタスク管理のアシスタントです。利用者の依頼に沿って、整理のための操作を JSON の配列で返してください。
++形式: [{"type":"complete"|"delete","taskId":<数値>}]。操作が不要なら [] を返してください。`;
++
++/** 利用者の依頼と、全タスク（タイトル・本文つき）を LLM に渡し、返ってきた操作をそのまま実行する。 */
++export async function runAssistant(request: string, llm: LlmClient, db: Db = getDb()): Promise<AssistantAction[]> {
++  const tasks = listTasks({}, db);
++  const prompt = `${SYSTEM}\n\n# タスク\n${tasks
++    .map((t) => `- id=${t.id} [${t.status}] ${t.title}（担当 ${t.assignee}）`)
++    .join("\n")}\n\n# 依頼\n${request}`;
++  const actions = JSON.parse(await llm(prompt)) as AssistantAction[];
++  for (const a of actions) {
++    if (a.type === "complete") updateTask(a.taskId, { status: "done" }, db);
++    if (a.type === "delete") deleteTask(a.taskId, db);
++  }
++  return actions;
++}
+diff --git a/src/lib/llm.ts b/src/lib/llm.ts
+new file mode 100644
+index 0000000..90bbf36
+--- /dev/null
++++ b/src/lib/llm.ts
+@@ -0,0 +1,9 @@
++// LLM の API を呼ぶ。鍵は環境変数 LLM_API_KEY。
++export async function callLlm(prompt: string): Promise<string> {
++  const res = await fetch("https://llm.internal.example.com/v1/complete", {
++    method: "POST",
++    headers: { "content-type": "application/json", authorization: `Bearer ${process.env.LLM_API_KEY ?? ""}` },
++    body: JSON.stringify({ prompt }),
++  });
++  return ((await res.json()) as { text: string }).text;
++}
+diff --git a/src/lib/tasks.ts b/src/lib/tasks.ts
+index b533ce9..01950d9 100644
+--- a/src/lib/tasks.ts
++++ b/src/lib/tasks.ts
+@@ -39,6 +39,10 @@ export function listTasks(filter: TaskFilter = {}, db: Db = getDb()): Task[] {
+   return rows.map(toTask);
+ }
+ 
++export function deleteTask(id: number, db: Db = getDb()): boolean {
++  return db.prepare("DELETE FROM tasks WHERE id = ?").run(id).changes > 0;
++}
++
+ export function getTask(id: number, db: Db = getDb()): Task | undefined {
+   const row = db.prepare("SELECT id, title, status, assignee, due_date FROM tasks WHERE id = ?").get(id) as
+     | TaskRow

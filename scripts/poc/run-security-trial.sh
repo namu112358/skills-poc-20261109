@@ -6,6 +6,7 @@
 #   題材:   clean（poc-app のまま） | vulns（answer-key/SEC/vulns.patch を当てる） | diff（diff.patch を作業ブランチのコミットにする）
 #           | diff2（diff2.patch。見つけにくい脆弱性の差分。SEC-2 で追加）
 #           | diff3（diff3.patch。既存のコードと合わせて初めて脆弱性になる差分。SEC-3 で追加）
+#           | infra（infra.patch。CI・コンテナ・LLM の機能に脆弱性を仕込んだ版。SEC-6 で追加。全体の監査用）
 #   深さ:   cloudflare は quick | standard | deep、claude-security は low | medium | high（どちらも各ツールの言葉）
 #   例: POC_MODEL=claude-opus-5-5 scripts/poc/run-security-trial.sh cloudflare vulns standard 1
 # 作業用コピー（既定は /tmp/poc-trials/<ID>。POC_TRIAL_ROOT で変更可）に、poc-app のソースだけを写す
@@ -28,7 +29,7 @@ case "$TOOL:$LEVEL" in
   cloudflare:quick|cloudflare:standard|cloudflare:deep|claude-security:low|claude-security:medium|claude-security:high|security-review:default) ;;
   *) echo "ツールと深さの組み合わせが正しくない: $TOOL $LEVEL" >&2; exit 1 ;;
 esac
-case "$TARGET" in clean|vulns|diff|diff2|diff3) ;; *) echo "題材は clean・vulns・diff・diff2・diff3 のいずれか: $TARGET" >&2; exit 1 ;; esac
+case "$TARGET" in clean|vulns|diff|diff2|diff3|infra) ;; *) echo "題材は clean・vulns・diff・diff2・diff3・infra のいずれか: $TARGET" >&2; exit 1 ;; esac
 [[ "$TOOL" == security-review && "$TARGET" != diff* ]] && { echo "security-review は題材 diff だけ" >&2; exit 1; }
 MODEL="${POC_MODEL:-claude-opus-5-5}"
 CACHE="${POC_CACHE:-$ROOT/.poc-cache}"
@@ -58,9 +59,9 @@ fetch() {  # fetch <キャッシュ名> <リポジトリ> <コミット>
 ( cd "$ROOT/poc-app" && tar --exclude=./node_modules --exclude=./.next --exclude='./*.tsbuildinfo' -cf - . ) | ( cd "$APP" && tar -xf - )
 git -C "$APP" init -q
 git -C "$APP" config user.name poc; git -C "$APP" config user.email poc@example.invalid
-if [[ "$TARGET" == vulns ]]; then
-  git -C "$APP" apply "$KEY/vulns.patch"
-  sha256sum "$KEY/vulns.patch" | sed "s#$ROOT/##" > "$OUT/injected-patch"
+if [[ "$TARGET" == vulns || "$TARGET" == infra ]]; then
+  git -C "$APP" apply "$KEY/$TARGET.patch"
+  sha256sum "$KEY/$TARGET.patch" | sed "s#$ROOT/##" > "$OUT/injected-patch"
 fi
 ( cd "$APP" && git add -A && git commit -qm "タスク管理アプリ" )
 git -C "$APP" rev-parse HEAD > "$OUT/baseline-commit"
@@ -86,7 +87,7 @@ ALLOWED=(
   "Read" "Grep" "Glob" "Task" "Agent" "Write(/$AUDIT_OUT/**)" "Edit(/$AUDIT_OUT/**)"
   "Bash(git status)" "Bash(git rev-parse HEAD)" "Bash(git log --oneline:*)" "Bash(git ls-files)"
   "Bash(ls:*)" "Bash(cat:*)" "Bash(grep:*)" "Bash(head:*)" "Bash(tail:*)" "Bash(wc:*)"
-  "Bash(cd:*)" "Bash(mkdir:*)"
+  "Bash(cd:*)" "Bash(mkdir:*)" "Bash(echo:*)"
 )
 BASE="$(cat "$OUT/baseline-commit")"
 if [[ "$TOOL" == cloudflare ]]; then
@@ -155,6 +156,11 @@ I accept the scan's time and token cost; do not ask me to confirm. This session 
   # 利用状況の送信と、push 後のスキャンの勧めを止める（README の Telemetry）
   CHILD_ENV+=(DISABLE_TELEMETRY=1 CLAUDE_SECURITY_SCAN_TIP=off)
 fi
+# 権限の制約を伝える（SEC-6 から）。dontAsk では、つないだコマンドの一部でも許可リストに無いと全体が断られ、
+# SEC-6 の 1 回目は検証用のスクリプトの実行まで断られて、監査が未完了で終わったため
+TASK="$TASK
+
+権限の都合で、Bash は 1 回に 1 つのコマンドだけを実行してください（; && || | やループでつながない。ファイルの探索と読み取りは Glob・Grep・Read を使う）。"
 if [[ "${POC_SBX:-}" == 1 ]]; then
   # 隔離して動かすコマンド。root の持ち物として作業用コピーの外に置き、子セッションの PATH に入れる
   mkdir -p "$WORK/bin" "$AUDIT_OUT/run-1/agents"
