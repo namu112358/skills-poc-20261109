@@ -78,7 +78,7 @@ Issue・PR の操作や、stacked PR（小さな PR を積み重ねる開発）�
 
 | 種別 | ツール | 用途 | 基にした原則 | 設定箇所 |
 |---|---|---|---|---|
-| Skill | Design Principles Review（`design-principles-review`） | 変更を、設計・実装の原則（KISS、YAGNI、DRY、SOLID、関心の分離、TDD とテストの書き方など）に照らしてレビューする。原則の中身・見る兆候・当てはめすぎの注意を、Skill の本文に書いている | [docs/standards/design-principles.md](docs/standards/design-principles.md) | `.claude/skills/design-principles-review` |
+| Skill | Design Principles Review（`namu112358-design-principles-review`） | 変更を、設計・実装の原則（KISS、YAGNI、DRY、SOLID、関心の分離、TDD とテストの書き方など）に照らしてレビューする。原則の中身・見る兆候・当てはめすぎの注意を、Skill の本文に書いている | [docs/standards/design-principles.md](docs/standards/design-principles.md) | `.claude/skills/namu112358-design-principles-review` |
 
 ### 採用技術に応じて追加するもの
 
@@ -157,14 +157,14 @@ Skills の固定コミットとライセンスは [.claude/skills/SOURCES.md](.c
   | 設定 | 強み | 弱み | 使う場面 |
   |---|---|---|---|
   | 道具なし | 見つける数は Skill と同じで、最も安く速い | 重さ・形が毎回変わる | 日常のセルフレビューの既定 |
-  | `design-principles-review`（自作） | 作りすぎを消す。重さが付き、書き方がそろう。直させても壊さない | 不具合探しは対象外。時間は約 1.5 倍 | 設計を変える変更に足す |
+  | `namu112358-design-principles-review`（自作） | 作りすぎを消す。重さが付き、書き方がそろう。直させても壊さない | 不具合探しは対象外。時間は約 1.5 倍 | 設計を変える変更に足す |
   | Compound Engineering `ce-code-review` | 誤った指摘が最も少ない。直させても壊さない | 最も高い。`depth:full` は効かないことが多い | 重要・危険度の高い変更に足す |
   | PR Review Toolkit `/review-pr` | 実際の不具合で見つけた数が最多の組。作りすぎを消す | Sonnet は専門エージェントを省く。起動させると雑音と費用（約 4 倍）が増える | 任意。既定の動きのまま使う |
   | 内蔵 `/code-review high` | 導入不要。消した行の決まり・呼び出し元を見る観点がある | 雑音が最も多い。指摘どおりに直させると正しかった本体を壊した | 既定では使わない。使うなら人が取捨し、自動で直させない |
 
 - **レビューでは見つからないもの:** 誰も聞かなかった隠れ要件（W33）と、細かすぎて時間がたつと落ちるテスト（初期データの件数・文言の決め打ち。W34）。前者は実装の前に聞き出す、後者はテストの書き方の決まりを明文化する（どちらも提案）。
 - 標準の手順（雛形の規約・開発フロー）に入れるかは、**まだ決めていません。** 公式プラグインの Code Review と、内蔵 `/code-review` の `max` は比べていません。
-- 設計を変える変更のレビューには、このリポジトリで作った `design-principles-review` を足します（標準の Skill として配っています。使い分けは上の表）。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
+- 設計を変える変更のレビューには、このリポジトリで作った `namu112358-design-principles-review` を足します（標準の Skill として配っています。使い分けは上の表）。原則ごとの中身と出典は [docs/standards/design-principles.md](docs/standards/design-principles.md) にあります。
   - 6 つの評価ケース（差が出るはずの、間違った共通化・名前の変更に紛れた振る舞いの変更・原則を口実にした作りすぎを含む）で試しました。Skill がなくても、仕込んだ問題はすべて見つけられました。
   - Skill の効き目は、指摘の重さ（必須・推奨・細かい点）と書き方（害と根拠）がそろうことと、汎用化の案を出さないことでした。そのかわり、この 6 件では時間が約 1.3 倍かかりました。
 - セキュリティ監査のツールは、`poc-app` に脆弱性を仕込んで比べました（[poc/results/security/README.md](poc/results/security/README.md)）。
@@ -275,7 +275,7 @@ scripts/add-stack.sh --dest <対象リポジトリのパス> <stack>...
 このリポジトリも、標準を使う側の 1 つです。
 
 - **適用している設定**: `typescript` と `react-nextjs` を適用済みです（PoC 用アプリが TypeScript + Next.js のため）。Issue・PR のテンプレートも `--with-check` 付きで適用済みです（`.github/`、`docs/github-writing.md`）。
-- **雛形との一致**: ルートの `AGENTS.md` の規約の節、`docs/github-writing.md`、`scripts/check-skills.py` は、雛形と同じ内容に保ちます。ルートの `.claude/settings.json`・`.mcp.json` は、雛形にこのリポジトリだけの設定を足したものにします。この 2 つは、`typescript`・`react-nextjs` の分、`poc-app` 用のフック、PoC と npm のコマンドの許可を足しています。一致しているかは `python3 scripts/check-templates.py` で確かめます。
+- **雛形との一致**: ルートの `AGENTS.md` の規約の節、`docs/github-writing.md`、`scripts/check-skills.py`、`.github/workflows/pr-body-check.yml` は、雛形と同じ内容に保ちます。ルートの `.claude/settings.json`・`.mcp.json` は、雛形にこのリポジトリだけの設定を足したものにします。この 2 つは、`typescript`・`react-nextjs` の分、`poc-app` 用のフック、PoC と npm のコマンドの許可を足しています。一致しているかは `python3 scripts/check-templates.py` で確かめます。
 - **クラウドのセッション**: Claude Code on the web では、開始時に `poc-app` の依存関係が自動で入ります（`.claude/hooks/session-start.sh`）。
 
 ### 初回セットアップ

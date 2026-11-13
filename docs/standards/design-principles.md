@@ -1,12 +1,12 @@
 # 実装とレビューで使う設計の原則
 
 - 状態: 案（2026-11-11 作成）
-- 使っている場所: レビュー用の Skill `design-principles-review`（正本は [templates/agents/.claude/skills/design-principles-review/SKILL.md](../../templates/agents/.claude/skills/design-principles-review/SKILL.md)）
+- 使っている場所: レビュー用の Skill `namu112358-design-principles-review`（正本は [templates/agents/.claude/skills/namu112358-design-principles-review/SKILL.md](../../templates/agents/.claude/skills/namu112358-design-principles-review/SKILL.md)）
 - 関連: [失敗を検査に反映するときの方針](testing-and-ci-policy.md)（テストの書き方の部分は、この方針と同じ内容）
 
 ## 1. この文書の目的
 
-各プロジェクトのレビューで使う Skill `design-principles-review` は、この文書に挙げた原則を基に作っています。この文書では、次の 3 つを記録します。
+各プロジェクトのレビューで使う Skill `namu112358-design-principles-review` は、この文書に挙げた原則を基に作っています。この文書では、次の 3 つを記録します。
 
 - Skill に入れた原則と、その出典
 - 原則をどう書いたか（書き方の方針）
@@ -117,8 +117,8 @@ Skill なしの試行には、Skill ツールを使わないよう明示した�
 
 ## 5. 変えるとき
 
-1. 雛形（`templates/agents/.claude/skills/design-principles-review/`）を直す。
-2. ルートの `.claude/skills/design-principles-review/` に写す。
+1. 雛形（`templates/agents/.claude/skills/namu112358-design-principles-review/`）を直す。
+2. ルートの `.claude/skills/namu112358-design-principles-review/` に写す。
 3. この文書の表も直す。
 4. `python3 scripts/check-templates.py` と `python3 scripts/check-skills.py` でエラーが 0 件であることを確かめる。
 

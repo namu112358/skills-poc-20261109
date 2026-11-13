@@ -1,0 +1,183 @@
+{
+  "scenario": "W2",
+  "trial": "SF1-W2-routine-1",
+  "candidate": "W2-routine",
+  "run": 1,
+  "elapsed_seconds": 300,
+  "errors": "",
+  "budget_stopped": "",
+  "interventions": 0,
+  "feedback_rounds": 0,
+  "continued_from": "",
+  "checks": {
+    "typecheck": {
+      "pass": true,
+      "log": "\n> poc-app@0.1.0 typecheck\n> tsc --noEmit\n\n"
+    },
+    "test": {
+      "pass": true,
+      "log": "\n✔ listTasks (199.068015ms)\n▶ getTask\n  ✔ returns a task by id, or undefined (98.056098ms)\n✔ getTask (98.220992ms)\n▶ parseTaskId\n  ✔ accepts positive integers only (0.335636ms)\n✔ parseTaskId (0.468398ms)\n▶ validateTaskInput\n  ✔ accepts a complete input and trims the title (98.82215ms)\n  ✔ reports every invalid field (108.129252ms)\n  ✔ rejects non-object bodies (305.021635ms)\n  ✔ validates only the given fields when partial (149.026901ms)\n✔ validateTaskInput (661.441528ms)\n▶ createTask / updateTask\n  ✔ creates a task and updates only the given fields (74.667941ms)\n✔ createTask / updateTask (74.848597ms)\n▶ isTaskStatus\n  ✔ accepts known statuses only (0.237539ms)\n✔ isTaskStatus (0.316818ms)\nℹ tests 26\nℹ suites 15\nℹ pass 26\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 1617.19036\n"
+    },
+    "build": {
+      "pass": true,
+      "log": "in 216ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ƒ /\n├ ƒ /_not-found\n├ ƒ /api/login\n├ ƒ /api/logout\n├ ƒ /api/tasks\n├ ƒ /api/tasks/[id]\n├ ƒ /api/tasks/[id]/comments\n├ ƒ /api/tasks/[id]/comments/[commentId]\n├ ƒ /login\n├ ƒ /tasks\n└ ƒ /tasks/[id]\n\n\nƒ  (Dynamic)  server-rendered on demand\n\n(node:2496) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:2489) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:2490) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    }
+  },
+  "e2e": [
+    {
+      "name": "API: 未ログインは 401（一覧・投稿・削除）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "API: コメントが無いタスクは 200 で空配列",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "API: 投稿すると 201 で指定どおりの形のコメントを返す（本文は前後の空白を除く）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "API: 投稿者はログイン中のユーザー（本文の author 指定は無視）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "API: 一覧は古い順で、そのタスクのコメントだけを返す",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "API: 本文の検証（空・空白だけ・1001 文字・無し・文字列以外・JSON 以外は 400、1000 文字は 201）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "API: 存在しないタスク・不正な ID は 404（エラーは { error } の JSON）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "API: 他人のコメントは削除できず 403、本人は 204 で削除でき、2 回目は 404",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "API: 別のタスクの URL で削除しようとすると 404（コメントは残る）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "画面: コメントが無いタスクは「コメントはまだありません。」",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "画面: 既存のコメントを古い順に、投稿者の名前・本文と一緒に表示する",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "画面: フォームから投稿すると一覧に表示される",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "画面: 空白だけで投稿すると role=alert のエラーが出て、コメントは増えない",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "画面: 本文の HTML は解釈せずテキストとして表示する",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "画面: 「削除」ボタンは自分のコメントにだけ表示され、押すと一覧から消える",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "既存の動作が壊れていない（タスク一覧 API 7 件以上・詳細画面のタイトル・未ログインはログイン画面へ）",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "diff": {
+    "files": [
+      {
+        "path": "src/app/api/tasks/[id]/comments/[commentId]/route.ts",
+        "added": 21,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/api/tasks/[id]/comments/route.ts",
+        "added": 26,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/tasks/[id]/comments.tsx",
+        "added": 76,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/app/tasks/[id]/page.tsx",
+        "added": 23,
+        "deleted": 1,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/comments.ts",
+        "added": 83,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "src/lib/db/migrations.ts",
+        "added": 14,
+        "deleted": 0,
+        "kind": "code"
+      },
+      {
+        "path": "tests/comments.test.ts",
+        "added": 65,
+        "deleted": 0,
+        "kind": "test"
+      }
+    ],
+    "new_files": [
+      "src/app/api/tasks/[id]/comments/[commentId]/route.ts",
+      "src/app/api/tasks/[id]/comments/route.ts",
+      "src/app/tasks/[id]/comments.tsx",
+      "src/lib/comments.ts",
+      "tests/comments.test.ts"
+    ],
+    "package_json_changed": false,
+    "commits": []
+  },
+  "transcript": {
+    "cost_usd": 0.0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "cache_read": 0,
+      "cache_creation": 0
+    },
+    "turns": 0,
+    "permission_denials": [],
+    "tool_calls": {},
+    "skills_used": [],
+    "subagents": 0,
+    "subagent_types": {},
+    "questions": 0,
+    "active_seconds": 0,
+    "answer_key_access": [],
+    "isolation_suspects": [],
+    "final_message": ""
+  }
+}

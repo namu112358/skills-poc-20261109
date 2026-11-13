@@ -8,6 +8,7 @@ README の標準ツール一覧を見直した際に、足りない領域と、�
 | [additions.md](additions.md) | 足りない領域（最新ドキュメントの参照、パフォーマンス計測、DB 設計、TypeScript 以外の言語）を補う追加候補 |
 | [ui-ux-overlap.md](ui-ux-overlap.md) | 常に同時に有効な UI/UX 系 4 ツールの役割の重なり・矛盾と、整理の案 |
 | [security-audit-schedule.md](security-audit-schedule.md) | セキュリティ監査を定期的に回すときの頻度・範囲・記録の置き場の案（2026-11-11） |
+| [merge-queue.md](merge-queue.md) | AI エージェントの並列の PR で起きる「遅れ・衝突のやり直し」を、merge queue（GitHub 標準・Mergify・Trunk）でどこまで減らせるか（2026-11-12） |
 
 ## 要点
 

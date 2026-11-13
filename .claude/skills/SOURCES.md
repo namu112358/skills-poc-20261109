@@ -28,3 +28,11 @@
 
 > `web-design-guidelines` は実行時に `raw.githubusercontent.com/vercel-labs/web-interface-guidelines` から最新ルールを取得します。
 > ネットワーク制限のある環境では当該ホストの許可が必要です。
+
+## 自作の Skills
+
+このリポジトリで作った Skill です。vendored の Skill と見分けるため、名前を `namu112358-` で始めます（`scripts/check-skills.py` が検査します）。正本は `templates/agents/.claude/skills/` にあり、ここには同じ内容の写しを置きます。
+
+| Skill | 内容 | 正本 |
+|---|---|---|
+| namu112358-design-principles-review | 変更を、設計・実装の原則に照らしてレビューする | `templates/agents/.claude/skills/namu112358-design-principles-review` |
