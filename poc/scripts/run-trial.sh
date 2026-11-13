@@ -516,7 +516,8 @@ if [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENAR
     sp-review) STEPS=("$INTRO" "/superpowers:requesting-code-review 未コミットの差分（git diff HEAD）を、最初の依頼の PR の説明に照らしてレビューする" "$WRITE") ;;
     # W21 の設定（poc/tasks/wf-W21-design.md）。baseline は道具を指定せずにレビューさせる
     baseline) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。" "$WRITE") ;;
-    principles) STEPS=("$INTRO" "/namu112358-design-principles-review 未コミットの差分（git diff HEAD）を、最初の依頼の PR の説明に照らしてレビューする" "$WRITE") ;;
+    # 過去の試行（W21・W22・W34）は旧名 /design-principles-review で行った。改名後（2026-11-13）に回す試行は新名を呼ぶ
+    principles) STEPS=("$INTRO" "/namu112358-design-principles-review未コミットの差分（git diff HEAD）を、最初の依頼の PR の説明に照らしてレビューする" "$WRITE") ;;
     ce-review) STEPS=("$INTRO" "/ce-code-review base:HEAD" "$WRITE") ;;
     # W28: 道具なし + 本番ビルドして起動し、変更した画面・API を実際に開いて確かめる指示（poc/tasks/wf-W28-design.md）
     baseline-e2e) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。コードを読むだけで判断せず、本番ビルド（npm run build）をしてから本番モードでアプリを起動し（npm run start。空いているポートで、バックグラウンドで起動する）、ログインして、変更された画面を実際に開き・変更された API を実際に呼んで、動きを確かめてから指摘してください。画面は Playwright MCP のブラウザで開くか curl で取得してください。確かめ終わったらサーバーを止めてください。" "$WRITE") ;;
