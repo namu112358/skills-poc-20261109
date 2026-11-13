@@ -99,7 +99,7 @@ esac
 # W21 の principles（自作の設計の原則のレビュー）だけは、その Skill を入れる（比べる対象そのもののため。
 # baseline コミットより前に入れるので、レビュー対象の差分には出ない。poc/tasks/wf-W21-design.md）
 if [[ ( "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENARIO" == W23 || "$SCENARIO" == W24 || "$SCENARIO" == W25 || "$SCENARIO" == W26 || "$SCENARIO" == W27 || "$SCENARIO" == W28 || "$SCENARIO" == W29 || "$SCENARIO" == W30 || "$SCENARIO" == W31 || "$SCENARIO" == W32 || "$SCENARIO" == W33 || "$SCENARIO" == W34 ) && "$CAND" == principles ]]; then
-  cp -a "$ROOT/templates/agents/.claude/skills/design-principles-review" "$APP/.claude/skills/"
+  cp -a "$ROOT/templates/agents/.claude/skills/namu112358-design-principles-review" "$APP/.claude/skills/"
 fi
 cat > "$APP/.mcp.json" <<'JSON'
 {"mcpServers":{
@@ -516,7 +516,7 @@ if [[ "$SCENARIO" == W20 || "$SCENARIO" == W21 || "$SCENARIO" == W22 || "$SCENAR
     sp-review) STEPS=("$INTRO" "/superpowers:requesting-code-review 未コミットの差分（git diff HEAD）を、最初の依頼の PR の説明に照らしてレビューする" "$WRITE") ;;
     # W21 の設定（poc/tasks/wf-W21-design.md）。baseline は道具を指定せずにレビューさせる
     baseline) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。" "$WRITE") ;;
-    principles) STEPS=("$INTRO" "/design-principles-review 未コミットの差分（git diff HEAD）を、最初の依頼の PR の説明に照らしてレビューする" "$WRITE") ;;
+    principles) STEPS=("$INTRO" "/namu112358-design-principles-review 未コミットの差分（git diff HEAD）を、最初の依頼の PR の説明に照らしてレビューする" "$WRITE") ;;
     ce-review) STEPS=("$INTRO" "/ce-code-review base:HEAD" "$WRITE") ;;
     # W28: 道具なし + 本番ビルドして起動し、変更した画面・API を実際に開いて確かめる指示（poc/tasks/wf-W28-design.md）
     baseline-e2e) STEPS=("$INTRO" "この変更（未コミットの差分。git diff HEAD で見られる）をレビューしてください。道具の指定はありません。コードを読むだけで判断せず、本番ビルド（npm run build）をしてから本番モードでアプリを起動し（npm run start。空いているポートで、バックグラウンドで起動する）、ログインして、変更された画面を実際に開き・変更された API を実際に呼んで、動きを確かめてから指摘してください。画面は Playwright MCP のブラウザで開くか curl で取得してください。確かめ終わったらサーバーを止めてください。" "$WRITE") ;;
